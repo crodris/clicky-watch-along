@@ -1,0 +1,309 @@
+//
+//  LiveSceneSession.swift
+//  leanring-buddy
+//
+//  Phase of a live-scene question, the quiz hidden inside the scene, and the
+//  word match that decides whether a spoken answer is right.
+//
+
+import Foundation
+
+enum LiveSceneKind {
+    /// Every label stays visible, and nothing is asked after the tour.
+    case explore
+    /// One label shows "?" and Clicky asks what that part is and what it does after the tour.
+    case quiz
+    /// The subject of the YouTube frame on screen lifts out in 3D with every label, and nothing is asked.
+    case framePopout
+    /// The same pop-out, then streams of what flows through the subject, like air through an engine.
+    case animatedFramePopout
+    /// A playable simulation of what the video shows. The page defines controls and a run, scene-tools.js draws
+    /// the sliders and the Run button, and Clicky says the result after each run.
+    case simulation
+
+    /// What POST /live-scene takes as `kind`. Only a simulation changes the page it writes, so every other kind asks for a model.
+    var workerRequestKind: String {
+        self == .simulation ? "simulation" : "model"
+    }
+}
+
+enum LiveScenePhase {
+    case idle
+    case buildingScene
+    case touring(quizToAskAfterTour: LiveSceneQuiz?)
+    case awaitingAnswer(LiveSceneQuiz, wrongAnswerCount: Int)
+    /// The learner named the part. Clicky is waiting to hear what it does.
+    case awaitingFollowUpOnWhatThePartDoes(LiveSceneQuiz)
+    /// The scene stays on screen until the next question clears it.
+    case allLabelsShowing
+}
+
+enum LiveSceneQuizGrade: Equatable {
+    case nameAndFunctionWord
+    case nameOnly
+    case wrong
+    case askedForHelp
+}
+
+/// Something the learner asked for during a quiz question instead of answering it.
+enum LiveSceneQuizControl: Equatable {
+    case skipQuestion
+    case repeatQuestion
+    case giveHint
+    /// They asked to change the view or the video, so the voice command router takes it.
+    case sceneCommand
+}
+
+/// What the judge heard: a graded answer, or a request about the quiz or the view.
+enum LiveSceneJudgeVerdict: Equatable {
+    case answer(LiveSceneQuizGrade)
+    case control(LiveSceneQuizControl)
+}
+
+/// How the quiz label of a frame pop-out resolves after an answer is graded.
+/// The raw value is the string the page's answerMoment receives.
+enum LiveSceneRevealOutcome: String, Equatable {
+    /// A correct name: the label turns green with the real name, a ring bursts, and a chime plays.
+    case celebrateCorrectName
+    /// A first wrong answer: the label shakes once and keeps its "?".
+    case shakeAndKeepTheQuestionMark
+    /// The learner asked for help or ran out of tries: the name shows in the normal color.
+    case revealWithoutCelebration
+
+    /// The one place a grade becomes a reveal outcome. A first wrong answer gets another try,
+    /// and a second wrong answer reveals the name, like asking for help.
+    init(grade: LiveSceneQuizGrade, wrongAnswerCount: Int) {
+        switch grade {
+        case .nameAndFunctionWord, .nameOnly:
+            self = .celebrateCorrectName
+        case .askedForHelp:
+            self = .revealWithoutCelebration
+        case .wrong:
+            self = wrongAnswerCount == 0 ? .shakeAndKeepTheQuestionMark : .revealWithoutCelebration
+        }
+    }
+}
+
+/// A line Clicky speaks about a scene or quiz, with whether it reports something that went wrong, so the cursor shakes as it says it.
+nonisolated struct SpokenSceneLine: Equatable {
+    let text: String
+    let isAFailure: Bool
+
+    /// Said when a quiz question cannot be shown again, such as when its pop-out fails to open on the way back to it.
+    static let quizQuestionCouldNotBeShownAgain = SpokenSceneLine(text: "Sorry, I couldn't go back to that question.", isAFailure: true)
+}
+
+/// What Clicky says after a first wrong answer: the judge's sentence, which explains the mistake without the answer,
+/// then the offer of a hint. The offer names the word to say, since "give me a hint" reaches the judge as a hint request,
+/// while a bare "yes" to "Want a hint?" would be graded as a second answer and reveal the name.
+nonisolated func firstWrongAnswerSpokenLine(judgeSpokenReply: String) -> String {
+    let hintOffer = "Say hint if you want a clue."
+    let trimmedReply = judgeSpokenReply.trimmingCharacters(in: .whitespacesAndNewlines)
+    // A sentence that already offers a hint or a clue needs no second offer.
+    if trimmedReply.range(of: "hint", options: .caseInsensitive) != nil || trimmedReply.range(of: "clue", options: .caseInsensitive) != nil {
+        return trimmedReply
+    }
+    if trimmedReply.isEmpty { return hintOffer }
+    return "\(trimmedReply) \(hintOffer)"
+}
+
+struct LiveSceneQuiz: Decodable {
+    let answerLabel: String
+    let question: String
+    let functionWords: [String]
+    let explanation: String
+    /// What the learner has heard of a video so far, so an answer is graded on that.
+    var heardTranscript = ""
+
+    /// The app fills in heardTranscript, so the Worker's quiz JSON leaves it out.
+    private enum CodingKeys: String, CodingKey {
+        case answerLabel, question, functionWords, explanation
+    }
+}
+
+enum LiveSceneAnswerJudge {
+    /// Lowercases both strings, turns punctuation into spaces, and splits on
+    /// words. Right when every word of the label shows up in the transcript.
+    nonisolated static func isCorrect(transcript: String, answerLabel: String) -> Bool {
+        let transcriptWords = words(in: transcript)
+        let answerWords = words(in: answerLabel)
+        return answerWords.allSatisfy { answerWord in
+            transcriptWords.contains(answerWord)
+        }
+    }
+
+    /// A quiz with no function words is complete once the learner names the part.
+    nonisolated static func gradeSpokenAnswer(transcript: String, quiz: LiveSceneQuiz) -> LiveSceneQuizGrade {
+        let lowercaseTranscript = transcript.lowercased()
+        let learnerAskedForHelp = ["no idea", "don't know", "dont know", "tell me", "not sure"].contains { helpPhrase in
+            lowercaseTranscript.contains(helpPhrase)
+        }
+        if learnerAskedForHelp {
+            return .askedForHelp
+        }
+        let transcriptNamesThePart = isCorrect(transcript: transcript, answerLabel: quiz.answerLabel)
+        if !transcriptNamesThePart {
+            return .wrong
+        }
+        let transcriptSaysWhatThePartDoes = quiz.functionWords.isEmpty
+            || transcriptIncludesFunctionWord(transcript: transcript, functionWords: quiz.functionWords)
+        if transcriptSaysWhatThePartDoes {
+            return .nameAndFunctionWord
+        }
+        return .nameOnly
+    }
+
+    nonisolated static func transcriptIncludesFunctionWord(transcript: String, functionWords: [String]) -> Bool {
+        let transcriptWords = words(in: transcript)
+        return functionWords.contains { functionWord in
+            let functionWordTokens = words(in: functionWord)
+            guard !functionWordTokens.isEmpty else {
+                return false
+            }
+            return functionWordTokens.allSatisfy { functionWordToken in
+                transcriptWords.contains(functionWordToken)
+            }
+        }
+    }
+
+    nonisolated private static func words(in text: String) -> [String] {
+        let lowercaseText = text.lowercased()
+        let textWithPunctuationAsSpaces = lowercaseText.map { character -> Character in
+            let characterIsPunctuation = character.unicodeScalars.allSatisfy { scalar in
+                CharacterSet.punctuationCharacters.contains(scalar)
+            }
+            if characterIsPunctuation {
+                return " "
+            }
+            return character
+        }
+        let cleanedText = String(textWithPunctuationAsSpaces)
+        return cleanedText.split(whereSeparator: { character in
+            character.isWhitespace
+        }).map { word in
+            String(word)
+        }
+    }
+}
+
+/// The scene state's `sceneNumber`: which scene is on screen, counted up each time one starts to show. The harness brain
+/// tells whether a change it recorded was made to the scene still on screen by this number, since Escape closes a scene
+/// outside the brain and two pop-outs of the same video look the same in every other field. Nil with no scene showing.
+nonisolated func sceneNumberForTheSceneState(sceneIsOnScreen: Bool, scenesPlayedCount: Int) -> JSONValue? {
+    sceneIsOnScreen ? .number(Double(scenesPlayedCount)) : nil
+}
+
+/// The scene the keyword path builds for a transcript. An experiment is built only by its background agent, so a
+/// "let me try it" that reaches the keyword path, such as after the voice command router failed, is a plain question.
+nonisolated func keywordPathSceneKind(for transcript: String) -> LiveSceneKind? {
+    let requestedSceneKind = liveSceneKind(for: transcript)
+    return requestedSceneKind == .simulation ? nil : requestedSceneKind
+}
+
+/// The scene this transcript asks for, or nil when it asks for none. An animate request wins, then a pop-out, then a quiz,
+/// then a simulation. A quiz wins over a 3D scene, because "show me inside and quiz me" wants the quiz.
+/// A simulation wins over one too, because "let me try it in 3D" wants something to run.
+nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
+    let lowercaseTranscript = transcript.lowercased()
+    // "Animate" needs an object, so "how do I animate text" and "animation" build nothing.
+    let animatePhrase = #"\b(animate (it|this|that|them)|make (it|this|that|them) (move|flow))\b"#
+    let asksToAnimateThePicture = lowercaseTranscript.range(of: animatePhrase, options: .regularExpression) != nil
+    // "How do I animate this in Keynote" asks how to do it in another app, so it gets an answer, not an animation.
+    let asksHowToAnimateSomethingElsewhere = lowercaseTranscript.range(
+        of: #"\bhow (do|can|would|should|could|to)\b.*"# + animatePhrase,
+        options: .regularExpression
+    ) != nil
+    if asksToAnimateThePicture && !asksHowToAnimateSomethingElsewhere {
+        return .animatedFramePopout
+    }
+    let asksForAFramePopout = lowercaseTranscript.range(
+        // Up to 3 words may sit between "pop" and "out", as in "pop this heart out".
+        // "out" must start its own word, so "pop without" does not count.
+        of: #"\bpop\b(\s+[\w']+){0,3}?(\s+|\s*-\s*)out\b"#,
+        options: .regularExpression
+    ) != nil
+    if asksForAFramePopout {
+        return .framePopout
+    }
+    let asksToBeQuizzed = lowercaseTranscript.range(
+        of: #"\b(quiz\w*|test me|kiss me)\b"#,
+        options: .regularExpression
+    ) != nil
+    if asksToBeQuizzed {
+        return .quiz
+    }
+    if asksToTryASimulation(lowercaseTranscript) {
+        return .simulation
+    }
+    let asksToLookInside = lowercaseTranscript.contains("inside")
+        || lowercaseTranscript.contains("look like")
+        || lowercaseTranscript.contains("show me")
+        || lowercaseTranscript.contains("3d")
+        || lowercaseTranscript.contains("3-d")
+        || lowercaseTranscript.contains("three d ")
+        // "Render" alone means a 3D model, and speech recognition sometimes drops the "3D" after it.
+        || lowercaseTranscript.range(of: #"\brender"#, options: .regularExpression) != nil
+    return asksToLookInside ? .explore : nil
+}
+
+/// "Let me try it", "let me play with this", "can I try it", "simulate this", or only "let me try" or "can I try".
+/// "Let me try to explain", "let me try that again", and "how do I simulate this in Python" are ordinary talk, so they
+/// build nothing. A try phrase must end the utterance, and the bare form must be all of it, because "let me try" is
+/// also how people start a sentence.
+nonisolated private func asksToTryASimulation(_ lowercaseTranscript: String) -> Bool {
+    // The try phrase has to end the utterance, since "let me try that again" or "can I try this on my phone" is ordinary talk.
+    let tryItPhrase = #"\b(let me|can i|could i|may i) (try|play with) (it|this|that|them)(,? (out|now|please|myself|too|in 3d|in 3-d)){0,2}\W*$"#
+    let simulatePhrase = #"\bsimulate (it|this|that|them)\b"#
+    let bareTryPhrase = #"^\W*(let me|can i|could i|may i) try\W*$"#
+    let asksHowToDoItElsewhere = lowercaseTranscript.range(of: #"\bhow (do|can|would|should|could|to)\b"#, options: .regularExpression) != nil
+    if asksHowToDoItElsewhere {
+        return false
+    }
+    return lowercaseTranscript.range(of: tryItPhrase, options: .regularExpression) != nil
+        || lowercaseTranscript.range(of: simulatePhrase, options: .regularExpression) != nil
+        || lowercaseTranscript.range(of: bareTryPhrase, options: .regularExpression) != nil
+}
+
+/// "Put it back", "put the engine back", or "put that away" sends a pop-out or scene back where it came from.
+/// A push-to-talk press alone only stops Clicky talking, so this is how the learner closes the scene by voice.
+/// "Put it back together" or "put the heart back in" is a question about the subject, so it is left alone,
+/// while "put it back in the video" still asks to put the scene back.
+nonisolated func asksToPutTheSceneBack(_ transcript: String) -> Bool {
+    transcript.lowercased().range(
+        of: #"\bput\s+(it|that|this|them|the\s+[\w'-]+)(\s+[\w'-]+)?\s+(back|away)\b(?!\s+together\b)(?!\s+(in|into|on)\b(?!\s+(the\s+)?(video|frame|screen|page|picture|image|place)\b))"#,
+        options: .regularExpression
+    ) != nil
+}
+
+/// Splits "[PART:Aorta] It carries blood. [PART:Heart] It pumps." into one entry
+/// per tagged sentence. Text with no tags comes back as a single entry.
+nonisolated func liveSceneSpokenParts(from responseText: String) -> [(partLabel: String?, spokenText: String)] {
+    let tagPattern = #"\[PART:([^\]]+)\]"#
+    guard let tagExpression = try? NSRegularExpression(pattern: tagPattern) else {
+        return [(nil, responseText)]
+    }
+    let fullRange = NSRange(responseText.startIndex..., in: responseText)
+    let tagMatches = tagExpression.matches(in: responseText, range: fullRange)
+    guard let firstTagRange = tagMatches.first.flatMap({ Range($0.range, in: responseText) }) else {
+        return [(nil, responseText)]
+    }
+
+    var spokenParts: [(partLabel: String?, spokenText: String)] = []
+    let textBeforeFirstTag = responseText[..<firstTagRange.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+    if !textBeforeFirstTag.isEmpty {
+        spokenParts.append((nil, textBeforeFirstTag))
+    }
+    for (matchIndex, tagMatch) in tagMatches.enumerated() {
+        guard let wholeTagRange = Range(tagMatch.range, in: responseText),
+              let labelRange = Range(tagMatch.range(at: 1), in: responseText) else { continue }
+        let nextTagStart = matchIndex + 1 < tagMatches.count
+            ? Range(tagMatches[matchIndex + 1].range, in: responseText)?.lowerBound ?? responseText.endIndex
+            : responseText.endIndex
+        let spokenText = responseText[wholeTagRange.upperBound..<nextTagStart]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !spokenText.isEmpty {
+            spokenParts.append((String(responseText[labelRange]), spokenText))
+        }
+    }
+    return spokenParts
+}

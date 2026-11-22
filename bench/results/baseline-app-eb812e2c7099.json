@@ -1,0 +1,84 @@
+{
+  "label": "baseline",
+  "benchKind": "app",
+  "commitSHA": "eb812e2c7099",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-13T18:07:20.083Z",
+  "runCount": 5,
+  "summary": [
+    {
+      "stepId": "app-voice-reply",
+      "description": "Transcript in to the first spoken word of the reply",
+      "runs": 5,
+      "elapsedMs": {
+        "p50": 3742,
+        "p95": 3920,
+        "min": 3678,
+        "max": 3920
+      }
+    },
+    {
+      "stepId": "app-image-popout",
+      "description": "\"pop this out\" over the heart image to the pop-out page starting",
+      "runs": 5,
+      "elapsedMs": {
+        "p50": 3420,
+        "p95": 3810,
+        "min": 3065,
+        "max": 3810
+      }
+    }
+  ],
+  "samples": [
+    {
+      "stepId": "app-voice-reply",
+      "runIndex": 0,
+      "elapsedMs": 3915.0103329999997
+    },
+    {
+      "stepId": "app-voice-reply",
+      "runIndex": 1,
+      "elapsedMs": 3698.0872500000005
+    },
+    {
+      "stepId": "app-voice-reply",
+      "runIndex": 2,
+      "elapsedMs": 3919.9482080000016
+    },
+    {
+      "stepId": "app-voice-reply",
+      "runIndex": 3,
+      "elapsedMs": 3677.9297910000023
+    },
+    {
+      "stepId": "app-voice-reply",
+      "runIndex": 4,
+      "elapsedMs": 3742.3965000000026
+    },
+    {
+      "stepId": "app-image-popout",
+      "runIndex": 0,
+      "elapsedMs": 3809.962999999996
+    },
+    {
+      "stepId": "app-image-popout",
+      "runIndex": 1,
+      "elapsedMs": 3065.078125
+    },
+    {
+      "stepId": "app-image-popout",
+      "runIndex": 2,
+      "elapsedMs": 3420.1241670000018
+    },
+    {
+      "stepId": "app-image-popout",
+      "runIndex": 3,
+      "elapsedMs": 3202.197125000006
+    },
+    {
+      "stepId": "app-image-popout",
+      "runIndex": 4,
+      "elapsedMs": 3551.6267910000024
+    }
+  ]
+}

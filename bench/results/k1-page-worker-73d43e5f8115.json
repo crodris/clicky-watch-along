@@ -1,0 +1,134 @@
+{
+  "label": "k1-page",
+  "benchKind": "worker",
+  "commitSHA": "73d43e5f8115",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-21T22:31:19.465Z",
+  "runCount": 1,
+  "port": 8798,
+  "interleavedWith": [],
+  "summary": [
+    {
+      "caseId": "live-scene",
+      "route": "/live-scene",
+      "description": "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 20736,
+        "p95": 20736,
+        "min": 20736,
+        "max": 20736
+      },
+      "firstByteMs": {
+        "p50": 20716,
+        "p95": 20716,
+        "min": 20716,
+        "max": 20716
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2303,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 6257,
+      "meanCostUSD": 0.40306
+    },
+    {
+      "caseId": "simulation-projectile",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a cannon frame for \"let me try it\"",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 29391,
+        "p95": 29391,
+        "min": 29391,
+        "max": 29391
+      },
+      "firstByteMs": {
+        "p50": 29389,
+        "p95": 29389,
+        "min": 29389,
+        "max": 29389
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4247,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 7007,
+      "meanCostUSD": 0.47138
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "live-scene",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 20716.07975,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 20735.778666000002,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2303,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 6257
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.403056,
+      "quality": {
+        "passed": true,
+        "detail": "answer Heart valve"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-projectile",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 29388.660583999997,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 29391.384417,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4247,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 7007
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.471384,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: If you keep the launch angle the same, what happens to the landing distance when you launch the ball faster?"
+      },
+      "replyPreview": ""
+    }
+  ]
+}

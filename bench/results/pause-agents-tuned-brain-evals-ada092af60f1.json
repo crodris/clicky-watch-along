@@ -1,0 +1,1911 @@
+{
+  "label": "pause-agents-tuned",
+  "benchKind": "brain-evals",
+  "commitSHA": "ada092af60f1",
+  "workingTreeIsDirty": true,
+  "recordedAt": "2026-11-22T01:01:47.239Z",
+  "runCount": 5,
+  "port": 8816,
+  "backend": "harness",
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "summaryByBackend": {
+    "harness": {
+      "overall": {
+        "runs": 55,
+        "passed": 55,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 662,
+        "p95Ms": 840,
+        "totalCostUSD": 0.00744,
+        "meanCostUSD": 0.000135,
+        "fullCommandP50Ms": 663,
+        "meanFullCommandCostUSD": 0.000135
+      },
+      "byContext": {
+        "nothing": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "video": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "scene3D": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "experimentGuess": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "experimentExplore": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "popout": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "readyModel": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "taskAnswer": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "approvalWaiting": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioClosed": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioIdeas": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "agentsRunning": {
+          "runs": 25,
+          "passed": 25,
+          "passRate": 1,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": 663,
+          "p95Ms": 753,
+          "totalCostUSD": 0.00371,
+          "meanCostUSD": 0.000149,
+          "fullCommandP50Ms": 663,
+          "meanFullCommandCostUSD": 0.000149
+        },
+        "agentsRunningNoVideo": {
+          "runs": 10,
+          "passed": 10,
+          "passRate": 1,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": 766,
+          "p95Ms": 943,
+          "totalCostUSD": 0.00145,
+          "meanCostUSD": 0.000145,
+          "fullCommandP50Ms": 766,
+          "meanFullCommandCostUSD": 0.000145
+        },
+        "agentsPaused": {
+          "runs": 20,
+          "passed": 20,
+          "passRate": 1,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": 626,
+          "p95Ms": 694,
+          "totalCostUSD": 0.00227,
+          "meanCostUSD": 0.000114,
+          "fullCommandP50Ms": 627,
+          "meanFullCommandCostUSD": 0.000114
+        }
+      }
+    }
+  },
+  "samples": [
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on",
+      "context": "agentsRunning",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 735.2524169999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 6389,
+          "cacheReadTokens": 0,
+          "outputTokens": 73
+        }
+      ],
+      "costUSD": 0.000855225,
+      "fullCommandCostUSD": 0.000855225,
+      "totalMs": 734.5884590000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on",
+      "context": "agentsRunning",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 736.219208,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00012649000000000002,
+      "fullCommandCostUSD": 0.00012649000000000002,
+      "totalMs": 735.255083,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on",
+      "context": "agentsRunning",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 753.6289580000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 73
+        }
+      ],
+      "costUSD": 0.00012049000000000001,
+      "fullCommandCostUSD": 0.00012049000000000001,
+      "totalMs": 753.0227920000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on",
+      "context": "agentsRunning",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 663.094,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 83
+        }
+      ],
+      "costUSD": 0.00012549000000000002,
+      "fullCommandCostUSD": 0.00012549000000000002,
+      "totalMs": 662.7984580000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on",
+      "context": "agentsRunning",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 692.6561670000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 86
+        }
+      ],
+      "costUSD": 0.00012699,
+      "fullCommandCostUSD": 0.00012699,
+      "totalMs": 690.0839169999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-a-second",
+      "context": "agentsRunning",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 779.1477919999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 84
+        }
+      ],
+      "costUSD": 0.00012619,
+      "fullCommandCostUSD": 0.00012619,
+      "totalMs": 778.3132500000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-a-second",
+      "context": "agentsRunning",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 652.3936670000003,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00012419,
+      "fullCommandCostUSD": 0.00012419,
+      "totalMs": 652.078125,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-a-second",
+      "context": "agentsRunning",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 750.5455000000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 84
+        }
+      ],
+      "costUSD": 0.00012619,
+      "fullCommandCostUSD": 0.00012619,
+      "totalMs": 750.2669169999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-a-second",
+      "context": "agentsRunning",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 724.7238750000006,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 83
+        }
+      ],
+      "costUSD": 0.00012569,
+      "fullCommandCostUSD": 0.00012569,
+      "totalMs": 724.3759580000005,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-a-second",
+      "context": "agentsRunning",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 697.530084,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 70
+        }
+      ],
+      "costUSD": 0.00011919,
+      "fullCommandCostUSD": 0.00011919,
+      "totalMs": 697.2332500000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-pause-the-agents",
+      "context": "agentsRunning",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 692.3184999999994,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011119,
+      "fullCommandCostUSD": 0.00011119,
+      "totalMs": 690.6110829999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-pause-the-agents",
+      "context": "agentsRunning",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 631.3722909999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011119,
+      "fullCommandCostUSD": 0.00011119,
+      "totalMs": 629.9237910000011,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-pause-the-agents",
+      "context": "agentsRunning",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 601.5450419999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011119,
+      "fullCommandCostUSD": 0.00011119,
+      "totalMs": 599.7674999999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-pause-the-agents",
+      "context": "agentsRunning",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 658.6626669999987,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011119,
+      "fullCommandCostUSD": 0.00011119,
+      "totalMs": 654.5786669999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-pause-the-agents",
+      "context": "agentsRunning",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 610.5343329999996,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011119,
+      "fullCommandCostUSD": 0.00011119,
+      "totalMs": 609.667625,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-question",
+      "context": "agentsRunning",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 639.474166,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 74
+        }
+      ],
+      "costUSD": 0.00012139,
+      "fullCommandCostUSD": 0.00012139,
+      "totalMs": 639.1830829999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-question",
+      "context": "agentsRunning",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 648.9863749999986,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00012689,
+      "fullCommandCostUSD": 0.00012689,
+      "totalMs": 648.7974579999991,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-question",
+      "context": "agentsRunning",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 677.6552090000005,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00012689,
+      "fullCommandCostUSD": 0.00012689,
+      "totalMs": 677.4274590000005,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-question",
+      "context": "agentsRunning",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 655.2430420000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 74
+        }
+      ],
+      "costUSD": 0.00012139,
+      "fullCommandCostUSD": 0.00012139,
+      "totalMs": 655.0682089999991,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-question",
+      "context": "agentsRunning",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 680.6563330000008,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00012689,
+      "fullCommandCostUSD": 0.00012689,
+      "totalMs": 679.6621660000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-pause-the-video",
+      "context": "agentsRunning",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 662.7304590000003,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.00011209,
+      "fullCommandCostUSD": 0.00011209,
+      "totalMs": 662.3938340000004,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {}
+        }
+      ],
+      "spokenText": "Pausing it."
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-pause-the-video",
+      "context": "agentsRunning",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 629.1254169999993,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011109000000000001,
+      "fullCommandCostUSD": 0.00011109000000000001,
+      "totalMs": 628.8837089999997,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {}
+        }
+      ],
+      "spokenText": "Paused."
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-pause-the-video",
+      "context": "agentsRunning",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 627.6774159999986,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.00011209,
+      "fullCommandCostUSD": 0.00011209,
+      "totalMs": 618.1946659999994,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {}
+        }
+      ],
+      "spokenText": "Pausing it."
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-pause-the-video",
+      "context": "agentsRunning",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 671.796416000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011109000000000001,
+      "fullCommandCostUSD": 0.00011109000000000001,
+      "totalMs": 671.5697080000027,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {}
+        }
+      ],
+      "spokenText": "Paused."
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-pause-the-video",
+      "context": "agentsRunning",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 620.2063750000016,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011109000000000001,
+      "fullCommandCostUSD": 0.00011109000000000001,
+      "totalMs": 619.8889170000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {}
+        }
+      ],
+      "spokenText": "Paused."
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-no-video",
+      "context": "agentsRunningNoVideo",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 677.505083,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 139,
+          "cacheWriteTokens": 3901,
+          "cacheReadTokens": 0,
+          "outputTokens": 75
+        }
+      ],
+      "costUSD": 0.0005390249999999999,
+      "fullCommandCostUSD": 0.0005390249999999999,
+      "totalMs": 677.2873330000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-no-video",
+      "context": "agentsRunningNoVideo",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 717.2376250000016,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 139,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3901,
+          "outputTokens": 75
+        }
+      ],
+      "costUSD": 0.00009041,
+      "fullCommandCostUSD": 0.00009041,
+      "totalMs": 716.250333,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-no-video",
+      "context": "agentsRunningNoVideo",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 761.5143750000025,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 139,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3901,
+          "outputTokens": 79
+        }
+      ],
+      "costUSD": 0.00009240999999999999,
+      "fullCommandCostUSD": 0.00009240999999999999,
+      "totalMs": 761.2699590000011,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-no-video",
+      "context": "agentsRunningNoVideo",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 766.2206249999981,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 139,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3901,
+          "outputTokens": 75
+        }
+      ],
+      "costUSD": 0.00009041,
+      "fullCommandCostUSD": 0.00009041,
+      "totalMs": 765.8963750000003,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-no-video",
+      "context": "agentsRunningNoVideo",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 748.9102500000008,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 139,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3901,
+          "outputTokens": 75
+        }
+      ],
+      "costUSD": 0.00009041,
+      "fullCommandCostUSD": 0.00009041,
+      "totalMs": 748.6937499999985,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-question-no-video",
+      "context": "agentsRunningNoVideo",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 945.5346659999996,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 145,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3901,
+          "outputTokens": 114
+        }
+      ],
+      "costUSD": 0.00011051,
+      "fullCommandCostUSD": 0.00011051,
+      "totalMs": 943.1430409999994,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-question-no-video",
+      "context": "agentsRunningNoVideo",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 808.9153339999975,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 145,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3901,
+          "outputTokens": 108
+        }
+      ],
+      "costUSD": 0.00010750999999999999,
+      "fullCommandCostUSD": 0.00010750999999999999,
+      "totalMs": 808.6857089999976,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-question-no-video",
+      "context": "agentsRunningNoVideo",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 827.5938750000023,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 145,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3901,
+          "outputTokens": 112
+        }
+      ],
+      "costUSD": 0.00010950999999999999,
+      "fullCommandCostUSD": 0.00010950999999999999,
+      "totalMs": 827.4252080000006,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-question-no-video",
+      "context": "agentsRunningNoVideo",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 844.104124999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 145,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3901,
+          "outputTokens": 116
+        }
+      ],
+      "costUSD": 0.00011151,
+      "fullCommandCostUSD": 0.00011151,
+      "totalMs": 840.4931670000005,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-hold-on-question-no-video",
+      "context": "agentsRunningNoVideo",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 873.9429579999996,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 145,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3901,
+          "outputTokens": 115
+        }
+      ],
+      "costUSD": 0.00011101,
+      "fullCommandCostUSD": 0.00011101,
+      "totalMs": 873.5643329999984,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-go-ahead",
+      "context": "agentsPaused",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 626.5870830000022,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011051000000000001,
+      "fullCommandCostUSD": 0.00011051000000000001,
+      "totalMs": 625.5986249999987,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-go-ahead",
+      "context": "agentsPaused",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 643.7594590000008,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011051000000000001,
+      "fullCommandCostUSD": 0.00011051000000000001,
+      "totalMs": 643.291874999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-go-ahead",
+      "context": "agentsPaused",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 585.6521249999969,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011051000000000001,
+      "fullCommandCostUSD": 0.00011051000000000001,
+      "totalMs": 585.1806669999969,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-go-ahead",
+      "context": "agentsPaused",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 625.351834000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011051000000000001,
+      "fullCommandCostUSD": 0.00011051000000000001,
+      "totalMs": 623.8307920000007,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-go-ahead",
+      "context": "agentsPaused",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 612.6355839999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011051000000000001,
+      "fullCommandCostUSD": 0.00011051000000000001,
+      "totalMs": 612.3950839999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-keep-going",
+      "context": "agentsPaused",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 640.3892910000031,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011071,
+      "fullCommandCostUSD": 0.00011071,
+      "totalMs": 640.0083750000013,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-keep-going",
+      "context": "agentsPaused",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 646.5025830000013,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011071,
+      "fullCommandCostUSD": 0.00011071,
+      "totalMs": 645.6729169999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-keep-going",
+      "context": "agentsPaused",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 601.9788329999974,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011071,
+      "fullCommandCostUSD": 0.00011071,
+      "totalMs": 601.6799159999973,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-keep-going",
+      "context": "agentsPaused",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 624.6891250000008,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011071,
+      "fullCommandCostUSD": 0.00011071,
+      "totalMs": 624.3621669999993,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-keep-going",
+      "context": "agentsPaused",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 650.8989580000016,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011071,
+      "fullCommandCostUSD": 0.00011071,
+      "totalMs": 650.6852910000016,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-go-ahead-pop-out",
+      "context": "agentsPaused",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 625.2298330000012,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 208,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011101000000000001,
+      "fullCommandCostUSD": 0.00011101000000000001,
+      "totalMs": 625.0049580000014,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-go-ahead-pop-out",
+      "context": "agentsPaused",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 562.6570830000019,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 208,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00011151000000000001,
+      "fullCommandCostUSD": 0.00011151000000000001,
+      "totalMs": 560.5790000000015,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-go-ahead-pop-out",
+      "context": "agentsPaused",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 639.4477499999994,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 208,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011101000000000001,
+      "fullCommandCostUSD": 0.00011101000000000001,
+      "totalMs": 639.2357499999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-go-ahead-pop-out",
+      "context": "agentsPaused",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 633.8792919999978,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 208,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011101000000000001,
+      "fullCommandCostUSD": 0.00011101000000000001,
+      "totalMs": 625.939833000004,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-go-ahead-pop-out",
+      "context": "agentsPaused",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 586.0130839999983,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 208,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011101000000000001,
+      "fullCommandCostUSD": 0.00011101000000000001,
+      "totalMs": 585.4985420000012,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-paused-question",
+      "context": "agentsPaused",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 663.234375,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 77
+        }
+      ],
+      "costUSD": 0.00012221,
+      "fullCommandCostUSD": 0.00012221,
+      "totalMs": 661.8406250000044,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-paused-question",
+      "context": "agentsPaused",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 720.0767909999995,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 78
+        }
+      ],
+      "costUSD": 0.00012271,
+      "fullCommandCostUSD": 0.00012271,
+      "totalMs": 719.8577909999949,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-paused-question",
+      "context": "agentsPaused",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 692.8290000000052,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00012371000000000002,
+      "fullCommandCostUSD": 0.00012371000000000002,
+      "totalMs": 688.338125000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-paused-question",
+      "context": "agentsPaused",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 625.877625000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 74
+        }
+      ],
+      "costUSD": 0.00012071,
+      "fullCommandCostUSD": 0.00012071,
+      "totalMs": 625.6140000000014,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "agents-paused-question",
+      "context": "agentsPaused",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 693.7846250000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 76
+        }
+      ],
+      "costUSD": 0.00012171000000000001,
+      "fullCommandCostUSD": 0.00012171000000000001,
+      "totalMs": 693.5414579999997,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    }
+  ]
+}

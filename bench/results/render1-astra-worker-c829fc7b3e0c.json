@@ -1,0 +1,203 @@
+{
+  "label": "render1-astra",
+  "benchKind": "worker",
+  "commitSHA": "c829fc7b3e0c",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T18:21:46.009Z",
+  "runCount": 1,
+  "port": 8797,
+  "interleavedWith": [
+    "render1-base",
+    "render1-app",
+    "render1-haiku",
+    "render1-sonnet",
+    "render1-opus",
+    "render1-fable",
+    "render1-sol62",
+    "render1-neon"
+  ],
+  "summary": [
+    {
+      "caseId": "live-scene",
+      "route": "/live-scene",
+      "description": "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "default"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 85977,
+        "p95": 85977,
+        "min": 85977,
+        "max": 85977
+      },
+      "firstByteMs": {
+        "p50": 85976,
+        "p95": 85976,
+        "min": 85976,
+        "max": 85976
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2303,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 4335,
+      "meanCostUSD": 0.19182
+    },
+    {
+      "caseId": "simulation-projectile",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a cannon frame for \"let me try it\"",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "default"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 68523,
+        "p95": 68523,
+        "min": 68523,
+        "max": 68523
+      },
+      "firstByteMs": {
+        "p50": 68523,
+        "p95": 68523,
+        "min": 68523,
+        "max": 68523
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 4047,
+      "meanCostUSD": 0.1955
+    },
+    {
+      "caseId": "simulation-lever",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a lever frame for \"let me try it\"",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "default"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 62598,
+        "p95": 62598,
+        "min": 62598,
+        "max": 62598
+      },
+      "firstByteMs": {
+        "p50": 62597,
+        "p95": 62597,
+        "min": 62597,
+        "max": 62597
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 3950,
+      "meanCostUSD": 0.19162
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "live-scene",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 85975.94233300001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 85977.02187499998,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "default",
+          "inputTokens": 2303,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 4335
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.191824,
+      "quality": {
+        "passed": true,
+        "detail": "answer Mitral valve"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-projectile",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 68522.50900000008,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 68523.18170800013,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "default",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 4047
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.195504,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: At the same ball speed, will the ball land farther at 30 degrees, 45 degrees, or 60 degrees?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-lever",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 62596.51974999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 62597.56729100039,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "default",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 3950
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.191624,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: If you put the right weight farther from the pivot, will its turning force get bigger or smaller?"
+      },
+      "replyPreview": ""
+    }
+  ]
+}

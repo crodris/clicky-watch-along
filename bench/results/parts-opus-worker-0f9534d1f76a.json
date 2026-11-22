@@ -1,0 +1,819 @@
+{
+  "label": "parts-opus",
+  "benchKind": "worker",
+  "commitSHA": "0f9534d1f76a",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:11:01.600Z",
+  "runCount": 3,
+  "port": 8794,
+  "interleavedWith": [
+    "parts-base",
+    "parts-haiku",
+    "parts-sonnet",
+    "parts-fable",
+    "parts-sol62",
+    "parts-astra"
+  ],
+  "summary": [
+    {
+      "caseId": "frame-parts-heart",
+      "route": "/video-frame-parts",
+      "description": "Finds the heart in a 1280x720 diagram frame",
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 2815,
+        "p95": 2861,
+        "min": 2675,
+        "max": 2861
+      },
+      "firstByteMs": {
+        "p50": 2814,
+        "p95": 2860,
+        "min": 2675,
+        "max": 2860
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.3333333333333333,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 271,
+      "meanCostUSD": 0.01074
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "route": "/video-frame-parts",
+      "description": "Lifts The Starry Night out as a whole picture and marks it as art",
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 2990,
+        "p95": 3277,
+        "min": 2314,
+        "max": 3277
+      },
+      "firstByteMs": {
+        "p50": 2989,
+        "p95": 3277,
+        "min": 2314,
+        "max": 3277
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.6666666666666667,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 233,
+      "meanCostUSD": 0.00998
+    },
+    {
+      "caseId": "frame-parts-cutaway",
+      "route": "/video-frame-parts",
+      "description": "Marks a 3D cutaway of a turbofan as showing depth",
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3756,
+        "p95": 3770,
+        "min": 3652,
+        "max": 3770
+      },
+      "firstByteMs": {
+        "p50": 3755,
+        "p95": 3770,
+        "min": 3652,
+        "max": 3770
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 2.3333333333333335,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 266,
+      "meanCostUSD": 0.01064
+    },
+    {
+      "caseId": "frame-parts-print",
+      "route": "/video-frame-parts",
+      "description": "Marks The Great Wave, a woodblock print, as art",
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3831,
+        "p95": 3875,
+        "min": 3381,
+        "max": 3875
+      },
+      "firstByteMs": {
+        "p50": 3831,
+        "p95": 3875,
+        "min": 3381,
+        "max": 3875
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 257,
+      "meanCostUSD": 0.01046
+    },
+    {
+      "caseId": "frame-parts-art-of-one-animal",
+      "route": "/video-frame-parts",
+      "description": "Marks Dürer's Young Hare as art, though it shows one animal",
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3412,
+        "p95": 3481,
+        "min": 2636,
+        "max": 3481
+      },
+      "firstByteMs": {
+        "p50": 3411,
+        "p95": 3480,
+        "min": 2636,
+        "max": 3480
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 2,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 222,
+      "meanCostUSD": 0.00976
+    },
+    {
+      "caseId": "frame-parts-bicycle",
+      "route": "/video-frame-parts",
+      "description": "Keeps a labeled bicycle diagram as a diagram, not art",
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 2550,
+        "p95": 3190,
+        "min": 2491,
+        "max": 3190
+      },
+      "firstByteMs": {
+        "p50": 2549,
+        "p95": 3190,
+        "min": 2490,
+        "max": 3190
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.3333333333333333,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 244,
+      "meanCostUSD": 0.01019
+    },
+    {
+      "caseId": "frame-parts-chart",
+      "route": "/video-frame-parts",
+      "description": "Finds no subject in a bar chart, which is not one drawn object",
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 2193,
+        "p95": 2340,
+        "min": 2182,
+        "max": 2340
+      },
+      "firstByteMs": {
+        "p50": 2193,
+        "p95": 2340,
+        "min": 2182,
+        "max": 2340
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 96,
+      "meanCostUSD": 0.00724
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2813.538625,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2814.653542000001,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 265
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0106172,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":405,\"top\":38,\"right\":890,\"bottom\":662},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":650,\"y\":140,\"isQuizAnswer\":false},{\"label\":\"Superior vena cava\",\"x\":500,\"y\":180,\"isQuizAnswer\":false},{\"label\":\"Pulmonary artery\",\"x\":760,\"y\":185,\"isQuizAnswer\":false},{\"label\":\"Right atrium\",\"x\":505,\"y\":370,\"isQuizAnswer\":false},{\"label\":\"Left atrium\",\"x\":700,\"y\":300,\"isQuizAnswer\":false},{\"label\":\"Right ventricle\",\"x\":640,\"y\":540,\"isQuizAnswer\":false},{\"label\":\"Left ventricle\",\"x\":800,\"y\":480,\"isQuizAnswer\":fa"
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2860.2181670000027,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2860.674417000002,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 274
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.010797200000000002,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":405,\"top\":38,\"right\":890,\"bottom\":660},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":650,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"Right Atrium\",\"x\":510,\"y\":340,\"isQuizAnswer\":false},{\"label\":\"Left Atrium\",\"x\":700,\"y\":300,\"isQuizAnswer\":false},{\"label\":\"Right Ventricle\",\"x\":640,\"y\":550,\"isQuizAnswer\":false},{\"label\":\"Left Ventricle\",\"x\":790,\"y\":500,\"isQuizAnswer\":false},{\"label\":\"Superior Vena Cava\",\"x\":500,\"y\":180,\"isQuizAnswer\":false},{\"label\":\"Pulmonary Artery\",\"x\":760,\"y\":186,\"isQuizAnswer\":fa"
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2674.7783750000017,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2675.2458750000005,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 274
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.010797200000000002,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":405,\"top\":38,\"right\":890,\"bottom\":662},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":650,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"Right Atrium\",\"x\":510,\"y\":350,\"isQuizAnswer\":false},{\"label\":\"Left Atrium\",\"x\":700,\"y\":290,\"isQuizAnswer\":false},{\"label\":\"Right Ventricle\",\"x\":640,\"y\":500,\"isQuizAnswer\":false},{\"label\":\"Left Ventricle\",\"x\":780,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"Superior Vena Cava\",\"x\":500,\"y\":180,\"isQuizAnswer\":false},{\"label\":\"Pulmonary Artery\",\"x\":780,\"y\":190,\"isQuizAnswer\":fa"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2989.3310420000053,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2989.8496670000022,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 233
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0099772,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":186,\"top\":0,\"right\":1094,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"crescent moon\",\"x\":1005,\"y\":125,\"isQuizAnswer\":false},{\"label\":\"cypress tree\",\"x\":400,\"y\":500,\"isQuizAnswer\":false},{\"label\":\"church steeple\",\"x\":702,\"y\":530,\"isQuizAnswer\":false},{\"label\":\"swirling sky\",\"x\":640,\"y\":230,\"isQuizAnswer\":false},{\"label\":\"bright star\",\"x\":505,\"y\":380,\"isQuizAnswer\":false},{\"label\":\"rolling hills\",\"x\":960,\"y\":460,\"isQuizAnswer\":false},{\"label\":\"village houses\",\"x\":800,\"y\":660,\"isQuizAnswer\":false"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2313.754166999992,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2314.2226669999945,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 233
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0099772,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":186,\"top\":0,\"right\":1094,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"crescent moon\",\"x\":1005,\"y\":125,\"isQuizAnswer\":false},{\"label\":\"cypress tree\",\"x\":380,\"y\":480,\"isQuizAnswer\":false},{\"label\":\"church steeple\",\"x\":702,\"y\":530,\"isQuizAnswer\":false},{\"label\":\"swirling sky\",\"x\":640,\"y\":230,\"isQuizAnswer\":false},{\"label\":\"bright star\",\"x\":507,\"y\":380,\"isQuizAnswer\":false},{\"label\":\"rolling hills\",\"x\":960,\"y\":460,\"isQuizAnswer\":false},{\"label\":\"village houses\",\"x\":820,\"y\":660,\"isQuizAnswer\":false"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3276.914499999999,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3277.2125830000004,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 233
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0099772,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":186,\"top\":0,\"right\":1094,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"crescent moon\",\"x\":1005,\"y\":125,\"isQuizAnswer\":false},{\"label\":\"cypress tree\",\"x\":400,\"y\":500,\"isQuizAnswer\":false},{\"label\":\"church steeple\",\"x\":702,\"y\":530,\"isQuizAnswer\":false},{\"label\":\"swirling sky\",\"x\":640,\"y\":230,\"isQuizAnswer\":false},{\"label\":\"bright star\",\"x\":505,\"y\":380,\"isQuizAnswer\":false},{\"label\":\"rolling hills\",\"x\":950,\"y\":460,\"isQuizAnswer\":false},{\"label\":\"village houses\",\"x\":820,\"y\":660,\"isQuizAnswer\":false"
+    },
+    {
+      "caseId": "frame-parts-cutaway",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3755.0642919999955,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3755.782124999998,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 266
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.010637200000000001,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth true, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":280,\"top\":122,\"right\":1010,\"bottom\":610},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"engine intake\",\"x\":330,\"y\":300,\"isQuizAnswer\":false},{\"label\":\"front fan\",\"x\":510,\"y\":500,\"isQuizAnswer\":false},{\"label\":\"low pressure compressor\",\"x\":575,\"y\":400,\"isQuizAnswer\":false},{\"label\":\"high pressure compressor\",\"x\":650,\"y\":370,\"isQuizAnswer\":false},{\"label\":\"combustion chamber\",\"x\":740,\"y\":350,\"isQuizAnswer\":false},{\"label\":\"high pressure turbine\",\"x\":790,\"y\":360,\"isQuizAnswer\":false},{\"label\":\"low pressure turb"
+    },
+    {
+      "caseId": "frame-parts-cutaway",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3652.0619999999763,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3652.4529589999875,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 266
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.010637200000000001,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth true, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":280,\"top\":118,\"right\":1012,\"bottom\":612},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"engine intake\",\"x\":330,\"y\":300,\"isQuizAnswer\":false},{\"label\":\"front fan\",\"x\":515,\"y\":500,\"isQuizAnswer\":false},{\"label\":\"low pressure compressor\",\"x\":580,\"y\":400,\"isQuizAnswer\":false},{\"label\":\"high pressure compressor\",\"x\":650,\"y\":360,\"isQuizAnswer\":false},{\"label\":\"combustion chamber\",\"x\":740,\"y\":350,\"isQuizAnswer\":false},{\"label\":\"high pressure turbine\",\"x\":795,\"y\":360,\"isQuizAnswer\":false},{\"label\":\"low pressure turb"
+    },
+    {
+      "caseId": "frame-parts-cutaway",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3769.5090419999906,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3769.9874169999966,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 267
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0106572,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth true, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":280,\"top\":122,\"right\":1010,\"bottom\":610},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"engine intake\",\"x\":330,\"y\":300,\"isQuizAnswer\":false},{\"label\":\"fan blades\",\"x\":515,\"y\":500,\"isQuizAnswer\":false},{\"label\":\"low pressure compressor\",\"x\":575,\"y\":390,\"isQuizAnswer\":false},{\"label\":\"high pressure compressor\",\"x\":650,\"y\":370,\"isQuizAnswer\":false},{\"label\":\"combustion chamber\",\"x\":745,\"y\":350,\"isQuizAnswer\":false},{\"label\":\"high pressure turbine\",\"x\":800,\"y\":360,\"isQuizAnswer\":false},{\"label\":\"low pressure tur"
+    },
+    {
+      "caseId": "frame-parts-print",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3830.6775830000115,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3831.127792000014,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 258
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0104772,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":104,\"top\":0,\"right\":1176,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Great wave\",\"x\":450,\"y\":250,\"isQuizAnswer\":false},{\"label\":\"Wave claws\",\"x\":640,\"y\":230,\"isQuizAnswer\":false},{\"label\":\"Mount Fuji\",\"x\":790,\"y\":495,\"isQuizAnswer\":false},{\"label\":\"Fishing boat\",\"x\":700,\"y\":630,\"isQuizAnswer\":false},{\"label\":\"Rowers\",\"x\":1010,\"y\":440,\"isQuizAnswer\":false},{\"label\":\"Title cartouche\",\"x\":181,\"y\":125,\"isQuizAnswer\":false},{\"label\":\"Sky\",\"x\":900,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"Sea foam\",\""
+    },
+    {
+      "caseId": "frame-parts-print",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3874.863624999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3875.089082999999,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 259
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0104972,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":104,\"top\":0,\"right\":1176,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Great wave\",\"x\":450,\"y\":250,\"isQuizAnswer\":false},{\"label\":\"Wave claws\",\"x\":680,\"y\":240,\"isQuizAnswer\":false},{\"label\":\"Mount Fuji\",\"x\":780,\"y\":495,\"isQuizAnswer\":false},{\"label\":\"Fishing boat\",\"x\":700,\"y\":640,\"isQuizAnswer\":false},{\"label\":\"Rowers\",\"x\":1000,\"y\":440,\"isQuizAnswer\":false},{\"label\":\"Title box\",\"x\":182,\"y\":125,\"isQuizAnswer\":false},{\"label\":\"Cloudy sky\",\"x\":850,\"y\":140,\"isQuizAnswer\":false},{\"label\":\"Sea foam\","
+    },
+    {
+      "caseId": "frame-parts-print",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3380.704874999996,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3380.9503339999937,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 255
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.010417200000000001,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":104,\"top\":0,\"right\":1176,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Great wave\",\"x\":450,\"y\":250,\"isQuizAnswer\":false},{\"label\":\"Wave claws\",\"x\":640,\"y\":230,\"isQuizAnswer\":false},{\"label\":\"Mount Fuji\",\"x\":785,\"y\":495,\"isQuizAnswer\":false},{\"label\":\"Fishing boat\",\"x\":700,\"y\":630,\"isQuizAnswer\":false},{\"label\":\"Rowers\",\"x\":905,\"y\":640,\"isQuizAnswer\":false},{\"label\":\"Title box\",\"x\":182,\"y\":125,\"isQuizAnswer\":false},{\"label\":\"Cloud\",\"x\":840,\"y\":130,\"isQuizAnswer\":false},{\"label\":\"Sea spray\",\"x\":6"
+    },
+    {
+      "caseId": "frame-parts-art-of-one-animal",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3480.46645800001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3480.796708000009,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 222
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0097572,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject false, pictureShowsDepth true, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":400,\"top\":70,\"right\":920,\"bottom\":625},\"isArtwork\":true,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"long ears\",\"x\":720,\"y\":180,\"isQuizAnswer\":false},{\"label\":\"eye\",\"x\":705,\"y\":381,\"isQuizAnswer\":false},{\"label\":\"nose\",\"x\":775,\"y\":430,\"isQuizAnswer\":false},{\"label\":\"whiskers\",\"x\":850,\"y\":400,\"isQuizAnswer\":false},{\"label\":\"front paws\",\"x\":780,\"y\":585,\"isQuizAnswer\":false},{\"label\":\"furry back\",\"x\":470,\"y\":300,\"isQuizAnswer\":false},{\"label\":\"chest fur\",\"x\":690,\"y\":490,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-art-of-one-animal",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2635.8922909999965,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2636.150957999984,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 222
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0097572,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject false, pictureShowsDepth true, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":400,\"top\":70,\"right\":830,\"bottom\":622},\"isArtwork\":true,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"long ears\",\"x\":720,\"y\":180,\"isQuizAnswer\":false},{\"label\":\"eye\",\"x\":704,\"y\":381,\"isQuizAnswer\":false},{\"label\":\"nose\",\"x\":770,\"y\":430,\"isQuizAnswer\":false},{\"label\":\"whiskers\",\"x\":830,\"y\":400,\"isQuizAnswer\":false},{\"label\":\"front paws\",\"x\":780,\"y\":590,\"isQuizAnswer\":false},{\"label\":\"furry back\",\"x\":470,\"y\":300,\"isQuizAnswer\":false},{\"label\":\"chest fur\",\"x\":690,\"y\":500,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-art-of-one-animal",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3411.3473330000415,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3411.86608300003,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 222
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0097572,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject false, pictureShowsDepth true, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":400,\"top\":70,\"right\":920,\"bottom\":625},\"isArtwork\":true,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"long ears\",\"x\":720,\"y\":180,\"isQuizAnswer\":false},{\"label\":\"eye\",\"x\":705,\"y\":381,\"isQuizAnswer\":false},{\"label\":\"nose\",\"x\":775,\"y\":430,\"isQuizAnswer\":false},{\"label\":\"whiskers\",\"x\":850,\"y\":400,\"isQuizAnswer\":false},{\"label\":\"front paws\",\"x\":780,\"y\":590,\"isQuizAnswer\":false},{\"label\":\"furry back\",\"x\":470,\"y\":300,\"isQuizAnswer\":false},{\"label\":\"chest fur\",\"x\":690,\"y\":500,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-bicycle",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3189.617333000002,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3189.892499999958,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 244
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0101972,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":340,\"top\":136,\"right\":1030,\"bottom\":580},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"saddle\",\"x\":553,\"y\":177,\"isQuizAnswer\":false},{\"label\":\"handlebar grip\",\"x\":838,\"y\":157,\"isQuizAnswer\":false},{\"label\":\"top tube\",\"x\":708,\"y\":265,\"isQuizAnswer\":false},{\"label\":\"down tube\",\"x\":712,\"y\":362,\"isQuizAnswer\":false},{\"label\":\"fork\",\"x\":866,\"y\":371,\"isQuizAnswer\":false},{\"label\":\"chain rings\",\"x\":640,\"y\":440,\"isQuizAnswer\":false},{\"label\":\"pedal\",\"x\":714,\"y\":458,\"isQuizAnswer\":false},{\"label\":\"tire\",\"x\":1018,\"y"
+    },
+    {
+      "caseId": "frame-parts-bicycle",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2490.1487080000225,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2490.596582999977,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 244
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0101972,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":340,\"top\":136,\"right\":1030,\"bottom\":580},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"saddle\",\"x\":553,\"y\":176,\"isQuizAnswer\":false},{\"label\":\"handlebar grip\",\"x\":838,\"y\":157,\"isQuizAnswer\":false},{\"label\":\"top tube\",\"x\":708,\"y\":265,\"isQuizAnswer\":false},{\"label\":\"chain rings\",\"x\":641,\"y\":440,\"isQuizAnswer\":false},{\"label\":\"pedal\",\"x\":713,\"y\":458,\"isQuizAnswer\":false},{\"label\":\"tire\",\"x\":1018,\"y\":472,\"isQuizAnswer\":false},{\"label\":\"spokes\",\"x\":920,\"y\":415,\"isQuizAnswer\":false},{\"label\":\"chain\",\"x\":514,\"y\":"
+    },
+    {
+      "caseId": "frame-parts-bicycle",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2548.7411659999634,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2549.592707999982,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 243
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0101772,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":340,\"top\":136,\"right\":1030,\"bottom\":580},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"saddle\",\"x\":553,\"y\":177,\"isQuizAnswer\":false},{\"label\":\"handlebar grip\",\"x\":838,\"y\":157,\"isQuizAnswer\":false},{\"label\":\"top tube\",\"x\":709,\"y\":265,\"isQuizAnswer\":false},{\"label\":\"down tube\",\"x\":712,\"y\":362,\"isQuizAnswer\":false},{\"label\":\"chain\",\"x\":515,\"y\":495,\"isQuizAnswer\":false},{\"label\":\"pedal\",\"x\":714,\"y\":458,\"isQuizAnswer\":false},{\"label\":\"tire\",\"x\":1018,\"y\":471,\"isQuizAnswer\":false},{\"label\":\"spokes\",\"x\":920,\"y\":41"
+    },
+    {
+      "caseId": "frame-parts-chart",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2339.954625000013,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2340.3423750000075,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 96
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0072372,
+      "quality": {
+        "passed": true,
+        "detail": "subjectFound false"
+      },
+      "replyPreview": "{\"subjectFound\":false}"
+    },
+    {
+      "caseId": "frame-parts-chart",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2192.57254199998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2193.0447920000297,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 96
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0072372,
+      "quality": {
+        "passed": true,
+        "detail": "subjectFound false"
+      },
+      "replyPreview": "{\"subjectFound\":false}"
+    },
+    {
+      "caseId": "frame-parts-chart",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2181.5103750000126,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2181.8986249999725,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 96
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0072372,
+      "quality": {
+        "passed": true,
+        "detail": "subjectFound false"
+      },
+      "replyPreview": "{\"subjectFound\":false}"
+    }
+  ]
+}

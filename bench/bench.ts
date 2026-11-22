@@ -1,0 +1,1079 @@
+// Clicky benchmark. Measures latency, tokens, and cost of every Worker route the demo uses,
+// against a Worker started by the verify-clicky helper, and checks each reply on fixed fixtures.
+//
+//   .claude/skills/verify-clicky/verify-clicky.sh worker-up
+//   node bench/bench.ts worker --label baseline [--runs 5] [--only chat-first,tts] [--pages-dir bench/replies]
+//   node bench/bench.ts app --label baseline [--runs 3]
+//
+// Results go to bench/results/<label>-<kind>-<sha>.json. See bench/README.md.
+
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { requestFileName, savedReplyFileName, type SavedReply } from "./replyFiles.ts";
+import { costOfUsageLine, isRecord, usageAfterChatStreamEvent, usageLineFromUsageObject, usageLinesOfRouteInLog, type UsageLine } from "./usage.ts";
+
+const benchDirectory = dirname(fileURLToPath(import.meta.url));
+const checkoutRoot = dirname(benchDirectory);
+const fixturesDirectory = join(benchDirectory, "fixtures");
+const verifyClickyScript = join(checkoutRoot, ".claude/skills/verify-clicky/verify-clicky.sh");
+const verifyClickyStateDirectory = join(checkoutRoot, ".verify-clicky");
+
+// https://elevenlabs.io/pricing/api (fetched 2026-11-13): multilingual v2 costs $0.08 per 1,000 characters, Flash and Turbo $0.04.
+const elevenLabsPricePerThousandCharacters: Record<string, number> = {
+  eleven_v4: 0.08,
+  eleven_v4_turbo: 0.04,
+  eleven_multilingual_v2: 0.08,
+  eleven_flash_v2_5: 0.04,
+  eleven_turbo_v2_5: 0.04,
+};
+
+type QualityCheck = { passed: boolean; detail: string };
+
+type Sample = {
+  caseId: string;
+  runIndex: number;
+  httpStatus: number;
+  firstByteMs: number;
+  firstTokenMs: number | null;
+  /** /tts only: when the app would start playing, which is the whole body for an MP3 and the first buffer for streamed PCM. */
+  firstAudioMs: number | null;
+  totalMs: number;
+  usageLines: UsageLine[];
+  ttsCharacters: number;
+  /** Null when a model or speech model in the sample has no price. */
+  costUSD: number | null;
+  quality: QualityCheck;
+  /** The start of a text reply, so a reviewer can read what changed. A live scene page is left out for size. */
+  replyPreview: string;
+};
+
+export type BenchCase = {
+  id: string;
+  route: string;
+  description: string;
+  requestBody: (appProfile: AppProfile) => unknown;
+  /** The query the app adds to the route, if any. */
+  requestQuery?: (appProfile: AppProfile) => string;
+  checkReply: (replyText: string, contentType: string, replyBytes: number) => QualityCheck;
+};
+
+function numberField(record: Record<string, unknown>, key: string): number {
+  const value = record[key];
+  return typeof value === "number" ? value : 0;
+}
+
+function parseJSONObject(text: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// ---------- Fixtures ----------
+
+const fixtureBase64 = (fileName: string) => readFileSync(join(fixturesDirectory, fileName)).toString("base64");
+
+/**
+ * What one checkout's app sends to the Worker, read from its Swift source. Two sides of a comparison
+ * can run different app versions, so each side's requests mirror its own app, not this file's guesses.
+ */
+export type AppProfile = {
+  chatModel: string;
+  chatEffort: string | undefined;
+  /** Newer apps mark the system prompt's cache breakpoint themselves. */
+  chatSystemPromptCached: boolean;
+  chatSystemPrompt: string;
+  ttsModel: string;
+  /** Undefined means the app downloads a whole MP3 before it plays any of it. */
+  ttsOutputFormat: string | undefined;
+  /** Bytes of streamed audio the app collects before it starts playing. */
+  ttsFirstBufferBytes: number;
+};
+
+function swiftSource(appCheckout: string, fileName: string): string {
+  return readFileSync(join(appCheckout, "leanring-buddy", fileName), "utf8");
+}
+
+function requiredMatch(sourceText: string, pattern: RegExp, whatIsMissing: string): RegExpMatchArray {
+  const sourceMatch = sourceText.match(pattern);
+  if (sourceMatch === null) {
+    throw new Error(`The benchmark could not read ${whatIsMissing} from the app source. Update readAppProfile.`);
+  }
+  return sourceMatch;
+}
+
+function readAppProfile(appCheckout: string): AppProfile {
+  const claudeAPISource = swiftSource(appCheckout, "ClaudeAPI.swift");
+  const companionManagerSource = swiftSource(appCheckout, "CompanionManager.swift");
+  const ttsClientSource = swiftSource(appCheckout, "ElevenLabsTTSClient.swift");
+  // Newer app versions name the default model in ClaudeVoiceModel, and older ones in CompanionManager's selectedModel.
+  const chatModel =
+    claudeAPISource.match(/sonnetModelID = "([^"]+)"/)?.[1] ??
+    requiredMatch(companionManagerSource, /"selectedClaudeModel"\) \?\? "([^"]+)"/, "the default chat model")[1];
+  // Older apps also have a non-streaming call after the streamed body, so cut the source where it starts. The current app has none.
+  const nonStreamingCallStart = claudeAPISource.indexOf("func analyzeImage(");
+  const streamingBodySource = nonStreamingCallStart === -1 ? claudeAPISource : claudeAPISource.slice(0, nonStreamingCallStart);
+  const chatEffort = streamingBodySource.match(/"output_config": \["effort": "(\w+)"\]/)?.[1];
+  const samplesPerBuffer = ttsClientSource.match(/samplesPerBuffer = ([\d_]+)/)?.[1];
+  return {
+    chatModel,
+    chatEffort,
+    chatSystemPromptCached: /"cache_control": \["type": "ephemeral"\]/.test(streamingBodySource),
+    chatSystemPrompt: appChatSystemPrompt(companionManagerSource),
+    ttsModel: requiredMatch(ttsClientSource, /"model_id": "([^"]+)"/, "the TTS model")[1],
+    ttsOutputFormat: ttsClientSource.match(/name: "output_format", value: "([^"]+)"/)?.[1],
+    ttsFirstBufferBytes: samplesPerBuffer === undefined ? 0 : Number(samplesPerBuffer.replaceAll("_", "")) * 2,
+  };
+}
+
+/** Reads the app's own chat system prompt, so the benchmark sends what the app sends even after the prompt changes. */
+function appChatSystemPrompt(companionManagerSource: string): string {
+  const promptMatch = companionManagerSource.match(
+    /companionVoiceResponseSystemPrompt = """\n([\s\S]*?)\n( *)"""/,
+  );
+  if (promptMatch === null) {
+    throw new Error("companionVoiceResponseSystemPrompt not found in CompanionManager.swift");
+  }
+  // Swift strips the closing delimiter's indentation from every line of a multiline string.
+  const closingIndentation = promptMatch[2];
+  return promptMatch[1]
+    .split("\n")
+    .map((promptLine) => (promptLine.startsWith(closingIndentation) ? promptLine.slice(closingIndentation.length) : promptLine))
+    .join("\n");
+}
+
+/** The /chat body ClaudeAPI.analyzeImageStreaming builds for one screen. */
+function appChatRequestBody(
+  appProfile: AppProfile,
+  transcript: string,
+  conversationHistory: { userTranscript: string; assistantResponse: string }[],
+) {
+  const historyMessages = conversationHistory.flatMap((exchange) => [
+    { role: "user", content: exchange.userTranscript },
+    { role: "assistant", content: exchange.assistantResponse },
+  ]);
+  return {
+    model: appProfile.chatModel,
+    max_tokens: 1024,
+    stream: true,
+    ...(appProfile.chatEffort === undefined ? {} : { output_config: { effort: appProfile.chatEffort } }),
+    system: appProfile.chatSystemPromptCached
+      ? [{ type: "text", text: appProfile.chatSystemPrompt, cache_control: { type: "ephemeral" } }]
+      : appProfile.chatSystemPrompt,
+    messages: [
+      ...historyMessages,
+      {
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: fixtureBase64("screen.jpg") } },
+          { type: "text", text: "user's screen (cursor is here) (image dimensions: 1280x800 pixels)" },
+          { type: "text", text: transcript },
+        ],
+      },
+    ],
+  };
+}
+
+/** Reported with each reply, since a longer reply makes speech slower and costlier, but it does not fail the check. */
+function spokenSentenceCount(replyText: string): number {
+  const spokenText = replyText.replace(/\[POINT:[^\]]*\]/g, "").trim();
+  return spokenText.split(/[.!?](?:\s|$)/).filter((sentence) => sentence.trim().length > 0).length;
+}
+
+/** The screen fixture draws "Download PDF" as a button at the top right and a sidebar link at the bottom left. */
+function pointIsOnADownloadPDFControl(pointX: number, pointY: number): boolean {
+  const topRightButton = pointX >= 1140 && pointX <= 1280 && pointY >= 38 && pointY <= 80;
+  const sidebarLink = pointX >= 10 && pointX <= 140 && pointY >= 355 && pointY <= 388;
+  return topRightButton || sidebarLink;
+}
+
+const spokenReplyForSpeech =
+  "the heart has four chambers. the two atria on top collect blood, and the two ventricles underneath pump it out, the left one sending it to your whole body.";
+
+type JudgeQuiz = { question: string; answerLabel: string; explanation: string; heardTranscript?: string };
+
+const heartQuiz: JudgeQuiz = {
+  question: "What is this part of the heart, and what does it do?",
+  answerLabel: "left ventricle",
+  explanation: "The left ventricle pumps oxygen-rich blood out to the body through the aorta.",
+};
+
+/** A video quiz sends the captions the learner heard, and an answer they support counts even when it differs from the explanation. */
+const sharkVideoQuiz: JudgeQuiz = {
+  question: "Let's pause here! What keeps a shark from sinking, and how?",
+  answerLabel: "liver",
+  explanation: "A shark's big liver is full of oil, which is lighter than water, so it helps the shark float.",
+  heardTranscript:
+    "Sharks have no swim bladder, the air sac most fish use to float. Instead a shark keeps swimming, and its fins act like the wings of a plane, giving it lift as it moves forward. Its liver is also huge and full of oil.",
+};
+
+function judgeCase(judgeCaseSpec: {
+  caseSuffix: string;
+  quiz: JudgeQuiz;
+  learnerTranscript: string;
+  expectedVerdict: string;
+  /** A reply that grades a wrong or name-only answer must not give the answer away. */
+  wordsTheReplyMustNotSay?: string[];
+}): BenchCase {
+  const { caseSuffix, quiz, learnerTranscript, expectedVerdict, wordsTheReplyMustNotSay = [] } = judgeCaseSpec;
+  return {
+    id: `judge-${caseSuffix}`,
+    route: "/judge-answer",
+    description: `Grades "${learnerTranscript}" and expects ${expectedVerdict}`,
+    requestBody: () => ({ ...quiz, transcript: learnerTranscript }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const verdict = reply?.verdict;
+      const spokenReply = String(reply?.spokenReply ?? "").toLowerCase();
+      const giveaways = wordsTheReplyMustNotSay.filter((giveaway) => spokenReply.includes(giveaway));
+      return {
+        passed: verdict === expectedVerdict && giveaways.length === 0,
+        detail: `verdict ${String(verdict)}${giveaways.length > 0 ? `, reply gives away ${giveaways.join(", ")}` : ""}`,
+      };
+    },
+  };
+}
+
+/** A field left out is not checked. */
+type FramePartsExpectation = { isArtwork: boolean; wholePictureIsSubject: boolean; pictureShowsDepth?: boolean };
+
+function framePartsCase(id: string, frameFileName: string, expected: FramePartsExpectation | "noSubject", description: string): BenchCase {
+  return {
+    id,
+    route: "/video-frame-parts",
+    description,
+    requestBody: () => ({
+      frameBase64: fixtureBase64(frameFileName),
+      frameWidth: 1280,
+      frameHeight: 720,
+      subject: "",
+      question: "",
+      answerLabel: "",
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      if (expected === "noSubject") {
+        return { passed: reply?.subjectFound === false, detail: `subjectFound ${String(reply?.subjectFound)}` };
+      }
+      if (reply?.subjectFound !== true) {
+        return { passed: false, detail: "subjectFound is not true" };
+      }
+      const parts = Array.isArray(reply.parts) ? reply.parts : [];
+      const isArtwork = reply.isArtwork === true;
+      const wholePicture = reply.wholePictureIsSubject === true;
+      const showsDepth = reply.pictureShowsDepth === true;
+      const passed =
+        isArtwork === expected.isArtwork &&
+        wholePicture === expected.wholePictureIsSubject &&
+        (expected.pictureShowsDepth === undefined || showsDepth === expected.pictureShowsDepth) &&
+        parts.length >= 3;
+      return { passed, detail: `isArtwork ${isArtwork}, wholePictureIsSubject ${wholePicture}, pictureShowsDepth ${showsDepth}, ${parts.length} parts` };
+    },
+  };
+}
+
+/** A "show me" request for a 3D model. The reply must hold a page and a quiz with an answer part. */
+function modelSceneCase(id: string, screenshotFileName: string, question: string, description: string): BenchCase {
+  return {
+    id,
+    route: "/live-scene",
+    description,
+    requestBody: () => ({ question, screenshotBase64: fixtureBase64(screenshotFileName), screenshotMediaType: "image/jpeg" }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const quiz = isRecord(reply?.quiz) ? reply.quiz : {};
+      const passed = typeof reply?.html === "string" && typeof quiz.answerLabel === "string";
+      return { passed, detail: passed ? `answer ${String(quiz.answerLabel)}` : "no page or quiz" };
+    },
+  };
+}
+
+/** A "let me try it" request over a physics frame. The reply must hold a page with the controls the app's panel reads. */
+function simulationCase(id: string, frameFileName: string, description: string): BenchCase {
+  return {
+    id,
+    route: "/live-scene",
+    description,
+    requestBody: () => ({
+      question: "let me try it",
+      screenshotBase64: fixtureBase64(frameFileName),
+      screenshotMediaType: "image/jpeg",
+      kind: "simulation",
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const html = typeof reply?.html === "string" ? reply.html : "";
+      const quiz = isRecord(reply?.quiz) ? reply.quiz : {};
+      const hasEveryPart = [/\bcontrols\s*[:=]/, /\bsetControl\s*[(:=]/, /\brun\s*[(:=]/].every((pattern) => pattern.test(html));
+      const passed = hasEveryPart && typeof quiz.question === "string";
+      return { passed, detail: passed ? `prediction: ${String(quiz.question)}` : "no simulation page or prediction" };
+    },
+  };
+}
+
+type VoiceToolCall = { name: string; input: Record<string, unknown> };
+
+function voiceToolCallsIn(replyText: string): VoiceToolCall[] {
+  const content = parseJSONObject(replyText)?.content;
+  return (Array.isArray(content) ? content : [])
+    .filter(isRecord)
+    .filter((block) => block.type === "tool_use")
+    .map((block) => ({ name: String(block.name), input: isRecord(block.input) ? block.input : {} }));
+}
+
+/** The app's own /voice-command body in a fixture, with the learner's words swapped in, so the tools and scene state stay what the app sends. */
+function voiceCommandBody(fixtureFileName: string, learnerTranscript: string): unknown {
+  const body = JSON.parse(readFileSync(join(fixturesDirectory, fixtureFileName), "utf8"));
+  body.messages[0].content = String(body.messages[0].content).replace(/Learner said: ".*"$/s, `Learner said: "${learnerTranscript}"`);
+  return body;
+}
+
+/** Every case expects one tool call, with a confirmation Clicky speaks, unless it expects none. */
+function voiceCommandCase(voiceCommandSpec: {
+  id: string;
+  fixtureFileName: string;
+  learnerTranscript: string;
+  description: string;
+  /** A reason the one tool call is wrong, or undefined when it is right. */
+  problemWith: (toolCall: VoiceToolCall) => string | undefined;
+}): BenchCase {
+  const { id, fixtureFileName, learnerTranscript, description, problemWith } = voiceCommandSpec;
+  return {
+    id,
+    route: "/voice-command",
+    description,
+    requestBody: () => voiceCommandBody(fixtureFileName, learnerTranscript),
+    checkReply: (replyText) => {
+      const toolCalls = voiceToolCallsIn(replyText);
+      const toolCall = toolCalls[0];
+      const confirmation = String(toolCall?.input.confirmation ?? "");
+      const problem = toolCalls.length !== 1 ? `${toolCalls.length} tool calls` : (problemWith(toolCall) ?? (confirmation.length === 0 ? "no confirmation" : undefined));
+      return { passed: problem === undefined, detail: `${toolCalls.map((call) => `${call.name} ${JSON.stringify({ ...call.input, confirmation: undefined })}`).join(", ") || "no tool"}${problem === undefined ? "" : `: ${problem}`}` };
+    },
+  };
+}
+
+type PictureFlowsExpectation =
+  | { kind: "nothingFlows" }
+  | { kind: "flows"; colors: string[]; styles: string[] };
+
+function pictureFlowsCase(id: string, frameFileName: string, partLabels: string[], expectation: PictureFlowsExpectation, description: string): BenchCase {
+  return {
+    id,
+    route: "/picture-flows",
+    description,
+    requestBody: () => ({ frameBase64: fixtureBase64(frameFileName), frameWidth: 1280, frameHeight: 720, partLabels }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const flows: unknown[] = Array.isArray(reply?.flows) ? reply.flows : [];
+      const flowField = (fieldName: "color" | "style") =>
+        flows.map((flow) => (typeof flow === "object" && flow !== null && fieldName in flow ? String((flow as Record<string, unknown>)[fieldName]) : "none"));
+      const colors = flowField("color"), styles = flowField("style");
+      const passedByKind = {
+        nothingFlows: () => flows.length === 0,
+        flows: () => expectation.kind === "flows" && expectation.colors.every((color) => colors.includes(color)) && expectation.styles.every((style) => styles.includes(style)),
+      };
+      const flowSummary = flows.length === 0 ? "none" : colors.map((color, flowIndex) => `${styles[flowIndex]}/${color}`).join(", ");
+      return { passed: passedByKind[expectation.kind](), detail: `${flows.length} flows: ${flowSummary}` };
+    },
+  };
+}
+
+/**
+ * /theme-ideas enforces every theme rule itself (3 ideas, colors, contrast, paths, sounds), and answers 422 for a reply
+ * that breaks one, so a 200 reply already passes them. This check reads the reply the way the app does and adds what the
+ * route cannot know: that a request with no picture never uses one, and that a request with a picture does.
+ */
+function themeIdeasCase(id: string, description: string, requestWords: string, pictureFrameFileName: string | undefined): BenchCase {
+  const hexColor = /^#[0-9A-F]{6}$/;
+  return {
+    id,
+    route: "/theme-ideas",
+    description,
+    requestBody: () => ({
+      request: requestWords,
+      ...(pictureFrameFileName === undefined ? {} : { picture: { jpegBase64: fixtureBase64(pictureFrameFileName), width: 1280, height: 720 } }),
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const ideas = (Array.isArray(reply?.ideas) ? reply.ideas : []).filter(isRecord);
+      const cursorOf = (idea: Record<string, unknown>) => (isRecord(idea.cursor) ? idea.cursor : {});
+      const pathsOf = (idea: Record<string, unknown>): string[] => {
+        const shapes: unknown = cursorOf(idea).shapes;
+        return (Array.isArray(shapes) ? shapes : []).filter(isRecord).map((shape) => String(shape.d));
+      };
+      // A version 2 idea keeps its agent colors and faces under agents, and a version 1 idea, which an older app's Worker
+      // sends, keeps agentColors and usesPicture at the top.
+      const agentsOf = (idea: Record<string, unknown>) => (isRecord(idea.agents) ? idea.agents : {});
+      const agentColorsOf = (idea: Record<string, unknown>): unknown[] => {
+        const agentColors: unknown = Array.isArray(idea.agentColors) ? idea.agentColors : agentsOf(idea).colors;
+        return Array.isArray(agentColors) ? agentColors : [];
+      };
+      const colorsOf = (idea: Record<string, unknown>) => [idea.accent, idea.contrast, ...agentColorsOf(idea)];
+      const usesThePicture = (idea: Record<string, unknown>) => {
+        const faces = agentsOf(idea).faces;
+        return idea.usesPicture === true || (isRecord(faces) && faces.kind === "picture") || cursorOf(idea).kind === "picture";
+      };
+      const picturesUsed = ideas.filter(usesThePicture).length;
+      const pictureCursors = ideas.filter((idea) => cursorOf(idea).kind === "picture").length;
+      const problems = [
+        ...(ideas.length === 3 ? [] : [`${ideas.length} ideas`]),
+        ...(ideas.every((idea) => colorsOf(idea).every((color) => typeof color === "string" && hexColor.test(color))) ? [] : ["a color is not uppercase #RRGGBB"]),
+        ...(ideas.every((idea) => pathsOf(idea).every((pathData) => !/[Aa]/.test(pathData))) ? [] : ["a path has an arc"]),
+        ...(pictureFrameFileName === undefined && (picturesUsed > 0 || pictureCursors > 0) ? ["uses a picture that was never sent"] : []),
+        ...(pictureFrameFileName !== undefined && picturesUsed === 0 ? ["no idea uses the picture"] : []),
+      ];
+      const names = ideas.map((idea) => String(idea.name)).join(", ");
+      return { passed: problems.length === 0, detail: `${names || "no ideas"}; ${picturesUsed} use the picture${problems.length === 0 ? "" : `: ${problems.join("; ")}`}` };
+    },
+  };
+}
+
+export const benchCases: BenchCase[] = [
+  {
+    id: "chat-first",
+    route: "/chat",
+    description: "First push-to-talk question with one 1280x800 screenshot, streamed",
+    requestBody: (appProfile) => appChatRequestBody(appProfile, "how do i download this page as a pdf?", []),
+    checkReply: (replyText) => {
+      const pointMatch = replyText.match(/\[POINT:(\d+),(\d+)/);
+      if (pointMatch === null) {
+        return { passed: false, detail: "no [POINT:x,y] tag" };
+      }
+      const pointX = Number(pointMatch[1]);
+      const pointY = Number(pointMatch[2]);
+      const sentenceCount = spokenSentenceCount(replyText);
+      return {
+        passed: pointIsOnADownloadPDFControl(pointX, pointY),
+        detail: `pointed at ${pointX},${pointY}, ${sentenceCount} sentences`,
+      };
+    },
+  },
+  {
+    id: "chat-followup",
+    route: "/chat",
+    description: "Second question in the same conversation, with one exchange of history",
+    requestBody: (appProfile) =>
+      appChatRequestBody(appProfile, "what are the four chambers called?", [
+        {
+          userTranscript: "how do i download this page as a pdf?",
+          assistantResponse: "see that blue download pdf button up in the top right? click that and it'll save the whole article for you.",
+        },
+      ]),
+    checkReply: (replyText) => {
+      const spokenText = replyText.toLowerCase();
+      const namesTheChambers = spokenText.includes("atri") && spokenText.includes("ventricle") && /\[POINT:/.test(replyText);
+      const sentenceCount = spokenSentenceCount(replyText);
+      return {
+        passed: namesTheChambers,
+        detail: `${namesTheChambers ? "names atria and ventricles" : "misses a chamber name or the point tag"}, ${sentenceCount} sentences`,
+      };
+    },
+  },
+  {
+    id: "tts",
+    route: "/tts",
+    description: `Speaks a ${spokenReplyForSpeech.length}-character reply with the app's ElevenLabs settings`,
+    requestQuery: (appProfile) => (appProfile.ttsOutputFormat === undefined ? "" : `?output_format=${appProfile.ttsOutputFormat}`),
+    requestBody: (appProfile) => ({
+      text: spokenReplyForSpeech,
+      model_id: appProfile.ttsModel,
+      voice_settings: { stability: 0.35, similarity_boost: 0.75, style: 0.4 },
+    }),
+    checkReply: (_replyText, contentType, replyBytes) => ({
+      passed: contentType.includes("audio") && replyBytes > 20_000,
+      detail: `${contentType}, ${Math.round(replyBytes / 1024)} KB`,
+    }),
+  },
+  {
+    id: "video-quiz-plan",
+    route: "/video-quiz-plan",
+    description: "Plans quiz moments for the heart video transcript in verify-clicky's fixture",
+    requestBody: () =>
+      JSON.parse(readFileSync(join(checkoutRoot, ".claude/skills/verify-clicky/fixtures/video-quiz-plan.json"), "utf8")),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const moments = Array.isArray(reply?.moments) ? reply.moments : [];
+      return { passed: moments.length >= 1, detail: `${moments.length} moments` };
+    },
+  },
+  {
+    id: "video-quiz-plan-long",
+    route: "/video-quiz-plan",
+    description: "Plans quiz moments for a 10-minute shark video with a sponsor read and a subscribe request",
+    requestBody: () => JSON.parse(readFileSync(join(fixturesDirectory, "video-quiz-plan-sharks.json"), "utf8")),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const moments = (Array.isArray(reply?.moments) ? reply.moments : []).filter(isRecord);
+      // The sponsor read is the lines at 216 and 228 seconds, and the subscribe request is the line at 576.
+      const pauseTimes = moments.map((moment) => numberField(moment, "pauseAtSeconds"));
+      const sourceTimes = moments.map((moment) => numberField(moment, "sourceLineSeconds"));
+      const brokenRules = [
+        ...pauseTimes.filter((pauseTime) => pauseTime > 216 && pauseTime <= 240).map((pauseTime) => `pause ${pauseTime} in the sponsor read`),
+        ...sourceTimes.filter((sourceTime) => sourceTime === 216 || sourceTime === 228).map((sourceTime) => `asks about the sponsor line ${sourceTime}`),
+        ...pauseTimes.filter((pauseTime) => pauseTime > 576).map((pauseTime) => `pause ${pauseTime} after the subscribe request`),
+      ];
+      return {
+        passed: moments.length >= 2 && brokenRules.length === 0,
+        detail: `${moments.length} moments at ${pauseTimes.join(", ")}${brokenRules.length > 0 ? `; ${brokenRules.join("; ")}` : ""}`,
+      };
+    },
+  },
+  framePartsCase("frame-parts-heart", "heart-diagram-frame.jpg", { isArtwork: false, wholePictureIsSubject: false, pictureShowsDepth: false }, "Finds the heart in a 1280x720 diagram frame"),
+  framePartsCase("frame-parts-painting", "starry-night-frame.jpg", { isArtwork: true, wholePictureIsSubject: true, pictureShowsDepth: false }, "Lifts The Starry Night out as a whole picture and marks it as art"),
+  framePartsCase("frame-parts-cutaway", "turbofan-cutaway-frame.jpg", { isArtwork: false, wholePictureIsSubject: false, pictureShowsDepth: true }, "Marks a 3D cutaway of a turbofan as showing depth"),
+  framePartsCase("frame-parts-print", "great-wave-frame.jpg", { isArtwork: true, wholePictureIsSubject: true }, "Marks The Great Wave, a woodblock print, as art"),
+  framePartsCase("frame-parts-art-of-one-animal", "young-hare-frame.jpg", { isArtwork: true, wholePictureIsSubject: false }, "Marks Dürer's Young Hare as art, though it shows one animal"),
+  framePartsCase("frame-parts-bicycle", "bicycle-diagram-frame.jpg", { isArtwork: false, wholePictureIsSubject: false }, "Keeps a labeled bicycle diagram as a diagram, not art"),
+  framePartsCase("frame-parts-chart", "chart-frame.jpg", "noSubject", "Finds no subject in a bar chart, which is not one drawn object"),
+  pictureFlowsCase(
+    "picture-flows-heart",
+    "heart-diagram-frame.jpg",
+    ["Aorta", "Left ventricle", "Right ventricle", "Pulmonary artery"],
+    { kind: "flows", colors: ["red", "blue"], styles: [] },
+    "Draws blood rich and low in oxygen through a heart diagram",
+  ),
+  pictureFlowsCase(
+    "picture-flows-water-cycle",
+    "water-cycle-frame.jpg",
+    ["Evaporation", "Precipitation", "Surface runoff", "Groundwater flow"],
+    { kind: "flows", colors: ["cyan"], styles: ["droplets"] },
+    "Draws rain and runoff as droplets through the USGS water cycle diagram",
+  ),
+  pictureFlowsCase(
+    "picture-flows-cutaway",
+    "turbofan-cutaway-frame.jpg",
+    ["Fan", "Compressor", "Combustion chamber", "Turbine"],
+    { kind: "flows", colors: [], styles: ["air", "sparks"] },
+    "Draws air and hot gas through a turbofan cutaway",
+  ),
+  pictureFlowsCase("picture-flows-bicycle", "bicycle-diagram-frame.jpg", ["Front wheel", "Rear wheel", "Chain", "Pedal"], { kind: "nothingFlows" }, "Draws no flow for a bicycle, whose chain is a moving part"),
+  themeIdeasCase("theme-ideas-words", "Designs three theme ideas from words only: something cozy for night", "something cozy for night", undefined),
+  themeIdeasCase("theme-ideas-picture", "Designs three theme ideas from The Starry Night frame, with at least one that uses the picture", "make my theme from this picture", "starry-night-frame.jpg"),
+  {
+    id: "landmark",
+    route: "/landmark",
+    description: "Recognizes the Eiffel Tower in a 1280x720 frame",
+    requestBody: () => ({
+      frameBase64: fixtureBase64("eiffel-tower-frame.jpg"),
+      videoTitle: "A day in Paris",
+      learnerRequest: "show me this in 3D",
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      if (reply?.isFamousPlace !== true) {
+        return { passed: false, detail: "isFamousPlace is not true" };
+      }
+      const latitudeError = Math.abs(numberField(reply, "latitude") - 48.85826);
+      const longitudeError = Math.abs(numberField(reply, "longitude") - 2.29451);
+      const passed = String(reply.name).includes("Eiffel") && latitudeError < 0.003 && longitudeError < 0.003;
+      return { passed, detail: `${String(reply.name)} at ${numberField(reply, "latitude")},${numberField(reply, "longitude")}` };
+    },
+  },
+  {
+    id: "landmark-not-a-place",
+    route: "/landmark",
+    description: "Says a heart diagram is not a famous place",
+    requestBody: () => ({
+      frameBase64: fixtureBase64("heart-diagram-frame.jpg"),
+      videoTitle: "How the heart works",
+      learnerRequest: "show me this in 3D",
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      return { passed: reply?.isFamousPlace === false, detail: `isFamousPlace ${String(reply?.isFamousPlace)}` };
+    },
+  },
+  modelSceneCase("live-scene", "screen.jpg", "show me the inside of a heart", "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture"),
+  modelSceneCase("live-scene-engine", "turbofan-cutaway-frame.jpg", "show me this engine in 3D", "Builds a 3D model of the jet engine in a cutaway frame"),
+  modelSceneCase("live-scene-bicycle", "bicycle-diagram-frame.jpg", "show me this in 3D", "Builds a 3D model of the bicycle in a diagram frame"),
+  simulationCase("simulation-projectile", "projectile-frame.jpg", "Builds a simulation over a cannon frame for \"let me try it\""),
+  simulationCase("simulation-lever", "lever-frame.jpg", "Builds a simulation over a lever frame for \"let me try it\""),
+  simulationCase("simulation-pendulum", "pendulum-frame.jpg", "Builds a simulation over a pendulum frame for \"let me try it\""),
+  simulationCase("simulation-dissolving", "dissolving-frame.jpg", "Builds a dissolving experiment over a hot and cold water frame for \"let me try it\""),
+  simulationCase("simulation-cooling", "cooling-frame.jpg", "Builds a cooling experiment over a cocoa mug frame for \"let me try it\""),
+  {
+    id: "voice-command",
+    route: "/voice-command",
+    description: 'Turns a frame pop-out the other way after "no, turn it the other way", with a recent rotate_model of 45 degrees',
+    // The body is the one the app builds: its scene state JSON, its recent actions, and the tools a pop-out offers.
+    requestBody: () => JSON.parse(readFileSync(join(fixturesDirectory, "voice-command.json"), "utf8")),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const toolCalls = (Array.isArray(reply?.content) ? reply.content : []).filter(isRecord).filter((block) => block.type === "tool_use");
+      const rotation = toolCalls.find((toolCall) => toolCall.name === "rotate_model");
+      const yawDegrees = isRecord(rotation?.input) ? numberField(rotation.input, "yawDegrees") : 0;
+      const confirmation = isRecord(rotation?.input) ? String(rotation.input.confirmation ?? "") : "";
+      return {
+        passed: toolCalls.length === 1 && yawDegrees < 0 && confirmation.length > 0,
+        detail: `${toolCalls.map((toolCall) => String(toolCall.name)).join(", ") || "no tool"}, yaw ${yawDegrees}, says "${confirmation}"`,
+      };
+    },
+  },
+  voiceCommandCase({
+    id: "voice-command-seek",
+    fixtureFileName: "voice-command-video.json",
+    learnerTranscript: "go back 30 seconds",
+    description: 'Goes back 30 seconds in a YouTube video at 2:04, by seeking 30 seconds back or to 1:34',
+    problemWith: ({ name, input }) => {
+      const seconds = numberField(input, "seconds");
+      const wentBack30 = (name === "seek_relative" && Math.abs(seconds + 30) <= 1) || (name === "seek_to_time" && Math.abs(seconds - 94) <= 1);
+      return wentBack30 ? undefined : `${name} ${seconds} does not go back 30 seconds from 124`;
+    },
+  }),
+  voiceCommandCase({
+    id: "voice-command-zoom",
+    fixtureFileName: "voice-command.json",
+    learnerTranscript: "zoom in a little",
+    description: "Zooms in on a frame pop-out with one zoom call, by a factor above 1",
+    problemWith: ({ name, input }) => {
+      const factor = numberField(input, "factor");
+      return name === "zoom" && factor > 1 && factor <= 2 ? undefined : `${name} ${factor} is not a small zoom in`;
+    },
+  }),
+  voiceCommandCase({
+    id: "voice-command-explain",
+    fixtureFileName: "voice-command.json",
+    learnerTranscript: "what does the tail do?",
+    description: "Explains the tail of a frame pop-out labeled wing, tail, and engine, with explain_part",
+    problemWith: ({ name, input }) => (name === "explain_part" && String(input.label).toLowerCase() === "tail" ? undefined : `${name} ${String(input.label)} is not explain_part tail`),
+  }),
+  {
+    id: "voice-command-no-tool",
+    route: "/voice-command",
+    description: 'Calls no tool for "thanks, that looks great", which asks for nothing',
+    requestBody: () => voiceCommandBody("voice-command.json", "thanks, that looks great"),
+    checkReply: (replyText) => {
+      const toolCalls = voiceToolCallsIn(replyText);
+      return { passed: toolCalls.length === 0, detail: toolCalls.length === 0 ? "no tool" : toolCalls.map((toolCall) => toolCall.name).join(", ") };
+    },
+  },
+  judgeCase({ caseSuffix: "correct", quiz: heartQuiz, learnerTranscript: "that's the left ventricle, it pumps blood out to the whole body", expectedVerdict: "correct" }),
+  judgeCase({ caseSuffix: "named-only", quiz: heartQuiz, learnerTranscript: "the left ventricle", expectedVerdict: "named_only", wordsTheReplyMustNotSay: ["pump", "aorta"] }),
+  judgeCase({ caseSuffix: "wrong", quiz: heartQuiz, learnerTranscript: "is it the lungs?", expectedVerdict: "wrong", wordsTheReplyMustNotSay: ["ventricle", "pump"] }),
+  judgeCase({ caseSuffix: "help", quiz: heartQuiz, learnerTranscript: "i don't know, can you tell me?", expectedVerdict: "asked_for_help" }),
+  judgeCase({ caseSuffix: "function-only", quiz: heartQuiz, learnerTranscript: "it squeezes blood out to the rest of the body", expectedVerdict: "correct" }),
+  judgeCase({ caseSuffix: "caption-supported", quiz: sharkVideoQuiz, learnerTranscript: "its fins give it lift like a plane wing while it swims", expectedVerdict: "correct" }),
+  judgeCase({ caseSuffix: "caption-wrong", quiz: sharkVideoQuiz, learnerTranscript: "it has a swim bladder full of air", expectedVerdict: "wrong", wordsTheReplyMustNotSay: ["liver", "oil"] }),
+  judgeCase({ caseSuffix: "hint", quiz: heartQuiz, learnerTranscript: "can i get a hint?", expectedVerdict: "wants_hint", wordsTheReplyMustNotSay: ["ventricle"] }),
+  judgeCase({ caseSuffix: "skip", quiz: heartQuiz, learnerTranscript: "skip this one", expectedVerdict: "skip_question" }),
+  judgeCase({ caseSuffix: "repeat", quiz: heartQuiz, learnerTranscript: "can you say the question again?", expectedVerdict: "repeat_question" }),
+  judgeCase({ caseSuffix: "scene-command", quiz: heartQuiz, learnerTranscript: "turn it to the left", expectedVerdict: "scene_command" }),
+];
+
+// ---------- Worker runs ----------
+
+function workerLogPath(workerCheckout: string, port: number): string {
+  const logPathRecord = join(workerCheckout, ".verify-clicky", `worker-${port}.logpath`);
+  if (!existsSync(logPathRecord)) {
+    throw new Error(`No Worker started by verify-clicky in ${workerCheckout} on port ${port}. Run its verify-clicky.sh worker-up ${port}`);
+  }
+  return readFileSync(logPathRecord, "utf8").trim();
+}
+
+function usageLinesLoggedAfter(logPath: string, byteOffset: number, route: string): UsageLine[] {
+  return usageLinesOfRouteInLog(readFileSync(logPath).subarray(byteOffset).toString("utf8"), route);
+}
+
+/** /chat streams Server-Sent Events and logs no usage line, so its usage and first text token come from the stream. */
+async function readChatStream(response: Response, requestStartMs: number) {
+  if (response.body === null) {
+    throw new Error("/chat returned no body");
+  }
+  const decoder = new TextDecoder();
+  let bufferedText = "";
+  let replyText = "";
+  let firstTokenMs: number | null = null;
+  let usageObject: Record<string, unknown> = {};
+  for await (const streamChunk of response.body) {
+    bufferedText += decoder.decode(streamChunk, { stream: true });
+    const completeLines = bufferedText.split("\n");
+    bufferedText = completeLines.pop() ?? "";
+    for (const streamLine of completeLines) {
+      if (!streamLine.startsWith("data: ")) {
+        continue;
+      }
+      const streamEvent = parseJSONObject(streamLine.slice(6));
+      if (streamEvent === undefined) {
+        continue;
+      }
+      usageObject = usageAfterChatStreamEvent(usageObject, streamEvent);
+      if (streamEvent.type === "content_block_delta" && isRecord(streamEvent.delta) && streamEvent.delta.type === "text_delta") {
+        firstTokenMs ??= performance.now() - requestStartMs;
+        replyText += String(streamEvent.delta.text);
+      }
+    }
+  }
+  return { replyText, firstTokenMs, usageLine: usageLineFromUsageObject("/chat", usageObject) };
+}
+
+type BenchSide = { label: string; port: number; workerCheckout: string; logPath: string; appProfile: AppProfile; samples: Sample[] };
+
+/**
+ * Saves the whole reply, since the sample's preview stops at 600 characters, and the request once per case, so a judge can
+ * show what the model was asked. A live scene's page is also saved as an .html file, to be opened as it is.
+ */
+function saveFullReply(
+  pagesDirectory: string,
+  side: BenchSide,
+  benchCase: BenchCase,
+  runIndex: number,
+  requestBodyText: string,
+  reply: Pick<SavedReply, "httpStatus" | "qualityPassed" | "models" | "replyText">,
+) {
+  mkdirSync(join(pagesDirectory, "requests"), { recursive: true });
+  const savedReply: SavedReply = { side: side.label, caseId: benchCase.id, route: benchCase.route, runIndex, ...reply };
+  writeFileSync(join(pagesDirectory, savedReplyFileName(side.label, benchCase.id, runIndex)), `${JSON.stringify(savedReply)}\n`);
+  const requestPath = join(pagesDirectory, requestFileName(benchCase.id));
+  if (!existsSync(requestPath)) {
+    writeFileSync(requestPath, requestBodyText);
+  }
+  const scenePage = benchCase.route === "/live-scene" ? parseJSONObject(reply.replyText)?.html : undefined;
+  if (typeof scenePage === "string") {
+    writeFileSync(join(pagesDirectory, `${side.label}-${benchCase.id}-${runIndex + 1}.html`), scenePage);
+  }
+}
+
+async function runOneSample(benchCase: BenchCase, runIndex: number, side: BenchSide): Promise<Sample> {
+  const { port, logPath, appProfile } = side;
+  const requestBodyText = JSON.stringify(benchCase.requestBody(appProfile));
+  const logOffsetBeforeRequest = statSync(logPath).size;
+  const requestStartMs = performance.now();
+  const requestQuery = benchCase.requestQuery?.(appProfile) ?? "";
+  let response: Response;
+  try {
+    response = await fetch(`http://127.0.0.1:${port}${benchCase.route}${requestQuery}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: requestBodyText,
+    });
+  } catch (fetchError) {
+    // No reply at all, such as a model still thinking past fetch's 5 minute header timeout, is a failed sample, so
+    // one slow call never ends the run and loses every other side's results. Its cost is unknown, not zero.
+    const totalMs = performance.now() - requestStartMs;
+    const reason = fetchError instanceof Error && fetchError.cause instanceof Error ? fetchError.cause.message : String(fetchError);
+    return {
+      caseId: benchCase.id,
+      runIndex,
+      httpStatus: 0,
+      firstByteMs: totalMs,
+      firstTokenMs: null,
+      firstAudioMs: null,
+      totalMs,
+      usageLines: [],
+      ttsCharacters: 0,
+      costUSD: null,
+      quality: { passed: false, detail: `no reply after ${Math.round(totalMs / 1000)} s: ${reason}` },
+      replyPreview: "",
+    };
+  }
+  const firstByteMs = performance.now() - requestStartMs;
+  const contentType = response.headers.get("content-type") ?? "";
+
+  let replyText = "";
+  let replyBytes = 0;
+  let firstTokenMs: number | null = null;
+  let firstAudioMs: number | null = null;
+  let streamedUsageLines: UsageLine[] = [];
+  if (benchCase.route === "/chat" && response.ok) {
+    const chatStream = await readChatStream(response, requestStartMs);
+    replyText = chatStream.replyText;
+    firstTokenMs = chatStream.firstTokenMs;
+    streamedUsageLines = [chatStream.usageLine];
+  } else if (benchCase.route === "/tts" && response.ok && response.body !== null) {
+    const audioIsStreamedPCM = contentType.includes("pcm");
+    for await (const audioChunk of response.body) {
+      replyBytes += audioChunk.length;
+      if (audioIsStreamedPCM && firstAudioMs === null && replyBytes >= appProfile.ttsFirstBufferBytes) {
+        firstAudioMs = performance.now() - requestStartMs;
+      }
+    }
+    // An MP3 plays only once whole, and a PCM line shorter than one buffer plays when the stream ends.
+    if (firstAudioMs === null) {
+      firstAudioMs = performance.now() - requestStartMs;
+    }
+  } else {
+    const replyBuffer = Buffer.from(await response.arrayBuffer());
+    replyBytes = replyBuffer.length;
+    replyText = contentType.includes("audio") ? "" : replyBuffer.toString("utf8");
+  }
+  const totalMs = performance.now() - requestStartMs;
+
+  // The Worker writes its usage line just before it answers, so give wrangler's log a moment to flush.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const usageLines = benchCase.route === "/chat" ? streamedUsageLines : usageLinesLoggedAfter(logPath, logOffsetBeforeRequest, benchCase.route);
+
+  let ttsCharacters = 0;
+  const usageLineCosts = usageLines.map(costOfUsageLine);
+  // A model route that answered but logged no usage line spent an unknown amount, which must not read as zero.
+  const usageLineIsMissing = benchCase.route !== "/tts" && response.ok && usageLines.length === 0;
+  if (usageLineIsMissing) {
+    console.warn(`${benchCase.route} answered without a usage line, so its cost is recorded as unknown.`);
+  }
+  let costUSD = usageLineIsMissing || usageLineCosts.includes(null)
+    ? null
+    : usageLineCosts.reduce((runningCost: number, usageLineCost) => runningCost + (usageLineCost ?? 0), 0);
+  if (benchCase.route === "/tts") {
+    const ttsBody = parseJSONObject(requestBodyText) ?? {};
+    ttsCharacters = String(ttsBody.text).length;
+    const pricePerThousandCharacters = elevenLabsPricePerThousandCharacters[String(ttsBody.model_id)];
+    if (pricePerThousandCharacters === undefined) {
+      console.warn(`No price for speech model ${String(ttsBody.model_id)}, so its cost is recorded as unknown.`);
+    }
+    costUSD = pricePerThousandCharacters === undefined ? null : (ttsCharacters / 1000) * pricePerThousandCharacters;
+  }
+
+  const quality = response.ok
+    ? benchCase.checkReply(replyText, contentType, replyBytes)
+    : { passed: false, detail: `HTTP ${response.status}: ${replyText.slice(0, 200)}` };
+
+  const pagesDirectory = commandLineOption("pages-dir");
+  if (pagesDirectory !== undefined && benchCase.route !== "/tts") {
+    saveFullReply(pagesDirectory, side, benchCase, runIndex, requestBodyText, {
+      httpStatus: response.status,
+      qualityPassed: quality.passed,
+      models: [...new Set(usageLines.map((usageLine) => usageLine.model))],
+      replyText,
+    });
+  }
+  return {
+    caseId: benchCase.id,
+    runIndex,
+    httpStatus: response.status,
+    firstByteMs,
+    firstTokenMs,
+    firstAudioMs,
+    totalMs,
+    usageLines,
+    ttsCharacters,
+    costUSD,
+    quality,
+    replyPreview: benchCase.route === "/live-scene" ? "" : replyText.slice(0, 600),
+  };
+}
+
+// ---------- App runs ----------
+
+type AppStep = { id: string; transcript: string; doneLinePattern: RegExp; description: string };
+
+const appSteps: AppStep[] = [
+  {
+    id: "app-voice-reply",
+    transcript: "what are the four chambers of the heart called?",
+    doneLinePattern: /^🔊 ElevenLabs TTS: playing/,
+    description: "Transcript in to the first spoken word of the reply",
+  },
+  {
+    id: "app-image-popout",
+    transcript: "pop this out",
+    doneLinePattern: /^Frame pop-out: lifting/,
+    description: "\"pop this out\" over the heart image to the pop-out page starting",
+  },
+];
+
+type AppSample = { stepId: string; runIndex: number; elapsedMs: number | null };
+
+async function runAppBenchmark(runCount: number): Promise<AppSample[]> {
+  // Each step's runs go together, because a finished pop-out stays up and sends the next question down another path.
+  const rehearsalSteps = appSteps.flatMap((appStep) => Array.from({ length: runCount }, (_, runIndex) => ({ appStep, runIndex })));
+  const rehearsalTranscripts = rehearsalSteps.map((rehearsalStep) => rehearsalStep.appStep.transcript);
+  execFileSync(verifyClickyScript, ["app-launch", rehearsalTranscripts.join("|")], { stdio: "inherit" });
+  const appLogPath = join(realpathSync(join(verifyClickyStateDirectory, "current")), "app.log");
+
+  // Swift print() has no timestamps, so this watches the log and stamps each new line when it appears.
+  const stampedLines: { atMs: number; text: string }[] = [];
+  let readLineCount = 0;
+  const deadlineMs = performance.now() + 15 * 60_000;
+  while (performance.now() < deadlineMs) {
+    const logLines = existsSync(appLogPath) ? readFileSync(appLogPath, "utf8").split("\n") : [];
+    const nowMs = performance.now();
+    for (const logLine of logLines.slice(readLineCount, Math.max(readLineCount, logLines.length - 1))) {
+      stampedLines.push({ atMs: nowMs, text: logLine });
+    }
+    readLineCount = Math.max(readLineCount, logLines.length - 1);
+    if (stampedLines.some((stampedLine) => stampedLine.text.startsWith("Live scene rehearsal: done"))) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  execFileSync(verifyClickyScript, ["app-quit"], { stdio: "inherit" });
+
+  const appSamples: AppSample[] = [];
+  const stepStartIndexes = stampedLines.flatMap((stampedLine, lineIndex) =>
+    stampedLine.text.startsWith("Live scene rehearsal: saying") ? [lineIndex] : [],
+  );
+  stepStartIndexes.forEach((stepStartIndex, stepNumber) => {
+    const { appStep, runIndex } = rehearsalSteps[stepNumber];
+    const nextStepStartIndex = stepStartIndexes[stepNumber + 1] ?? stampedLines.length;
+    const doneLine = stampedLines
+      .slice(stepStartIndex, nextStepStartIndex)
+      .find((stampedLine) => appStep.doneLinePattern.test(stampedLine.text));
+    appSamples.push({
+      stepId: appStep.id,
+      runIndex,
+      elapsedMs: doneLine === undefined ? null : doneLine.atMs - stampedLines[stepStartIndex].atMs,
+    });
+  });
+  return appSamples;
+}
+
+// ---------- Summary ----------
+
+function percentile(sortedValues: number[], fraction: number): number {
+  if (sortedValues.length === 0) {
+    return NaN;
+  }
+  const rank = Math.min(sortedValues.length - 1, Math.max(0, Math.ceil(fraction * sortedValues.length) - 1));
+  return sortedValues[rank];
+}
+
+function latencySummary(values: number[]) {
+  const sortedValues = [...values].sort((smaller, larger) => smaller - larger);
+  return {
+    p50: Math.round(percentile(sortedValues, 0.5)),
+    p95: Math.round(percentile(sortedValues, 0.95)),
+    min: Math.round(sortedValues[0] ?? NaN),
+    max: Math.round(sortedValues[sortedValues.length - 1] ?? NaN),
+  };
+}
+
+const mean = (values: number[]) => (values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length);
+
+/** Names each model with the tier OpenAI reported, since a GPT cost means nothing without its tier. */
+function modelsAndTiersOf(usageLines: UsageLine[]): string {
+  const names = [...new Set(usageLines.map((usageLine) => (usageLine.serviceTier === undefined ? usageLine.model : `${usageLine.model} at ${usageLine.serviceTier}`)))];
+  return names.length === 0 ? "" : ` on ${names.join(", ")}`;
+}
+
+function summarizeCase(benchCase: BenchCase, samples: Sample[]) {
+  const sumOverLines = (sample: Sample, pickTokens: (usageLine: UsageLine) => number) =>
+    sample.usageLines.reduce((runningSum, usageLine) => runningSum + pickTokens(usageLine), 0);
+  const firstTokenTimes = samples.flatMap((sample) => (sample.firstTokenMs === null ? [] : [sample.firstTokenMs]));
+  const firstAudioTimes = samples.flatMap((sample) => (sample.firstAudioMs === null ? [] : [sample.firstAudioMs]));
+  return {
+    caseId: benchCase.id,
+    route: benchCase.route,
+    description: benchCase.description,
+    models: [...new Set(samples.flatMap((sample) => sample.usageLines.map((usageLine) => usageLine.model)))],
+    /** The tiers OpenAI reported, so a cost is read with its tier. Empty for a Claude model. */
+    serviceTiers: [...new Set(samples.flatMap((sample) => sample.usageLines.flatMap((usageLine) => (usageLine.serviceTier === undefined ? [] : [usageLine.serviceTier]))))],
+    runs: samples.length,
+    qualityPassed: samples.filter((sample) => sample.quality.passed).length,
+    totalMs: latencySummary(samples.map((sample) => sample.totalMs)),
+    firstByteMs: latencySummary(samples.map((sample) => sample.firstByteMs)),
+    firstTokenMs: firstTokenTimes.length > 0 ? latencySummary(firstTokenTimes) : null,
+    firstAudioMs: firstAudioTimes.length > 0 ? latencySummary(firstAudioTimes) : null,
+    modelCallsPerRequest: mean(samples.map((sample) => sample.usageLines.length)),
+    meanInputTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.inputTokens)))),
+    meanCacheWriteTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.cacheWriteTokens)))),
+    meanCacheReadTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.cacheReadTokens)))),
+    meanOutputTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.outputTokens)))),
+    // One unpriced sample makes the mean unknown, so an unknown cost never reads as zero.
+    meanCostUSD: samples.some((sample) => sample.costUSD === null)
+      ? null
+      : Number(mean(samples.flatMap((sample) => (sample.costUSD === null ? [] : [sample.costUSD]))).toFixed(5)),
+  };
+}
+
+// ---------- Command line ----------
+
+function commandLineOption(optionName: string): string | undefined {
+  const optionIndex = process.argv.indexOf(`--${optionName}`);
+  return optionIndex === -1 ? undefined : process.argv[optionIndex + 1];
+}
+
+function writeResultFile(label: string, benchKind: string, measuredCheckout: string, result: unknown): string {
+  const commitSHA = execFileSync("git", ["-C", measuredCheckout, "rev-parse", "--short=12", "HEAD"], { encoding: "utf8" }).trim();
+  const workingTreeIsDirty =
+    execFileSync("git", ["-C", measuredCheckout, "status", "--porcelain", "--", "worker", "leanring-buddy"], { encoding: "utf8" }).trim() !== "";
+  const resultsDirectory = join(benchDirectory, "results");
+  mkdirSync(resultsDirectory, { recursive: true });
+  const resultPath = join(resultsDirectory, `${label}-${benchKind}-${commitSHA}.json`);
+  const resultWithProvenance = { label, benchKind, commitSHA, workingTreeIsDirty, recordedAt: new Date().toISOString(), ...(isRecord(result) ? result : { result }) };
+  writeFileSync(resultPath, `${JSON.stringify(resultWithProvenance, null, 2)}\n`);
+  return resultPath;
+}
+
+async function main() {
+  const benchKind = process.argv[2];
+  const label = commandLineOption("label");
+  if ((benchKind !== "worker" && benchKind !== "app") || label === undefined) {
+    console.error("Usage: node bench/bench.ts worker|app --label <name> [--runs N] [--only caseId,...] [--port 8789] [--side label:port:checkout ...] [--pages-dir <dir>]");
+    process.exit(1);
+  }
+  const runCount = Number(commandLineOption("runs") ?? (benchKind === "worker" ? 5 : 3));
+
+  if (benchKind === "app") {
+    const appSamples = await runAppBenchmark(runCount);
+    const appSummary = appSteps.map((appStep) => {
+      const stepTimes = appSamples.flatMap((appSample) => (appSample.stepId === appStep.id && appSample.elapsedMs !== null ? [appSample.elapsedMs] : []));
+      return { stepId: appStep.id, description: appStep.description, runs: stepTimes.length, elapsedMs: latencySummary(stepTimes) };
+    });
+    console.table(appSummary.map((stepSummary) => ({ step: stepSummary.stepId, runs: stepSummary.runs, ...stepSummary.elapsedMs })));
+    console.log(`saved ${writeResultFile(label, "app", checkoutRoot, { runCount, summary: appSummary, samples: appSamples })}`);
+    return;
+  }
+
+  // Each --side is label:port:checkout. Two sides alternate request by request, so drift in upstream latency hits both.
+  const sideSpecs = process.argv.flatMap((argument, argumentIndex) => (process.argv[argumentIndex - 1] === "--side" ? [argument] : []));
+  const sides = (sideSpecs.length > 0 ? sideSpecs : [`${label}:${commandLineOption("port") ?? 8789}:${checkoutRoot}`]).map((sideSpec) => {
+    const [sideLabel, sidePort, ...checkoutPathParts] = sideSpec.split(":");
+    const workerCheckout = checkoutPathParts.join(":") || checkoutRoot;
+    const side: BenchSide = {
+      label: sideLabel,
+      port: Number(sidePort),
+      workerCheckout,
+      logPath: workerLogPath(workerCheckout, Number(sidePort)),
+      appProfile: readAppProfile(workerCheckout),
+      samples: [],
+    };
+    console.log(`${side.label}: app profile ${JSON.stringify({ ...side.appProfile, chatSystemPrompt: `${side.appProfile.chatSystemPrompt.length} characters` })}`);
+    return side;
+  });
+  const onlyCaseIds = commandLineOption("only")?.split(",");
+  const selectedCases = benchCases.filter((benchCase) => onlyCaseIds === undefined || onlyCaseIds.includes(benchCase.id));
+  for (const benchCase of selectedCases) {
+    for (let runIndex = 0; runIndex < runCount; runIndex += 1) {
+      for (const side of sides) {
+        const sample = await runOneSample(benchCase, runIndex, side);
+        side.samples.push(sample);
+        console.log(
+          `${side.label} ${benchCase.id} #${runIndex + 1}: HTTP ${sample.httpStatus}, ${Math.round(sample.totalMs)} ms` +
+            `${sample.firstTokenMs === null ? "" : `, first token ${Math.round(sample.firstTokenMs)} ms`}, ` +
+            `${sample.usageLines.length} model call(s)${modelsAndTiersOf(sample.usageLines)}, ${sample.costUSD === null ? "cost unknown" : `$${sample.costUSD.toFixed(4)}`}, ` +
+            `${sample.quality.passed ? "PASS" : "FAIL"} ${sample.quality.detail}`,
+        );
+      }
+    }
+  }
+  for (const side of sides) {
+    const summary = selectedCases.map((benchCase) => summarizeCase(benchCase, side.samples.filter((sample) => sample.caseId === benchCase.id)));
+    console.log(side.label);
+    console.table(
+      summary.map((caseSummary) => ({
+        case: caseSummary.caseId,
+        model: caseSummary.models.join(", "),
+        tier: caseSummary.serviceTiers.join(", "),
+        pass: `${caseSummary.qualityPassed}/${caseSummary.runs}`,
+        p50: caseSummary.totalMs.p50,
+        p95: caseSummary.totalMs.p95,
+        ttft: caseSummary.firstTokenMs?.p50 ?? caseSummary.firstAudioMs?.p50 ?? "",
+        in: caseSummary.meanInputTokens,
+        cached: caseSummary.meanCacheReadTokens,
+        out: caseSummary.meanOutputTokens,
+        usd: caseSummary.meanCostUSD,
+      })),
+    );
+    const interleavedWith = sides.filter((otherSide) => otherSide !== side).map((otherSide) => otherSide.label);
+    console.log(`saved ${writeResultFile(side.label, "worker", side.workerCheckout, { runCount, port: side.port, interleavedWith, summary, samples: side.samples })}`);
+  }
+}
+
+// The cases are imported by cases.test.ts, which must not start a run.
+if (import.meta.main) {
+  await main();
+}

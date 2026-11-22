@@ -1,0 +1,157 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "<scene_state>{\"explodeAmount\":0,\"focusedLabel\":\"\",\"insideIsOpen\":false,\"labels\":[\"wing\",\"tail\",\"engine\"],\"page\":\"framePopout\",\"pitchDegrees\":10,\"tourFinished\":true,\"videoQuizIsRunning\":false,\"yawDegrees\":79,\"zoom\":0.4}</scene_state>\n<recent_actions>\nrotate_model {\"yawDegrees\":45} -> ok\n</recent_actions>\nLearner said: \"no, turn it the other way\""
+    }
+  ],
+  "tools": [
+    {
+      "name": "rotate_model",
+      "description": "Orbit the camera around the model on screen. Positive yawDegrees moves the camera to the right around the model, negative to the left. Positive pitchDegrees moves the camera up to look down on it. The state's yawDegrees and pitchDegrees say where the camera is now.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "yawDegrees": {
+            "type": "number",
+            "description": "Degrees to orbit left or right, from -360 to 360."
+          },
+          "pitchDegrees": {
+            "type": "number",
+            "description": "Degrees to orbit up or down, from -80 to 80. Leave out to keep the height."
+          }
+        },
+        "required": [
+          "yawDegrees"
+        ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "zoom",
+      "description": "Move the camera closer to or farther from what it looks at. factor 1.3 moves about 30 percent closer, 0.7 about 30 percent farther. The state's zoom runs from 0 (farthest) to 1 (closest).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "factor": {
+            "type": "number",
+            "description": "Above 1 zooms in, below 1 zooms out, from 0.3 to 3."
+          }
+        },
+        "required": [
+          "factor"
+        ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "zoom_to_part",
+      "description": "Move the camera to one labeled part, make it glow, and dim the others. label must be one of the state's labels.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "A label from the state's labels."
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "reset_view",
+      "description": "Show the whole model again from the starting angle, with no part highlighted, assembled and closed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "readOnly": false
+    },
+    {
+      "name": "answer_with_screen",
+      "description": "Answer a question about what is on screen, using a screenshot. Use it for questions and for anything no other tool can do, not for changing the view.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "build_new_scene",
+      "description": "Build a 3D view now, which pauses the video and takes about 20 seconds. Use it when the learner asks to show, see, or render something in 3D, such as \"show me this in 3D\" over a video, where a famous real place appears as its real 3D scan, and when they want a different model or something not on screen yet. When they ask to build, make, or create a 3D model, use build_model_in_background instead, if it is offered. When they want to try it, play with it, or simulate it, use build_simulation instead. Never use it to turn, zoom, or open the model already showing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asQuiz": {
+            "type": "boolean",
+            "description": "true when they asked to be quizzed or tested on it."
+          }
+        },
+        "required": [
+          "asQuiz"
+        ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "build_simulation",
+      "description": "Build a playable simulation of what the video or screen shows, such as a ball launched at an angle, a lever, or a pendulum, with sliders and a Run button. It pauses the video and takes about 20 seconds. Use it when the learner says let me try it, let me play with it, can I try it, or simulate this, and no simulation is on screen yet. When one is on screen, use set_control and run_simulation instead. Your confirmation is a few plain words that it has started, such as \"setting it up\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "pop_out",
+      "description": "Lift the subject of the video frame or the largest picture in Chrome's front tab out in 3D with its parts labeled. Use it when they say pop this out.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "animate_picture",
+      "description": "Lift the video frame or the largest picture in Chrome's front tab out in 3D and show what flows through it as moving streams, such as air through an engine or blood through a heart. Over a pop-out already on screen, it animates that one. Use it only when the learner says animate this, make it move, or make it flow. A painting is left as the artist made it, and the app says so. Use answer_with_screen when they ask how to animate something in another app.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "close_scene",
+      "description": "Close the 3D scene on screen. A paused video plays again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "explain_part",
+      "description": "Say what one labeled part does, while the camera turns to it. label must be one of the scene state's labels.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "readOnly": false
+    }
+  ]
+}

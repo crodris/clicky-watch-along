@@ -1,0 +1,68 @@
+{
+  "version": 2,
+  "id": "school-itachiyama",
+  "name": "Itachiyama",
+  "accent": "#F2D600",
+  "contrast": "#1E6B30",
+  "cursor": {
+    "kind": "shapes",
+    "shapes": [
+      {
+        "d": "M12 0.7 C18.24 0.7 23.3 5.76 23.3 12 C23.3 18.24 18.24 23.3 12 23.3 C5.76 23.3 0.7 18.24 0.7 12 C0.7 5.76 5.76 0.7 12 0.7 Z",
+        "fill": null,
+        "stroke": "#B8B8B8",
+        "strokeWidth": 0.9
+      },
+      {
+        "d": "M12 2 C17.52 2 22 6.48 22 12 C22 17.52 17.52 22 12 22 C6.48 22 2 17.52 2 12 C2 6.48 6.48 2 12 2 Z",
+        "fill": "#F2D600",
+        "stroke": null,
+        "strokeWidth": 0
+      },
+      {
+        "d": "M11.1 7.1 C15.1 7.07 18.97 8.49 22 11.1 M12 12 C9.92 14.8 6.77 16.61 3.3 17 M16.8 13.6 C14.81 17.11 11.61 19.78 7.8 21.1 M20.7 17 C18.6 14.22 15.46 12.41 12 12 M12 12 C10.7 8.79 10.7 5.21 12 2 M6.3 3.8 C5.52 7.74 6.19 11.82 8.2 15.3",
+        "fill": null,
+        "stroke": "#1E6B30",
+        "strokeWidth": 1.1
+      },
+      {
+        "d": "M12 2 C17.52 2 22 6.48 22 12 C22 17.52 17.52 22 12 22 C6.48 22 2 17.52 2 12 C2 6.48 6.48 2 12 2 Z",
+        "fill": null,
+        "stroke": "#1A1A1A",
+        "strokeWidth": 1.6
+      }
+    ]
+  },
+  "motion": {
+    "turnsTowardMovement": true,
+    "trailStreaks": 3,
+    "whileThinking": "none",
+    "whileListening": "none"
+  },
+  "agents": {
+    "ring": "accent",
+    "faces": {
+      "kind": "roster",
+      "order": "firstUnused",
+      "players": [
+        {
+          "name": "Sakusa",
+          "fullName": "Kiyoomi Sakusa",
+          "number": 10,
+          "portrait": "haikyu-kiyoomi-sakusa.jpg"
+        },
+        {
+          "name": "Komori",
+          "fullName": "Motoya Komori",
+          "number": 13,
+          "portrait": "haikyu-motoya-komori.jpg"
+        }
+      ]
+    }
+  },
+  "sounds": {
+    "done": "Tink",
+    "correct": "Glass",
+    "needsYourOK": "Pop"
+  }
+}

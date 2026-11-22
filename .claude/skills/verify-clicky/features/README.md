@@ -1,0 +1,67 @@
+# Clicky verification map
+
+This directory is the maintained source for verifying Clicky's user-facing behavior.
+Read [`../SKILL.md`](../SKILL.md) first, then use the matching feature file as the recipe.
+`$V` below means `.claude/skills/verify-clicky/verify-clicky.sh`, run from the checkout root.
+`$RUN` means the current run folder, `$(readlink .verify-clicky/current)`.
+
+## Baseline preconditions
+
+- `$V doctor` shows `worker/.dev.vars` present.
+- Worker recipes run against a Worker this run started with `$V worker-up` on port 8789.
+- App recipes need a Worker this run started on 8787, a Debug build that supports `--live-scene-rehearsal`, and no Clicky already running.
+- Prefer `--var LIVE_SCENE_MODEL:sonnet` for any run that builds a live scene, unless the change is to the GPT path.
+- Start each recipe with `$V new-run <feature-id>` so its evidence has its own folder.
+
+## Driving conventions
+
+- Worker routes are driven with `$V post <route> <body.json>`.
+  Bodies that need no image are in `../fixtures/`.
+- Bodies that need an image are built in `$RUN` from a fresh screenshot with the one-line Python shown in the recipe.
+  Never commit a screenshot into `fixtures/`.
+- App features are driven with rehearsal steps through `$V app-launch "<steps>"` and `$V app-wait`.
+  Each step is the sentence a learner would say.
+- A finished live scene stays up until the app quits, so `$V shot <name>` after `app-wait` captures it.
+  A video quiz pop-out clears before the video resumes, so shoot it while the question is asked.
+
+## Proof and skip reporting
+
+- A Worker proof is the HTTP status, the checked field of the response, and the usage lines.
+  There is one usage line per model attempt, and more than one means a retry, which the report names.
+- An app proof is the rehearsal log lines that name the phase reached, a screenshot with the result visible, and the app usage lines.
+- Cost ceilings are loose limits that catch a dropped effort setting or a broken cache.
+  Never assert exact token counts.
+- Report a path this skill cannot drive (push-to-talk with speech, drag, pinch, menu bar panel) as unverified.
+  Do not report it as verified through a different path.
+
+## Feature entry contract
+
+Each feature file starts with an H1 title and one paragraph describing the user-visible behavior.
+It then uses exactly four H2 sections in this order.
+
+1. `Sub-features` lists short IDs with one line for each behavior.
+2. `How to get to it (user POV)` lists every user entry point.
+3. `Driving it with verify-clicky.sh` starts with `Preconditions:` and pairs each user action with an exact command and observable result.
+4. `Gotchas` lists traps that can waste or invalidate a run.
+
+## Features
+
+- [Spoken-answer judge](./spoken-answer-judge.md) covers grading a quiz answer through `/judge-answer`.
+  It is the cheapest full proof.
+- [Live scene](./live-scene.md) covers building a 3D scene from a question and screenshot, the explore tour, and the quiz after it.
+- [Video quiz](./video-quiz.md) covers planning quiz moments from a YouTube transcript and pausing the video at each one.
+- [Frame pop-out](./frame-popout.md) covers lifting the subject of a video frame, or of a page image, out in 3D with part labels.
+- [Landmark scan](./landmark.md) covers recognizing a famous place in a video frame and showing Google's 3D scan of it.
+- [Room art](./room-art.md) covers hanging a store page's wall art on the learner's wall in a live camera panel at its real size, the item kinds the page reader tells apart, and Clicky's loop around the wall spot while it is measured.
+- [Interrupting a reply](./interrupt-reply.md) covers stopping Clicky mid-answer with Escape or a push-to-talk tap.
+- [Let me try it simulation](./simulation.md) covers the science experiment a learner builds with "let me try it": the guess, the trials, the guess check, and the challenge.
+- [Voice commands](./voice-commands.md) covers follow-up commands that change the scene or video on screen through `/voice-command` and the voice tools.
+- [Notion study guide](./study-guide.md) covers writing, revising, and opening a Notion study guide for the YouTube video in front through `/study-guide`.
+- [3D model agent](./three-d-model-agent.md) covers building a 3D model in the background while the video plays, beside other background agents, and showing it when it is ready.
+- [Task agent](./task-agent.md) covers the general background agent that works on any task with web search, the video's captions, and a Notion page.
+- [Agent token serve](./agent-token-serve.md) covers a new agent's token flying from the cursor into its slot beside the notch, and the spoken confirmation that waits for it.
+- [Menu bar icon and agent discs](./menu-bar-icon-and-discs.md) covers the status icon's states and approval badge, a disc's orbiting dot, "!" face and pulse, its peek card and right-click menu, and Bring back, the spark that carries an ending chip to the cursor.
+- [Settings dial](./settings-dial.md) covers the dial that holding shift + option opens: previewing a slice, the Team and Model fans, committing on release, canceling, and the Agents list.
+- [Team theme](./team-theme.md) covers the Haikyu!! team theme: the picker, the volleyball cursor, the player portrait tokens beside the notch, and the themed agent list.
+- [Cursor ring and loop](./cursor-ring-and-loop.md) covers the ring of ticks and dots around the cursor and the hand-drawn loop around the video or image a request looks at.
+- [Theme Studio](./theme-studio.md) covers "change my theme": the card with three theme ideas, the preview on the real cursor, picking, refining, designing from a picture, saving, and the agent colors a saved theme gives.

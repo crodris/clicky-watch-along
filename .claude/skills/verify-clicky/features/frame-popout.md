@@ -1,0 +1,123 @@
+# Frame pop-out
+
+Saying "pop this out" over a YouTube video lifts the subject of the current frame out of the video in 3D, with every part labeled and no question.
+The app grabs the frame from the `<video>` element, asks `/video-frame-parts` for the subject box and up to 8 part labels, and plays `frame-popout.html` starting exactly over the video on screen.
+On any other page, the same request lifts the largest visible image instead, captured from the screen under it.
+A frame without one clear subject, such as a chart or a person talking, returns `subjectFound: false` and nothing pops out.
+
+## Sub-features
+
+- `popout-voice` triggers on "pop this out", "pop out", or up to 3 words between, as in "pop this heart out".
+- `popout-route` is the `/video-frame-parts` route, which returns the subject box and part points in frame pixels, `wholePictureIsSubject`, and `pictureShowsDepth`.
+- `popout-none` returns `subjectFound: false` for a frame with no clear subject.
+- `popout-pauses-video` pauses the playing main video in Chrome's front tab first, on any public https site, with or without a quiz, and plays it again when the pop-out clears, unless the learner had paused it.
+- `popout-image` lifts the largest visible image when Chrome's front tab is not a YouTube video.
+- `popout-scene` lifts a painted scene out whole, sky included, when the route returns `wholePictureIsSubject: true`.
+  Apple's subject lifting cuts out any other subject, including art of one animal on a plain background.
+- `popout-put-back` keeps the pop-out up through a push-to-talk tap, and sends it back into its frame when the learner says "put it back" (or "put that away"), during the tour or after it.
+- `popout-depth` lifts a picture that already shows depth, such as a 3D cutaway or a photo, as a flat card that only tilts, when the route returns `pictureShowsDepth: true`.
+  Flat illustrations and paintings keep the puffed-up lift.
+- `popout-animation` keeps an animated page image (GIF, animated WebP, or APNG) playing on the lifted subject and on the frame behind it, when the image sits wholly inside the viewport.
+  Reduce Motion keeps the still frame.
+- `popout-flows` draws what flows through the picture on top of it, like air streaks through an engine or lava down a volcano, when the learner says "animate this", "make it move", or "make it flow".
+  It uses `/picture-flows`, leaves an artwork and a picture of only moving parts unanimated with a spoken reason, and Reduce Motion holds the particles still.
+- `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
+  The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
+  For an image on a web page, the prompt calls it a picture, never a video.
+- `popout-label-tap` explains a part when its label is clicked after the tour of a pop-out with no quiz.
+  A press that moves more than 4 px is a drag that turns the model, not a click.
+- `popout-replay` plays a narration's pointing stops again, silently, when the learner says "show me again" or clicks Replay on the control under the video: the camera turns back to each recorded pose, each stop's number shows on its label with a dotted path between them, and the cursor flies to each label with its sentence. Next, Back, and End step through it by voice (`replay_step`) or click, Escape ends it with the camera and the cursor stopped where they are and the pop-out still up, and Reduce Motion shows every stop at once with a list of the sentences.
+- `popout-cursor-points` flies the blue triangle to each part's label as the narration names it, with the sentence Clicky is speaking typed in its bubble, and back to the mouse when the narration ends or the scene clears, Escape mid-sentence included.
+
+## How to get to it (user POV)
+
+- With a YouTube video in Chrome's front tab, hold ctrl+option and say "pop this out".
+- With a page showing an image, such as a Wikipedia diagram, in Chrome's front tab, say the same thing.
+
+## Driving it with verify-clicky.sh
+
+Preconditions:
+
+- For the route, `$V worker-up` reported the Worker ready on port 8789, and an image of one clear object is on screen.
+- For the app, the app and Chrome preconditions in [Video quiz](./video-quiz.md) apply, and the YouTube frame shows one clear object, such as a heart diagram.
+
+- **Route.** Build a body from a screenshot, then post it.
+  Run `RUN="$(readlink .verify-clicky/current)" && screencapture -x -t jpg "$RUN/frame.jpg" && python3 -c "import base64,json,subprocess,sys;frame_path=sys.argv[1];frame_width,frame_height=[int(subprocess.check_output(['sips','-g',dimension_key,frame_path]).split()[-1]) for dimension_key in ('pixelWidth','pixelHeight')];print(json.dumps({'frameBase64':base64.b64encode(open(frame_path,'rb').read()).decode(),'frameWidth':frame_width,'frameHeight':frame_height,'subject':'','question':'','answerLabel':''}))" "$RUN/frame.jpg" > "$RUN/frame-body.json"`, then `$V post /video-frame-parts "$RUN/frame-body.json"`.
+  The result is HTTP 200 with `subjectFound` true, a `subjectBox` inside the frame, `wholePictureIsSubject` and `pictureShowsDepth` as booleans, and 1 to 8 `parts`.
+- **Pop out in the app.** Run `$V app-launch "pop this out"`.
+  The log shows `grabbed a WxH frame` then `Frame pop-out: lifting the subject out of the frame with N labels`.
+  Run `$V shot popout` while the subject floats over the video.
+  When the tour ends, the log shows `Frame pop-out narration: N sentences for afterTour`, and Clicky speaks about the parts while each one turns yellow.
+  Then click one label without moving the mouse.
+  The log shows `Frame pop-out: explaining the tapped <label> label` and `Frame pop-out narration: N sentences for partTapped(label: "<label>")`.
+  Drag across a label instead, and the model turns with no tap line in the log.
+  While Clicky names each part, run `$V shot popout-pointing` and check that the blue triangle sits just under that label, drawn over the model, with the sentence Clicky is speaking in its bubble, wrapped onto more lines when it is long.
+- **Instant replay.** Run `$V app-launch --harness-brain "pop this out|show me again|+3 next|+3 back|+3 stop"`.
+  A play-through ends after its last stop, about 4 seconds a stop, so "next" goes in a few seconds after "show me again", while the replay is still open.
+  After the narration, the log shows `Instant replay: recorded N stops`, and the control with Replay and "N stops" shows under the video.
+  The second step logs `Instant replay: replaying on request` and `Instant replay: playing N stops`, with no `/chat` or `/voice-command` request for it.
+  Run `$V shot replay-dwell` while the cursor sits on a stop, and check that the numbers sit on their labels, the dotted path links the stops reached, the control reads "1 of N" or later, and the lifted model stays over the video.
+  The `next`, `back`, and `stop` steps go to the router, and the log shows a `replay_step` call with `step` `next`, then `back`, then `end`, the chips "Next stop", "Back a stop", and "Ended the replay", and `Instant replay: ended`.
+  For Escape, run `$V app-launch "pop this out|show me again|+600 thanks"`, run `$V key escape` while the cursor flies to a stop, then `$V shot replay-escape-a` and, a second later, `$V shot replay-escape-b`.
+  The log shows `Instant replay: ended`, the pop-out stays on screen, and the two shots match pixel for pixel in the scene and the cursor, since nothing moves after the end.
+  A second `$V key escape` sends the pop-out back into the video.
+- **Pop out an image in the app.** Open a page with one large image of one clear object in Chrome's front tab, such as `https://commons.wikimedia.org/wiki/File:Diagram_of_the_human_heart_(cropped).svg`.
+  Run `$V app-launch "pop this out"`.
+  The log shows `captured a WxH image from the screen` then `Frame pop-out: lifting the subject out of the frame with N labels`.
+  Run `$V shot image-popout` while the subject floats over the image.
+- **Pop out a painted scene.** Post a body built from The Starry Night, as in the route step.
+  The result has `wholePictureIsSubject: true` and a `subjectBox` around the whole painting.
+  Do the same for a fresco of several figures, such as The Creation of Adam at the top of `https://finearttutorials.com/guide/famous-paintings/`.
+  Capture only the image's screen rect with `screencapture -x -t jpg -R x,y,w,h`, since the app sends that rect and a full-screen capture adds the page around it.
+  Post it 5 times, since before this fix a figure scene came back as no subject in about half the runs, and every run returns `wholePictureIsSubject: true`.
+  Dürer's Young Hare, Stag Beetle, and Rhinoceros and a heart diagram return `wholePictureIsSubject: false`.
+  In the app, the log shows `Frame pop-out: lifting the whole picture in Sonnet's box` for The Starry Night, and `Vision kept N of M subjects` for the hare.
+  Run `$V shot scene-popout` while the painting floats over the page.
+- **A tap keeps the pop-out.** Run `$V app-launch "pop this out"`.
+  About 4 seconds after the narration starts speaking, run `$V key push-to-talk-tap`.
+  The speech stops within a second, the log ends with `Live scene rehearsal: done, phase allLabelsShowing`, and the pop-out stays on screen.
+- **Put it back.** Run `$V app-launch "pop this out|put it back"`.
+  The second step logs `Live scene: put back on request`, and the subject flattens back into its frame.
+  The rehearsal sends the second step after the narration finishes, so a tap that stops the narration mid-sentence needs the run above.
+- **Pop out a picture that shows depth.** Post bodies built from the Turbofan article's lead image (`https://upload.wikimedia.org/wikipedia/commons/e/e5/Turbofan3_Labelled.gif`, converted to JPEG with `sips`), a photo of an engine (`https://commons.wikimedia.org/wiki/Special:FilePath/F100_F-15_engine.JPG?width=960`), and a photo of a flower (`https://commons.wikimedia.org/wiki/Special:FilePath/Magnolia_grandiflora_-_flower_1.jpg?width=960`), 3 times each.
+  Every run returns `pictureShowsDepth: true`.
+  The flower diagram (`Mature_flower_diagram.svg` on Commons), the Turbofan article's side-view schematic (`Tfan-schematic-kk-20090106.png`), a heart diagram, and The Starry Night return `pictureShowsDepth: false` every run.
+  In the app, open `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and run `$V app-launch "pop this out"`.
+  The log shows `Frame pop-out: lifting the subject out of the frame with N labels as a flat card`.
+  When the tour ends the card almost faces the camera, so a round subject, such as Wikimedia's "Rotating earth (large).gif", stays round, and "reset the view" returns it to that pose.
+  Run `$V shot depth-popout` while the card floats over the image, and check that the engine has no smeared or stretched rim.
+- **Pop out an animated image.** With `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and the lead GIF wholly on screen, run `$V app-launch "pop this out"`.
+  The log shows `Frame pop-out: playing the page image's 21 animation frames, with no labels` before `Frame pop-out: lifting the subject out of the frame with 0 labels`.
+  The lifted engine shows no part labels, and the narration names no part.
+  Run `$V shot animated-popout` twice about 0.2 seconds apart, and check that the blades and the arrows moved between the two shots with no white blobs at the engine's edge.
+  Scroll so the GIF is cut off at the top of the window and pop it out again, and the log has no animation line.
+- **Flows route.** Build a body like the route step's, with `partLabels` (the labels from a `/video-frame-parts` reply) in place of `subject`, `question`, and `answerLabel`, then `$V post /picture-flows "$RUN/flows-body.json"`.
+  A heart diagram returns red and blue `droplets`, and the Turbofan article's cutaway returns blue `air` and orange `sparks`.
+  A bicycle diagram returns `{"flows":[]}`, since its chain is a moving part, not a flow.
+  The app never asks for an artwork's flows: `/video-frame-parts` returns `isArtwork: true` for The Starry Night, The Great Wave, and Dürer's Young Hare, and `false` for the heart, the cutaway, and the bicycle.
+  `node bench/bench.ts worker --label flows --runs 1 --only picture-flows-heart,picture-flows-water-cycle,picture-flows-cutaway,picture-flows-bicycle,frame-parts-painting,frame-parts-print,frame-parts-art-of-one-animal,frame-parts-bicycle` checks the same on the bench fixtures.
+- **Animate in the app.** With the Turbofan article's lead GIF wholly on screen, run `$V app-launch "animate this"`.
+  The log shows `Frame pop-out: lifting the subject` and then `Frame pop-out: streaming N flows`.
+  Run `$V shot flows` after the tour, and check that blue air streaks and orange sparks move through the engine's channels below the labels, and that the picture under them is unchanged.
+  Then run `$V app-launch "pop this out|animate this"`, and the second step logs `streaming N flows` without a second `lifting the subject` line.
+- **An artwork stays still.** With The Starry Night or The Great Wave wholly on screen, run `$V app-launch "animate this"`.
+  The painting pops out, the log shows `Frame pop-out: leaving the artwork as the artist made it`, and after the narration Clicky says "This is a work of art, so I'll leave it just as the artist made it."
+- **An artwork is narrated with facts about the art.** With The Great Wave wholly on screen, run `$V app-launch "pop this out"` and record the display.
+  The cursor bubbles name Hokusai, about 1831, and the series Thirty-six Views of Mount Fuji, and none just says what a part shows.
+- **Cost ceiling.** One `[/video-frame-parts]` usage line per request, with `thinking_tokens` 0 because the route runs at low effort.
+  Its output ceiling is not measured yet, and the route stops at 4096 tokens, so a line near 4096 means a cut-off reply.
+
+## Gotchas
+
+- A full-screen screenshot holds many things, so the route may pick an unexpected subject.
+  Crop to one object when the subject matters.
+- `subjectFound: false` on a chart or a talking head is correct behavior, not a failure.
+- AppleScript sends "Google Chrome" commands to whichever Chrome process it finds, and a Playwright-driven Chrome counts.
+  When the app log shows `javaScriptFromAppleEventsIsOff` or `noImageOrVideoToPopOut` on a page with a large image, run `pgrep -fl 'Google Chrome --disable-field-trial-config'`, and close that browser once its owner is done with it.
+- The pop-out lines up with the video's or image's on-screen rect, on the display that shows it, wherever the mouse is.
+  Moving or resizing the Chrome window during the run misplaces it.
+- The image rect comes from the web area in Chrome's accessibility tree, so it accounts for page zoom and for side panels, vertical tabs, and docked DevTools.
+  Clicky logs "Media rect: placed from Chrome's accessibility web area" when that worked.
+  Without a matching web area, such as when Accessibility is off, it falls back to the page-geometry math, logs "placed from the page geometry", and gives no rect when DevTools are docked.
+  The first pop-out of a Chrome session can fall back too, because Chrome builds its accessibility tree only once Clicky asks for it, and keeps it on until Chrome quits.
+  Only Chrome's windows are captured, so a window of another app over Chrome does not show in the pop-out.

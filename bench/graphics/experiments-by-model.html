@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Experiments by model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&display=swap">
+<link rel="stylesheet" href="shared.css">
+<style>
+  /* One row per experiment: each model's median build time as a bar, then the blind judge's tally. */
+  .chart { margin-top: 30px; display: grid; grid-template-columns: 220px 1fr 1fr 230px; row-gap: 20px; column-gap: 30px; align-items: center; }
+  .head { font-size: 19px; font-weight: 600; color: var(--text-muted); border-bottom: 1px solid var(--rule); padding-bottom: 8px; }
+  .label { font-size: 25px; font-weight: 600; }
+  .label small { display: block; font-size: 16px; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
+  .track { position: relative; height: 34px; }
+  .bar { position: absolute; left: 0; top: 2px; height: 30px; border-radius: 0 4px 4px 0; background: var(--today); }
+  .bar.pick { background: var(--faster); }
+  .value { position: absolute; top: 3px; font-size: 21px; font-weight: 600; white-space: nowrap; }
+  .value small { font-size: 15px; color: #ffb3ae; font-weight: 600; }
+  .verdict { font-size: 21px; font-weight: 600; }
+  .verdict small { display: block; font-size: 15px; font-weight: 400; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand"><svg viewBox="0 0 30 30" aria-label="Clicky"><path d="M5 3 L26 15 L15 17 L10 27 Z" fill="#4d86ff"/></svg><span>My fork of open-source Clicky · model bakeoff, Nov 19</span></div>
+  <h1>Experiments by model: GPT-6.1 Sol and GPT-6.2 Sol</h1>
+  <div class="subhead">"Let me try it" builds at Ultrafast, 9 runs across 5 experiments, judged blind from screenshots after a run</div>
+  <div class="chart" id="chart">
+    <div></div>
+    <div class="head">GPT-6.1 Sol median build</div>
+    <div class="head">GPT-6.2 Sol median build</div>
+    <div class="head">Blind judge</div>
+  </div>
+  <div class="foot">
+    <div><b>Experiments now build on GPT-6.2 Sol.</b> It won 14-2 and takes about 17 s longer, which passes while the video keeps playing.<br>It costs about $0.13 more per experiment, $0.52 against $0.38.</div>
+  </div>
+</div>
+<script src="bakeoff-data.js"></script>
+<script>
+  const { experiments, blindJudge } = window.bakeoff;
+  const rows = [
+    { id: 'simulation-projectile', name: 'Cannon' },
+    { id: 'simulation-lever', name: 'Lever', gpt61Broke: true },
+    { id: 'simulation-pendulum', name: 'Pendulum', gpt61Broke: true },
+    { id: 'simulation-dissolving', name: 'Dissolving' },
+    { id: 'simulation-cooling', name: 'Cooling' },
+  ];
+  const lowerMedian = (values) => [...values].sort((first, second) => first - second)[Math.floor((values.length - 1) / 2)];
+  const maxMs = 45000;
+  const chart = document.getElementById('chart');
+  for (const row of rows) {
+    const runs = experiments.app[row.id].length;
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.innerHTML = `${row.name}<small>${runs} ${runs === 1 ? 'run' : 'runs'} each</small>`;
+    const bar = (ms, pick, note) => {
+      const share = Math.min(1, ms / maxMs) * 0.7;
+      return `<div class="bar${pick ? ' pick' : ''}" style="width:${share * 100}%"></div>`
+        + `<div class="value num" style="left:calc(${share * 100}% + 10px)">${(ms / 1000).toFixed(1)} s${note ? ` <small>${note}</small>` : ''}</div>`;
+    };
+    const older = document.createElement('div');
+    older.className = 'track';
+    older.innerHTML = bar(lowerMedian(experiments.app[row.id]), false, row.gpt61Broke ? 'a run never finished' : '');
+    const newer = document.createElement('div');
+    newer.className = 'track';
+    newer.innerHTML = bar(lowerMedian(experiments.sol62[row.id]), true, '');
+    const [newerWins, olderWins] = blindJudge.experiments[row.id];
+    const verdict = document.createElement('div');
+    verdict.className = 'verdict num';
+    verdict.innerHTML = `${newerWins}-${olderWins} for GPT-6.2 Sol<small>wins counted per judge</small>`;
+    chart.append(label, older, newer, verdict);
+  }
+</script>
+</body>
+</html>

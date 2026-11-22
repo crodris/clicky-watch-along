@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+/* Labels, the quiz label, and the ring burst take their look from scene-style.css, which the overlay adds to every page. */
+html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; font-family: -apple-system, sans-serif; }
+canvas { display: block; position: absolute; inset: 0; }
+#backdrop { position: absolute; inset: 0; background: rgb(0, 0, 0); opacity: 0; }
+#frameBackground { position: absolute; }
+svg#leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.scene-label { position: absolute; left: 0; top: 0; pointer-events: none; }
+/* The return fades labels by hand each frame, so the label's own fade must not lag behind it. */
+body.returning .scene-label { transition: none; }
+/* Labels catch the mouse only once a pop-out with no quiz has finished its tour, so before that every press turns the model. */
+body.labels-take-clicks .scene-label { pointer-events: auto; cursor: pointer; -webkit-user-select: none; user-select: none; }
+/* Instant replay: each stop's number sits on its label, and a dotted path in the accent links the stops reached so far. */
+svg#replayPath { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.replay-stop-number { position: absolute; left: 0; top: 0; width: 20px; height: 20px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid var(--clicky-accent); background: var(--clicky-callout-surface); color: #fff; font: 700 11px/17px ui-rounded, -apple-system, sans-serif; text-align: center; z-index: 3; cursor: pointer; pointer-events: auto; -webkit-user-select: none; user-select: none; }
+/* A reached stop is filled with the accent, like its focused label, so a dark edge keeps the two apart. */
+.replay-stop-number.reached { background: var(--clicky-accent); color: var(--clicky-accent-ink); border-color: var(--clicky-callout-surface); }
+.replay-stop-number:hover { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3); }
+</style>
+<script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js" } }</script>
+</head>
+<body>
+<div id="backdrop"></div>
+<canvas id="frameBackground"></canvas>
+<svg id="leaders"></svg>
+<svg id="replayPath"><path id="replayPathLine" d="" fill="none" style="stroke: var(--clicky-accent)" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round"/></svg>
+<script>/*CLICKY_FRAME_POPOUT_DATA*/</script>
+<script type="module">
+const popout = window.__framePopout;
+// It comes from Swift as a hex string it built itself, so the cursor and the quiz label always share a color.
+if (popout.quizLabelColor) document.documentElement.style.setProperty('--clicky-accent', popout.quizLabelColor);
+const labelEntries = [];
+let focusedEntry = null;
+let tourDone = false;
+let cameraDistance = 0;
+// After the tour the camera eases toward this distance, so a voice zoom glides instead of jumping.
+let restingCameraDistance = 0;
+let tourEndedEarlyAt = null;
+const reducedMotionQuery = matchMedia("(prefers-reduced-motion: reduce)");
+let minimumDistance = 0;
+let maximumDistance = 0;
+let yaw = 0;
+let pitch = 0;
+let focusMove = null;
+// A replay stop turns the camera back to the pose its narration recorded, with the page's own ease over the same
+// 1.5 seconds as focusMove. endFocus() clears it and holds the target where it is, so the camera stops on that frame.
+let poseMove = null;
+let heldTarget = null;
+// Each replay stop's number, on its part's label, and how many stops the dotted path reaches (-1 for none).
+let replayStopNumbers = [];
+let replayPathReachesStop = -1;
+let sceneIsBuilt = false;
+// Set when the return starts. returnFrom holds the pose it eases back from.
+let returnStartedAt = null;
+let returnFrom = null;
+let returnFinishedPosted = false;
+let labelFade = 1;
+const returnSeconds = 0.8;
+// Streams of what flows through the picture, from POST /picture-flows. They start when the tour ends.
+let flowsToDraw = null;
+let flowsStartedAt = null;
+const flowColors = { blue: "#5aa9ff", red: "#ff4d5e", orange: "#ff8030", cyan: "#3fd6e8", green: "#4cd07a", yellow: "#ffd23f", white: "#f4f4f4" };
+// Each style says how often a particle starts, how fast it travels in frame pixels a second, how far it
+// strays from the path, and how it draws. Sizes and speeds are for a 640-pixel-wide frame and scale with it.
+// Particles that glow add light, and a style without its own colors takes the flow's palette color.
+const flowStyles = {
+  smoke: { spawnsPerSecond: 7, speed: 24, stray: (progress) => 10 * progress, glows: false, draw(context, particle) {
+    const radius = (3 + 16 * particle.progress) * particle.size;
+    const alpha = 0.55 * Math.sin(Math.PI * particle.progress);
+    const gradient = context.createRadialGradient(particle.x, particle.y, 0, particle.x, particle.y, radius);
+    gradient.addColorStop(0, `rgba(235, 235, 235, ${alpha})`); gradient.addColorStop(1, "rgba(200, 200, 200, 0)");
+    context.fillStyle = gradient; context.beginPath(); context.arc(particle.x, particle.y, radius, 0, Math.PI * 2); context.fill();
+  } },
+  sparks: { spawnsPerSecond: 34, speed: 120, stray: () => 4, glows: true, draw(context, particle) {
+    const flicker = 0.5 + 0.5 * Math.sin(particle.seconds * 40 + particle.seed * 50);
+    context.strokeStyle = `rgba(255, ${Math.round(150 + 90 * particle.seed)}, 80, ${0.9 * flicker * Math.sin(Math.PI * particle.progress)})`;
+    context.lineWidth = 1.6 * particle.size; context.lineCap = "round";
+    context.beginPath(); context.moveTo(particle.x, particle.y);
+    context.lineTo(particle.x - particle.directionX * 7 * particle.size, particle.y - particle.directionY * 7 * particle.size); context.stroke();
+  } },
+  lava: { spawnsPerSecond: 11, speed: 34, stray: () => 3, glows: true, draw(context, particle) {
+    const radius = (4 + 2.5 * particle.seed) * 1.8 * particle.size;
+    const alpha = Math.min(1, 4 * Math.sin(Math.PI * particle.progress));
+    const gradient = context.createRadialGradient(particle.x, particle.y, 0, particle.x, particle.y, radius);
+    gradient.addColorStop(0, `rgba(255, 240, 170, ${alpha})`); gradient.addColorStop(0.4, `rgba(255, 140, 40, ${0.8 * alpha})`); gradient.addColorStop(1, "rgba(255, 60, 0, 0)");
+    context.fillStyle = gradient; context.beginPath(); context.arc(particle.x, particle.y, radius, 0, Math.PI * 2); context.fill();
+  } },
+  droplets: { spawnsPerSecond: 12, speed: 70, stray: () => 5, glows: false, draw(context, particle) {
+    const alpha = Math.min(1, 4 * Math.sin(Math.PI * particle.progress));
+    context.save(); context.translate(particle.x, particle.y); context.rotate(Math.atan2(particle.directionY, particle.directionX));
+    context.globalAlpha *= 0.9 * alpha; context.fillStyle = particle.color;
+    context.beginPath(); context.ellipse(0, 0, 4.5 * particle.size, 2.4 * particle.size, 0, 0, Math.PI * 2); context.fill();
+    context.fillStyle = "rgba(255, 255, 255, 0.85)";
+    context.beginPath(); context.arc(1.5 * particle.size, -0.8 * particle.size, 0.9 * particle.size, 0, Math.PI * 2); context.fill();
+    context.restore();
+  } },
+  air: { spawnsPerSecond: 16, speed: 150, stray: () => 9, glows: false, draw(context, particle) {
+    const length = 26 * particle.size;
+    const tailX = particle.x - particle.directionX * length, tailY = particle.y - particle.directionY * length;
+    const gradient = context.createLinearGradient(tailX, tailY, particle.x, particle.y);
+    gradient.addColorStop(0, `${particle.color}00`); gradient.addColorStop(1, particle.color);
+    context.save(); context.globalAlpha *= 0.95 * Math.sin(Math.PI * particle.progress);
+    context.strokeStyle = gradient; context.lineWidth = 2.8 * particle.size; context.lineCap = "round";
+    context.beginPath(); context.moveTo(tailX, tailY); context.lineTo(particle.x, particle.y); context.stroke();
+    context.restore();
+  } },
+  current: { spawnsPerSecond: 9, speed: 260, stray: () => 2, glows: true, draw(context, particle) {
+    const normalX = -particle.directionY, normalY = particle.directionX, step = 4 * particle.size;
+    context.strokeStyle = `rgba(255, 230, 90, ${0.95 * (0.5 + 0.5 * Math.sin(particle.seconds * 60 + particle.seed * 9))})`;
+    context.lineWidth = 1.8 * particle.size; context.lineJoin = "round";
+    context.beginPath();
+    for (let zigIndex = 0; zigIndex <= 4; zigIndex++) {
+      const side = zigIndex % 2 === 0 ? 3 : -3;
+      context.lineTo(particle.x - particle.directionX * step * zigIndex + normalX * side * particle.size, particle.y - particle.directionY * step * zigIndex + normalY * side * particle.size);
+    }
+    context.stroke();
+  } },
+  beads: { spawnsPerSecond: 10, speed: 50, stray: () => 3, glows: false, draw(context, particle) {
+    context.save(); context.globalAlpha *= Math.min(1, 4 * Math.sin(Math.PI * particle.progress));
+    context.fillStyle = particle.color; context.beginPath(); context.arc(particle.x, particle.y, 3 * particle.size, 0, Math.PI * 2); context.fill();
+    context.restore();
+  } },
+};
+
+const postLiveSceneEvent = (eventName) => window.webkit?.messageHandlers?.liveSceneEvent?.postMessage(eventName);
+// Brings back the printed text a quiz question hid, once the pop-out returns to the video. A correct name still
+// leads to a follow-up question about what the part does, which the video's text could answer, so the answer
+// alone does not bring it back. It does nothing until the scene is built.
+let showPrintedText = () => {};
+
+// outcome is celebrateCorrectName, shakeAndKeepTheQuestionMark, or revealWithoutCelebration.
+// The shake and the ring burst are skipped for a viewer who asked for reduced motion, and the color flip stays.
+function showAnswerMoment(outcome) {
+  const entry = labelEntries.find((candidate) => candidate.part.isQuizAnswer);
+  if (!entry) return;
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (outcome === "shakeAndKeepTheQuestionMark") {
+    if (reducedMotion) return;
+    entry.element.classList.remove("shaking");
+    void entry.element.offsetWidth;
+    entry.element.classList.add("shaking");
+    return;
+  }
+  entry.element.textContent = entry.part.label;
+  entry.element.classList.remove("unanswered");
+  if (outcome !== "celebrateCorrectName") return;
+  entry.element.classList.add("answered-correctly");
+  if (reducedMotion || entry.anchorX === undefined) return;
+  for (const delaySeconds of [0, 0.12]) {
+    const burst = document.createElement("div");
+    burst.className = "answer-burst";
+    burst.style.left = `${entry.anchorX}px`;
+    burst.style.top = `${entry.anchorY}px`;
+    burst.style.animationDelay = `${delaySeconds}s`;
+    burst.addEventListener("animationend", () => burst.remove(), { once: true });
+    document.body.appendChild(burst);
+  }
+}
+
+window.liveScene = {
+  reveal() {
+    showAnswerMoment("revealWithoutCelebration");
+  },
+  answerMoment: showAnswerMoment,
+  // Labels fade, the camera eases back to its starting pose, and the lifted subject flattens
+  // into the frame over the video. The page posts returnFinished when it has landed.
+  returnToSource() {
+    if (returnStartedAt !== null) return;
+    returnStartedAt = performance.now();
+    // The subject lands back in the frame over the live video, so the frame must match it again.
+    showPrintedText();
+    // A label clicked while the subject sinks back would start an explanation for a scene that is leaving.
+    document.body.classList.remove("labels-take-clicks");
+    if (!sceneIsBuilt) {
+      // Nothing is lifted yet, so there is nothing to put back.
+      returnFinishedPosted = true;
+      postLiveSceneEvent("returnFinished");
+      return;
+    }
+    returnFrom = { lift: liftNow, yaw, pitch, cameraDistance, target: target.clone() };
+    poseMove = null;
+    heldTarget = null;
+    window.liveScene.hideReplayStops();
+    for (const entry of labelEntries) entry.opacityAtReturn = parseFloat(entry.element.style.opacity) || 0;
+    document.body.classList.add("returning");
+  },
+  focusPart(labelText) {
+    const wanted = String(labelText).trim().toLowerCase();
+    heldTarget = null;
+    if (wanted === "") {
+      focusedEntry = null;
+      for (const entry of labelEntries) { entry.element.classList.remove("focused"); entry.element.style.opacity = ""; }
+      return true;
+    }
+    const entry = labelEntries.find((candidate) => candidate.part.label.toLowerCase() === wanted);
+    if (!entry) return false;
+    focusedEntry = entry;
+    for (const other of labelEntries) {
+      other.element.classList.toggle("focused", other === entry);
+      other.element.style.opacity = other === entry ? "1" : "0.35";
+    }
+    focusMove = { startedAt: performance.now(), from: null };
+    return true;
+  },
+  // One instant replay stop: the same focusPart the narration called, plus the yaw, pitch, and distance it recorded,
+  // eased with the page's own ease over the same 1.5 seconds, so the camera turns back even after the learner dragged.
+  focusStop(labelText, pose) {
+    if (!tourDone || returnStartedAt !== null) return false;
+    if (!window.liveScene.focusPart(labelText)) return false;
+    if (!pose || ![pose.yaw, pose.pitch, pose.distance].every(Number.isFinite)) return true;
+    // A puffed-up model turns without limit, so its yaw may be whole turns away from the recorded one. The turn back takes
+    // the shortest way round, so a model dragged around twice does not spin two turns.
+    const shortestYawTurn = Math.atan2(Math.sin(pose.yaw - yaw), Math.cos(pose.yaw - yaw));
+    const toYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, yaw + shortestYawTurn));
+    const toPitch = Math.min(largestDraggedPitch, Math.max(-largestDraggedPitch, pose.pitch));
+    const toDistance = Math.min(maximumDistance, Math.max(minimumDistance, pose.distance));
+    if (reducedMotionQuery.matches) {
+      yaw = draggedYaw = toYaw; pitch = draggedPitch = toPitch; cameraDistance = restingCameraDistance = toDistance;
+      poseMove = null;
+      return true;
+    }
+    poseMove = { startedAt: performance.now(), fromYaw: yaw, fromPitch: pitch, fromDistance: cameraDistance, toYaw, toPitch, toDistance };
+    return true;
+  },
+  // Stops the camera where it is on this frame: the turn to a stop, the pan to a part, and the ease toward a drag or a
+  // zoom all end on their current values. The focused label stays focused. Any later camera ease must be stopped here too.
+  endFocus() {
+    if (!sceneIsBuilt || returnStartedAt !== null) return false;
+    focusMove = null;
+    poseMove = null;
+    heldTarget = target.clone();
+    draggedYaw = yaw; draggedPitch = pitch; restingCameraDistance = cameraDistance;
+    return true;
+  },
+  // The camera pose an instant replay stop restores: where the camera heads after the tour, not a value mid-ease.
+  cameraPose() {
+    if (!tourDone) return null;
+    return { yaw: draggedYaw, pitch: draggedPitch, distance: restingCameraDistance };
+  },
+  // The paused video's box on this page, which the replay control sits under.
+  mediaRectOnPage() {
+    if (!sceneIsBuilt) return null;
+    return { left: shownLeft, top: shownTop, width: shownWidth, height: shownHeight };
+  },
+  // Each stop's number on its label, numbered from 1 in the order given, and a click on one posts stopTapped:<index from 0>.
+  // reachesStop is the last stop the dotted path links, from 0, or -1 for none.
+  showReplayStops(labels, reachesStop) {
+    for (const { element } of replayStopNumbers) element.remove();
+    replayStopNumbers = [];
+    (Array.isArray(labels) ? labels : []).forEach((labelText, stopIndex) => {
+      const entry = labelEntries.find((candidate) => candidate.part.label === labelText);
+      if (!entry) return;
+      const element = document.createElement("div");
+      element.className = "replay-stop-number";
+      element.textContent = String(stopIndex + 1);
+      element.addEventListener("pointerup", () => {
+        // A press that travelled is a drag that turns the model, not a click on the number.
+        if (pressTravel <= largestClickTravel) postLiveSceneEvent("stopTapped:" + stopIndex);
+      });
+      document.body.appendChild(element);
+      replayStopNumbers.push({ entry, element, stopIndex });
+    });
+    replayPathReachesStop = Number.isInteger(reachesStop) ? reachesStop : -1;
+  },
+  hideReplayStops() {
+    window.liveScene.showReplayStops([], -1);
+  },
+  // Swift sends only palette color names, style names, and frame points, and anything else is dropped here.
+  showFlows(flows) {
+    // A subject already sinking back into its frame gets no new flows.
+    if (!Array.isArray(flows) || returnStartedAt !== null) return;
+    flowsToDraw = flows
+      .filter((flow) => flowColors[flow?.color] && Object.hasOwn(flowStyles, flow?.style) && Array.isArray(flow.points))
+      .map((flow) => {
+        const points = flow.points.filter((point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]));
+        const lengths = [0];
+        for (let pointIndex = 1; pointIndex < points.length; pointIndex++) {
+          const previousPoint = points[pointIndex - 1], point = points[pointIndex];
+          lengths.push(lengths[pointIndex - 1] + Math.hypot(point[0] - previousPoint[0], point[1] - previousPoint[1]));
+        }
+        return { color: flowColors[flow.color], style: flowStyles[flow.style], points, lengths, length: lengths[lengths.length - 1] };
+      })
+      .filter((flow) => flow.points.length >= 2 && flow.length > 0);
+    flowsStartedAt = null;
+  },
+  // Returns false while the pop-out builds or lands back in the video, so a voice tool can say so instead of confirming.
+  zoomBy(amount) {
+    if (!tourDone || returnStartedAt !== null) return false;
+    // A pinch or a voice zoom during a replay stop's turn takes the camera over from the turn.
+    poseMove = null;
+    restingCameraDistance = Math.min(maximumDistance, Math.max(minimumDistance, restingCameraDistance * (1 - amount)));
+    if (reducedMotionQuery.matches) cameraDistance = restingCameraDistance;
+  },
+  // Positive yaw moves the camera right around the subject, positive pitch moves it up, like a drag does.
+  rotateBy(yawDegrees, pitchDegrees) {
+    if (!sceneIsBuilt || returnStartedAt !== null) return false;
+    window.liveScene.endTour();
+    poseMove = null;
+    // The same limits as a drag, so a picture that already shows depth never turns to its paper-thin edge.
+    draggedYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, draggedYaw + THREE.MathUtils.degToRad(yawDegrees)));
+    draggedPitch = Math.min(largestDraggedPitch, Math.max(-largestDraggedPitch, draggedPitch + THREE.MathUtils.degToRad(pitchDegrees)));
+    if (reducedMotionQuery.matches) { yaw = draggedYaw; pitch = draggedPitch; }
+  },
+  // A voice command during the tour stops it where it is, and the camera glides to the subject from there.
+  endTour() {
+    if (!sceneIsBuilt || tourDone || returnStartedAt !== null) return;
+    tourEndedEarlyAt = performance.now();
+    focusMove = { startedAt: performance.now(), from: null };
+    finishTour();
+  },
+  resetView() {
+    if (!sceneIsBuilt || returnStartedAt !== null) return false;
+    window.liveScene.endTour();
+    window.liveScene.focusPart("");
+    poseMove = null;
+    draggedYaw = tourEndYaw;
+    draggedPitch = tourEndPitch;
+    restingCameraDistance = endDistance;
+    focusMove = { startedAt: performance.now(), from: null };
+    if (reducedMotionQuery.matches) { yaw = draggedYaw; pitch = draggedPitch; cameraDistance = restingCameraDistance; }
+  },
+  getState() {
+    const zoomRange = maximumDistance - minimumDistance;
+    // During the tour the camera is still moving, so the pose it has right now is the truth.
+    const shownDistance = tourDone ? restingCameraDistance : cameraDistance;
+    return {
+      yawDegrees: Math.round(THREE.MathUtils.radToDeg(tourDone ? draggedYaw : yaw)),
+      pitchDegrees: Math.round(THREE.MathUtils.radToDeg(tourDone ? draggedPitch : pitch)),
+      zoom: zoomRange > 0 ? Math.round(Math.min(1, Math.max(0, (maximumDistance - shownDistance) / zoomRange)) * 100) / 100 : 0,
+      // The label's own text, so a quiz answer still reads "?".
+      focusedLabel: focusedEntry ? focusedEntry.element.textContent : "",
+      tourFinished: tourDone,
+    };
+  },
+  // Clicky's blue cursor points at a label, so the boxes are read only once the camera stops gliding.
+  // A subject sinking back has nothing to point at, and its window may hide, which stops animation frames, so this waits on timers.
+  async labelRectsOnceTheCameraSettles() {
+    const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+    const giveUpAt = performance.now() + 3000;
+    while ((focusMove || poseMove) && returnStartedAt === null && performance.now() < giveUpAt) await wait(50);
+    // After the camera stops, each label's offset still eases toward its new spot for a few hundred milliseconds.
+    await wait(400);
+    if (returnStartedAt !== null) return [];
+    return labelEntries.map((entry) => {
+      const rect = entry.element.getBoundingClientRect();
+      return { label: entry.part.label, left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+    });
+  },
+};
+
+import * as THREE from "three";
+
+const image = await new Promise((resolve, reject) => {
+  const frameImage = new Image();
+  frameImage.onload = () => resolve(frameImage);
+  frameImage.onerror = () => reject(new Error("frame image failed to load"));
+  frameImage.src = popout.frameDataURL;
+});
+const W = image.naturalWidth, H = image.naturalHeight;
+
+const pageWidth = innerWidth, pageHeight = innerHeight;
+let frameRect = popout.videoRect;
+const rectIsOnThisPage = frameRect && frameRect.width > 50 && frameRect.x > -frameRect.width / 2 && frameRect.y > -frameRect.height / 2
+  && frameRect.x + frameRect.width / 2 < pageWidth && frameRect.y + frameRect.height / 2 < pageHeight;
+if (!rectIsOnThisPage) {
+  const width = pageWidth * 0.6;
+  frameRect = { x: (pageWidth - width) / 2, y: (pageHeight - width * H / W) / 2, width, height: width * H / W };
+}
+// The video element can letterbox, so fit the frame inside its rect.
+const fitScale = Math.min(frameRect.width / W, frameRect.height / H);
+const shownWidth = W * fitScale, shownHeight = H * fitScale;
+const shownLeft = frameRect.x + (frameRect.width - shownWidth) / 2, shownTop = frameRect.y + (frameRect.height - shownHeight) / 2;
+const frameToWorld = fitScale;
+const frameCenterWorld = new THREE.Vector3(shownLeft + shownWidth / 2 - pageWidth / 2, pageHeight / 2 - (shownTop + shownHeight / 2), 0);
+const framePointToWorld = (frameX, frameY, z) => new THREE.Vector3(
+  frameCenterWorld.x + (frameX - W / 2) * frameToWorld,
+  frameCenterWorld.y + (H / 2 - frameY) * frameToWorld,
+  z,
+);
+
+const full = document.createElement("canvas"); full.width = W; full.height = H;
+const fullContext = full.getContext("2d", { willReadFrequently: true }); fullContext.drawImage(image, 0, 0);
+const pixels = fullContext.getImageData(0, 0, W, H).data;
+
+// During a quiz question the video's own printed labels could name the answer, so each text box the app found is
+// smoothed out of the shown frame and the lifted subject: shrunk to 3 rows of pixels and stretched back, so even a
+// tall title loses its letters. The return to the video brings it back.
+const textBoxesToHide = popout.textBoxesToHide ?? [];
+const shownFrame = document.createElement("canvas"); shownFrame.width = W; shownFrame.height = H;
+const shownFrameContext = shownFrame.getContext("2d", { willReadFrequently: true });
+shownFrameContext.drawImage(full, 0, 0);
+for (const textBox of textBoxesToHide) {
+  const boxWidth = textBox.right - textBox.left + 1, boxHeight = textBox.bottom - textBox.top + 1;
+  const shrunk = document.createElement("canvas");
+  if (boxWidth < 1 || boxHeight < 1) continue;
+  shrunk.height = 3; shrunk.width = Math.max(1, Math.round(boxWidth * 3 / boxHeight));
+  shrunk.getContext("2d").drawImage(full, textBox.left, textBox.top, boxWidth, boxHeight, 0, 0, shrunk.width, shrunk.height);
+  shownFrameContext.imageSmoothingEnabled = true;
+  shownFrameContext.imageSmoothingQuality = "high";
+  shownFrameContext.drawImage(shrunk, 0, 0, shrunk.width, shrunk.height, textBox.left, textBox.top, boxWidth, boxHeight);
+}
+const shownPixels = textBoxesToHide.length > 0 ? shownFrameContext.getImageData(0, 0, W, H).data : pixels;
+
+const pad = 12;
+const box = popout.subjectBox;
+const x0 = Math.max(0, box.left - pad), y0 = Math.max(0, box.top - pad);
+const x1 = Math.min(W - 1, box.right + pad), y1 = Math.min(H - 1, box.bottom + pad);
+const boxW = x1 - x0 + 1, boxH = y1 - y0 + 1;
+
+// The app's subject mask is white where the subject is. It comes from Apple's subject lifting, or from Sonnet's box for a painted scene.
+const maskImage = await new Promise((resolve, reject) => {
+  const loadedMask = new Image();
+  loadedMask.onload = () => resolve(loadedMask);
+  loadedMask.onerror = () => reject(new Error("subject mask failed to load"));
+  loadedMask.src = popout.maskDataURL;
+});
+const maskCanvas = document.createElement("canvas"); maskCanvas.width = W; maskCanvas.height = H;
+const maskContext = maskCanvas.getContext("2d", { willReadFrequently: true }); maskContext.drawImage(maskImage, 0, 0, W, H);
+const maskPixels = maskContext.getImageData(x0, y0, boxW, boxH).data;
+const subjectMask = new Uint8Array(boxW * boxH);
+for (let i = 0; i < subjectMask.length; i++) subjectMask[i] = maskPixels[i * 4] > 127 ? 1 : 0;
+
+// Vision can leave out a part drawn in a color close to the background, like the pale blue
+// inferior vena cava below the heart, keeping only its outline. A labeled part belongs to the
+// subject, so a label point outside the mask grows into the patch of similar color around it.
+// The size cap keeps a point Sonnet placed on the background from pulling the background in.
+{
+  const largestPatch = boxW * boxH * 0.03;
+  const colorDistanceAt = (i, seedIndex) => {
+    const a = (((i / boxW) | 0) + y0) * W * 4 + ((i % boxW) + x0) * 4;
+    const b = (((seedIndex / boxW) | 0) + y0) * W * 4 + ((seedIndex % boxW) + x0) * 4;
+    return Math.hypot(pixels[a] - pixels[b], pixels[a + 1] - pixels[b + 1], pixels[a + 2] - pixels[b + 2]);
+  };
+  for (const part of popout.parts) {
+    const seedX = Math.round(part.x) - x0, seedY = Math.round(part.y) - y0;
+    if (seedX < 0 || seedY < 0 || seedX >= boxW || seedY >= boxH) continue;
+    const seed = seedY * boxW + seedX;
+    if (subjectMask[seed]) continue;
+    const patch = [seed], inPatch = new Uint8Array(boxW * boxH);
+    inPatch[seed] = 1;
+    for (let next = 0; next < patch.length && patch.length <= largestPatch; next++) {
+      const i = patch[next], x = i % boxW, y = (i / boxW) | 0;
+      for (const neighbor of [x > 0 ? i - 1 : -1, x < boxW - 1 ? i + 1 : -1, y > 0 ? i - boxW : -1, y < boxH - 1 ? i + boxW : -1]) {
+        if (neighbor < 0 || inPatch[neighbor] || subjectMask[neighbor] || colorDistanceAt(neighbor, seed) > 48) continue;
+        inPatch[neighbor] = 1; patch.push(neighbor);
+      }
+    }
+    if (patch.length <= largestPatch) for (const i of patch) subjectMask[i] = 1;
+  }
+}
+
+// Pinholes in the mask become dents in the model, so small enclosed gaps are filled.
+// Large ones, like the inside of a loop, are real background and stay open.
+{
+  const visited = new Uint8Array(boxW * boxH);
+  const largestHoleToFill = boxW * boxH * 0.02;
+  for (let seed = 0; seed < subjectMask.length; seed++) {
+    if (subjectMask[seed] || visited[seed]) continue;
+    const region = [];
+    let touchesTheEdge = false;
+    const stack = [seed];
+    visited[seed] = 1;
+    while (stack.length) {
+      const i = stack.pop();
+      region.push(i);
+      const x = i % boxW, y = (i / boxW) | 0;
+      if (x === 0 || y === 0 || x === boxW - 1 || y === boxH - 1) touchesTheEdge = true;
+      for (const neighbor of [x > 0 ? i - 1 : -1, x < boxW - 1 ? i + 1 : -1, y > 0 ? i - boxW : -1, y < boxH - 1 ? i + boxW : -1]) {
+        if (neighbor >= 0 && !visited[neighbor] && !subjectMask[neighbor]) { visited[neighbor] = 1; stack.push(neighbor); }
+      }
+    }
+    if (!touchesTheEdge && region.length < largestHoleToFill) for (const i of region) subjectMask[i] = 1;
+  }
+}
+
+
+const distance = new Float32Array(boxW * boxH);
+for (let i = 0; i < distance.length; i++) distance[i] = subjectMask[i] ? 1e6 : 0;
+const relax = (i, j, cost) => { if (distance[j] + cost < distance[i]) distance[i] = distance[j] + cost; };
+const onBoxEdge = (x, y) => x === 0 || y === 0 || x === boxW - 1 || y === boxH - 1;
+for (let y = 0; y < boxH; y++) for (let x = 0; x < boxW; x++) {
+  const i = y * boxW + x; if (!subjectMask[i]) continue;
+  if (onBoxEdge(x, y)) { distance[i] = 1; continue; }
+  relax(i, i - 1, 1); relax(i, i - boxW, 1); relax(i, i - boxW - 1, 1.414); relax(i, i - boxW + 1, 1.414);
+}
+for (let y = boxH - 1; y >= 0; y--) for (let x = boxW - 1; x >= 0; x--) {
+  const i = y * boxW + x; if (!subjectMask[i] || onBoxEdge(x, y)) continue;
+  relax(i, i + 1, 1); relax(i, i + boxW, 1); relax(i, i + boxW + 1, 1.414); relax(i, i + boxW - 1, 1.414);
+}
+let maximumInsideDistance = 1;
+for (const value of distance) if (value > maximumInsideDistance) maximumInsideDistance = value;
+
+const rimRadius = 22;
+const thicknessInFramePixels = (d) => {
+  if (d <= 0) return 0;
+  // A picture that already shows depth, like a cutaway or a photo of a machine, has its perspective
+  // and shading drawn in. Puffing it up stretches that drawing along the slopes into smears, so it lifts as a flat card.
+  if (popout.pictureShowsDepth) return 0;
+  const rim = Math.sqrt(1 - Math.pow(1 - Math.min(d, rimRadius) / rimRadius, 2));
+  // No point rises higher than its distance from the outline. Otherwise a thin drawn tube turns into
+  // a wall several times deeper than it is wide, and its stretched side reads as a second tube.
+  return Math.min(rim * 9 + Math.sqrt(d / maximumInsideDistance) * 55, d);
+};
+
+const cutout = document.createElement("canvas"); cutout.width = boxW; cutout.height = boxH;
+const drawCutout = (framePixels) => {
+  const cutoutContext = cutout.getContext("2d", { willReadFrequently: true });
+  const cutoutData = cutoutContext.createImageData(boxW, boxH);
+  for (let y = 0; y < boxH; y++) for (let x = 0; x < boxW; x++) {
+    const frameIndex = ((y + y0) * W + (x + x0)) * 4, cutoutIndex = (y * boxW + x) * 4;
+    cutoutData.data[cutoutIndex] = framePixels[frameIndex];
+    cutoutData.data[cutoutIndex + 1] = framePixels[frameIndex + 1];
+    cutoutData.data[cutoutIndex + 2] = framePixels[frameIndex + 2];
+    cutoutData.data[cutoutIndex + 3] = subjectMask[y * boxW + x] ? 255 : 0;
+  }
+  cutoutContext.putImageData(cutoutData, 0, 0);
+};
+drawCutout(shownPixels);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(pageWidth, pageHeight);
+document.body.insertBefore(renderer.domElement, document.getElementById("leaders"));
+// Flows draw above the model and below the labels.
+const flowCanvas = document.createElement("canvas");
+flowCanvas.style.pointerEvents = "none";
+flowCanvas.width = pageWidth * devicePixelRatio; flowCanvas.height = pageHeight * devicePixelRatio;
+Object.assign(flowCanvas.style, { width: `${pageWidth}px`, height: `${pageHeight}px` });
+document.body.insertBefore(flowCanvas, document.getElementById("leaders"));
+const flowContext = flowCanvas.getContext("2d");
+const scene = new THREE.Scene();
+const fieldOfView = 35;
+const camera = new THREE.PerspectiveCamera(fieldOfView, pageWidth / pageHeight, 1, 100000);
+const halfFieldTangent = Math.tan(THREE.MathUtils.degToRad(fieldOfView / 2));
+// At this distance one world unit is one page pixel on the z = 0 plane, so the frame starts exactly over the video.
+const pageDistance = (pageHeight / 2) / halfFieldTangent;
+const asTexture = (canvas) => { const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; return texture; };
+
+// The untouched frame stays flat in its exact place over the video while only the
+// subject moves, so the subject comes up out of the video and the picture never warps.
+const frameBackground = document.getElementById("frameBackground");
+frameBackground.width = W; frameBackground.height = H;
+Object.assign(frameBackground.style, { left: `${shownLeft}px`, top: `${shownTop}px`, width: `${shownWidth}px`, height: `${shownHeight}px` });
+frameBackground.getContext("2d").drawImage(shownFrame, 0, 0);
+
+const columns = 220, rows = Math.round(columns * boxH / boxW);
+const vertexCount = columns * rows;
+const positions = new Float32Array(vertexCount * 2 * 3), uvs = new Float32Array(vertexCount * 2 * 2);
+const baseThickness = new Float32Array(vertexCount);
+for (let row = 0; row < rows; row++) for (let column = 0; column < columns; column++) {
+  const vertex = row * columns + column;
+  const boxX = column / (columns - 1) * (boxW - 1), boxY = row / (rows - 1) * (boxH - 1);
+  baseThickness[vertex] = thicknessInFramePixels(distance[Math.round(boxY) * boxW + Math.round(boxX)]) * frameToWorld;
+  const worldPoint = framePointToWorld(x0 + boxX, y0 + boxY, 0);
+  for (const side of [0, 1]) {
+    const positionIndex = (side * vertexCount + vertex) * 3;
+    positions[positionIndex] = worldPoint.x; positions[positionIndex + 1] = worldPoint.y;
+    const uvIndex = (side * vertexCount + vertex) * 2;
+    uvs[uvIndex] = boxX / (boxW - 1); uvs[uvIndex + 1] = 1 - boxY / (boxH - 1);
+  }
+}
+const indices = [];
+for (let row = 0; row < rows - 1; row++) for (let column = 0; column < columns - 1; column++) {
+  const a = row * columns + column, b = a + 1, d = a + columns, e = d + 1;
+  indices.push(a, d, b, b, d, e);
+  indices.push(a + vertexCount, b + vertexCount, d + vertexCount, b + vertexCount, e + vertexCount, d + vertexCount);
+}
+const subjectGeometry = new THREE.BufferGeometry();
+subjectGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+subjectGeometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+subjectGeometry.setIndex(indices);
+const subjectTexture = asTexture(cutout);
+if (textBoxesToHide.length > 0) {
+  showPrintedText = () => {
+    showPrintedText = () => {};
+    frameBackground.getContext("2d").drawImage(full, 0, 0);
+    drawCutout(pixels);
+    subjectTexture.needsUpdate = true;
+  };
+}
+const subjectMesh = new THREE.Mesh(subjectGeometry, new THREE.MeshStandardMaterial({ map: subjectTexture, alphaTest: 0.5, roughness: 0.75, side: THREE.DoubleSide }));
+scene.add(subjectMesh);
+scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.6); keyLight.position.set(-2, 3, 4); scene.add(keyLight);
+const rimLight = new THREE.DirectionalLight(0xffffff, 0.9); rimLight.position.set(2, -1, -4); scene.add(rimLight);
+
+// An animated page image keeps playing on the lifted subject and on the frame behind it. Every frame
+// reuses the subject mask of the captured frame, so the outline holds still while what is inside it moves.
+const animationFrames = popout.animationFrames ?? [];
+let animationFrameImages = null;
+let shownAnimationFrameIndex = 0;
+let secondsOnShownAnimationFrame = 0;
+// Swift draws the frames over the captured frame's top-left color, which is the page behind the image.
+// A part that moves away, like an arrow, leaves that color inside the mask, and it shows as a blob on the subject
+// unless it is cut out. Spots that showed that color in the captured frame, like a white numbered circle, stay.
+const backgroundRed = pixels[0], backgroundGreen = pixels[1], backgroundBlue = pixels[2];
+const showsTheBackgroundColor = (data, index) =>
+  (data[index] - backgroundRed) ** 2 + (data[index + 1] - backgroundGreen) ** 2 + (data[index + 2] - backgroundBlue) ** 2 < 40 * 40;
+const capturedFrameShowedTheBackground = new Uint8Array(boxW * boxH);
+if (animationFrames.length > 1 && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  for (let rowInBox = 0; rowInBox < boxH; rowInBox++) for (let columnInBox = 0; columnInBox < boxW; columnInBox++) {
+    capturedFrameShowedTheBackground[rowInBox * boxW + columnInBox] = showsTheBackgroundColor(pixels, ((rowInBox + y0) * W + (columnInBox + x0)) * 4) ? 1 : 0;
+  }
+  // The scene starts on the captured frame and picks up the animation once every frame has decoded.
+  Promise.all(animationFrames.map((animationFrame) => {
+    const frameImage = new Image();
+    frameImage.src = animationFrame.dataURL;
+    return frameImage.decode().then(() => frameImage);
+  })).then((decodedImages) => { animationFrameImages = decodedImages; }, () => {});
+}
+const showAnimationFrame = (frameImage) => {
+  frameBackground.getContext("2d").drawImage(frameImage, 0, 0, W, H);
+  const cutoutContext = cutout.getContext("2d");
+  cutoutContext.globalCompositeOperation = "copy";
+  cutoutContext.drawImage(frameImage, x0, y0, boxW, boxH, 0, 0, boxW, boxH);
+  cutoutContext.globalCompositeOperation = "source-over";
+  const cutoutData = cutoutContext.getImageData(0, 0, boxW, boxH);
+  for (let maskIndex = 0; maskIndex < subjectMask.length; maskIndex++) {
+    const uncoveredBackground = !capturedFrameShowedTheBackground[maskIndex] && showsTheBackgroundColor(cutoutData.data, maskIndex * 4);
+    cutoutData.data[maskIndex * 4 + 3] = subjectMask[maskIndex] && !uncoveredBackground ? 255 : 0;
+  }
+  cutoutContext.putImageData(cutoutData, 0, 0);
+  subjectTexture.needsUpdate = true;
+};
+const advanceAnimation = (frameMilliseconds) => {
+  if (!animationFrameImages) return;
+  secondsOnShownAnimationFrame += frameMilliseconds / 1000;
+  const indexBefore = shownAnimationFrameIndex;
+  // Swift keeps every delay above zero, so this ends. A long stall skips frames instead of replaying them.
+  while (secondsOnShownAnimationFrame >= animationFrames[shownAnimationFrameIndex].delaySeconds) {
+    secondsOnShownAnimationFrame -= animationFrames[shownAnimationFrameIndex].delaySeconds;
+    shownAnimationFrameIndex = (shownAnimationFrameIndex + 1) % animationFrames.length;
+  }
+  if (shownAnimationFrameIndex !== indexBefore) showAnimationFrame(animationFrameImages[shownAnimationFrameIndex]);
+};
+
+const maximumLift = 0.375 * shownHeight;
+let liftNow = -1;
+const applyLift = (amount) => {
+  const position = subjectGeometry.attributes.position;
+  for (let vertex = 0; vertex < vertexCount; vertex++) {
+    const thickness = baseThickness[vertex] * amount;
+    position.array[vertex * 3 + 2] = thickness;
+    position.array[(vertex + vertexCount) * 3 + 2] = -thickness;
+  }
+  position.needsUpdate = true;
+  subjectGeometry.computeVertexNormals();
+  subjectMesh.position.z = maximumLift * amount;
+  frameBackground.style.filter = `brightness(${1 - 0.25 * amount})`;
+  document.getElementById("backdrop").style.opacity = String(0.55 * amount);
+  liftNow = amount;
+};
+applyLift(0);
+
+const subjectCenter = () => framePointToWorld((x0 + x1) / 2, (y0 + y1) / 2, maximumLift * liftNow);
+const leaders = document.getElementById("leaders");
+for (const part of popout.parts) {
+  const element = document.createElement("div");
+  element.className = "scene-label";
+  element.textContent = part.isQuizAnswer ? "?" : part.label;
+  if (part.isQuizAnswer) element.classList.add("quiz-answer", "unanswered");
+  element.style.opacity = "0";
+  // Labels pop in one after another, 120 ms apart, the first time they show.
+  element.style.setProperty("--clicky-label-order", String(labelEntries.length));
+  element.addEventListener("animationend", (event) => { if (event.animationName === "clicky-label-pop") element.classList.remove("popping-in"); });
+  document.body.appendChild(element);
+  const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  line.setAttribute("stroke", "rgba(255, 255, 255, 0.85)");
+  line.setAttribute("stroke-width", "1.5");
+  leaders.appendChild(line);
+  // An accent dot marks where the leader meets its part.
+  const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  dot.setAttribute("r", "3.5");
+  // A CSS variable resolves in a style property, which an SVG presentation attribute does not promise.
+  dot.style.fill = "var(--clicky-accent)";
+  dot.setAttribute("stroke", "#ffffff");
+  dot.setAttribute("stroke-width", "1.5");
+  leaders.appendChild(dot);
+  const boxX = Math.min(boxW - 1, Math.max(0, Math.round(part.x - x0))), boxY = Math.min(boxH - 1, Math.max(0, Math.round(part.y - y0)));
+  labelEntries.push({ part, element, line, dot, surface: thicknessInFramePixels(distance[boxY * boxW + boxX]) * frameToWorld });
+}
+const partPoint = (entry) => framePointToWorld(entry.part.x, entry.part.y, (maximumLift + entry.surface) * liftNow);
+
+// A point on a flow sits on the lifted surface, like a label's anchor.
+const flowPointOnPage = (frameX, frameY) => {
+  const boxX = Math.min(boxW - 1, Math.max(0, Math.round(frameX - x0))), boxY = Math.min(boxH - 1, Math.max(0, Math.round(frameY - y0)));
+  const insideTheBox = frameX >= x0 && frameX <= x1 && frameY >= y0 && frameY <= y1;
+  const surface = insideTheBox ? thicknessInFramePixels(distance[boxY * boxW + boxX]) * frameToWorld : 0;
+  const projected = framePointToWorld(frameX, frameY, (maximumLift + surface) * liftNow).project(camera);
+  return [(projected.x + 1) / 2 * pageWidth, (1 - projected.y) / 2 * pageHeight];
+};
+const pointAlongFlow = (flow, distanceAlong) => {
+  for (let pointIndex = 1; pointIndex < flow.points.length; pointIndex++) {
+    if (distanceAlong <= flow.lengths[pointIndex] || pointIndex === flow.points.length - 1) {
+      const segmentStart = flow.points[pointIndex - 1], segmentEnd = flow.points[pointIndex];
+      const segmentLength = flow.lengths[pointIndex] - flow.lengths[pointIndex - 1];
+      const fractionAlongSegment = segmentLength === 0 ? 0 : Math.min(1, (distanceAlong - flow.lengths[pointIndex - 1]) / segmentLength);
+      return [segmentStart[0] + (segmentEnd[0] - segmentStart[0]) * fractionAlongSegment, segmentStart[1] + (segmentEnd[1] - segmentStart[1]) * fractionAlongSegment];
+    }
+  }
+  return flow.points[flow.points.length - 1];
+};
+const repeatableNoise = (first, second) => {
+  const value = Math.sin(first * 127.1 + second * 311.7) * 43758.5453;
+  return value - Math.floor(value);
+};
+// A particle is a pure function of the clock and its index, so nothing piles up between frames.
+// With Reduce Motion each stream's clock stops once a full stream of particles covers its path, so it stands still but stays visible.
+const drawFlows = (now) => {
+  flowContext.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  flowContext.clearRect(0, 0, pageWidth, pageHeight);
+  if (!flowsToDraw || !tourDone) return;
+  flowsStartedAt ??= now;
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const runningSeconds = (now - flowsStartedAt) / 1000;
+  const fade = Math.min(1, (now - flowsStartedAt) / 800) * (returnFrom ? labelFade : 1);
+  const frameScale = W / 640;
+  flowsToDraw.forEach((flow, flowIndex) => {
+    const { style } = flow;
+    const speed = style.speed * frameScale;
+    // The slowest particle travels at 0.8 of the style's speed, so the window is long enough for it to reach the end.
+    const lifeSeconds = flow.length / (speed * 0.8);
+    const seconds = reducedMotion ? lifeSeconds : runningSeconds;
+    flowContext.globalCompositeOperation = style.glows ? "lighter" : "source-over";
+    flowContext.globalAlpha = fade;
+    const firstIndex = Math.max(0, Math.floor((seconds - lifeSeconds) * style.spawnsPerSecond));
+    const lastIndex = Math.floor(seconds * style.spawnsPerSecond);
+    for (let particleIndex = firstIndex; particleIndex <= lastIndex; particleIndex++) {
+      const seed = repeatableNoise(particleIndex, flowIndex + 1);
+      const age = seconds - particleIndex / style.spawnsPerSecond;
+      const along = age * speed * (0.8 + 0.4 * repeatableNoise(particleIndex, flowIndex + 7));
+      if (along < 0 || along > flow.length) continue;
+      // The page position of a point a little further on gives the direction and the frame-to-page scale here.
+      const aheadAlong = Math.min(flow.length, along + 2), behindAlong = aheadAlong - 2;
+      const [behindX, behindY] = flowPointOnPage(...pointAlongFlow(flow, behindAlong));
+      const [aheadX, aheadY] = flowPointOnPage(...pointAlongFlow(flow, aheadAlong));
+      const pagePixelsPerFramePixel = Math.hypot(aheadX - behindX, aheadY - behindY) / 2 || 1;
+      const directionX = (aheadX - behindX) / (2 * pagePixelsPerFramePixel), directionY = (aheadY - behindY) / (2 * pagePixelsPerFramePixel);
+      const size = frameScale * pagePixelsPerFramePixel;
+      const progress = along / flow.length;
+      const stray = ((seed - 0.5) * 2 * style.stray(progress) + Math.sin(age * 3 + seed * 20) * 1.2) * size;
+      const [pointX, pointY] = flowPointOnPage(...pointAlongFlow(flow, along));
+      style.draw(flowContext, { x: pointX - directionY * stray, y: pointY + directionX * stray, directionX, directionY, progress, seed, seconds, size, color: flow.color });
+    }
+  });
+  flowContext.globalCompositeOperation = "source-over";
+  flowContext.globalAlpha = 1;
+};
+
+const subjectHeightWorld = boxH * frameToWorld;
+const endDistance = (subjectHeightWorld / 0.62 / 2) / halfFieldTangent;
+minimumDistance = endDistance * 0.4;
+maximumDistance = endDistance * 1.8;
+cameraDistance = pageDistance;
+const target = new THREE.Vector3();
+const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const tourStartedAt = performance.now();
+// The tour turns a puffed-up model 0.6 radians to show its depth. A flat card seen from that angle looks
+// squeezed to cos(0.6), about 83% of its width, so a flat card ends its tour almost facing the camera.
+const tourEndYaw = popout.pictureShowsDepth ? 0.12 : 0.6;
+const tourEndPitch = popout.pictureShowsDepth ? 0.06 : 0.18;
+
+let dragging = false, lastX = 0, lastY = 0;
+// A press that travels further than this many pixels is a drag to turn the model, not a click on a label.
+const largestClickTravel = 4;
+let pressStartX = 0, pressStartY = 0, pressTravel = 0, pressedLabelEntry = null;
+// A drag sets the angle the camera heads for, and each frame eases the camera toward it.
+// Drag events arrive unevenly (about 51 a second against 60 frames in Clicky's overlay),
+// so snapping to each event left about 1 frame in 6 standing still.
+let draggedYaw = 0, draggedPitch = 0;
+// A flat card turned edge-on shows it is paper thin, so a picture that shows depth only tilts.
+const largestDraggedYaw = popout.pictureShowsDepth ? 0.75 : Infinity;
+const largestDraggedPitch = popout.pictureShowsDepth ? 0.45 : 1.1;
+addEventListener("pointerdown", (event) => {
+  dragging = true; lastX = event.clientX; lastY = event.clientY;
+  pressStartX = event.clientX; pressStartY = event.clientY; pressTravel = 0;
+  pressedLabelEntry = labelEntries.find((entry) => entry.element === event.target) ?? null;
+});
+addEventListener("pointerup", () => {
+  dragging = false;
+  const clickedLabelEntry = pressTravel <= largestClickTravel ? pressedLabelEntry : null;
+  pressedLabelEntry = null;
+  if (!clickedLabelEntry || !document.body.classList.contains("labels-take-clicks")) return;
+  window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("partTapped:" + clickedLabelEntry.part.label);
+});
+addEventListener("pointermove", (event) => {
+  if (!dragging) return;
+  pressTravel = Math.max(pressTravel, Math.hypot(event.clientX - pressStartX, event.clientY - pressStartY));
+  if (!tourDone) return;
+  // A drag during a replay stop's turn takes the camera over from the turn.
+  poseMove = null;
+  draggedYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, draggedYaw - (event.clientX - lastX) * 0.008));
+  draggedPitch = Math.min(largestDraggedPitch, Math.max(-largestDraggedPitch, draggedPitch + (event.clientY - lastY) * 0.005));
+  lastX = event.clientX; lastY = event.clientY;
+});
+
+// The camera orbits the point it looks at, at the current yaw, pitch, and distance.
+const placeCamera = (lookAtPoint) => {
+  camera.position.set(
+    lookAtPoint.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch),
+    lookAtPoint.y + cameraDistance * Math.sin(pitch),
+    lookAtPoint.z + cameraDistance * Math.cos(yaw) * Math.cos(pitch),
+  );
+  camera.lookAt(lookAtPoint);
+  // lookAt leaves the world matrix with the new position and the old rotation, and the labels
+  // are projected before renderer.render refreshes it. Without this, labels shook while turning.
+  camera.updateMatrixWorld();
+};
+
+// BEGIN pan clamp math (worker/src/framePopoutReplay.test.ts runs this block)
+// How far outside the media box a box on the page reaches, summed over its four sides, in page points.
+function overflowOutsideTheMedia(box, mediaRect) {
+  return Math.max(0, mediaRect.left - box.left) + Math.max(0, box.right - (mediaRect.left + mediaRect.width))
+    + Math.max(0, mediaRect.top - box.top) + Math.max(0, box.bottom - (mediaRect.top + mediaRect.height));
+}
+// The largest share of the pan from the subject's center (0) to the focused part (1) that pushes the subject no further
+// outside the media than the subject's center does. The overflow grows steadily with the pan, so a search finds it.
+function largestPanShareThatKeepsTheSubjectInside(overflowAtShare) {
+  const allowedOverflow = overflowAtShare(0) + 0.5;
+  if (overflowAtShare(1) <= allowedOverflow) return 1;
+  let shareInside = 0, shareOutside = 1;
+  for (let step = 0; step < 8; step++) {
+    const middleShare = (shareInside + shareOutside) / 2;
+    if (overflowAtShare(middleShare) <= allowedOverflow) shareInside = middleShare;
+    else shareOutside = middleShare;
+  }
+  return shareInside;
+}
+// END pan clamp math
+
+// Centering a part near the subject's edge would slide the rest of the lifted model out of the paused video and under the
+// replay control, so the pan toward a focused part stops where the subject would reach further outside the media.
+const focusTargetThatKeepsTheSubjectOverTheMedia = (entry) => {
+  const fromPoint = subjectCenter(), toPoint = partPoint(entry);
+  const mediaRect = { left: shownLeft, top: shownTop, width: shownWidth, height: shownHeight };
+  const subjectCorners = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([frameX, frameY]) => framePointToWorld(frameX, frameY, maximumLift * liftNow));
+  const candidate = new THREE.Vector3();
+  const overflowAtShare = (share) => {
+    placeCamera(candidate.lerpVectors(fromPoint, toPoint, share));
+    const pagePoints = subjectCorners.map((corner) => {
+      const projected = corner.clone().project(camera);
+      return [(projected.x + 1) / 2 * pageWidth, (1 - projected.y) / 2 * pageHeight];
+    });
+    const box = {
+      left: Math.min(...pagePoints.map((point) => point[0])), right: Math.max(...pagePoints.map((point) => point[0])),
+      top: Math.min(...pagePoints.map((point) => point[1])), bottom: Math.max(...pagePoints.map((point) => point[1])),
+    };
+    return overflowOutsideTheMedia(box, mediaRect);
+  };
+  return new THREE.Vector3().lerpVectors(fromPoint, toPoint, largestPanShareThatKeepsTheSubjectInside(overflowAtShare));
+};
+
+let lastFrameTime;
+let labelsHavePoppedIn = false;
+
+const finishTour = () => {
+  draggedYaw = yaw; draggedPitch = pitch;
+  restingCameraDistance = endDistance;
+  tourDone = true;
+  window.__tourFinished = true;
+  // A quiz pop-out keeps its question, so only a pop-out with no quiz explains a clicked label.
+  if (!popout.parts.some((part) => part.isQuizAnswer)) document.body.classList.add("labels-take-clicks");
+  postLiveSceneEvent("tourFinished");
+};
+
+const render = (now) => {
+  const seconds = (now - tourStartedAt) / 1000;
+  const frameMilliseconds = lastFrameTime === undefined ? 0 : now - lastFrameTime;
+  lastFrameTime = now;
+  advanceAnimation(frameMilliseconds);
+  if (returnFrom) {
+    const progress = Math.min(1, Math.max(0, (now - returnStartedAt) / 1000 / returnSeconds));
+    const settle = ease(progress);
+    const lift = returnFrom.lift * (1 - settle);
+    if (lift !== liftNow) applyLift(lift);
+    yaw = returnFrom.yaw * (1 - settle);
+    pitch = returnFrom.pitch * (1 - settle);
+    cameraDistance = returnFrom.cameraDistance + (pageDistance - returnFrom.cameraDistance) * settle;
+    target.lerpVectors(returnFrom.target, new THREE.Vector3(0, 0, 0), settle);
+    labelFade = 1 - Math.min(1, progress / 0.4);
+    if (progress === 1 && !returnFinishedPosted) {
+      returnFinishedPosted = true;
+      postLiveSceneEvent("returnFinished");
+    }
+  } else if (!tourDone) {
+    const lift = ease(Math.min(1, Math.max(0, (seconds - 1) / 2)));
+    const move = ease(Math.min(1, Math.max(0, (seconds - 1.5) / 3)));
+    if (lift !== liftNow) applyLift(lift);
+    yaw = tourEndYaw * move;
+    pitch = tourEndPitch * move;
+    cameraDistance = pageDistance + (endDistance - pageDistance) * move;
+    target.lerpVectors(new THREE.Vector3(0, 0, 0), subjectCenter(), move);
+    if (seconds > 4.5) finishTour();
+  } else {
+    if (liftNow !== 1) applyLift(1);
+    if (poseMove) {
+      // A replay stop's turn back to its recorded pose, in step with focusMove's pan to the part.
+      const poseProgress = Math.min(1, (now - poseMove.startedAt) / 1500);
+      const poseSettle = ease(poseProgress);
+      yaw = draggedYaw = poseMove.fromYaw + (poseMove.toYaw - poseMove.fromYaw) * poseSettle;
+      pitch = draggedPitch = poseMove.fromPitch + (poseMove.toPitch - poseMove.fromPitch) * poseSettle;
+      cameraDistance = restingCameraDistance = poseMove.fromDistance + (poseMove.toDistance - poseMove.fromDistance) * poseSettle;
+      if (poseProgress === 1) poseMove = null;
+    } else {
+      const easeToDrag = 1 - Math.exp(-frameMilliseconds / 50);
+      yaw += (draggedYaw - yaw) * easeToDrag;
+      pitch += (draggedPitch - pitch) * easeToDrag;
+      cameraDistance += (restingCameraDistance - cameraDistance) * easeToDrag;
+    }
+    const restingTarget = heldTarget ?? (focusedEntry ? focusTargetThatKeepsTheSubjectOverTheMedia(focusedEntry) : subjectCenter());
+    if (focusMove) {
+      const progress = reducedMotionQuery.matches ? 1 : Math.min(1, (now - focusMove.startedAt) / 1500);
+      if (!focusMove.from) focusMove.from = target.clone();
+      target.lerpVectors(focusMove.from, restingTarget, ease(progress));
+      if (progress === 1) focusMove = null;
+    } else {
+      target.copy(restingTarget);
+    }
+  }
+  placeCamera(target);
+
+  const labelFadeInAfterAnEarlyEnd = tourEndedEarlyAt === null ? 0 : (now - tourEndedEarlyAt) / 600;
+  const labelOpacity = Math.min(1, Math.max(0, (seconds - 4) / 0.6, labelFadeInAfterAnEarlyEnd));
+  if (labelOpacity > 0 && !labelsHavePoppedIn) {
+    labelsHavePoppedIn = true;
+    for (const entry of labelEntries) entry.element.classList.add("popping-in");
+  }
+  const centerOnPage = subjectCenter().project(camera);
+  const centerX = (centerOnPage.x + 1) / 2 * pageWidth, centerY = (1 - centerOnPage.y) / 2 * pageHeight;
+  const reach = Math.min(pageWidth, pageHeight) * 0.14;
+  // Labels go out to the left or right of the subject, so a tall narrow subject
+  // gets two columns instead of one stack. Points near the middle alternate sides.
+  const projectedPoints = labelEntries.map((entry) => {
+    const projected = partPoint(entry).project(camera);
+    return { entry, pointX: (projected.x + 1) / 2 * pageWidth, pointY: (1 - projected.y) / 2 * pageHeight };
+  });
+  const middleBand = Math.max(24, reach * 0.35);
+  let nextMiddleSide = -1;
+  const placements = projectedPoints
+    .sort((first, second) => first.pointY - second.pointY)
+    .map(({ entry, pointX, pointY }) => {
+      const offsetFromCenter = pointX - centerX;
+      // A label keeps its side until its part is clearly past the middle, so turning
+      // the model does not flip it back and forth across the subject.
+      if (entry.side === undefined) {
+        entry.side = Math.sign(offsetFromCenter);
+        if (Math.abs(offsetFromCenter) < middleBand) { entry.side = nextMiddleSide; nextMiddleSide = -nextMiddleSide; }
+      } else if (Math.sign(offsetFromCenter) === -entry.side && Math.abs(offsetFromCenter) > middleBand) {
+        entry.side = -entry.side;
+      }
+      const halfWidth = entry.element.offsetWidth / 2 + 4;
+      return {
+        entry, pointX, pointY,
+        labelX: pointX + entry.side * (reach + halfWidth), labelY: pointY + (pointY - centerY) * 0.15,
+        halfWidth, halfHeight: entry.element.offsetHeight / 2 + 3,
+      };
+    });
+  // A label's center stays this far plus half its size inside the viewport, so none leaves the screen.
+  // The size is read from the window each time, not from pageWidth and pageHeight, which the scene took when it loaded:
+  // a window that changes size afterward (a display change) would otherwise leave labels outside what shows.
+  const labelViewportMargin = 8;
+  const keepLabelAxisInViewport = (position, halfSize, viewportSize) =>
+    Math.min(viewportSize - labelViewportMargin - halfSize, Math.max(labelViewportMargin + halfSize, position));
+  const keepLabelXInViewport = (position, halfSize) => keepLabelAxisInViewport(position, halfSize, innerWidth);
+  const keepLabelYInViewport = (position, halfSize) => keepLabelAxisInViewport(position, halfSize, innerHeight);
+  // Labels that land on each other are pushed apart, so none hides another.
+  for (let pass = 0; pass < 12; pass++) {
+    for (let first = 0; first < placements.length; first++) for (let second = first + 1; second < placements.length; second++) {
+      const a = placements[first], b = placements[second];
+      const overlapX = a.halfWidth + b.halfWidth - Math.abs(a.labelX - b.labelX);
+      const overlapY = a.halfHeight + b.halfHeight - Math.abs(a.labelY - b.labelY);
+      if (overlapX <= 0 || overlapY <= 0) continue;
+      if (overlapY < overlapX) {
+        const push = overlapY / 2 + 0.5, direction = a.labelY <= b.labelY ? -1 : 1;
+        a.labelY += direction * push; b.labelY -= direction * push;
+      } else {
+        const push = overlapX / 2 + 0.5, direction = a.labelX <= b.labelX ? -1 : 1;
+        a.labelX += direction * push; b.labelX -= direction * push;
+      }
+    }
+    // Clamping inside each pass lets the next pass push labels apart again, instead of overlapping at an edge.
+    for (const placement of placements) {
+      placement.labelX = keepLabelXInViewport(placement.labelX, placement.halfWidth);
+      placement.labelY = keepLabelYInViewport(placement.labelY, placement.halfHeight);
+    }
+  }
+  // Each label follows its part exactly, and its offset from the part glides toward the new layout.
+  // While the learner drags, the offsets hold still, so labels move with the model instead of
+  // sliding around it. They glide to a freshly solved layout after the drag ends.
+  const glide = 1 - Math.exp(-frameMilliseconds / 120);
+  const offsetsHoldStill = dragging && tourDone;
+  for (const placement of placements) {
+    const { entry, pointX, pointY, halfWidth, halfHeight } = placement;
+    if (entry.offsetX === undefined) { entry.offsetX = placement.labelX - pointX; entry.offsetY = placement.labelY - pointY; }
+    if (!offsetsHoldStill) {
+      entry.offsetX += (placement.labelX - pointX - entry.offsetX) * glide;
+      entry.offsetY += (placement.labelY - pointY - entry.offsetY) * glide;
+    }
+    // Offsets held still during a drag, and the glide between layouts, can carry a label past the edge, so the final position is clamped too.
+    const labelX = keepLabelXInViewport(pointX + entry.offsetX, halfWidth);
+    const labelY = keepLabelYInViewport(pointY + entry.offsetY, halfHeight);
+    // The leader's part end is clamped the same way, so a window that shrinks after the scene loaded never sends a line off screen.
+    const anchorX = keepLabelXInViewport(pointX, 0), anchorY = keepLabelYInViewport(pointY, 0);
+    entry.anchorX = anchorX; entry.anchorY = anchorY;
+    // A transform keeps the label at sub-pixel positions like its SVG line. Left and top snap to
+    // whole pixels in WebKit, which made labels shimmer against their lines.
+    entry.element.style.transform = `translate(${labelX}px, ${labelY}px) translate(-50%, -50%)`;
+    // While returning, every label fades from the opacity it had, including a focused or dimmed one.
+    const shownOpacity = returnFrom ? entry.opacityAtReturn * labelFade : labelOpacity;
+    if (returnFrom) entry.element.style.opacity = String(shownOpacity);
+    else if (!entry.element.classList.contains("focused") && entry.element.style.opacity !== "0.35") entry.element.style.opacity = String(labelOpacity);
+    entry.line.setAttribute("x1", anchorX); entry.line.setAttribute("y1", anchorY);
+    entry.line.setAttribute("x2", labelX); entry.line.setAttribute("y2", labelY);
+    entry.line.setAttribute("opacity", shownOpacity);
+    entry.labelCornerX = labelX - halfWidth + 4; entry.labelCornerY = labelY - halfHeight + 3; entry.shownOpacity = shownOpacity;
+    entry.dot.setAttribute("cx", anchorX); entry.dot.setAttribute("cy", anchorY);
+    entry.dot.setAttribute("opacity", shownOpacity);
+  }
+  // Each replay stop's number sits on its label's top left corner, and the dotted path links the parts of the stops reached.
+  for (const { entry, element, stopIndex } of replayStopNumbers) {
+    element.style.transform = `translate(${entry.labelCornerX}px, ${entry.labelCornerY}px) translate(-50%, -50%)`;
+    element.style.opacity = String(entry.shownOpacity);
+    element.classList.toggle("reached", stopIndex <= replayPathReachesStop);
+  }
+  const replayPathPoints = replayStopNumbers
+    .filter(({ stopIndex }) => stopIndex <= replayPathReachesStop)
+    .map(({ entry }) => `${entry.anchorX.toFixed(1)} ${entry.anchorY.toFixed(1)}`);
+  document.getElementById("replayPathLine").setAttribute("d", replayPathPoints.length > 1 ? "M" + replayPathPoints.join(" L ") : "");
+  drawFlows(now);
+  renderer.render(scene, camera);
+  window.__ready = true;
+  // The landed frame is the last one drawn.
+  if (!returnFinishedPosted) requestAnimationFrame(render);
+};
+sceneIsBuilt = true;
+// A clear that arrived while the page was still loading has nothing to draw.
+if (returnStartedAt === null) requestAnimationFrame(render);
+</script>
+</body>
+</html>

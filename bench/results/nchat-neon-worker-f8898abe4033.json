@@ -1,0 +1,348 @@
+{
+  "label": "nchat-neon",
+  "benchKind": "worker",
+  "commitSHA": "f8898abe4033",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:56:52.175Z",
+  "runCount": 5,
+  "port": 8798,
+  "interleavedWith": [
+    "nchat-base"
+  ],
+  "summary": [
+    {
+      "caseId": "chat-first",
+      "route": "/chat",
+      "description": "First push-to-talk question with one 1280x800 screenshot, streamed",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 13546,
+        "p95": 19970,
+        "min": 6550,
+        "max": 19970
+      },
+      "firstByteMs": {
+        "p50": 13329,
+        "p95": 19745,
+        "min": 6318,
+        "max": 19745
+      },
+      "firstTokenMs": {
+        "p50": 13329,
+        "p95": 19745,
+        "min": 6318,
+        "max": 19745
+      },
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2268,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 418,
+      "meanCostUSD": 0.01307
+    },
+    {
+      "caseId": "chat-followup",
+      "route": "/chat",
+      "description": "Second question in the same conversation, with one exchange of history",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 9463,
+        "p95": 249885,
+        "min": 5657,
+        "max": 249885
+      },
+      "firstByteMs": {
+        "p50": 9139,
+        "p95": 249596,
+        "min": 5503,
+        "max": 249596
+      },
+      "firstTokenMs": {
+        "p50": 9139,
+        "p95": 249596,
+        "min": 5503,
+        "max": 249596
+      },
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2310,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 434,
+      "meanCostUSD": 0.01344
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "chat-first",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 15267.178125,
+      "firstTokenMs": 15267.545208000001,
+      "firstAudioMs": null,
+      "totalMs": 15530.930333000002,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "gemini-4-neon",
+          "inputTokens": 2268,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 512
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.014484,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 1210,58, 2 sentences"
+      },
+      "replyPreview": "Click that blue Download PDF button up in the top right corner. That'll save the whole Heart article right to your computer. [POINT:1210,58:Download PDF button]"
+    },
+    {
+      "caseId": "chat-first",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 6559.0949169999985,
+      "firstTokenMs": 6562.431708999997,
+      "firstAudioMs": null,
+      "totalMs": 6637.555541999998,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "gemini-4-neon",
+          "inputTokens": 2268,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 422
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.013134,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 1210,58, 1 sentences"
+      },
+      "replyPreview": "Hit that blue Download PDF button up in the top right corner, right next to the address bar. [POINT:1210,58:download pdf]"
+    },
+    {
+      "caseId": "chat-first",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 19744.625582999997,
+      "firstTokenMs": 19744.832749999998,
+      "firstAudioMs": null,
+      "totalMs": 19969.689083,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "gemini-4-neon",
+          "inputTokens": 2268,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 330
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.011754,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 1210,58, 2 sentences"
+      },
+      "replyPreview": "Hit that blue Download PDF button up in the top right corner of your browser. That'll save the whole Heart article right to your computer. [POINT:1210,58:download pdf button]"
+    },
+    {
+      "caseId": "chat-first",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 13329.061333000005,
+      "firstTokenMs": 13329.340833000002,
+      "firstAudioMs": null,
+      "totalMs": 13545.527458000004,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "gemini-4-neon",
+          "inputTokens": 2268,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 395
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.012729,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 1210,58, 2 sentences"
+      },
+      "replyPreview": "Click the blue Download PDF button up in the top right corner of your browser. That will save the whole article right to your computer. [POINT:1210,58:Download PDF button]"
+    },
+    {
+      "caseId": "chat-first",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 6318.072291000004,
+      "firstTokenMs": 6318.367750000005,
+      "firstAudioMs": null,
+      "totalMs": 6550.217791000003,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "gemini-4-neon",
+          "inputTokens": 2268,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 431
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.013269,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 1210,58, 2 sentences"
+      },
+      "replyPreview": "Hit that blue Download PDF button up in the top right corner. You can also save any web page as a PDF from the print menu if a site doesn't have a button like that. [POINT:1210,58:Download PDF]"
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 249596.029291,
+      "firstTokenMs": 249596.39825,
+      "firstAudioMs": null,
+      "totalMs": 249885.43558299998,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "gemini-4-neon",
+          "inputTokens": 2310,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 340
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.01203,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles, 2 sentences"
+      },
+      "replyPreview": "They're the upper left and right atria, and the lower left and right ventricles. You can also trace how blood flows between them through the four valves if you want to see the whole loop. [POINT:none]"
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 11910.567708000017,
+      "firstTokenMs": 11911.137833000044,
+      "firstAudioMs": null,
+      "totalMs": 12128.321708000032,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "gemini-4-neon",
+          "inputTokens": 2310,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 446
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.01362,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles, 2 sentences"
+      },
+      "replyPreview": "They're the upper left and right atria, and the lower left and right ventricles. Next up, it's really cool to trace how blood actually loops through those four chambers and the lungs. [POINT:none]"
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 5502.782334000047,
+      "firstTokenMs": 5502.995500000019,
+      "firstAudioMs": null,
+      "totalMs": 5656.802459000028,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "gemini-4-neon",
+          "inputTokens": 2310,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 374
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.01254,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles, 2 sentences"
+      },
+      "replyPreview": "They're the upper left and right atria, and the lower left and right ventricles. You can also dig into how the four valves keep blood flowing in one direction between them. [POINT:none]"
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 8701.578291999991,
+      "firstTokenMs": 8701.768374999985,
+      "firstAudioMs": null,
+      "totalMs": 8930.340709000011,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "gemini-4-neon",
+          "inputTokens": 2310,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 518
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0147,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles, 2 sentences"
+      },
+      "replyPreview": "They're the upper left and right atria, and the lower left and right ventricles. You can trace how blood flows through them in the diagram on the right. [POINT:1125,240:heart diagram]"
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 9139.042292000027,
+      "firstTokenMs": 9139.272292000009,
+      "firstAudioMs": null,
+      "totalMs": 9463.249375000014,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "gemini-4-neon",
+          "inputTokens": 2310,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 492
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.01431,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles, 2 sentences"
+      },
+      "replyPreview": "They're the upper left and right atria, and the lower left and right ventricles. That diagram on the right also shows how the four valves keep blood flowing one way. [POINT:1125,240:heart diagram]"
+    }
+  ]
+}

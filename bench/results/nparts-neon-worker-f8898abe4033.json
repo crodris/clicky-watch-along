@@ -1,0 +1,779 @@
+{
+  "label": "nparts-neon",
+  "benchKind": "worker",
+  "commitSHA": "f8898abe4033",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:54:27.222Z",
+  "runCount": 3,
+  "port": 8798,
+  "interleavedWith": [
+    "nparts-base"
+  ],
+  "summary": [
+    {
+      "caseId": "frame-parts-heart",
+      "route": "/video-frame-parts",
+      "description": "Finds the heart in a 1280x720 diagram frame",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 12567,
+        "p95": 12960,
+        "min": 11548,
+        "max": 12960
+      },
+      "firstByteMs": {
+        "p50": 12566,
+        "p95": 12959,
+        "min": 11547,
+        "max": 12959
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2259,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 1214,
+      "meanCostUSD": 0.02499
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "route": "/video-frame-parts",
+      "description": "Lifts The Starry Night out as a whole picture and marks it as art",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 10857,
+        "p95": 11714,
+        "min": 10484,
+        "max": 11714
+      },
+      "firstByteMs": {
+        "p50": 10856,
+        "p95": 11713,
+        "min": 10484,
+        "max": 11713
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2259,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 1025,
+      "meanCostUSD": 0.02216
+    },
+    {
+      "caseId": "frame-parts-cutaway",
+      "route": "/video-frame-parts",
+      "description": "Marks a 3D cutaway of a turbofan as showing depth",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 13400,
+        "p95": 13822,
+        "min": 11344,
+        "max": 13822
+      },
+      "firstByteMs": {
+        "p50": 13400,
+        "p95": 13821,
+        "min": 11342,
+        "max": 13821
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2259,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 1388,
+      "meanCostUSD": 0.02759
+    },
+    {
+      "caseId": "frame-parts-print",
+      "route": "/video-frame-parts",
+      "description": "Marks The Great Wave, a woodblock print, as art",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 11753,
+        "p95": 49671,
+        "min": 10915,
+        "max": 49671
+      },
+      "firstByteMs": {
+        "p50": 11752,
+        "p95": 49671,
+        "min": 10914,
+        "max": 49671
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2259,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 1226,
+      "meanCostUSD": 0.02516
+    },
+    {
+      "caseId": "frame-parts-art-of-one-animal",
+      "route": "/video-frame-parts",
+      "description": "Marks Dürer's Young Hare as art, though it shows one animal",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 13883,
+        "p95": 21958,
+        "min": 13715,
+        "max": 21958
+      },
+      "firstByteMs": {
+        "p50": 13883,
+        "p95": 21957,
+        "min": 13714,
+        "max": 21957
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2259,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 1419,
+      "meanCostUSD": 0.02807
+    },
+    {
+      "caseId": "frame-parts-bicycle",
+      "route": "/video-frame-parts",
+      "description": "Keeps a labeled bicycle diagram as a diagram, not art",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 11789,
+        "p95": 12543,
+        "min": 11736,
+        "max": 12543
+      },
+      "firstByteMs": {
+        "p50": 11788,
+        "p95": 12542,
+        "min": 11736,
+        "max": 12542
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2259,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 1134,
+      "meanCostUSD": 0.02378
+    },
+    {
+      "caseId": "frame-parts-chart",
+      "route": "/video-frame-parts",
+      "description": "Finds no subject in a bar chart, which is not one drawn object",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 6648,
+        "p95": 31940,
+        "min": 5081,
+        "max": 31940
+      },
+      "firstByteMs": {
+        "p50": 6647,
+        "p95": 31940,
+        "min": 5081,
+        "max": 31940
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2259,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 276,
+      "meanCostUSD": 0.01092
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 12959.438875000002,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 12959.847375,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1190
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.024627,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":405,\"top\":36,\"right\":891,\"bottom\":663},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":640,\"y\":135,\"isQuizAnswer\":false},{\"label\":\"Superior Vena Cava\",\"x\":505,\"y\":195,\"isQuizAnswer\":false},{\"label\":\"Pulmonary Artery\",\"x\":680,\"y\":195,\"isQuizAnswer\":false},{\"label\":\"Right Atrium\",\"x\":510,\"y\":380,\"isQuizAnswer\":false},{\"label\":\"Left Atrium\",\"x\":710,\"y\":290,\"isQuizAnswer\":false},{\"label\":\"Right Ventricle\",\"x\":635,\"y\":525,\"isQuizAnswer\":false},{\"label\":\"Left Ventricle\",\"x\":775,\"y\":475,\"isQuizAnswer\":fa"
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 11546.777875,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 11547.521666,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1126
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.023667,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":405,\"top\":36,\"right\":892,\"bottom\":664},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":575,\"y\":195,\"isQuizAnswer\":false},{\"label\":\"Superior Vena Cava\",\"x\":505,\"y\":190,\"isQuizAnswer\":false},{\"label\":\"Pulmonary Artery\",\"x\":695,\"y\":195,\"isQuizAnswer\":false},{\"label\":\"Right Atrium\",\"x\":510,\"y\":360,\"isQuizAnswer\":false},{\"label\":\"Left Atrium\",\"x\":700,\"y\":290,\"isQuizAnswer\":false},{\"label\":\"Right Ventricle\",\"x\":635,\"y\":520,\"isQuizAnswer\":false},{\"label\":\"Left Ventricle\",\"x\":775,\"y\":465,\"isQuizAnswer\":fa"
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 12566.418082999997,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 12566.904499999997,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1326
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.026667,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":406,\"top\":36,\"right\":890,\"bottom\":665},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":650,\"y\":130,\"isQuizAnswer\":false},{\"label\":\"Superior Vena Cava\",\"x\":500,\"y\":175,\"isQuizAnswer\":false},{\"label\":\"Pulmonary Artery\",\"x\":690,\"y\":195,\"isQuizAnswer\":false},{\"label\":\"Right Atrium\",\"x\":505,\"y\":365,\"isQuizAnswer\":false},{\"label\":\"Left Atrium\",\"x\":700,\"y\":290,\"isQuizAnswer\":false},{\"label\":\"Right Ventricle\",\"x\":635,\"y\":520,\"isQuizAnswer\":false},{\"label\":\"Left Ventricle\",\"x\":775,\"y\":465,\"isQuizAnswer\":fa"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 10483.948959000001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 10484.498542000001,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1162
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.024207,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":185,\"top\":0,\"right\":1095,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Cypress tree\",\"x\":380,\"y\":500,\"isQuizAnswer\":false},{\"label\":\"Crescent moon\",\"x\":1005,\"y\":130,\"isQuizAnswer\":false},{\"label\":\"Swirling sky\",\"x\":620,\"y\":240,\"isQuizAnswer\":false},{\"label\":\"Bright star\",\"x\":505,\"y\":385,\"isQuizAnswer\":false},{\"label\":\"Church steeple\",\"x\":700,\"y\":530,\"isQuizAnswer\":false},{\"label\":\"Village houses\",\"x\":780,\"y\":670,\"isQuizAnswer\":false},{\"label\":\"Rolling hills\",\"x\":960,\"y\":480,\"isQuizAnswer\":false"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 11713.277749999994,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 11713.918250000002,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 929
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.020712,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":186,\"top\":0,\"right\":1094,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"crescent moon\",\"x\":1008,\"y\":130,\"isQuizAnswer\":false},{\"label\":\"cypress tree\",\"x\":365,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"church steeple\",\"x\":700,\"y\":545,\"isQuizAnswer\":false},{\"label\":\"swirling wind\",\"x\":615,\"y\":235,\"isQuizAnswer\":false},{\"label\":\"bright star\",\"x\":505,\"y\":385,\"isQuizAnswer\":false},{\"label\":\"rolling hills\",\"x\":960,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"quiet village\",\"x\":810,\"y\":645,\"isQuizAnswer\":false"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 10856.23375,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 10857.162083999996,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 985
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.021552,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":186,\"top\":0,\"right\":1094,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"crescent moon\",\"x\":1005,\"y\":125,\"isQuizAnswer\":false},{\"label\":\"cypress tree\",\"x\":370,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"swirling clouds\",\"x\":620,\"y\":240,\"isQuizAnswer\":false},{\"label\":\"church steeple\",\"x\":700,\"y\":550,\"isQuizAnswer\":false},{\"label\":\"bright star\",\"x\":505,\"y\":385,\"isQuizAnswer\":false},{\"label\":\"rolling hills\",\"x\":950,\"y\":480,\"isQuizAnswer\":false},{\"label\":\"village houses\",\"x\":780,\"y\":660,\"isQuizAnswer\":fa"
+    },
+    {
+      "caseId": "frame-parts-cutaway",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 11342.114375000005,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 11343.596624999991,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1218
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.025047,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth true, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":280,\"top\":112,\"right\":1012,\"bottom\":612},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"Outer casing\",\"x\":500,\"y\":155,\"isQuizAnswer\":false},{\"label\":\"Front fan\",\"x\":485,\"y\":480,\"isQuizAnswer\":false},{\"label\":\"Low pressure compressor\",\"x\":565,\"y\":385,\"isQuizAnswer\":false},{\"label\":\"High pressure compressor\",\"x\":665,\"y\":365,\"isQuizAnswer\":false},{\"label\":\"Combustion chamber\",\"x\":745,\"y\":355,\"isQuizAnswer\":false},{\"label\":\"High pressure turbine\",\"x\":785,\"y\":345,\"isQuizAnswer\":false},{\"label\":\"Low pressure turbi"
+    },
+    {
+      "caseId": "frame-parts-cutaway",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 13399.717625000005,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 13400.273207999999,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1611
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.030942,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth true, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":280,\"top\":112,\"right\":1012,\"bottom\":612},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"Engine casing\",\"x\":480,\"y\":155,\"isQuizAnswer\":false},{\"label\":\"Front fan\",\"x\":495,\"y\":490,\"isQuizAnswer\":false},{\"label\":\"Low pressure compressor\",\"x\":565,\"y\":380,\"isQuizAnswer\":false},{\"label\":\"High pressure compressor\",\"x\":665,\"y\":360,\"isQuizAnswer\":false},{\"label\":\"Combustion chamber\",\"x\":745,\"y\":345,\"isQuizAnswer\":false},{\"label\":\"High pressure turbine\",\"x\":788,\"y\":340,\"isQuizAnswer\":false},{\"label\":\"Low pressure turb"
+    },
+    {
+      "caseId": "frame-parts-cutaway",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 13821.035625000004,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 13822.06412499999,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1334
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.026787,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth true, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":280,\"top\":112,\"right\":1012,\"bottom\":612},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"Engine casing\",\"x\":450,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"Fan\",\"x\":475,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"Low pressure compressor\",\"x\":565,\"y\":380,\"isQuizAnswer\":false},{\"label\":\"High pressure compressor\",\"x\":660,\"y\":365,\"isQuizAnswer\":false},{\"label\":\"Combustion chamber\",\"x\":745,\"y\":345,\"isQuizAnswer\":false},{\"label\":\"High pressure turbine\",\"x\":782,\"y\":340,\"isQuizAnswer\":false},{\"label\":\"Low pressure turbine\",\""
+    },
+    {
+      "caseId": "frame-parts-print",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 11752.38170899998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 11753.080624999973,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1405
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.027852,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":104,\"top\":0,\"right\":1176,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Giant wave\",\"x\":460,\"y\":260,\"isQuizAnswer\":false},{\"label\":\"Wave foam\",\"x\":630,\"y\":220,\"isQuizAnswer\":false},{\"label\":\"Mount Fuji\",\"x\":785,\"y\":500,\"isQuizAnswer\":false},{\"label\":\"Fishing boat\",\"x\":740,\"y\":655,\"isQuizAnswer\":false},{\"label\":\"Rowers\",\"x\":905,\"y\":645,\"isQuizAnswer\":false},{\"label\":\"Title box\",\"x\":180,\"y\":130,\"isQuizAnswer\":false},{\"label\":\"Clouds\",\"x\":820,\"y\":180,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-print",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 49670.861082999996,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 49671.394583000016,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1178
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.024447,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":104,\"top\":0,\"right\":1176,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Great wave\",\"x\":450,\"y\":260,\"isQuizAnswer\":false},{\"label\":\"Wave foam\",\"x\":630,\"y\":220,\"isQuizAnswer\":false},{\"label\":\"Mount Fuji\",\"x\":785,\"y\":495,\"isQuizAnswer\":false},{\"label\":\"Fishing boat\",\"x\":740,\"y\":660,\"isQuizAnswer\":false},{\"label\":\"Rowers\",\"x\":910,\"y\":645,\"isQuizAnswer\":false},{\"label\":\"Title label\",\"x\":180,\"y\":130,\"isQuizAnswer\":false},{\"label\":\"Sea spray\",\"x\":640,\"y\":440,\"isQuizAnswer\":false},{\"label\":\"Sky clouds\""
+    },
+    {
+      "caseId": "frame-parts-print",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 10914.477458000008,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 10915.0245,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1094
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.023187,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":103,\"top\":0,\"right\":1177,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Great wave\",\"x\":470,\"y\":280,\"isQuizAnswer\":false},{\"label\":\"Mount Fuji\",\"x\":785,\"y\":500,\"isQuizAnswer\":false},{\"label\":\"Fishing boat\",\"x\":720,\"y\":660,\"isQuizAnswer\":false},{\"label\":\"Rowers\",\"x\":995,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"Wave foam\",\"x\":660,\"y\":220,\"isQuizAnswer\":false},{\"label\":\"Title cartouche\",\"x\":180,\"y\":130,\"isQuizAnswer\":false},{\"label\":\"Cloudy sky\",\"x\":850,\"y\":150,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-art-of-one-animal",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 13882.883834000007,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 13883.422375000024,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1346
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.026967,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject false, pictureShowsDepth true, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":398,\"top\":72,\"right\":840,\"bottom\":626},\"isArtwork\":true,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"Long ears\",\"x\":630,\"y\":215,\"isQuizAnswer\":false},{\"label\":\"Eye\",\"x\":705,\"y\":382,\"isQuizAnswer\":false},{\"label\":\"Nose\",\"x\":775,\"y\":425,\"isQuizAnswer\":false},{\"label\":\"Whiskers\",\"x\":830,\"y\":400,\"isQuizAnswer\":false},{\"label\":\"Front paws\",\"x\":755,\"y\":585,\"isQuizAnswer\":false},{\"label\":\"Back leg\",\"x\":465,\"y\":380,\"isQuizAnswer\":false},{\"label\":\"Soft fur\",\"x\":565,\"y\":360,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-art-of-one-animal",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 21957.438708,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 21958.054375000007,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1601
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.030792,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject false, pictureShowsDepth true, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":398,\"top\":72,\"right\":860,\"bottom\":626},\"isArtwork\":true,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"Long ears\",\"x\":615,\"y\":205,\"isQuizAnswer\":false},{\"label\":\"Eye\",\"x\":702,\"y\":382,\"isQuizAnswer\":false},{\"label\":\"Nose\",\"x\":778,\"y\":428,\"isQuizAnswer\":false},{\"label\":\"Whiskers\",\"x\":830,\"y\":405,\"isQuizAnswer\":false},{\"label\":\"Front paws\",\"x\":755,\"y\":585,\"isQuizAnswer\":false},{\"label\":\"Thick fur\",\"x\":560,\"y\":380,\"isQuizAnswer\":false},{\"label\":\"Hind leg\",\"x\":455,\"y\":420,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-art-of-one-animal",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 13714.458500000008,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 13714.880333999987,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1311
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.026442,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject false, pictureShowsDepth true, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":395,\"top\":72,\"right\":840,\"bottom\":625},\"isArtwork\":true,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"Long ears\",\"x\":720,\"y\":180,\"isQuizAnswer\":false},{\"label\":\"Eye\",\"x\":705,\"y\":380,\"isQuizAnswer\":false},{\"label\":\"Nose\",\"x\":775,\"y\":435,\"isQuizAnswer\":false},{\"label\":\"Whiskers\",\"x\":835,\"y\":405,\"isQuizAnswer\":false},{\"label\":\"Soft fur\",\"x\":560,\"y\":350,\"isQuizAnswer\":false},{\"label\":\"Front paws\",\"x\":755,\"y\":575,\"isQuizAnswer\":false},{\"label\":\"Hind leg\",\"x\":455,\"y\":380,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-bicycle",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 11735.535499999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 11736.390958000033,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 976
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.021417,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":340,\"top\":136,\"right\":1030,\"bottom\":566},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"saddle\",\"x\":550,\"y\":175,\"isQuizAnswer\":false},{\"label\":\"handlebar grip\",\"x\":836,\"y\":155,\"isQuizAnswer\":false},{\"label\":\"top tube\",\"x\":709,\"y\":265,\"isQuizAnswer\":false},{\"label\":\"fork\",\"x\":865,\"y\":371,\"isQuizAnswer\":false},{\"label\":\"pedal\",\"x\":712,\"y\":456,\"isQuizAnswer\":false},{\"label\":\"chain\",\"x\":514,\"y\":496,\"isQuizAnswer\":false},{\"label\":\"spokes\",\"x\":921,\"y\":414,\"isQuizAnswer\":false},{\"label\":\"tire\",\"x\":1016,\"y\":472,\"is"
+    },
+    {
+      "caseId": "frame-parts-bicycle",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 11787.579583999992,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 11788.609834000003,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1305
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.026352,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":340,\"top\":135,\"right\":1030,\"bottom\":567},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"saddle\",\"x\":550,\"y\":175,\"isQuizAnswer\":false},{\"label\":\"handlebar grip\",\"x\":835,\"y\":155,\"isQuizAnswer\":false},{\"label\":\"top tube\",\"x\":708,\"y\":265,\"isQuizAnswer\":false},{\"label\":\"down tube\",\"x\":712,\"y\":363,\"isQuizAnswer\":false},{\"label\":\"pedal\",\"x\":715,\"y\":455,\"isQuizAnswer\":false},{\"label\":\"chain\",\"x\":515,\"y\":497,\"isQuizAnswer\":false},{\"label\":\"fork\",\"x\":865,\"y\":372,\"isQuizAnswer\":false},{\"label\":\"tire\",\"x\":1016,\"y\":472,"
+    },
+    {
+      "caseId": "frame-parts-bicycle",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 12542.291499999992,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 12542.645666999975,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 1120
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.023577,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":340,\"top\":137,\"right\":1028,\"bottom\":567},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"saddle\",\"x\":550,\"y\":175,\"isQuizAnswer\":false},{\"label\":\"handlebar grip\",\"x\":836,\"y\":154,\"isQuizAnswer\":false},{\"label\":\"top tube\",\"x\":708,\"y\":266,\"isQuizAnswer\":false},{\"label\":\"down tube\",\"x\":711,\"y\":363,\"isQuizAnswer\":false},{\"label\":\"fork\",\"x\":866,\"y\":372,\"isQuizAnswer\":false},{\"label\":\"pedal\",\"x\":711,\"y\":456,\"isQuizAnswer\":false},{\"label\":\"chain\",\"x\":514,\"y\":495,\"isQuizAnswer\":false},{\"label\":\"tire\",\"x\":1018,\"y\":472,"
+    },
+    {
+      "caseId": "frame-parts-chart",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 31940.213332999963,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 31940.480125000002,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 267
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.010782,
+      "quality": {
+        "passed": true,
+        "detail": "subjectFound false"
+      },
+      "replyPreview": "{\"subjectFound\":false}"
+    },
+    {
+      "caseId": "frame-parts-chart",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 5080.537916000001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5081.038375000004,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 311
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.011442,
+      "quality": {
+        "passed": true,
+        "detail": "subjectFound false"
+      },
+      "replyPreview": "{\"subjectFound\":false}"
+    },
+    {
+      "caseId": "frame-parts-chart",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 6647.360999999975,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 6647.818249999953,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "gemini-4-neon",
+          "inputTokens": 2259,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 251
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.010542,
+      "quality": {
+        "passed": true,
+        "detail": "subjectFound false"
+      },
+      "replyPreview": "{\"subjectFound\":false}"
+    }
+  ]
+}

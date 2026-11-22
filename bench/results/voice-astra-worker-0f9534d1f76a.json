@@ -1,0 +1,861 @@
+{
+  "label": "voice-astra",
+  "benchKind": "worker",
+  "commitSHA": "0f9534d1f76a",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:09:10.688Z",
+  "runCount": 5,
+  "port": 8797,
+  "interleavedWith": [
+    "voice-base",
+    "voice-haiku",
+    "voice-sonnet",
+    "voice-opus",
+    "voice-fable",
+    "voice-sol62"
+  ],
+  "summary": [
+    {
+      "caseId": "voice-command",
+      "route": "/voice-command",
+      "description": "Turns a frame pop-out the other way after \"no, turn it the other way\", with a recent rotate_model of 45 degrees",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1718,
+        "p95": 1893,
+        "min": 1642,
+        "max": 1893
+      },
+      "firstByteMs": {
+        "p50": 1718,
+        "p95": 1892,
+        "min": 1642,
+        "max": 1892
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.2,
+      "meanInputTokens": 1885,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1402,
+      "meanOutputTokens": 26,
+      "meanCostUSD": 0.03279
+    },
+    {
+      "caseId": "voice-command-seek",
+      "route": "/voice-command",
+      "description": "Goes back 30 seconds in a YouTube video at 2:04, by seeking 30 seconds back or to 1:34",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1338,
+        "p95": 1523,
+        "min": 1134,
+        "max": 1523
+      },
+      "firstByteMs": {
+        "p50": 1338,
+        "p95": 1517,
+        "min": 1134,
+        "max": 1517
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.4,
+      "meanInputTokens": 2479,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1597,
+      "meanOutputTokens": 25,
+      "meanCostUSD": 0.05218
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "route": "/voice-command",
+      "description": "Zooms in on a frame pop-out with one zoom call, by a factor above 1",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1849,
+        "p95": 2261,
+        "min": 1035,
+        "max": 2261
+      },
+      "firstByteMs": {
+        "p50": 1849,
+        "p95": 2260,
+        "min": 1034,
+        "max": 2260
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.2,
+      "meanInputTokens": 1882,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1380,
+      "meanOutputTokens": 25,
+      "meanCostUSD": 0.03343
+    },
+    {
+      "caseId": "voice-command-explain",
+      "route": "/voice-command",
+      "description": "Explains the tail of a frame pop-out labeled wing, tail, and engine, with explain_part",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1863,
+        "p95": 2351,
+        "min": 1514,
+        "max": 2351
+      },
+      "firstByteMs": {
+        "p50": 1863,
+        "p95": 2350,
+        "min": 1513,
+        "max": 2350
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.4,
+      "meanInputTokens": 1883,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1380,
+      "meanOutputTokens": 27,
+      "meanCostUSD": 0.03392
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "route": "/voice-command",
+      "description": "Calls no tool for \"thanks, that looks great\", which asks for nothing",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1640,
+        "p95": 2587,
+        "min": 1013,
+        "max": 2587
+      },
+      "firstByteMs": {
+        "p50": 1639,
+        "p95": 2587,
+        "min": 1009,
+        "max": 2587
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.4,
+      "meanInputTokens": 1883,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1380,
+      "meanOutputTokens": 8,
+      "meanCostUSD": 0.02936
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "voice-command",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1717.6838750000006,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1718.3724590000002,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1885,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1402,
+          "outputTokens": 26
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0327888,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it left\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_7L04IaJd3UKvGBpMbVBRtHQV\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it left\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1785.2083749999983,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1785.927749999999,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1885,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1402,
+          "outputTokens": 26
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0327888,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it left\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_gZSjkBJJU5ZJJkhd3F2AdcaR\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it left\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1641.632792000004,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1641.9945420000004,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1885,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1402,
+          "outputTokens": 26
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0327888,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it left\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_IDD38vDGpW2686WLGm9jlQOU\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it left\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1892.2619580000028,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1892.9050420000058,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1885,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1402,
+          "outputTokens": 26
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0327888,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it left\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_Q6p1EDhUWgceqK2prAwX6uAI\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it left\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1705.1016670000026,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1705.5491669999974,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1885,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1402,
+          "outputTokens": 26
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0327888,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it left\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_V8abNnai2mS4mo9EuQXV3u7Q\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it left\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1394.6650829999999,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1395.0725419999944,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2479,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.124992,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_wu3u5cklZ8ZXV7ZdqOzGHSsj\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1517.4403750000056,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1522.9682500000054,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2479,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1996,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.033974399999999995,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_VWlCVrzPvWQOXz5h4XTM1PXD\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1289.9704579999961,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1290.2353329999896,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2479,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1996,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.033974399999999995,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_9r3MJG8vdNzvXCR8K38uD4yh\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1133.7765840000066,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1133.9784590000054,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2479,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1996,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.033974399999999995,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_P57LfC8rVzIhmwyyx4aWUcDQ\",\"name\":\"seek_relative\",\"input\":{\"confirmation\":\"back thirty seconds\",\"seconds\":-30}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1338.1027080000058,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1338.4835409999941,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2479,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1996,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.033974399999999995,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_QDN7ZJgYjn0f1GicloQAJbeB\",\"name\":\"seek_relative\",\"input\":{\"confirmation\":\"back thirty seconds\",\"seconds\":-30}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1547.3370829999913,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1547.557832999999,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1882,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1302,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.036964800000000006,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.2}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_Wz8hQuMefHmQyYzSTCk4TO9P\",\"name\":\"zoom\",\"input\":{\"factor\":1.2,\"confirmation\":\"a little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1034.1595830000006,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1034.5889169999864,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1882,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1399,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.032541600000000004,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.2}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_0GveHMtV8o2bvVmBSq7Fy0vo\",\"name\":\"zoom\",\"input\":{\"factor\":1.2,\"confirmation\":\"a little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1848.5611670000071,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1848.8536670000176,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1882,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1399,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.032541600000000004,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.2}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_vDX6Nn7IxjdZxDdsKyKysGoV\",\"name\":\"zoom\",\"input\":{\"factor\":1.2,\"confirmation\":\"a little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1887.1864999999816,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1887.617957999988,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1882,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1399,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.032541600000000004,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.2}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_INZicxodD9U791z1N3RsCStb\",\"name\":\"zoom\",\"input\":{\"factor\":1.2,\"confirmation\":\"a little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 2260.429583000019,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2260.809750000015,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1882,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1399,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.032541600000000004,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.2}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_6eCOsZ1lXuxyRYl4Bz8uqXRE\",\"name\":\"zoom\",\"input\":{\"factor\":1.2,\"confirmation\":\"a little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1862.8986250000016,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1863.1283750000002,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1302,
+          "outputTokens": 27
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0374928,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_R9SFoQBm8GqZ8xfDZNbgH73g\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"It helps steady the plane\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2266.082833000022,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2266.4705830000166,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 27
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.033024,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_CFAoQVm9JjHt26GyykOfvhwp\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"It keeps the plane steady\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1513.27804200002,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1513.6149580000201,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 27
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.033024,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_R5SUyVOK5pauj8g1tHIOEyAU\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"It keeps the plane stable\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 2350.4108750000014,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2351.1595420000085,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 27
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.033024,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_LprcGZud5vr4bIe4THLUXuzu\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"It keeps the plane stable\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1640.8370839999989,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1641.3407089999819,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 27
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.033024,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_HtoZlMS4LIvf4z9B6xvncVnt\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"It helps keep flight steady\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1089.5407499999856,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1089.9564169999794,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1302,
+          "outputTokens": 8
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.032932800000000005,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You’re welcome.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1666.6325840000063,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1667.0601669999887,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 8
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.028464,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You’re welcome.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2586.6327499999898,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2586.9365830000024,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 8
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.028464,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You’re welcome.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1008.8742920000223,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1013.2548340000212,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 8
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.028464,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You’re welcome.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1639.1741669999901,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1639.528500000015,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 8
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.028464,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You’re welcome.\"}],\"stopReason\":\"end_turn\"}"
+    }
+  ]
+}

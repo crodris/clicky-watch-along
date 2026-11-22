@@ -1,0 +1,861 @@
+{
+  "label": "voice-sol62",
+  "benchKind": "worker",
+  "commitSHA": "0f9534d1f76a",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:09:10.667Z",
+  "runCount": 5,
+  "port": 8796,
+  "interleavedWith": [
+    "voice-base",
+    "voice-haiku",
+    "voice-sonnet",
+    "voice-opus",
+    "voice-fable",
+    "voice-astra"
+  ],
+  "summary": [
+    {
+      "caseId": "voice-command",
+      "route": "/voice-command",
+      "description": "Turns a frame pop-out the other way after \"no, turn it the other way\", with a recent rotate_model of 45 degrees",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1260,
+        "p95": 1788,
+        "min": 1141,
+        "max": 1788
+      },
+      "firstByteMs": {
+        "p50": 1259,
+        "p95": 1787,
+        "min": 1140,
+        "max": 1787
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1885,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1402,
+      "meanOutputTokens": 26,
+      "meanCostUSD": 0.00822
+    },
+    {
+      "caseId": "voice-command-seek",
+      "route": "/voice-command",
+      "description": "Goes back 30 seconds in a YouTube video at 2:04, by seeking 30 seconds back or to 1:34",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1378,
+        "p95": 1587,
+        "min": 1098,
+        "max": 1587
+      },
+      "firstByteMs": {
+        "p50": 1377,
+        "p95": 1586,
+        "min": 1098,
+        "max": 1586
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.4,
+      "meanInputTokens": 2479,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1597,
+      "meanOutputTokens": 25,
+      "meanCostUSD": 0.01304
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "route": "/voice-command",
+      "description": "Zooms in on a frame pop-out with one zoom call, by a factor above 1",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1481,
+        "p95": 1672,
+        "min": 1243,
+        "max": 1672
+      },
+      "firstByteMs": {
+        "p50": 1480,
+        "p95": 1672,
+        "min": 1243,
+        "max": 1672
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.2,
+      "meanInputTokens": 1882,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1380,
+      "meanOutputTokens": 25,
+      "meanCostUSD": 0.00836
+    },
+    {
+      "caseId": "voice-command-explain",
+      "route": "/voice-command",
+      "description": "Explains the tail of a frame pop-out labeled wing, tail, and engine, with explain_part",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1557,
+        "p95": 2097,
+        "min": 1372,
+        "max": 2097
+      },
+      "firstByteMs": {
+        "p50": 1557,
+        "p95": 2097,
+        "min": 1372,
+        "max": 2097
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.4,
+      "meanInputTokens": 1883,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1380,
+      "meanOutputTokens": 27,
+      "meanCostUSD": 0.00848
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "route": "/voice-command",
+      "description": "Calls no tool for \"thanks, that looks great\", which asks for nothing",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1410,
+        "p95": 1735,
+        "min": 1033,
+        "max": 1735
+      },
+      "firstByteMs": {
+        "p50": 1410,
+        "p95": 1735,
+        "min": 1032,
+        "max": 1735
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1883,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1380,
+      "meanOutputTokens": 8,
+      "meanCostUSD": 0.00734
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "voice-command",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1787.1967919999988,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1787.5676669999993,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1885,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1402,
+          "outputTokens": 28
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0083172,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -90, says \"turned it the other way\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_SCv1BIaQBA5wX76SybV0DCqz\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-90,\"confirmation\":\"turned it the other way\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1404.2771670000002,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1404.8110419999975,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1885,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1402,
+          "outputTokens": 26
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0081972,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it left\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_DaZU5MnOZQBEs5aTlTxusNnc\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it left\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1256.265290999996,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1256.8059159999975,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1885,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1402,
+          "outputTokens": 26
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0081972,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it left\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_YvPUVJq79bcoFRRryHvtJDpU\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it left\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1259.1448749999981,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1259.5342910000036,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1885,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1402,
+          "outputTokens": 26
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0081972,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it back\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_jSuTKq8XYekNWLyY8aCYyydK\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it back\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1139.8881669999973,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1140.9072500000038,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1885,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1402,
+          "outputTokens": 26
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0081972,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it left\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_rVRaILhpe5iPu9oAvySOSKby\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it left\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1377.4430839999986,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1377.6771670000016,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2479,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.031248,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_9jg8w7lwBjVKRbSegpS8eRvv\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"Back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1585.906124999994,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1586.5461249999935,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2479,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1996,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008493599999999999,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_f45zD0PMlqXg8IuofhaWAixL\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"Back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1569.63612499999,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1570.0356249999895,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2479,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1996,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008493599999999999,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_MyMDmCeaI7yoD4mWl5FzX2Qv\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"Back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1190.8503749999945,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1191.044167,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2479,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1996,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008493599999999999,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_bX0NGjBeZYjurHpAi743wiqE\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"Back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1097.6457910000026,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1098.2278749999969,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2479,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1996,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008493599999999999,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_mB1BmA4E1IN7piSAUWNbYzD8\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"Back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1480.4665830000013,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1481.2882079999981,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1882,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1302,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.009241200000000001,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.15}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_lzxTHlAQHMxKNAOLTzxD8ncC\",\"name\":\"zoom\",\"input\":{\"factor\":1.15,\"confirmation\":\"A little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1242.7796249999956,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1243.3633750000154,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1882,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1399,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008135400000000001,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.15}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_OFHaWHB8zVpv1mSkMG8dF155\",\"name\":\"zoom\",\"input\":{\"factor\":1.15,\"confirmation\":\"A little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1671.551792000013,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1672.063959000021,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1882,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1399,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008135400000000001,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.15}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_InQqVsqAUnSj0sQFZgoFHdN1\",\"name\":\"zoom\",\"input\":{\"factor\":1.15,\"confirmation\":\"A little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1492.778500000015,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1493.3041669999948,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1882,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1399,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008135400000000001,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.15}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_NtXzcwiUCjPEgkzaaBY2PFsw\",\"name\":\"zoom\",\"input\":{\"factor\":1.15,\"confirmation\":\"A little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1390.1169579999987,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1390.5300830000197,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1882,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1399,
+          "outputTokens": 25
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008135400000000001,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.15}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_dKD6z430d1w8Vdmu3UMgW3o2\",\"name\":\"zoom\",\"input\":{\"factor\":1.15,\"confirmation\":\"a little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1556.9233339999919,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1557.4617499999877,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1302,
+          "outputTokens": 27
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0093732,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_NRqv3F26W1GResQ7x4NT4hgY\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"It steadies the plane\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1463.4745420000108,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1464.5169170000008,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 26
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008196,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_Hl4xKP6ReGb0zHhqjKKhxnTF\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"It keeps flight stable\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1371.5663749999949,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1372.1537919999973,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 27
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008256,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_gqf50T90ionDsPWdKdNK71vG\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"It steadies the plane\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1561.849957999977,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1562.3138749999925,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 28
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008316,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_9SPw7YSs8nflM9FDfY2hyWuC\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"It stabilizes the airplane.\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 2096.9234170000127,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2097.27691700001,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 27
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008256,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"call_k2NrpEcANyAoCjh7cvhDC552\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"It steadies the plane\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1031.6670000000158,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1032.6484170000185,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1302,
+          "outputTokens": 8
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008233200000000001,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You’re welcome.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1734.9524580000143,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1735.3662080000213,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 8
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007116,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You’re welcome.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1647.7757079999428,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1648.2299579999526,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 8
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007116,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You’re welcome.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1374.6527079999796,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1374.9507079999894,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 8
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007116,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You’re welcome.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1409.9605420000153,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1410.2647500000312,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1883,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1400,
+          "outputTokens": 8
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007116,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You’re welcome.\"}],\"stopReason\":\"end_turn\"}"
+    }
+  ]
+}
