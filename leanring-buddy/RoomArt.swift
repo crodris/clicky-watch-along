@@ -805,7 +805,10 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
     /// The clothing is not a top, such as a dress, which the shirt overlay cannot draw.
     case onlyTopsSoFar
     /// The product photo shows the shirt on a hanger or some other way, neither laid flat nor worn by a model.
-    case shirtPhotoNotFlat
+    case shirtPhotoNeitherFlatNorOnAModel
+    /// The top has long sleeves and its photo shows it on a model. The model's forearms are cut away with the arms, so each
+    /// sleeve would end at the upper arm.
+    case longSleevesOnAModel
     /// Vision found no garment in the product photo.
     case garmentNotCutOut
     /// A request to the Worker never got an answer: the Worker is not running, the connection failed, or it timed out.
@@ -826,7 +829,8 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .floorNotFound: return "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor."
         case .furnitureNotCutOut: return "I couldn't cut the furniture out of its photo."
         case .onlyTopsSoFar: return "I can try on shirts, sweaters, and jackets so far."
-        case .shirtPhotoNotFlat: return "I can only try on a shirt from a photo of it laid flat or worn by a model."
+        case .shirtPhotoNeitherFlatNorOnAModel: return "I can only try on a shirt from a photo of it laid flat or worn by a model."
+        case .longSleevesOnAModel: return "I can only try on long sleeves from a photo of the top laid flat."
         case .garmentNotCutOut: return "I couldn't lift the shirt out of its photo."
         case .workerUnreachable: return "I couldn't reach Clicky's Worker."
         }
@@ -847,7 +851,8 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .floorNotFound: return "Tilt the screen down so the floor shows, then click the floor"
         case .furnitureNotCutOut: return "Couldn't cut the furniture out of its photo"
         case .onlyTopsSoFar: return "Only shirts, sweaters, and jackets so far"
-        case .shirtPhotoNotFlat: return "The photo shows the shirt neither laid flat nor worn"
+        case .shirtPhotoNeitherFlatNorOnAModel: return "The photo shows the shirt neither laid flat nor worn"
+        case .longSleevesOnAModel: return "Long sleeves need a photo of the top laid flat"
         case .garmentNotCutOut: return "Couldn't lift the shirt out of its photo"
         case .workerUnreachable: return "Couldn't reach Clicky's Worker"
         }
@@ -882,8 +887,9 @@ nonisolated func roomArtReadingPlan(for pageReading: RoomArtPageReading) -> Room
     case .clothing(let clothingReading):
         guard roomArtGarmentsThatCanBeTriedOn.contains(clothingReading.garment) else { return .fail(.onlyTopsSoFar) }
         switch clothingReading.photoShows {
-        case .flatLay, .onModel: return .tryOnTheShirt(clothingReading)
-        case .onHanger, .other: return .fail(.shirtPhotoNotFlat)
+        case .flatLay: return .tryOnTheShirt(clothingReading)
+        case .onModel: return clothingReading.sleeves == .long ? .fail(.longSleevesOnAModel) : .tryOnTheShirt(clothingReading)
+        case .onHanger, .other: return .fail(.shirtPhotoNeitherFlatNorOnAModel)
         }
     case .other:
         return .fail(.notSomethingToTry)
@@ -1011,7 +1017,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     case moving(id: RoomArtMeasurementID, item: RoomArtPlacedItem, surfaceBeforeTheMove: RoomArtSurface)
     /// The first floor measurement found no floor, so the camera keeps running and a click on the floor measures again.
     case waitingForAFloorClick(RoomArtPlacedItem)
-    /// A flat lay top: the garment is being cut out of its photo while the camera looks for the learner.
+    /// A top laid flat or worn by a model: the garment is being cut out of its photo while the camera looks for the learner.
     case preparingTheShirt(title: String)
     /// The garment is ready, and the learner is not yet standing where the shirt can be drawn.
     case waitingToSeeTheLearner(title: String)
@@ -1034,7 +1040,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         return .waitingForTheCamera(item)
     }
 
-    /// A flat lay top was read, so the garment is cut out while the camera looks for the learner.
+    /// A top laid flat or worn by a model was read, so the garment is cut out while the camera looks for the learner.
     func startingTheShirt(title: String) -> RoomArtPhase {
         guard case .readingThePage = self else { return self }
         return .preparingTheShirt(title: title)

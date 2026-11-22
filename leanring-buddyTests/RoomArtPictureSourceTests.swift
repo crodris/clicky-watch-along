@@ -134,8 +134,8 @@ struct RoomArtPictureSourceTests {
             stubbedImageURL(answeringWith: .status(404, body: pngData(width: 500, height: 500))),
             stubbedImageURL(answeringWith: .image(pngData(width: 700, height: 700))),
         ]
-        // The main file listed again among the others is not downloaded twice.
-        let picture = try #require(await RoomArtPictureSource.picture(imageFileURL: mainURL, otherImageFileURLs: [otherURLs[0], mainURL, otherURLs[1], otherURLs[2]], session: stubbedSession()) {
+        // The main file listed again among the others, or another file listed twice, is downloaded once.
+        let picture = try #require(await RoomArtPictureSource.picture(imageFileURL: mainURL, otherImageFileURLs: [otherURLs[0], mainURL, otherURLs[0], otherURLs[1], otherURLs[2]], session: stubbedSession()) {
             screenCapture
         })
 

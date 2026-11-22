@@ -91,8 +91,8 @@ private func opaquePixelCount(of image: CIImage, channel: Int = 3) -> Int {
 }
 
 struct ShirtModelPoseTests {
-    private func reading(_ x: Double, _ y: Double, _ confidence: Float = 0.8) -> ShirtJointReading {
-        ShirtJointReading(visionPoint: CGPoint(x: x, y: y), confidence: confidence)
+    private func reading(_ visionX: Double, _ visionY: Double, _ confidence: Float = 0.8) -> ShirtJointReading {
+        ShirtJointReading(visionPoint: CGPoint(x: visionX, y: visionY), confidence: confidence)
     }
 
     @Test func eachWristGoesWithTheShoulderOnItsOwnSideAndAnUnsureJointIsLeftOut() throws {
@@ -254,6 +254,13 @@ struct ShirtOnModelGeometryTests {
         #expect(alpha(of: garment.cutout, column: 200, row: 420) == 0)
         // The photo's white is read from the backdrop, not from the skin or the trousers left out of the cutout.
         #expect(garment.photoWhite.x > 0.8 && garment.photoWhite.y > 0.8)
+    }
+
+    @Test func aPhotoNarrowerOrShorterThanOneLabelBlockMakesNoGarment() {
+        // The part split reads whole blocks of pixels, so a one pixel side would read past the photo.
+        let pose = DrawnModel().pose
+        #expect(ShirtGarment.make(onModelPhotoPixels: [UInt8](repeating: 128, count: 1 * 40 * 4), width: 1, height: 40, personMask: [UInt8](repeating: 255, count: 40), pose: pose) == nil)
+        #expect(ShirtGarment.make(onModelPhotoPixels: [UInt8](repeating: 128, count: 40 * 1 * 4), width: 40, height: 1, personMask: [UInt8](repeating: 255, count: 40), pose: pose) == nil)
     }
 
     @Test func thePhotosWhiteIsTheBackdropEvenWhenTrousersFillMostOfWhatIsNotShirt() throws {

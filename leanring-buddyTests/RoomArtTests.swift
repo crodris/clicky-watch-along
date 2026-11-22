@@ -656,8 +656,8 @@ private let floorBehindTheCamera = FloorPlane(
 
 private let pictureCorners = RoomArtCorners(topLeft: CGPoint(x: 20, y: 25), topRight: CGPoint(x: 380, y: 25), bottomRight: CGPoint(x: 380, y: 475), bottomLeft: CGPoint(x: 20, y: 475))
 
-private func clothing(garment: RoomArtGarment = .tshirt, photoShows: RoomArtGarmentPhoto = .flatLay) -> RoomArtClothingReading {
-    RoomArtClothingReading(title: "Linen shirt", garment: garment, sleeves: .short, chosenSizeLabel: "M", photoShows: photoShows, printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners)
+private func clothing(garment: RoomArtGarment = .tshirt, sleeves: RoomArtSleeves = .short, photoShows: RoomArtGarmentPhoto = .flatLay) -> RoomArtClothingReading {
+    RoomArtClothingReading(title: "Linen shirt", garment: garment, sleeves: sleeves, chosenSizeLabel: "M", photoShows: photoShows, printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners)
 }
 
 struct RoomArtReadingPlanTests {
@@ -686,14 +686,20 @@ struct RoomArtReadingPlanTests {
         #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .other))) == .fail(.onlyTopsSoFar))
         // A photo on a model is cut out around the model's body (ShirtOnModel.swift).
         #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onModel))) == .tryOnTheShirt(clothing(photoShows: .onModel)))
-        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onHanger))) == .fail(.shirtPhotoNotFlat))
-        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .other))) == .fail(.shirtPhotoNotFlat))
+        #expect(roomArtReadingPlan(for: .clothing(clothing(sleeves: .none, photoShows: .onModel))) == .tryOnTheShirt(clothing(sleeves: .none, photoShows: .onModel)))
+        // The model's forearms are cut away with the arms, so a long sleeve on a model would end at the upper arm. Laid flat,
+        // a long sleeve is whole.
+        #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .hoodie, sleeves: .long, photoShows: .onModel))) == .fail(.longSleevesOnAModel))
+        #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .hoodie, sleeves: .long))) == .tryOnTheShirt(clothing(garment: .hoodie, sleeves: .long)))
+        #expect(RoomArtFailure.longSleevesOnAModel.spokenLine == "I can only try on long sleeves from a photo of the top laid flat.")
+        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onHanger))) == .fail(.shirtPhotoNeitherFlatNorOnAModel))
+        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .other))) == .fail(.shirtPhotoNeitherFlatNorOnAModel))
     }
 
     @Test func anythingElseCannotBeTried() {
         #expect(roomArtReadingPlan(for: .other(title: "Brass lamp")) == .fail(.notSomethingToTry))
         #expect(RoomArtFailure.notSomethingToTry.spokenLine == "That doesn't look like wall art, furniture, or a shirt.")
-        #expect(RoomArtFailure.shirtPhotoNotFlat.spokenLine == "I can only try on a shirt from a photo of it laid flat or worn by a model.")
+        #expect(RoomArtFailure.shirtPhotoNeitherFlatNorOnAModel.spokenLine == "I can only try on a shirt from a photo of it laid flat or worn by a model.")
     }
 }
 

@@ -1,6 +1,6 @@
 # Room art
 
-When the learner says "show me how this would look in my room", "on my wall", or "could I see this shirt on me" with a store page in Chrome's front tab, Clicky tries the item in a live camera panel: wall art hangs on their wall and furniture stands on their floor, each at its real size and kept there while the laptop turns, and a top laid flat in its photo is drawn over the shirt they wear.
+When the learner says "show me how this would look in my room", "on my wall", or "could I see this shirt on me" with a store page in Chrome's front tab, Clicky tries the item in a live camera panel: wall art hangs on their wall and furniture stands on their floor, each at its real size and kept there while the laptop turns, and a top laid flat or worn by a model in its photo is drawn over the shirt they wear.
 The app reads the front tab and its largest picture, opens the panel, and calls `/try-it-item` (Claude reads the kind of item, its size, and its corners) while the camera starts.
 The kind decides what follows: `/room-wall` for wall art, `/room-floor` for furniture (the local depth service measures the surface), each tracked with ECC from then on, and no depth call at all for a shirt.
 While a surface is measured, Clicky's loop outlines the spot in the panel and follows it as the camera turns, and for a shirt it traces the learner's torso until the shirt shows.

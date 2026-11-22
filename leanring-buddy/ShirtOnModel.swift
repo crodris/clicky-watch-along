@@ -593,8 +593,8 @@ nonisolated enum ShirtOnModelGeometry {
 extension ShirtOnModelGeometry {
     /// Skin within this far of the upper arm's bone, in shoulder widths, is the arm below the sleeve.
     static let armSkinReachFromTheBoneInShoulderWidths = 0.15
-    /// A sleeve with no skin found on its upper arm (a long sleeve, or an arm the split missed) ends this share of the way to
-    /// the elbow, a short sleeve's usual end.
+    /// A sleeve with no skin found on its upper arm, such as an arm the split missed, ends this share of the way to the
+    /// elbow, a short sleeve's usual end. A long sleeve on a model never gets here, since `roomArtReadingPlan` refuses it.
     static let sleeveEndShareWithNoSkin = 0.55
 
     /// How far along the upper arm from the shoulder, in pixels, the sleeve ends: where the model's arm skin starts near the
@@ -694,7 +694,9 @@ extension ShirtGarment {
     /// The garment from the working photo's pixels, its person mask (0 to 255 per pixel), and the model's pose. Pure apart
     /// from making the images, so a test can pass a drawn model.
     nonisolated static func make(onModelPhotoPixels photoPixels: [UInt8], width: Int, height: Int, personMask: [UInt8], pose: ShirtModelPose) -> ShirtGarment? {
-        guard photoPixels.count == width * height * 4, personMask.count == width * height else { return nil }
+        // The part split reads whole blocks of `onModelLabelDownscale` pixels, so a side shorter than one block has none.
+        guard photoPixels.count == width * height * 4, personMask.count == width * height,
+              width >= onModelLabelDownscale, height >= onModelLabelDownscale else { return nil }
         let isPerson = personMask.map { $0 >= 128 }
         guard let labels = onModelPartLabels(photoPixels: photoPixels, isPerson: isPerson, width: width, height: height, pose: pose) else { return nil }
         let shirtPixels = zip(labels, isPerson).map { label, person in person && label == .shirt }

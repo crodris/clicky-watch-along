@@ -1329,7 +1329,7 @@ struct RoomArtPreviewControllerTests {
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: "could I see this shirt on me")
 
-        try await waitFor("the panel to refuse the hanger photo") { harness.controller.phase == .failed(.shirtPhotoNotFlat) }
+        try await waitFor("the panel to refuse the hanger photo") { harness.controller.phase == .failed(.shirtPhotoNeitherFlatNorOnAModel) }
         #expect(harness.spokenLines() == ["I can only try on a shirt from a photo of it laid flat or worn by a model."])
         #expect(harness.recorder.spokenLineFailureFlags == [true])
         #expect(harness.cutouts.garmentsAsked == 0)

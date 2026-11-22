@@ -46,7 +46,11 @@ enum RoomArtPictureSource {
         var otherPictures: [RoomArtPicture] = []
         if let imageFileURL {
             // Every file downloads at once, so the other photos cost no more time than the main one.
-            let fileURLs = [imageFileURL] + otherImageFileURLs.filter { $0 != imageFileURL }.prefix(RoomArtPicture.mostOtherPictures)
+            // Each file once, in the page's order. The page's own script makes the list, and the page can change how it runs.
+            var fileURLs = [imageFileURL]
+            for otherImageFileURL in otherImageFileURLs where !fileURLs.contains(otherImageFileURL) && fileURLs.count <= RoomArtPicture.mostOtherPictures {
+                fileURLs.append(otherImageFileURL)
+            }
             let downloadedPictures = await withTaskGroup(of: (Int, RoomArtPicture?).self) { group in
                 for (fileIndex, fileURL) in fileURLs.enumerated() {
                     group.addTask {
@@ -54,7 +58,7 @@ enum RoomArtPictureSource {
                     }
                 }
                 var picturesInPageOrder = [RoomArtPicture?](repeating: nil, count: fileURLs.count)
-                for await (fileIndex, downloadedPicture) in group { picturesInPageOrder[fileIndex] = downloadedPicture }
+                for await (fileIndex, pictureFromThisFile) in group { picturesInPageOrder[fileIndex] = pictureFromThisFile }
                 return picturesInPageOrder
             }
             pictureFromTheImageFile = downloadedPictures[0]

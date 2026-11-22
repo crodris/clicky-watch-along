@@ -6,7 +6,7 @@
 //  reads the page's picture, opens the panel, starts the camera, and asks the Worker what the page shows
 //  (`POST /try-it-item`) at once. The item's kind picks the rest: wall art is measured on the wall (`POST /room-wall`) and
 //  furniture on the floor (`POST /room-floor`), each from a keyframe taken on the first frame with a person mask, with
-//  Clicky's loop around the spot while it waits, and a flat lay top is cut out of its photo and drawn over the learner's
+//  Clicky's loop around the spot while it waits, and a top laid flat or worn by a model is cut out of its photo and drawn over the learner's
 //  own shirt with no measurement. `RoomArtFrameProcessor` handles every camera frame on its own queue: it finds the person,
 //  tracks the room against the keyframe, and draws the frame with the item on its surface and the learner in front of it,
 //  or, for a shirt, finds the learner's torso and draws the shirt on them.
