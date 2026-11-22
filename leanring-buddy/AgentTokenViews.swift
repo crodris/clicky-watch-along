@@ -6,15 +6,15 @@
 //  the notch: a progress ring (an opaque dark track, filled in the team's color or the agent's own color) around a face,
 //  which is a roster player's portrait, a theme's picture, or a triangle in the agent's color. The state shows by shape, so
 //  a theme may use any ring color: a finished agent gets a green check badge, a failed one a cross badge on a gray face in
-//  a red ring, and one that waits for the learner's OK a "!" face and a notch in its ring (`agentTokenBadge` names the
-//  badge the agent list's rows draw for it). The "+N" disc counts the agents with no position of their own, and the open
+//  a red ring, and one that waits for the learner's OK a "!" face and a notch in its ring (`agentTokenBadge` still names
+//  that badge, which no surface draws now). The "+N" disc counts the agents with no position of their own, and the open
 //  slot is the dashed outline a new agent's token flies to.
 //  Motion is one-shot, except two loops that run on Core Animation (`AgentTokenLoopView`), so the render server plays them
 //  and the main thread draws nothing per frame, since a SwiftUI loop pegs the GPU on high-refresh displays: a running agent's
 //  bright dot orbits its ring every 3 seconds, so a slow agent still looks alive, and a waiting approval's disc pulses
 //  once every 1.6 seconds. With Reduce Motion on, the dot only fades in and out at the top of the ring and the pulse
 //  is a still halo, so the shape of the state still shows.
-//  The same triangle and progress view also draw the agent list's rows.
+//  The agent list's rows draw the same disc at its own size.
 //
 
 import AppKit
@@ -362,7 +362,7 @@ final class AgentTokenLoopHostView: NSView {
 
 // MARK: - Agent triangle
 
-/// One agent's triangle, drawn small in the agent list's rows.
+/// One agent's triangle. No surface draws it now, since the agent list's rows draw the agent's disc.
 struct AgentTriangleView: View {
     let agent: BackgroundAgent
     var size: CGFloat = 11
@@ -488,7 +488,7 @@ func agentTokenBadge(phase: BackgroundAgentPhase, isWaitingForApproval: Bool) ->
 }
 
 /// The badge a disc draws at its lower right. A waiting approval is the "!" face and the notch instead, so only a finished or
-/// failed agent gets a badge on its disc. The agent list's rows still draw `agentTokenBadge`.
+/// failed agent gets a badge on its disc.
 func agentTokenBadgeOnTheDisc(phase: BackgroundAgentPhase, isWaitingForApproval: Bool) -> AgentTokenBadge? {
     let badge = agentTokenBadge(phase: phase, isWaitingForApproval: isWaitingForApproval)
     return badge == .needsYourOK ? nil : badge

@@ -181,8 +181,17 @@ struct BackgroundAgent: Identifiable, Equatable {
     var currentStepStartedAt: Date
     var endedAt: Date?
     var phase: BackgroundAgentPhase
+    /// The learner's own push-to-talk transcript that started a task agent, which its approval card shows as "You said".
+    /// It is never the router's goal, which page text can steer. Nil for an agent no spoken request started.
+    var learnerWords: String?
     /// The steps a task agent said it was on, oldest first. Empty for every other kind, whose steps are fixed.
     var reportedSteps: [String] = []
+    /// The site the agent is reading with one of the app's tools, such as the video's site for its captions or the link it
+    /// opened, which the agent list shows after the agent's own step text. Cleared by the agent's next step, since the next
+    /// step may read somewhere else. A web search or fetch runs on Anthropic's side and never tells the app its site.
+    var readingHost: String? = nil
+    /// True while the app can start this agent's work again, so a failed agent's row offers "Try again" once.
+    var canBeTriedAgain = false
     /// True while a finished agent's result still waits for the learner, such as a 3D model not yet shown or a task answer
     /// not yet heard. Its token stays beside the notch until the result is delivered or `secondsAWaitingResultKeepsItsToken`
     /// pass. A result delivered at once, such as a study guide page, never waits.
@@ -512,11 +521,37 @@ final class BackgroundAgentStore: ObservableObject {
         }
     }
 
+    func setLearnerWords(_ learnerWords: String, for agentID: UUID) {
+        updateRunningAgent(agentID) { agent in
+            agent.learnerWords = learnerWords
+        }
+    }
+
     /// A task agent keeps its last few steps, which is all the list has room for.
     func reportStep(_ stepText: String, for agentID: UUID) {
         updateRunningAgent(agentID) { agent in
             agent.reportedSteps = Array((agent.reportedSteps + [stepText]).suffix(Self.mostReportedStepsKept))
+            agent.readingHost = nil
         }
+    }
+
+    /// The site a running agent reads now (`BackgroundAgent.readingHost`). Nil for a link with no host.
+    func setReadingHost(_ readingHost: String?, for agentID: UUID) {
+        updateRunningAgent(agentID) { agent in
+            agent.readingHost = readingHost
+        }
+    }
+
+    /// Records that the app can start this agent's work again if it fails. Set when the agent starts.
+    func allowTryingAgain(_ agentID: UUID) {
+        guard let agentIndex = agents.firstIndex(where: { $0.id == agentID }) else { return }
+        agents[agentIndex].canBeTriedAgain = true
+    }
+
+    /// A failed agent that was tried again offers no second "Try again", since the new agent has its own row.
+    func markTriedAgain(_ agentID: UUID) {
+        guard let agentIndex = agents.firstIndex(where: { $0.id == agentID }) else { return }
+        agents[agentIndex].canBeTriedAgain = false
     }
 
     private static let mostReportedStepsKept = 6

@@ -56,8 +56,8 @@ func (brain *brainRunner) logTheCancel(turnNumber int) {
 // The command gets up to mostBrainHaikuTurns turns on Haiku. When the last of them still needs the model, it gets one
 // more turn on Sonnet (the turn budget rule) before the gave-up line, with the same tools and the same history.
 func (brain *brainRunner) runCommand(commandContext context.Context, command *runningTask, voiceCommand voiceCommandMessage) {
-	// The gate decides whether a request can be answered by voice, from the ID the app says the learner had seen.
-	approvalOffer := brain.approvals.answerableApproval(voiceCommand.ApprovalIDSeenAtPress)
+	// The gate decides whether a request can be answered by voice, from the IDs the app says waited and were seen at the press.
+	approvalOffer := brain.approvals.answerableApproval(voiceCommand.ApprovalIDWaitingAtPress, voiceCommand.ApprovalIDSeenAtPress)
 	run := brain.session.begin(voiceCommand.Transcript, sceneStateForACommand(voiceCommand.SceneState, approvalOffer))
 	// The session's record of applied changes decides whether undo_last_change is offered, so the command begins first.
 	tools, err := brainTools(withTheUndoOffer(offersForACommand(voiceCommand.Tools, approvalOffer), run))

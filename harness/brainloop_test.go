@@ -343,7 +343,7 @@ func TestARefusedCallAndAnAnswerTheWordsDoNotSupportAlsoStopTheLaterCalls(t *tes
 	brain, _ := newApprovalTestBrain(t)
 	brain.approvals.seed("approval-1", capabilitySends)
 	offered := map[toolName]bool{answerApprovalTool: true, "zoom": true}
-	approvalOffer := approvalOffer{approvalID: "approval-1", capabilityWord: "sends"}
+	approvalOffer := approvalOffer{approvalID: "approval-1", capabilityWord: "sends", yesMayCount: true}
 	zoomCall := toolCall{ID: "toolu_zoom", Name: "zoom", Input: json.RawMessage(`{"factor":1.3}`)}
 
 	for _, failingCase := range []struct {

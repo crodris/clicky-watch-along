@@ -73,21 +73,27 @@ func (outcome voiceToolOutcome) isKnown() bool {
 // voiceCommandMessage starts one voice command on the brain. SceneState is the JSON object the app builds of what is
 // on screen, and Tools are the tools this command may call, already filtered by the app. The message has no
 // recentActions, since the brain's session holds every earlier command, and a line that carries one is read with it left out.
-// ApprovalIDSeenAtPress is the approval request whose whole summary the app's card had shown for a second when the learner
-// pressed push-to-talk, or nil. It is the one fact about approvals only the app knows (the card's scroll state and the
-// desk's clock). The harness decides the rest: it offers answer_approval only while the gate holds that request as
-// waiting, and it names the request's kind of action in the scene state itself, so the app sends no approvalWaiting.
+// ApprovalIDWaitingAtPress is the oldest approval request the app's desk held when the learner pressed push-to-talk, the
+// one its card showed, or nil. ApprovalIDSeenAtPress is that same request when a card had also shown its whole summary for
+// a second at the press, or nil. They are the facts about approvals only the app knows (the desk's queue, the card's
+// scroll state, and the desk's clock). The harness decides the rest: it offers answer_approval only while the gate holds
+// the waiting request, a yes counts only for the request seen at the press, and a no counts for it either way, since a
+// wrong no costs only a retry. It names the request's kind of action in the scene state itself, so the app sends no
+// approvalWaiting.
 //
 // WaitsForTheFinalTranscript is true for a command the app started on the partial transcript at push-to-talk release,
 // before the final transcript arrived. The brain runs its first turn at once, but sends no tool_call and commits nothing
 // to the session until confirm_voice_command says the final transcript matched. A cancel_task before that keeps no message,
 // no action line, and no new change, though the fold and the drop of stale changes that every command's begin does still
-// happen (brainloop.go, brainsession.go). Such a command never names an approval, since a partial "yes" could answer one.
+// happen (brainloop.go, brainsession.go). Such a command never has an approval waiting at the press, whether its card was
+// read or not: the harness settles answer_approval from the transcript's own words, and a partial "yes" or "no" could
+// answer a request the learner never meant to answer. parseInboundMessage refuses the pair of fields together.
 type voiceCommandMessage struct {
 	TaskID                     string           `json:"taskID"`
 	Transcript                 string           `json:"transcript"`
 	SceneState                 json.RawMessage  `json:"sceneState"`
 	Tools                      []voiceToolOffer `json:"tools"`
+	ApprovalIDWaitingAtPress   *string          `json:"approvalIDWaitingAtPress"`
 	ApprovalIDSeenAtPress      *string          `json:"approvalIDSeenAtPress"`
 	WaitsForTheFinalTranscript bool             `json:"waitsForTheFinalTranscript"`
 }
@@ -199,8 +205,8 @@ func parseInboundMessage(line []byte) (inboundMessage, error) {
 		if message.TaskID == "" || message.Transcript == "" || len(message.Tools) == 0 {
 			return nil, fmt.Errorf("voice_command needs a taskID, a transcript, and at least one tool")
 		}
-		if message.WaitsForTheFinalTranscript && message.ApprovalIDSeenAtPress != nil {
-			return nil, fmt.Errorf("a voice_command that waits for the final transcript cannot name an approval, since a partial yes could answer it")
+		if message.WaitsForTheFinalTranscript && (message.ApprovalIDWaitingAtPress != nil || message.ApprovalIDSeenAtPress != nil) {
+			return nil, fmt.Errorf("a voice_command that waits for the final transcript cannot name an approval, since a partial yes or no could answer it")
 		}
 		return message, nil
 	case "confirm_voice_command":

@@ -14,6 +14,7 @@ Team and Model fan their choices on an outer arc, Agents opens the agent list, S
   The fan spans 156 degrees whatever it holds, and a long saved name is cut with an ellipsis.
 - `dial-custom-glyph` draws a custom theme's own cursor, still, in the dial's center and on the Team token, where it sits on a dark disc inside the accent ring.
 - `dial-fan-travel` keeps a fan open while the pointer travels outward past the plate, even across another slice's angle, and changes the slice only when the pointer comes back inside the plate.
+- `dial-motion` opens the dial with the Glide spring on an opaque Card plate with an accent rim, pops fan items in 14 ms apart, flies a committed item into the center while the dial shrinks into the cursor, and fades a cancel out in 120 ms.
 - `dial-commit` applies the highlighted item on release: a Team item sets the theme, a Model item sets the voice model, Agents opens the agent list at the mouse, Show toggles Show Clicky, and More opens the menu bar panel.
 - `dial-cancel` commits nothing when the keys are released in the center, on Team or Model with no item highlighted, or far past the fan, and when Escape or another key is pressed.
   It also closes an open dial when the event tap stops or macOS cuts it off.

@@ -222,15 +222,13 @@ final class CompanionManager: ObservableObject {
     /// Where this launch's voice commands run: the harness brain, or the old Worker router when no app secret is set or
     /// the Worker refused it. Read once at launch, since the harness takes the secret from its environment when it starts.
     private var voiceCommandBackend = VoiceCommandBackend(flagIsOn: BrainRunsInTheHarness.isOn(), appSecretIsSet: ClickyAppSecret.isSet())
-    /// The request a voice answer from the latest push-to-talk press may reach: the oldest, when the approval card had
-    /// shown its whole summary for a second at the press, and it is still waiting. The router takes the command, offers
-    /// `answer_approval`, and names the request's capability only for this one, so a yes the app would refuse is never
-    /// asked of the model.
-    private var approvalRequestAVoiceAnswerMayReach: HarnessApprovalRequest? {
-        guard let approvalIDTheLearnerHadSeenAtThePress else { return nil }
-        return agentHarness.approvalDesk.oldestWaitingRequest.flatMap { oldestRequest in
-            oldestRequest.approvalID == approvalIDTheLearnerHadSeenAtThePress ? oldestRequest : nil
-        }
+    /// The request a voice answer from the latest push-to-talk press may reach: the one the card showed at the press,
+    /// while it is still the oldest waiting. The router takes the command, offers `answer_approval`, and names the
+    /// request's capability only for this one. A no answers it at once, and a yes only when `wholeSummaryWasSeen`.
+    private var approvalAtThePressStillWaiting: ApprovalAtPress? {
+        guard let approvalAtThePress,
+              agentHarness.approvalDesk.oldestWaitingRequest?.approvalID == approvalAtThePress.approvalID else { return nil }
+        return approvalAtThePress
     }
 
     /// The text of the chip that says an agent needs the learner's OK, so answering hides that chip and never a newer one.
@@ -271,8 +269,9 @@ final class CompanionManager: ObservableObject {
                 guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
                 self.startSpeakingTheTaskAnswer()
             },
+            tryAgain: { [weak self] agentID in self?.tryTheBackgroundAgentAgain(agentID) },
             answerApproval: { [weak self] approvalID, approved, scope in
-                self?.agentHarness.approvalDesk.answerByClick(approvalID: approvalID, approved: approved, scope: scope)
+                self?.agentHarness.approvalDesk.answerByClick(approvalID: approvalID, approved: approved, scope: scope, on: .agentList)
             }
         )
     )
@@ -304,8 +303,9 @@ final class CompanionManager: ObservableObject {
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
                 speak: { [weak self] line in
-                    // A failed design is also a red Callout, so the failure never rests on the voice alone.
-                    if line == ThemeStudioController.couldNotDesignLine {
+                    // A failed design is also a red Callout, so the failure never rests on the voice alone. While the card stays
+                    // open with its old ideas, the card's own red Callout says it, so the chip would say it twice.
+                    if line == ThemeStudioController.couldNotDesignLine, self?.themeStudioController.showsTheDesignFailedNotice != true {
                         VoiceToolCallChip.shared.show("Couldn't design that one", sender: .failure)
                     }
                     self?.speakAThemeStudioLine(line)
@@ -324,6 +324,11 @@ final class CompanionManager: ObservableObject {
             })
         )
     }()
+    /// The "Add theme?" card shown before a theme file the learner opened is installed.
+    private lazy var themeInstallConfirmation = ThemeInstallConfirmation(
+        cardPresenter: ThemeInstallCardPanelController(),
+        install: { [weak self] confirmedInstall in self?.installTheConfirmedThemePackage(confirmedInstall) }
+    )
     private var themeStudioSpeechTask: Task<Void, Never>?
     /// The playback token of the studio's own spoken line, so closing the card stops that exact line and never an unrelated
     /// answer that is playing when the card closes. Once the line has ended, the token matches nothing and stops nothing.
@@ -420,9 +425,9 @@ final class CompanionManager: ObservableObject {
 
     private var shortcutTransitionCancellable: AnyCancellable?
     private var partialTranscriptCancellable: AnyCancellable?
-    /// The approval request whose whole summary the card had shown for a second when the learner last pressed
-    /// push-to-talk, or a rehearsal step stood in for a press. A voice answer can reach only this request.
-    private var approvalIDTheLearnerHadSeenAtThePress: String?
+    /// The approval request the card showed when the learner last pressed push-to-talk, or a rehearsal step stood in for
+    /// a press, and whether its whole summary had shown for a second then. A voice answer can reach only this request.
+    private var approvalAtThePress: ApprovalAtPress?
     private var escapeKeyCancellable: AnyCancellable?
     private var settingsDialCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
@@ -662,7 +667,7 @@ final class CompanionManager: ObservableObject {
         pinchCancellable?.cancel()
         escapeKeyCancellable?.cancel()
         settingsDialCancellable?.cancel()
-        settingsDialController.close()
+        settingsDialController.closeAtOnce()
         agentListPanelController.close()
         agentTokenDockController.stop()
         voiceStateCancellable?.cancel()
@@ -972,7 +977,7 @@ final class CompanionManager: ObservableObject {
             guard !showOnboardingVideo else { return }
 
             pushToTalkPressCount += 1
-            approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
+            approvalAtThePress = agentHarness.approvalDesk.approvalAtPress(at: Date())
             pushToTalkPressAcceptance.pressWasAccepted()
             // A screen read from an earlier press is out of date the moment a new press begins.
             forgetTheVoiceCommandScreenRead()
@@ -1186,7 +1191,7 @@ final class CompanionManager: ObservableObject {
             LiveSceneStatusLabel.shared.hide()
             VoiceToolCallChip.shared.recall()
             pushToTalkPressCount += 1
-            approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
+            approvalAtThePress = agentHarness.approvalDesk.approvalAtPress(at: Date())
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
             cursorLoopController.pushToTalkWasPressed()
             let frontTabRead = FrontTabReadAtRelease()
@@ -1471,7 +1476,7 @@ final class CompanionManager: ObservableObject {
             partialTranscript: partialTranscript,
             partialRoute: partialRoute,
             voiceCommandsRunInTheHarness: voiceCommandBackend.runsInTheHarness,
-            approvalIDSeenAtPress: inputs.approvalIDWaitingWhenTheCommandStarted,
+            approvalAtPress: inputs.approvalWhenTheCommandStarted,
             speculationIsOn: VoiceCommandSpeculation.isOn()
         ) {
         case .doNotStart(let reason):
@@ -1544,7 +1549,7 @@ final class CompanionManager: ObservableObject {
             brainTakesEveryRequest: BrainTakesEveryRequest.isOn(),
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: taskAnswerWaitsToBeHeard,
-            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil
+            approvalIsWaiting: approvalAtThePressStillWaiting != nil
         )
     }
 
@@ -2797,13 +2802,17 @@ final class CompanionManager: ObservableObject {
         if settingsDialController.isOpen {
             return
         }
-        // With the agent list open, Escape only closes it.
+        // With the agent list open, Escape only closes it, back into the disc it opened from.
         if agentListPanelController.isOpen {
-            agentListPanelController.close()
+            agentListPanelController.closeWithGlide()
             return
         }
         // With the Theme Studio card open, Escape closes it and keeps the old theme, ahead of any scene behavior.
         if themeStudioController.closeOnEscape() {
+            return
+        }
+        // An "Add theme?" card is answered with a no.
+        if themeInstallConfirmation.cancelOnEscape() {
             return
         }
         // A second Escape while a pop-out lands in its frame hides it at once.
@@ -2954,9 +2963,9 @@ final class CompanionManager: ObservableObject {
             frontVideoState: frontVideoState,
             // The harness names the waiting request's kind of action itself, so this scene state has no approvalWaiting.
             harnessSceneState: voiceCommandSceneState(pageState: pageRead.pageState, frontVideoState: frontVideoState, namesTheWaitingApproval: false),
-            // A "yes" answers the request the learner could see when they pressed push-to-talk, never one that came on
-            // screen while they spoke or while the model ran, such as after the shown one's task ended.
-            approvalIDWaitingWhenTheCommandStarted: approvalRequestAVoiceAnswerMayReach?.approvalID
+            // A "yes" or "no" answers the request the card showed when the learner pressed push-to-talk, never one that came
+            // on screen while they spoke or while the model ran, such as after the shown one's task ended.
+            approvalWhenTheCommandStarted: approvalAtThePressStillWaiting
         )
     }
 
@@ -2973,7 +2982,7 @@ final class CompanionManager: ObservableObject {
             transcript: transcript,
             sceneState: inputs.harnessSceneState,
             tools: inputs.tools,
-            approvalIDSeenAtPress: inputs.approvalIDWaitingWhenTheCommandStarted,
+            approvalAtPress: inputs.approvalWhenTheCommandStarted,
             waitsForTheFinalTranscript: waitsForTheFinalTranscript
         )
         #if DEBUG
@@ -3001,7 +3010,7 @@ final class CompanionManager: ObservableObject {
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
             simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
-            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil,
+            approvalIsWaiting: approvalAtThePressStillWaiting != nil,
             themeStudioIsOpen: themeStudioController.isOpen,
             themeStudioShowsIdeas: themeStudioController.state.isShowingIdeas
         )
@@ -3053,7 +3062,7 @@ final class CompanionManager: ObservableObject {
                 transcript: transcript,
                 offeredToolNames: inputs.offeredToolNames,
                 lookupToolNames: inputs.lookupToolNames,
-                approvalIDWaitingWhenTheCommandStarted: inputs.approvalIDWaitingWhenTheCommandStarted,
+                approvalWhenTheCommandStarted: inputs.approvalWhenTheCommandStarted,
                 commandStartedAt: commandStartedAt,
                 timing: timing
             )
@@ -3061,7 +3070,7 @@ final class CompanionManager: ObservableObject {
             print("Brain: the Worker refused the app secret, so this command goes to the Worker router once, and so does every command until Clicky restarts")
         }
         let offeredToolNames = inputs.offeredToolNames
-        let approvalIDWaitingWhenTheCommandStarted = inputs.approvalIDWaitingWhenTheCommandStarted
+        let approvalWhenTheCommandStarted = inputs.approvalWhenTheCommandStarted
         let sceneState = voiceCommandSceneState(pageState: inputs.pageState, frontVideoState: inputs.frontVideoState, namesTheWaitingApproval: true)
         let userMessageText = voiceCommandUserMessageText(
             transcript: transcript,
@@ -3100,7 +3109,7 @@ final class CompanionManager: ObservableObject {
                     transcript: transcript,
                     // Only the model's first reply to the learner's words may answer a request. A later turn has read
                     // tool results, which can hold text a page or a server wrote.
-                    approvalIDTheLearnerIsAnswering: turnIndex == 0 ? approvalIDWaitingWhenTheCommandStarted : nil,
+                    approvalTheLearnerIsAnswering: turnIndex == 0 ? approvalWhenTheCommandStarted : nil,
                     commandStartedAt: commandStartedAt
                 )
             }) else { return }
@@ -3149,7 +3158,7 @@ final class CompanionManager: ObservableObject {
         transcript: String,
         offeredToolNames: Set<String>,
         lookupToolNames: Set<String>,
-        approvalIDWaitingWhenTheCommandStarted: String?,
+        approvalWhenTheCommandStarted: ApprovalAtPress?,
         commandStartedAt: Date,
         timing: VoiceCommandTimingRecorder
     ) async -> Bool {
@@ -3164,7 +3173,7 @@ final class CompanionManager: ObservableObject {
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
-            approvalIDWaitingWhenTheCommandStarted: approvalIDWaitingWhenTheCommandStarted,
+            approvalWhenTheCommandStarted: approvalWhenTheCommandStarted,
             whenNoEventArrivesInTime: { [weak self] in
                 commandLines.commandWasCancelled()
                 self?.agentHarness.endVoiceCommand(
@@ -3180,7 +3189,7 @@ final class CompanionManager: ObservableObject {
                 guard !lineToSpeak.isEmpty, earlyLineIsWorthFetching(turnToolNames: turnToolNames, lookupToolNames: lookupToolNames) else { return }
                 earlyLineFetch = self.elevenLabsTTSClient.startFetching(lineToSpeak)
             },
-            runTool: { toolCall, approvalIDTheLearnerIsAnswering in
+            runTool: { toolCall, approvalTheLearnerIsAnswering in
                 aToolOfTheCommandRan = true
                 timing.mark(\.firstToolCallReceivedAt)
                 // The old path logs each model reply under the debug switch, and here the harness holds the reply, so
@@ -3195,7 +3204,7 @@ final class CompanionManager: ObservableObject {
                     toolCall,
                     offeredToolNames: offeredToolNames,
                     transcript: transcript,
-                    approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering,
+                    approvalTheLearnerIsAnswering: approvalTheLearnerIsAnswering,
                     commandStartedAt: commandStartedAt,
                     handOffMark: commandLines
                 ) ?? .failed(error: "The command was cancelled", state: nil)
@@ -3258,7 +3267,7 @@ final class CompanionManager: ObservableObject {
         _ toolCall: VoiceToolCall,
         offeredToolNames: Set<String>,
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String?,
+        approvalTheLearnerIsAnswering: ApprovalAtPress?,
         commandStartedAt: Date,
         handOffMark: HarnessVoiceCommandLines? = nil
     ) async -> VoiceToolOutcome? {
@@ -3268,7 +3277,7 @@ final class CompanionManager: ObservableObject {
             toolCall,
             offeredToolNames: offeredToolNames,
             transcript: transcript,
-            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering,
+            approvalTheLearnerIsAnswering: approvalTheLearnerIsAnswering,
             handOffMark: handOffMark
         )
         // A push-to-talk press during a slow call, like play_video's check, ends the command here.
@@ -3322,7 +3331,7 @@ final class CompanionManager: ObservableObject {
         _ toolCall: VoiceToolCall,
         offeredToolNames: Set<String>,
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String? = nil,
+        approvalTheLearnerIsAnswering: ApprovalAtPress? = nil,
         handOffMark: HarnessVoiceCommandLines? = nil
     ) async -> VoiceToolOutcome {
         guard offeredToolNames.contains(toolCall.name) else {
@@ -3335,7 +3344,7 @@ final class CompanionManager: ObservableObject {
             appVoiceTool,
             input: toolCall.inputWithoutConfirmation,
             transcript: transcript,
-            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering,
+            approvalTheLearnerIsAnswering: approvalTheLearnerIsAnswering,
             handOffMark: handOffMark
         )
     }
@@ -3347,7 +3356,7 @@ final class CompanionManager: ObservableObject {
         _ appVoiceTool: AppVoiceTool,
         input: [String: JSONValue],
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String?,
+        approvalTheLearnerIsAnswering: ApprovalAtPress?,
         handOffMark: HarnessVoiceCommandLines? = nil
     ) async -> VoiceToolOutcome {
         if appVoiceTool.handsOffToALookAtTheMedia {
@@ -3357,7 +3366,7 @@ final class CompanionManager: ObservableObject {
             appVoiceTool,
             input: input,
             transcript: transcript,
-            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering
+            approvalTheLearnerIsAnswering: approvalTheLearnerIsAnswering
         )
         return voiceToolOutcome(of: toolStep, handOffMark: handOffMark)
     }
@@ -3368,7 +3377,7 @@ final class CompanionManager: ObservableObject {
         _ appVoiceTool: AppVoiceTool,
         input: [String: JSONValue],
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String?
+        approvalTheLearnerIsAnswering: ApprovalAtPress?
     ) async -> AppVoiceToolStep {
         switch appVoiceTool {
         case .answerWithScreen:
@@ -3488,13 +3497,13 @@ final class CompanionManager: ObservableObject {
             if skillChoice.skillWasDropped {
                 print("Task agent: the skill \(input["skill"]?.stringValue ?? "") is not in the catalog, so the task runs with no skill")
             }
-            return .outcome(startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)), skillName: skillChoice.name))
+            return .outcome(startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)), skillName: skillChoice.name, learnerWords: transcript))
         case .hearTaskAnswer:
             return .handOff { self.startSpeakingTheTaskAnswer() }
         case .recordGuess:
             return .outcome(await recordTheSimulationGuess(input["guess"]?.stringValue ?? ""))
         case .answerApproval:
-            return .outcome(answerTheApproval(approvalIDTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript))
+            return .outcome(answerTheApproval(approvalTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript))
         case .designTheme:
             let themeRequest = (input["request"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !themeRequest.isEmpty else { return .outcome(.failed(error: "request must say what the learner wants", state: nil)) }
@@ -3627,16 +3636,23 @@ final class CompanionManager: ObservableObject {
 
     /// Starts a general agent on the learner's task and returns at once, so the router speaks its confirmation and the
     /// video keeps playing.
-    private func startTheTaskAgent(goal: String, skillName: String? = nil) -> VoiceToolOutcome {
+    private func startTheTaskAgent(goal: String, skillName: String? = nil, learnerWords: String) -> VoiceToolOutcome {
         let agentID = backgroundAgentStore.start(kind: .task)
         agentTokenDockController.startServingTheToken(of: agentID)
         backgroundAgentStore.setSubject(goal, for: agentID)
+        backgroundAgentStore.setLearnerWords(learnerWords, for: agentID)
         if let skillName {
             // The first step line, before the agent reports its own, so the learner sees which skill runs.
             backgroundAgentStore.reportStep(TaskAgentSkillCatalog.startingStepText(skillName: skillName), for: agentID)
         }
         runInTheBackground(agentID) {
             await self.runTheTaskAgent(goal: goal, skillName: skillName, agentID: agentID)
+        }
+        allowTryingAgain(agentID) { [weak self] in
+            guard let self, self.agentMayBeTriedAgainNow(agentKind: .task) else { return false }
+            // The new try keeps the words that started the first, so its approval card says them too.
+            _ = self.startTheTaskAgent(goal: goal, skillName: skillName, learnerWords: learnerWords)
+            return true
         }
         return .changed(state: .object(["task": .string("started")]))
     }
@@ -3711,6 +3727,7 @@ final class CompanionManager: ObservableObject {
                     .map { transcriptLine in "[\(backgroundAgentElapsedTimeText(seconds: transcriptLine.seconds))] \(transcriptLine.text)" }
                     .joined(separator: "\n")
                 let captionsResult = "Title: \(video.title)\nLink: \(video.url)\nCaptions:\n\(captionText)"
+                backgroundAgentStore.setReadingHost(agentListHost(ofLink: video.url), for: agentID)
                 return (.string(String(captionsResult.prefix(longestTaskAgentCaptionText))), false, nil, video.url)
             } catch {
                 return errorResult((error as? LocalizedError)?.errorDescription ?? "No YouTube video with captions is in Chrome's front tab")
@@ -3743,6 +3760,9 @@ final class CompanionManager: ObservableObject {
                 return errorResult("The page could not be written: \(error)")
             }
         case .takeScreenshot, .readClipboard, .writeClipboard, .openURL:
+            if TaskAgentTool(rawValue: toolCall.toolName) == .openURL {
+                backgroundAgentStore.setReadingHost(toolCall.input["url"]?.stringValue.flatMap(agentListHost(ofLink:)), for: agentID)
+            }
             let generalToolRun = await runTaskAgentGeneralTool(named: toolCall.toolName, input: toolCall.input, taskID: agentID)
             return (generalToolRun.content, generalToolRun.isError, nil, nil)
         case nil:
@@ -3787,19 +3807,38 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Installing a theme file
 
-    /// Installs a `.clickytheme` package the learner opened and puts it on, with a chip that says how it went. A package
-    /// that does not parse is refused with a log line naming the rule it broke, and nothing changes.
+    /// A `.clickytheme` package the learner opened: reads and checks it, and asks "Add theme?" before installing anything. A
+    /// package that does not parse is refused with a log line naming the rule it broke and a chip, with no card, and nothing
+    /// changes.
     func installTheThemePackage(at themePackageURL: URL) {
         do {
-            let installedTheme = try themeSettings.installAndApply(packageAt: themePackageURL)
-            print("Themes: installed \(themePackageURL.lastPathComponent) as \(installedTheme.id)")
-            VoiceToolCallChip.shared.show(themeAddedChipPhrase, secondaryChipText: installedTheme.name)
-            installedTheme.sounds.done.play()
+            let packagePreview = try themeSettings.previewPackage(at: themePackageURL)
+            themeInstallConfirmation.ask(about: PendingThemeInstall(packageURL: themePackageURL, theme: packagePreview.theme, pictureJPEG: packagePreview.pictureJPEG))
         } catch let parseError as CustomThemeParseError {
             print("Themes: refused \(themePackageURL.lastPathComponent): \(parseError.reason)")
             VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         } catch {
             print("Themes: refused \(themePackageURL.lastPathComponent): \(error)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
+        }
+    }
+
+    /// The learner added the theme on the card: installs it, puts it on, plays its done sound, and says so. The package is
+    /// read and checked again, since it may have changed while the card showed.
+    private func installTheConfirmedThemePackage(_ confirmedInstall: PendingThemeInstall) {
+        do {
+            let installedTheme = try themeSettings.installAndApply(
+                packageAt: confirmedInstall.packageURL,
+                expectedPreview: CustomThemeStore.ThemePackagePreview(theme: confirmedInstall.theme, pictureJPEG: confirmedInstall.pictureJPEG)
+            )
+            print("Themes: installed \(confirmedInstall.packageURL.lastPathComponent) as \(installedTheme.id)")
+            VoiceToolCallChip.shared.show(themeAddedChipPhrase, secondaryChipText: installedTheme.name)
+            installedTheme.sounds.done.play()
+        } catch let parseError as CustomThemeParseError {
+            print("Themes: refused \(confirmedInstall.packageURL.lastPathComponent): \(parseError.reason)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
+        } catch {
+            print("Themes: refused \(confirmedInstall.packageURL.lastPathComponent): \(error)")
             VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         }
     }
@@ -3836,22 +3875,30 @@ final class CompanionManager: ObservableObject {
     }
 
     /// The router's `answer_approval` answers the request that was oldest when the learner spoke, the one the agent
-    /// list showed, and only as far as the learner's own words say yes.
+    /// list showed. A no counts at once, with a word of no for an unread request. A yes counts only when the card had
+    /// shown the whole summary for a second at the press and the learner's own words say yes.
     private func answerTheApproval(
-        _ approvalIDTheLearnerIsAnswering: String?,
+        _ approvalTheLearnerIsAnswering: ApprovalAtPress?,
         byVoiceInput input: [String: JSONValue],
         transcript: String
     ) -> VoiceToolOutcome {
         guard let modelAnswer = ApprovalVoiceAnswer(toolInput: input) else {
             return .failed(error: "approved must be true or false", state: nil)
         }
-        guard let approvalIDTheLearnerIsAnswering else {
+        guard let approvalTheLearnerIsAnswering else {
             return .failed(error: "Only your first reply to the learner's words can answer a request", state: nil)
         }
-        guard let learnerAnswer = approvalVoiceAnswerTheLearnerSaid(modelAnswer, transcript: transcript) else {
+        guard !modelAnswer.approved || approvalTheLearnerIsAnswering.wholeSummaryWasSeen else {
+            return .failed(error: "The learner has not read the whole request on the card yet, so only a no counts. Tell them to read it there first", state: nil)
+        }
+        guard let learnerAnswer = approvalVoiceAnswerTheLearnerSaid(
+            modelAnswer,
+            transcript: transcript,
+            requestWasSeenAtPress: approvalTheLearnerIsAnswering.wholeSummaryWasSeen
+        ) else {
             return .failed(error: "The learner's words did not give that answer, so nothing was allowed", state: nil)
         }
-        guard agentHarness.approvalDesk.answer(approvalID: approvalIDTheLearnerIsAnswering, approved: learnerAnswer.approved, scope: learnerAnswer.scope) else {
+        guard agentHarness.approvalDesk.answer(approvalID: approvalTheLearnerIsAnswering.approvalID, approved: learnerAnswer.approved, scope: learnerAnswer.scope) else {
             return .failed(error: "That request is no longer waiting", state: nil)
         }
         return .changed(state: .object(["approval": .string(learnerAnswer.approved ? "allowed" : "declined")]))
@@ -3913,6 +3960,13 @@ final class CompanionManager: ObservableObject {
         agentTokenDockController.startServingTheToken(of: agentID)
         runInTheBackground(agentID) {
             await self.buildTheBackgroundScene(whatToBuild: whatToBuild, agentID: agentID, agentKind: agentKind)
+        }
+        allowTryingAgain(agentID) { [weak self] in
+            // The same rules the voice tools keep: one experiment builds at a time, a question owns the scene while it is
+            // open, and a 3D model is built from a video in front.
+            guard let self, self.agentMayBeTriedAgainNow(agentKind: agentKind) else { return false }
+            _ = self.startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: agentKind)
+            return true
         }
         return .changed(state: .object(["backgroundScene": .string("started")]))
     }
@@ -4157,6 +4211,15 @@ final class CompanionManager: ObservableObject {
                 }
             }
         }
+        allowTryingAgain(agentID) { [weak self] in
+            // A guide is written from the video in front, so a retry waits for the video the first one was for.
+            guard let self,
+                  self.agentMayBeTriedAgainNow(agentKind: studyGuideJob.agentKind),
+                  let frontVideoURL = self.videoQuizSession.frontTabURLOfTheFrontWindow(),
+                  studyGuideVideoKey(forVideoURL: frontVideoURL) == videoKey else { return false }
+            if case .failed = self.startWritingTheStudyGuide(studyGuideJob) { return false }
+            return true
+        }
         return .changed(state: .object(["studyGuide": .string("started")]))
     }
 
@@ -4370,6 +4433,43 @@ final class CompanionManager: ObservableObject {
         .backgroundAgent(color: backgroundAgentStore.displayColor(for: agentID) ?? kind.preferredPaletteColor, face: backgroundAgentStore.face(for: agentID))
     }
 
+    /// What starts a failed agent's work again, by agent, for the agent list's "Try again". Each returns whether the work
+    /// started.
+    private var tryAgainActionsByAgentID: [UUID: @MainActor () -> Bool] = [:]
+
+    /// Lets the agent list offer "Try again" if this agent fails. `start` begins the same work as a new agent.
+    private func allowTryingAgain(_ agentID: UUID, start: @escaping @MainActor () -> Bool) {
+        // An agent the store dropped can never be tried again, so its action goes with it.
+        let agentIDsInTheStore = Set(backgroundAgentStore.agents.map(\.id))
+        tryAgainActionsByAgentID = tryAgainActionsByAgentID.filter { agentIDsInTheStore.contains($0.key) }
+        tryAgainActionsByAgentID[agentID] = start
+        backgroundAgentStore.allowTryingAgain(agentID)
+    }
+
+    /// Whether a failed agent's work may start again now, by the rules the voice tools that start it keep.
+    private func agentMayBeTriedAgainNow(agentKind: BackgroundAgentKind) -> Bool {
+        backgroundAgentMayBeTriedAgain(
+            agentKind: agentKind,
+            aQuizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer || videoQuizQuestionIsActive,
+            experimentRequestStep: currentExperimentRequestStep,
+            anExperimentIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
+            aVideoIsInFront: agentKind == .threeDModel ? videoQuizSession.frontVideoStateForVoiceCommands() != nil : false
+        )
+    }
+
+    /// "Try again" on a failed agent's row. It starts the same work once, as a new agent with its own row, and the failed
+    /// row stops offering it only when the work started.
+    private func tryTheBackgroundAgentAgain(_ agentID: UUID) {
+        guard let startTheWorkAgain = tryAgainActionsByAgentID[agentID] else { return }
+        guard startTheWorkAgain() else {
+            print("Agent list: could not try \(agentID) again, so its row keeps the button")
+            VoiceToolCallChip.shared.show("Couldn't try that again", sender: .failure)
+            return
+        }
+        tryAgainActionsByAgentID[agentID] = nil
+        backgroundAgentStore.markTriedAgain(agentID)
+    }
+
     /// Cancels a running agent from the agent list. A cancelled agent shows no chip, and a cancelled new guide keeps no
     /// record. A cancelled revise or refresh whose reply already arrived is saved (`StudyGuideJob.replyIsSavedEvenWhenCancelled`).
     func cancelBackgroundAgent(_ agentID: UUID) {
@@ -4508,7 +4608,8 @@ final class CompanionManager: ObservableObject {
             sceneStateFields["predictionQuestion"] = .string(simulationLesson.predictionQuestion)
         }
         // Only the capability word, never the summary, which a web page or an MCP server may have written.
-        if namesTheWaitingApproval, let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: approvalRequestAVoiceAnswerMayReach) {
+        if namesTheWaitingApproval, approvalAtThePressStillWaiting != nil,
+           let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: agentHarness.approvalDesk.oldestWaitingRequest) {
             sceneStateFields["approvalWaiting"] = .string(approvalWaitingState)
         }
         if let themeStudioState = voiceCommandThemeStudioState(themeStudioController.state) {

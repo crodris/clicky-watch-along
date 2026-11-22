@@ -125,18 +125,20 @@ nonisolated enum SpeculativeStartStep: Equatable {
 }
 
 /// A command starts on the partial transcript only when it would go to the brain in the harness exactly as the final one
-/// would: words heard, the router taking them, and no request the learner may be answering. The harness settles an
-/// approval from the transcript's own words, so a partial "yes" must never reach it, and the harness refuses such a line too.
+/// would: words heard, the router taking them, and no approval request waiting at the press. The harness settles an
+/// approval from the transcript's own words, and a no answers a waiting request even when its card was not read, so a
+/// partial "yes" or "no" must never reach one. Any request at the press blocks the start, seen or not. The harness refuses
+/// such a line too.
 nonisolated func speculativeStartStep(
     partialTranscript: String,
     partialRoute: TranscriptRoute,
     voiceCommandsRunInTheHarness: Bool,
-    approvalIDSeenAtPress: String?,
+    approvalAtPress: ApprovalAtPress?,
     speculationIsOn: Bool
 ) -> SpeculativeStartStep {
     guard speculationIsOn else { return .doNotStart(reason: "speculation is turned off") }
     guard voiceCommandsRunInTheHarness else { return .doNotStart(reason: "voice commands run on the Worker router") }
-    guard approvalIDSeenAtPress == nil else { return .doNotStart(reason: "an approval request may be answered") }
+    guard approvalAtPress == nil else { return .doNotStart(reason: "an approval request is waiting, and a partial yes or no could answer it") }
     guard !transcriptWordsForComparison(partialTranscript).isEmpty else { return .waitForOtherWords(reason: "no words were heard yet") }
     guard partialRoute == .voiceCommandRouter else { return .waitForOtherWords(reason: "the partial transcript does not go to the router") }
     return .start
@@ -184,8 +186,10 @@ struct VoiceCommandInputs: Equatable {
     let frontVideoState: JSONValue?
     /// The scene state the harness reads. It has no `approvalWaiting`, since the harness names the waiting request itself.
     let harnessSceneState: JSONValue
-    /// The request the learner could see when they pressed push-to-talk, the only one a "yes" may answer.
-    let approvalIDWaitingWhenTheCommandStarted: String?
+    /// The request the card showed when the learner pressed push-to-talk, and whether its whole summary had shown then. A
+    /// voice answer may reach only this one. It is part of the inputs, so a final transcript whose approval state differs
+    /// from the partial's discards the command, whether the request is new, gone, or has been read since.
+    let approvalWhenTheCommandStarted: ApprovalAtPress?
 
     var offeredToolNames: Set<String> { Set(tools.map(\.name)) }
     /// The read-only tools, whose calls are lookups the model reads before it acts.

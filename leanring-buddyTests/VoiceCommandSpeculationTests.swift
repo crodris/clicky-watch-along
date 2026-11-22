@@ -54,7 +54,7 @@ struct VoiceCommandSpeculationTests {
         return SpeculativeVoiceCommand(
             partialTranscript: "turn it left",
             screenRead: screenRead(ofPress: pressCount),
-            inputs: VoiceCommandInputs(tools: [], pageState: nil, frontVideoState: nil, harnessSceneState: .object([:]), approvalIDWaitingWhenTheCommandStarted: nil),
+            inputs: VoiceCommandInputs(tools: [], pageState: nil, frontVideoState: nil, harnessSceneState: .object([:]), approvalWhenTheCommandStarted: nil),
             command: StartedHarnessVoiceCommand(commandID: commandID, lines: lines, events: commandEvents, sentAt: Date())
         )
     }
@@ -120,13 +120,17 @@ struct VoiceCommandSpeculationTests {
         }
     }
 
-    @Test func aPartialStartsACommandOnlyWhenTheBrainWouldTakeItAndNoApprovalCanBeAnswered() {
-        func step(_ partial: String, route: TranscriptRoute = .voiceCommandRouter, harness: Bool = true, approvalID: String? = nil, isOn: Bool = true) -> SpeculativeStartStep {
-            speculativeStartStep(partialTranscript: partial, partialRoute: route, voiceCommandsRunInTheHarness: harness, approvalIDSeenAtPress: approvalID, speculationIsOn: isOn)
+    @Test func aPartialStartsACommandOnlyWhenTheBrainWouldTakeItAndNoApprovalIsWaiting() {
+        func step(_ partial: String, route: TranscriptRoute = .voiceCommandRouter, harness: Bool = true, approvalAtPress: ApprovalAtPress? = nil, isOn: Bool = true) -> SpeculativeStartStep {
+            speculativeStartStep(partialTranscript: partial, partialRoute: route, voiceCommandsRunInTheHarness: harness, approvalAtPress: approvalAtPress, speculationIsOn: isOn)
         }
         #expect(step("turn it left") == .start)
-        // The harness settles an approval from the transcript's own words, so a partial "yes" must never reach it.
-        #expect(step("yes", approvalID: "approval-1") == .doNotStart(reason: "an approval request may be answered"))
+        // The harness settles an approval from the transcript's own words, so a partial "yes" must never reach one.
+        let approvalIsWaitingReason = "an approval request is waiting, and a partial yes or no could answer it"
+        #expect(step("yes", approvalAtPress: ApprovalAtPress(approvalID: "approval-1", wholeSummaryWasSeen: true)) == .doNotStart(reason: approvalIsWaitingReason))
+        // A no counts for a request whose card was not read, so a request that only waited at the press blocks the start too.
+        #expect(step("no", approvalAtPress: ApprovalAtPress(approvalID: "approval-1", wholeSummaryWasSeen: false)) == .doNotStart(reason: approvalIsWaitingReason))
+        #expect(step("turn it left", approvalAtPress: ApprovalAtPress(approvalID: "approval-1", wholeSummaryWasSeen: false)) == .doNotStart(reason: approvalIsWaitingReason))
         // Words that start nothing yet may be followed by newer ones that do, so the press waits for them.
         #expect(step("turn it left", route: .keywordBranch(.startExperiment)) == .waitForOtherWords(reason: "the partial transcript does not go to the router"))
         #expect(step("stop the", route: .videoQuizCommand(.stop)) == .waitForOtherWords(reason: "the partial transcript does not go to the router"))
@@ -134,6 +138,21 @@ struct VoiceCommandSpeculationTests {
         #expect(step("") == .waitForOtherWords(reason: "no words were heard yet"))
         #expect(step("turn it left", harness: false) == .doNotStart(reason: "voice commands run on the Worker router"))
         #expect(step("turn it left", isOn: false) == .doNotStart(reason: "speculation is turned off"))
+    }
+
+    @Test func commandInputsDifferWhenOnlyTheApprovalAtThePressDiffers() {
+        func inputs(approvalAtPress: ApprovalAtPress?) -> VoiceCommandInputs {
+            VoiceCommandInputs(tools: [], pageState: nil, frontVideoState: nil, harnessSceneState: .object([:]), approvalWhenTheCommandStarted: approvalAtPress)
+        }
+        let unreadRequest = ApprovalAtPress(approvalID: "approval-1", wholeSummaryWasSeen: false)
+        let readRequest = ApprovalAtPress(approvalID: "approval-1", wholeSummaryWasSeen: true)
+        // The final transcript's inputs are compared with the ones the command started from, so a request that came or went,
+        // or a card read in between, discards the command instead of sending the harness an answer it was never told about.
+        #expect(inputs(approvalAtPress: nil) == inputs(approvalAtPress: nil))
+        #expect(inputs(approvalAtPress: readRequest) == inputs(approvalAtPress: readRequest))
+        #expect(inputs(approvalAtPress: nil) != inputs(approvalAtPress: unreadRequest))
+        #expect(inputs(approvalAtPress: unreadRequest) != inputs(approvalAtPress: readRequest))
+        #expect(inputs(approvalAtPress: unreadRequest) != inputs(approvalAtPress: ApprovalAtPress(approvalID: "approval-2", wholeSummaryWasSeen: false)))
     }
 
     @Test func theFinalTranscriptKeepsTheCommandOnlyWhenEverythingItWasStartedFromStillHolds() {
@@ -262,10 +281,10 @@ struct VoiceCommandSpeculationTests {
     }
 
     @Test func theLinesToTheHarnessSayWhetherACommandWaitsAndConfirmIt() {
-        let waitingLine = HarnessCommand.voiceCommand(taskID: commandID, transcript: "turn it left", sceneState: .object([:]), tools: [], approvalIDSeenAtPress: nil, waitsForTheFinalTranscript: true)
+        let waitingLine = HarnessCommand.voiceCommand(taskID: commandID, transcript: "turn it left", sceneState: .object([:]), tools: [], approvalAtPress: nil, waitsForTheFinalTranscript: true)
         #expect(waitingLine.json["waitsForTheFinalTranscript"] == .bool(true))
         // A normal command's line is the one the harness has always read.
-        let normalLine = HarnessCommand.voiceCommand(taskID: commandID, transcript: "turn it left", sceneState: .object([:]), tools: [], approvalIDSeenAtPress: nil)
+        let normalLine = HarnessCommand.voiceCommand(taskID: commandID, transcript: "turn it left", sceneState: .object([:]), tools: [], approvalAtPress: nil)
         #expect(normalLine.json["waitsForTheFinalTranscript"] == nil)
         #expect(HarnessCommand.confirmVoiceCommand(taskID: commandID).json == .object([
             "type": .string("confirm_voice_command"),

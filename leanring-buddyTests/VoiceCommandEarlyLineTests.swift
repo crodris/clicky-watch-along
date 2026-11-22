@@ -50,7 +50,7 @@ struct VoiceCommandEarlyLineTests {
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
-            approvalIDWaitingWhenTheCommandStarted: nil,
+            approvalWhenTheCommandStarted: nil,
             whenNoEventArrivesInTime: {},
             whenTheLineIfEveryCallChangesArrives: { spokenLine, toolNames in whatHappened.append("fetch \(spokenLine) for \(toolNames.joined(separator: ","))") },
             runTool: { toolCall, _ in

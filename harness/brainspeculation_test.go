@@ -151,19 +151,32 @@ func TestADiscardedCommandWhoseReplyCalledNoToolIsNeverKept(t *testing.T) {
 }
 
 func TestACommandOnThePartialTranscriptCannotNameAnApproval(t *testing.T) {
-	worker, _ := newRotatingBrainWorker(t)
-	driver := startHarness(t, worker.server.URL)
-
-	// A partial "yes" could answer a request the learner never finished answering, so the line is refused at the boundary.
-	line := strings.TrimSuffix(speculativeVoiceCommandLine("command-1", "yes"), "}") + `,"approvalIDSeenAtPress":"approval-1"}`
-	driver.send(line)
-	if got := driver.expectLine("task_failed"); !strings.Contains(got, `"taskID":"command-1"`) || !strings.Contains(got, "cannot name an approval") {
-		t.Fatalf("the refusal was %s", got)
+	// A partial "yes" or "no" could answer a request the learner never finished answering. The harness settles a no for
+	// a request whose card was not read, so a request that only waited at the press counts as much as a seen one.
+	cases := []struct {
+		name                string
+		approvalFieldsToAdd string
+	}{
+		{name: "a request the learner had seen", approvalFieldsToAdd: `"approvalIDWaitingAtPress":"approval-1","approvalIDSeenAtPress":"approval-1"`},
+		{name: "a request that only waited at the press", approvalFieldsToAdd: `"approvalIDWaitingAtPress":"approval-1"`},
+		{name: "a seen request with no waiting ID", approvalFieldsToAdd: `"approvalIDSeenAtPress":"approval-1"`},
 	}
-	// A confirm for a command that is not running changes nothing and writes nothing.
-	driver.send(confirmVoiceCommandLine("command-1"))
-	driver.expectNoLineFor(200 * time.Millisecond)
-	if len(worker.requests()) != 0 {
-		t.Errorf("a refused command reached the Worker")
+	for _, refusalCase := range cases {
+		t.Run(refusalCase.name, func(t *testing.T) {
+			worker, _ := newRotatingBrainWorker(t)
+			driver := startHarness(t, worker.server.URL)
+
+			line := strings.TrimSuffix(speculativeVoiceCommandLine("command-1", "yes"), "}") + "," + refusalCase.approvalFieldsToAdd + "}"
+			driver.send(line)
+			if got := driver.expectLine("task_failed"); !strings.Contains(got, `"taskID":"command-1"`) || !strings.Contains(got, "cannot name an approval") {
+				t.Fatalf("the refusal was %s", got)
+			}
+			// A confirm for a command that is not running changes nothing and writes nothing.
+			driver.send(confirmVoiceCommandLine("command-1"))
+			driver.expectNoLineFor(200 * time.Millisecond)
+			if len(worker.requests()) != 0 {
+				t.Errorf("a refused command reached the Worker")
+			}
+		})
 	}
 }

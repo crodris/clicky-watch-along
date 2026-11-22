@@ -1573,9 +1573,11 @@ describe("the approval cases on the harness backend", () => {
     }
   });
 
-  it("sends the request's ID in approvalIDSeenAtPress with no approvalWaiting in the scene state, and a null ID when nothing waits", () => {
+  it("sends the request's ID as waiting and seen at the press with no approvalWaiting in the scene state, and null IDs when nothing waits", () => {
     const yes = voiceCommandMessageFor(fixtureCase("approval-yes"), evalFile, toolCatalog, "cmd-1");
+    assert.equal(yes.approvalIDWaitingAtPress, approvalIDFor("cmd-1"));
     assert.equal(yes.approvalIDSeenAtPress, approvalIDFor("cmd-1"));
+    assert.equal(voiceCommandMessageFor(fixtureCase("video-seek-back"), evalFile, toolCatalog, "cmd-1").approvalIDWaitingAtPress, null);
     assert.ok(!("approvalWaiting" in yes.sceneState), "the app sends no approvalWaiting on the harness path");
     assert.equal(voiceCommandMessageFor(fixtureCase("video-seek-back"), evalFile, toolCatalog, "cmd-1").approvalIDSeenAtPress, null);
     // The Worker backend still sends the word the old path sends.
