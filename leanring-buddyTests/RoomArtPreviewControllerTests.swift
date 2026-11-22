@@ -59,10 +59,12 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     private var recordedGarmentWorn = false
     private var latestLoop: RoomArtLoopSnapshot?
     private var recordedFurnitureLayersShown: [(look: RoomFurnitureLook, keyframeNumber: Int)] = []
+    private var recordedLoopOutlines: [(point: CGPoint, keyframeNumber: Int)] = []
     private var keyframesTaken = 0
 
     /// Each furniture look the controller handed over, with the keyframe it was made for.
     var furnitureLayersShown: [(look: RoomFurnitureLook, keyframeNumber: Int)] { lock.withLock { recordedFurnitureLayersShown } }
+    var loopOutlines: [(point: CGPoint, keyframeNumber: Int)] { lock.withLock { recordedLoopOutlines } }
 
     var artHungCount: Int { lock.withLock { recordedSurfacesShownOn.count } }
     var surfacesShownOn: [RoomArtSurfaceKind] { lock.withLock { recordedSurfacesShownOn } }
@@ -119,6 +121,10 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
 
     func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int) {
         lock.withLock { recordedFurnitureLayersShown.append((layers.look, keyframeNumber)) }
+    }
+
+    func outlineTheLoop(around point: CGPoint, on surfaceKind: RoomArtSurfaceKind, inKeyframeNumber keyframeNumber: Int) {
+        lock.withLock { recordedLoopOutlines.append((point, keyframeNumber)) }
     }
 
     func putBackTheItemFromBeforeTheMove() {
@@ -1135,6 +1141,12 @@ struct RoomArtPreviewControllerTests {
         // shows, and no step back line was said.
         #expect(firstFloor.center != worker.floorRequestsReply)
         #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
+        // The loop moved from the measured spot to the middle of the table's footprint, on the first keyframe.
+        let expectedLoopCenter = try #require(roomFurnitureFootprintCenterInTheKeyframe(floor: firstFloor, widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55))
+        let loopOutline = try #require(harness.frameProcessor.loopOutlines.first)
+        #expect(harness.frameProcessor.loopOutlines.count == 1)
+        #expect(hypot(loopOutline.point.x - expectedLoopCenter.x, loopOutline.point.y - expectedLoopCenter.y) < 1)
+        #expect(loopOutline.keyframeNumber == 1)
 
         harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 600, y: 340))
         try await waitFor("the click's placement") { harness.frameProcessor.surfacesShownOn.count == 2 }
@@ -1143,6 +1155,8 @@ struct RoomArtPreviewControllerTests {
             return
         }
         #expect(clickedFloor.center == worker.floorRequestsReply)
+        // A click keeps its spot, so the loop stays where the learner clicked.
+        #expect(harness.frameProcessor.loopOutlines.count == 1)
         harness.controller.close()
     }
 

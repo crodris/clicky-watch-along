@@ -213,6 +213,16 @@ struct RoomFurnitureSpotTests {
         return corners.allSatisfy { insideTheMargins.contains($0) }
     }
 
+    @Test func theLoopsSpotIsTheMiddleOfThePiecesFootprint() throws {
+        // A 0.9 m wide, 0.8 m tall, 0.6 m deep chair: the loop goes around the floor it stands on, not its front face.
+        let floor = try #require(try floorMeasuredNearTheRightEdge().moved(toAnchorPixel: CGPoint(x: 640, y: 600)))
+        let placement = try #require(RoomFurniturePlacement(floor: floor, widthMeters: 0.9, heightMeters: 0.8, depthMeters: 0.6))
+        let footprintCenterPixel = try #require(pinholeProjection(of: placement.footprintCenter, focalLengthPixels: 1100, principalPoint: SIMD2(640, 360)))
+        let loopCenter = try #require(roomFurnitureFootprintCenterInTheKeyframe(floor: floor, widthMeters: 0.9, heightMeters: 0.8, depthMeters: 0.6))
+        // The mean of the four projected corners is within a few pixels of the projected middle at this distance.
+        #expect(hypot(loopCenter.x - footprintCenterPixel.x, loopCenter.y - footprintCenterPixel.y) < 4)
+    }
+
     @Test func aFloorMovedToAPixelMeetsThatPixelsRayOnTheSamePlane() throws {
         let floor = try floorMeasuredNearTheRightEdge()
         let moved = try #require(floor.moved(toAnchorPixel: CGPoint(x: 400, y: 650)))

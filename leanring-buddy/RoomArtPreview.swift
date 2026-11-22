@@ -71,6 +71,9 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     /// Replaces the furniture's flat cutout with layers rendered or painted for the keyframe numbered `keyframeNumber`, with
     /// a short crossfade. Layers for an older keyframe, such as one a click has replaced, are dropped.
     func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int)
+    /// Moves the loop to the window around `point` in the keyframe numbered `keyframeNumber`, such as the spot the furniture
+    /// moved to after its floor was measured. The loop glides there, and a newer keyframe's loop is left alone.
+    func outlineTheLoop(around point: CGPoint, on surfaceKind: RoomArtSurfaceKind, inKeyframeNumber keyframeNumber: Int)
     func putBackTheItemFromBeforeTheMove()
     /// Starts drawing a shirt instead of tracking a surface: each frame finds the torso, and `onTheFramingSettled` runs on
     /// the main actor each time the framing settles on a new kind (`ShirtFramingDebouncer`). The loop traces the torso.
@@ -700,6 +703,15 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 keyframeBasePoint: layers.basePointInTheKeyframe
             )
             self.smoothedArtCorners = nil
+        }
+    }
+
+    func outlineTheLoop(around point: CGPoint, on surfaceKind: RoomArtSurfaceKind, inKeyframeNumber keyframeNumber: Int) {
+        processingQueue.async {
+            guard keyframeNumber == self.keyframeNumber, self.loopKeyframeCorners != nil, let latestFrame = self.latestFrame else { return }
+            let frameSize = CGSize(width: CVPixelBufferGetWidth(latestFrame), height: CVPixelBufferGetHeight(latestFrame))
+            // The smoothed corners keep where the loop was, so it glides to the new window over the next frames.
+            self.loopKeyframeCorners = RoomArtLoopGeometry.keyframeCorners(around: point, frameSize: frameSize, on: surfaceKind)
         }
     }
 
@@ -1351,6 +1363,8 @@ extension RoomArtPreviewController {
             floorError = error
         }
         guard !Task.isCancelled else { throw CancellationError() }
+        // The spot is chosen before the wall is measured, so the loop outlines it while the wall request runs.
+        let floorForThePiece = measuredFloor.map { floorWhereTheWholePieceShows($0, on: keyframe, for: item, anchorWasClicked: anchorWasClicked) }
         let wallRequest = RoomWallRequest(
             keyframeJPEGData: keyframe.measurementRequest.keyframeJPEGData,
             personMaskPNGData: keyframe.measurementRequest.personMaskPNGData,
@@ -1363,11 +1377,10 @@ extension RoomArtPreviewController {
             print("Room furniture: the wall behind the floor was not measured: \(error)")
             wall = nil
         }
-        if let measuredFloor {
-            guard let wall, !measuredFloor.agrees(withTheWall: wall) else {
-                return floorWhereTheWholePieceShows(measuredFloor, on: keyframe, for: item, anchorWasClicked: anchorWasClicked)
-            }
+        if let measuredFloor, let floorForThePiece {
+            guard let wall, !measuredFloor.agrees(withTheWall: wall) else { return floorForThePiece }
             print("Room furniture: the measured floor is not level with the wall, so it is a desk or a bed, not the floor")
+            theWholePieceDoesNotShow = false
         }
         if let wall, case .furniture(let furniture) = item,
            let inferredFloor = FloorPlane.inferred(fromTheWall: wall, itemDepthMeters: furniture.depthMeters),
@@ -1397,6 +1410,12 @@ extension RoomArtPreviewController {
         )
         theWholePieceDoesNotShow = !spot.wholePieceFits
         print("Room furniture: \(spot.wholePieceFits ? "moved the piece to where all of it shows" : "no spot shows the whole piece, so it stands where most of it shows")")
+        // The loop outlined the bare spot the floor was measured at, so it moves to where the piece will stand.
+        if let footprintCenter = roomFurnitureFootprintCenterInTheKeyframe(
+            floor: spot.floor, widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters
+        ) {
+            frameProcessor.outlineTheLoop(around: footprintCenter, on: .floor, inKeyframeNumber: keyframe.keyframeNumber)
+        }
         return spot.floor
     }
 
