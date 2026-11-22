@@ -298,8 +298,10 @@ struct BackgroundAgent: Identifiable, Equatable {
     }
 
     /// Seconds from start to the end, or to `now` while it runs.
+    /// A paused agent's time stops at `pausedAt`, as its progress does, and goes on from there after the resume, which
+    /// moves only its step's start, so a pause is never counted as working time while it lasts.
     func elapsedSeconds(at now: Date) -> TimeInterval {
-        max(0, (endedAt ?? now).timeIntervalSince(startedAt))
+        max(0, (endedAt ?? min(now, pausedAt ?? now)).timeIntervalSince(startedAt))
     }
 }
 

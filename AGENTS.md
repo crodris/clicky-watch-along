@@ -543,10 +543,11 @@ A pause really pauses: no model turn and no tool call starts, and no result is d
   The call it allows waits for the resume.
 - An agent started during a pause starts paused (`pausedAt` set at its start, and `start_task` with `startsPaused`, since a later `pause_task` could arrive after the harness's first request).
 - Push-to-talk, the voice brain, and voice commands never pause.
-Each agent's progress stops at `pausedAt`, its ring and the list's meter stand still, and a resume moves `currentStepStartedAt` later by the pause's length, so the progress picks up where it stopped.
+Each agent's progress and its elapsed time stop at `pausedAt`, its ring and the list's meter stand still, the panel home's agents row says "N paused · say go ahead" (`panelAgentsSummary`), and a resume moves `currentStepStartedAt` later by the pause's length, so the progress picks up where it stopped.
 Cancelling every running agent from the list ends the pause, since nothing is left to hold.
 The discs fold into one paused disc (`AgentTokenSlot.paused`, `agentTokenSlotsLeftToRight`): a gray ring around two pause bars, with the count of running agents it holds in a capsule badge when there is more than one (`AgentPausedDiscView`, `pausedAgentCount`).
-Its peek says "N agents paused" and "Say go ahead to let them go on", or "Answer the request first, then say go ahead" while one waits for the learner's OK, and a click opens the agent list.
+Its peek says "N agents paused" and "Say go ahead to let them go on", or "Answer the request first, then say go ahead" while one waits for the learner's OK, VoiceOver reads the same two lines, and a click opens the agent list.
+The panel home's agent chips keep their color during a pause, and the keyboard focus a chip gives a disc does not move to the paused disc or come back to a disc after "go ahead", which PR 19 takes.
 "Hold on" grays every disc over the crossfade time, then slides each disc's panel into the paused disc's place as it shrinks to `DS.Move.recallEndScale` and fades, on the Recall move's curve (`AgentTokenGather`), and the paused disc fades in.
 "Go ahead" sends each disc from the paused disc back to the place it had, on the Send move along the menu bar with a tether in the agent's color, since the dock keeps each display's token positions unchanged through the pause, and a push-to-talk press, a new pause, or a Bring back lands the flights at once (`finishTheServeAtOnce`).
 With Reduce Motion on, both are a crossfade over `DS.Move.fadeSeconds` (`agentTokenPauseMove`).

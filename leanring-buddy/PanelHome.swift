@@ -156,8 +156,13 @@ func panelProblemBannerWords(for banner: PanelBanner) -> PanelProblemBannerWords
 struct PanelAgentsSummary: Equatable {
     let workingCount: Int
     let resultsWaitingCount: Int
+    /// The learner paused every agent ("hold on"), so the running agents are held, not working.
+    var agentsArePaused = false
 
-    var mainText: String { workingCount == 0 ? "No agents working" : "\(workingCount) working" }
+    var mainText: String {
+        guard workingCount > 0 else { return "No agents working" }
+        return agentsArePaused ? "\(workingCount) paused · say go ahead" : "\(workingCount) working"
+    }
     var secondaryText: String? {
         switch resultsWaitingCount {
         case 0: return nil
@@ -168,11 +173,11 @@ struct PanelAgentsSummary: Equatable {
 }
 
 /// The row shows while any agent runs or any finished result still waits, even with nothing running.
-func panelAgentsSummary(agents: [BackgroundAgent], at now: Date) -> PanelAgentsSummary? {
+func panelAgentsSummary(agents: [BackgroundAgent], agentsArePaused: Bool = false, at now: Date) -> PanelAgentsSummary? {
     let workingCount = agents.filter(\.isRunning).count
     let resultsWaitingCount = agents.filter { $0.tokenRank(at: now) == .waitingResult }.count
     guard workingCount + resultsWaitingCount > 0 else { return nil }
-    return PanelAgentsSummary(workingCount: workingCount, resultsWaitingCount: resultsWaitingCount)
+    return PanelAgentsSummary(workingCount: workingCount, resultsWaitingCount: resultsWaitingCount, agentsArePaused: agentsArePaused)
 }
 
 // MARK: - Theme cards

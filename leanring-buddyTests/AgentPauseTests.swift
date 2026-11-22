@@ -212,6 +212,17 @@ struct AgentPauseTests {
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, backgroundAgentsArePaused: true, phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: false))
     }
 
+    @Test func thePanelSaysTheAgentsArePausedAndTheirTimeStandsStill() throws {
+        let store = makeBackgroundAgentStore()
+        let agentID = store.start(kind: .task)
+        let startedAt = try #require(store.agents.first).startedAt
+        #expect(panelAgentsSummary(agents: store.agents, agentsArePaused: false, at: startedAt)?.mainText == "1 working")
+        store.pauseEveryAgent(at: startedAt.addingTimeInterval(10))
+        #expect(panelAgentsSummary(agents: store.agents, agentsArePaused: true, at: startedAt)?.mainText == "1 paused · say go ahead")
+        let pausedAgent = try #require(store.agents.first { $0.id == agentID })
+        #expect(pausedAgent.elapsedSeconds(at: startedAt.addingTimeInterval(70)) == 10)
+    }
+
     @Test func anExperimentStartedDuringAPauseSaysItWaitsForGoAhead() {
         #expect(experimentStartedSpokenLine(agentsArePaused: false) == "Sure, I'll build that while you watch.")
         #expect(experimentStartedSpokenLine(agentsArePaused: true) == "Sure, I'll build that once you say go ahead.")

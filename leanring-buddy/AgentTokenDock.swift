@@ -194,10 +194,12 @@ struct AgentTokenDiscContent: View {
         case .overflow:
             return "\(overflowCount) more agents"
         case .paused:
-            return agentTokenPausedPeekContent(
+            // The caption says how to go on, which a VoiceOver user cannot read from the pause bars.
+            let pausedContent = agentTokenPausedPeekContent(
                 pausedAgentCount: pausedAgentCount(of: store.agents),
                 anApprovalWaits: !store.agentIDsWaitingForApproval.isEmpty
-            ).title
+            )
+            return "\(pausedContent.title). \(pausedContent.caption)"
         case .agent(let agentID):
             guard let agent = store.agents.first(where: { $0.id == agentID }) else { return "Agent" }
             let content = agentTokenPeekContent(

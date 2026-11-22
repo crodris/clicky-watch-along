@@ -208,7 +208,7 @@ struct CompanionPanelView: View {
             // The closed panel keeps its view, so the row's clock runs only while the panel is open.
             if presentation.isOpen {
                 TimelineView(.periodic(from: .now, by: 1)) { timelineContext in
-                    if let agentsSummary = panelAgentsSummary(agents: backgroundAgentStore.agents, at: timelineContext.date) {
+                    if let agentsSummary = panelAgentsSummary(agents: backgroundAgentStore.agents, agentsArePaused: backgroundAgentStore.agentsArePaused, at: timelineContext.date) {
                         PanelAgentsSection(
                             summary: agentsSummary,
                             agents: agentsWithTokens(from: backgroundAgentStore.agents, at: timelineContext.date),
