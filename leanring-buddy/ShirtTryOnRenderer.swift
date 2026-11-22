@@ -338,7 +338,8 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
             // The sleeves go under the torso, which covers their tucked-in strip at the seam.
             let sleevesUnderneath = sleeveLayers.reduce(clearFrame) { layers, sleeve in sleeve.image.composited(over: layers) }
             warpedGarment = warpedTorso.composited(over: sleevesUnderneath).cropped(to: frameExtent)
-            drawnSleeves = sleeveLayers.map { ShirtDrawnSleeve(side: $0.side, landing: $0.landing, liesAlongTheArm: !sleevesHoldTheArms) }
+            // A sleeve from a photo on a model keeps the angle it hung at off the model's arm, the way a whole garment's does.
+            drawnSleeves = sleeveLayers.map { ShirtDrawnSleeve(side: $0.side, landing: $0.landing, liesAlongTheArm: garment.modelPose == nil && !sleevesHoldTheArms) }
         } else {
             guard let warpedWhole = Self.warped(preScaled(garment.cutout), lyingIn: wholeGarmentBox, by: homography, frameExtent: frameExtent) else { return nil }
             warpedGarment = warpedWhole.composited(over: clearFrame).cropped(to: frameExtent)
@@ -761,7 +762,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     }
 
     /// Each sleeve drawn on its own, image left first: laid along its arm (`alongTheArms`), or at the whole garment's angle
-    /// and lengthened to cover the old sleeve. Nil when the garment has no sleeves apart, an elbow is not seen, or a sleeve
+    /// and lengthened to cover the old sleeve, or for a photo on a model carried from the model's arm to the learner's. Nil when the garment has no sleeves apart, an elbow is not seen, or a sleeve
     /// cannot be mapped, when the garment is drawn in one piece. Each half of a sleeve takes the affine map of its own
     /// triangle (see `ShirtGarmentSleeve`), and the inner half is drawn over the outer half's strip past the diagonal.
     private func warpedSleeves(
@@ -781,7 +782,10 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
             }
             let shoulder = isImageLeft ? torso.imageLeftShoulder : torso.imageRightShoulder, elbow = isImageLeft ? imageLeftElbow : imageRightElbow
             let landingResult: [CGPoint]?
-            if alongTheArms {
+            if let modelPose = garment.modelPose {
+                // A photo on a model: the sleeve is carried from the model's arm to the learner's (ShirtOnModel.swift).
+                landingResult = ShirtOnModelSleeveLanding.landing(of: sleeve.geometry, modelPose: modelPose, torso: torso, torsoHomography: torsoHomography, oldSleeve: oldSleeve)
+            } else if alongTheArms {
                 // Covering the old sleeve's inner side can push the opening's inner end under the torso, which would turn the
                 // sleeve's inner triangle over, so the landing tries the whole cover, then the cover without its inner side,
                 // then the sleeve as the product shows it.

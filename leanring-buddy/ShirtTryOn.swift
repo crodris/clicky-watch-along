@@ -628,6 +628,21 @@ nonisolated struct ShirtGarmentMeasurements: Equatable, Sendable {
     /// A neck hole starts above this share of the garment's height. A gap lower down is a print or a pocket, not a neck.
     static let lowestNeckHoleRowShare = 0.35
 
+    init(
+        torsoCorners: RoomArtCorners, frontNeckPoint: CGPoint, frontNeckWasFound: Bool, topRow: Int, bottomRow: Int, torsoLeftColumn: Int, torsoRightColumn: Int,
+        imageLeftSleeve: ShirtSleeveGeometry?, imageRightSleeve: ShirtSleeveGeometry?
+    ) {
+        self.torsoCorners = torsoCorners
+        self.frontNeckPoint = frontNeckPoint
+        self.frontNeckWasFound = frontNeckWasFound
+        self.topRow = topRow
+        self.bottomRow = bottomRow
+        self.torsoLeftColumn = torsoLeftColumn
+        self.torsoRightColumn = torsoRightColumn
+        self.imageLeftSleeve = imageLeftSleeve
+        self.imageRightSleeve = imageRightSleeve
+    }
+
     /// Nil when the mask is empty or its torso row has no garment.
     init?(mask: ShirtCutoutMask) {
         let rowHasGarment = { (row: Int) in (0..<mask.width).contains { mask.pixels[row * mask.width + $0] != 0 } }
@@ -720,12 +735,23 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
     /// its arm. Nil when the cutout does not have both sleeves apart from its torso; the whole cutout is drawn then.
     let torsoWithoutSleeves: CIImage?
     let sleeves: [ShirtGarmentSleeve]
+    /// The model's joints in the working photo when the photo shows the shirt worn by a model, nil for a flat lay. The
+    /// renderer carries each sleeve from the model's arm to the learner's by them.
+    let modelPose: ShirtModelPose?
 
     /// The garment from a product photo and where the item sits in it (`itemCorners`, the page reader's answer, in the
     /// photo's pixels): the photo is cropped to the corners with a margin, scaled down, and cut out with subject lifting.
     /// Nil when no garment is found. Slow (about 200 ms to 2 seconds, mostly Vision), so call it off the main actor. It is
-    /// meant for flat lay photos: a photo of the shirt on a model has the model in the cutout.
+    /// meant for flat lay photos: a photo of the shirt on a model has the model in the cutout, so it goes through
+    /// `make(onModelPhoto:itemCorners:)` in ShirtOnModel.swift instead.
     static func make(productPhoto: CGImage, itemCorners: RoomArtCorners) -> ShirtGarment? {
+        guard let workingPhoto = workingPhoto(productPhoto: productPhoto, itemCorners: itemCorners), let cutoutMask = ShirtCutoutMask.lifted(from: workingPhoto) else { return nil }
+        return make(workingPhoto: workingPhoto, cutoutMask: cutoutMask)
+    }
+
+    /// The product photo cropped to the item's corners with a 5 percent margin and scaled down to `longestWorkingSide`, the
+    /// photo a garment is made from. Nil when the crop is under 32 pixels on a side.
+    static func workingPhoto(productPhoto: CGImage, itemCorners: RoomArtCorners) -> CGImage? {
         let corners = itemCorners.clockwiseFromTopLeft
         let photoBounds = CGRect(x: 0, y: 0, width: productPhoto.width, height: productPhoto.height)
         let cornersBox = CGRect(
@@ -734,8 +760,7 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
         )
         let cropBox = cornersBox.insetBy(dx: -cornersBox.width * 0.05, dy: -cornersBox.height * 0.05).intersection(photoBounds).integral
         guard cropBox.width >= 32, cropBox.height >= 32, let croppedPhoto = productPhoto.cropping(to: cropBox) else { return nil }
-        guard let workingPhoto = scaledDown(croppedPhoto, toLongestSide: longestWorkingSide), let cutoutMask = ShirtCutoutMask.lifted(from: workingPhoto) else { return nil }
-        return make(workingPhoto: workingPhoto, cutoutMask: cutoutMask)
+        return scaledDown(croppedPhoto, toLongestSide: longestWorkingSide)
     }
 
     /// The garment from a working photo and its cutout, which must be the same size. Nil when the cutout is under 4 percent
@@ -746,7 +771,20 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
         let garmentPixelCount = cutoutMask.pixels.reduce(0) { $0 + ($1 != 0 ? 1 : 0) }
         guard Double(garmentPixelCount) >= 0.04 * Double(cutoutMask.pixels.count), let measurements = ShirtGarmentMeasurements(mask: cutoutMask),
               let photoPixels = rgbaPixels(of: workingPhoto) else { return nil }
-        let width = workingPhoto.width, height = workingPhoto.height
+        return make(photoPixels: photoPixels, cutoutMask: cutoutMask, measurements: measurements, backgroundMask: nil, modelPose: nil)
+    }
+
+    /// The garment from a working photo's pixels (tight RGBA rows), its cutout, and the shirt's geometry in it, the step a
+    /// flat lay and an on-model photo share (ShirtOnModel.swift makes the second). `backgroundMask` marks the photo's own
+    /// background, which the photo's white is read from, nil when it is everything outside the cutout, as on a flat lay.
+    /// `modelPose` is the model's joints for an on-model photo, which the renderer maps the sleeves by.
+    static func make(
+        photoPixels: [UInt8], cutoutMask: ShirtCutoutMask, measurements: ShirtGarmentMeasurements, backgroundMask: [Bool]?, modelPose: ShirtModelPose?
+    ) -> ShirtGarment? {
+        let width = cutoutMask.width, height = cutoutMask.height
+        guard photoPixels.count == width * height * 4, backgroundMask.map({ $0.count == width * height }) ?? true else { return nil }
+        let garmentPixelCount = cutoutMask.pixels.reduce(0) { $0 + ($1 != 0 ? 1 : 0) }
+        guard garmentPixelCount > 0 else { return nil }
 
         // The hem band: from 12 to 3 percent of the garment's height above its bottom, inside the torso's columns. A print
         // rarely reaches the hem, so its median is the cloth's own color.
@@ -765,7 +803,7 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
             if cutoutMask.pixels[pixelIndex] != 0 {
                 for channel in 0..<3 { garmentChannelSum += Double(photoPixels[pixelIndex * 4 + channel]) }
                 garmentLuminances.append(linearLuminance(of: photoPixels, at: pixelIndex))
-            } else {
+            } else if backgroundMask?[pixelIndex] ?? true {
                 for channel in 0..<3 { backgroundChannels[channel].append(photoPixels[pixelIndex * 4 + channel]) }
             }
         }
@@ -794,7 +832,7 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
             let tuckColumns = max(2, Int(sleeveTuckShareOfTheTorsoWidth * Double(measurements.torsoRightColumn - measurements.torsoLeftColumn)))
             var torsoAlpha = edgeAlpha
             for geometry in [imageLeftSleeve, imageRightSleeve] {
-                let edgeColumn = Int(geometry.seamTop.x), inward = geometry.side == .imageLeft ? 1 : -1
+                let inward = geometry.side == .imageLeft ? 1 : -1
                 var sleeveAlpha = [UInt8](repeating: 0, count: edgeAlpha.count)
                 var boxLeft = width, boxRight = -1, boxTop = height, boxBottom = -1
                 func include(column: Int, row: Int) {
@@ -805,7 +843,12 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
                     torsoAlpha[index] = 0
                     include(column: index % width, row: index / width)
                 }
-                for row in Int(geometry.seamTop.y)...Int(geometry.seamBottom.y) {
+                // A flat lay's seam is one column. A model's seam leans with the body, so its column is found on each row.
+                let seamRise = geometry.seamBottom.y - geometry.seamTop.y
+                for row in Int(geometry.seamTop.y)...max(Int(geometry.seamTop.y), Int(geometry.seamBottom.y)) {
+                    let shareDownTheSeam = seamRise > 0 ? (Double(row) - geometry.seamTop.y) / seamRise : 0
+                    let edgeColumn = Int((geometry.seamTop.x + (geometry.seamBottom.x - geometry.seamTop.x) * shareDownTheSeam).rounded())
+                    guard row >= 0, row < height else { continue }
                     for step in 0...tuckColumns {
                         let column = edgeColumn + inward * step
                         guard column >= 0, column < width else { continue }
@@ -850,7 +893,8 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
             cutout: cutoutImage, size: CGSize(width: width, height: height),
             torsoCorners: measurements.torsoCorners, frontNeckPoint: measurements.frontNeckPoint, frontNeckWasFound: measurements.frontNeckWasFound,
             baseColor: ShirtRGB(red: baseChannels[0], green: baseChannels[1], blue: baseChannels[2]),
-            photoWhite: photoWhite, torsoWithoutSleeves: torsoWithoutSleeves, sleeves: torsoWithoutSleeves == nil ? [] : sleeves
+            photoWhite: photoWhite, torsoWithoutSleeves: torsoWithoutSleeves, sleeves: torsoWithoutSleeves == nil ? [] : sleeves,
+            modelPose: modelPose
         )
     }
 
@@ -868,7 +912,7 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
         return background / backgroundLuminance * max(backgroundLuminance, brightestGarmentLuminance)
     }
 
-    private static let linearValueOfEachByte: [Float] = (0..<256).map { byte in
+    static let linearValueOfEachByte: [Float] = (0..<256).map { byte in
         let encoded = Float(byte) / 255
         return encoded <= 0.04045 ? encoded / 12.92 : pow((encoded + 0.055) / 1.055, 2.4)
     }
@@ -890,7 +934,7 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
         return cgImage(fromRGBAPixels: premultipliedPixels, width: width, height: height).map { CIImage(cgImage: $0) }
     }
 
-    private static func scaledDown(_ image: CGImage, toLongestSide longestSide: Int) -> CGImage? {
+    static func scaledDown(_ image: CGImage, toLongestSide longestSide: Int) -> CGImage? {
         let scale = min(1, Double(longestSide) / Double(max(image.width, image.height)))
         let width = max(1, Int((Double(image.width) * scale).rounded())), height = max(1, Int((Double(image.height) * scale).rounded()))
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
@@ -900,7 +944,7 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
     }
 
     /// The image's pixels as tightly packed RGBA bytes in sRGB, the first row at the top.
-    private static func rgbaPixels(of image: CGImage) -> [UInt8]? {
+    static func rgbaPixels(of image: CGImage) -> [UInt8]? {
         var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
         let drewTheImage = pixels.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(data: buffer.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }

@@ -134,7 +134,7 @@ private func cieLab(linearRed: Double, linearGreen: Double, linearBlue: Double) 
 }
 
 /// An image read back as RGBA bytes, top row first.
-private struct LookPixels {
+struct LookPixels {
     let width: Int
     let height: Int
     let bytes: [UInt8]
@@ -162,7 +162,7 @@ private struct LookPixels {
 }
 
 /// `mask` grown (`grow` true) or shrunk by `radius` pixels with a square, as two passes along the rows and the columns.
-private func squareMorphology(_ mask: [Bool], width: Int, height: Int, radius: Int, grow: Bool) -> [Bool] {
+func squareMorphology(_ mask: [Bool], width: Int, height: Int, radius: Int, grow: Bool) -> [Bool] {
     var alongTheRows = [Bool](repeating: !grow, count: mask.count)
     for row in 0..<height {
         for column in 0..<width {
@@ -193,7 +193,7 @@ private func squareMorphology(_ mask: [Bool], width: Int, height: Int, radius: I
 
 /// The mean of `values` over the pixels in `included` within a square of `radius` around each pixel, through summed area
 /// tables. Pixels with nothing included around them get nan.
-private func includedBoxMean(_ values: [Double], included: [Bool], width: Int, height: Int, radius: Int) -> [Double] {
+func includedBoxMean(_ values: [Double], included: [Bool], width: Int, height: Int, radius: Int) -> [Double] {
     var valueSums = [Double](repeating: 0, count: (width + 1) * (height + 1))
     var countSums = [Double](repeating: 0, count: (width + 1) * (height + 1))
     for row in 0..<height {
@@ -219,7 +219,7 @@ private func includedBoxMean(_ values: [Double], included: [Bool], width: Int, h
     return means
 }
 
-private func median(_ values: [Double]) -> Double {
+func median(_ values: [Double]) -> Double {
     guard !values.isEmpty else { return .nan }
     let sorted = values.sorted()
     return sorted[sorted.count / 2]
@@ -231,7 +231,7 @@ private func percentile(_ values: [Double], _ share: Double) -> Double {
     return sorted[min(sorted.count - 1, Int(share * Double(sorted.count)))]
 }
 
-private func isInside(_ point: CGPoint, polygon: [CGPoint]) -> Bool {
+func isInside(_ point: CGPoint, polygon: [CGPoint]) -> Bool {
     var inside = false
     var previous = polygon[polygon.count - 1]
     for current in polygon {
@@ -269,7 +269,7 @@ private func roomWhiteAndIlluminant(original: LookPixels, personAt: (Int) -> Boo
 
 /// The product photo's white, linear: the median of its outer 20 pixel border, raised to the garment's 98th percentile of
 /// luminance when the garment is brighter than its background (a white shirt on a light gray sweep).
-private func productPhotoWhite(productPhoto: CGImage, garment: ShirtGarment, context: CIContext) -> SIMD3<Double> {
+func productPhotoWhite(productPhoto: CGImage, garment: ShirtGarment, context: CIContext) -> SIMD3<Double> {
     let photo = LookPixels(CIImage(cgImage: productPhoto), extent: CGRect(x: 0, y: 0, width: productPhoto.width, height: productPhoto.height), context: context, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
     var borderChannels: [[Double]] = [[], [], []]
     for row in 0..<photo.height {
@@ -288,7 +288,7 @@ private func productPhotoWhite(productPhoto: CGImage, garment: ShirtGarment, con
 
 // MARK: - The measurements
 
-private struct LookInputs {
+struct LookInputs {
     let original: LookPixels
     let composite: LookPixels
     let person: LookPixels
@@ -302,7 +302,7 @@ private struct LookInputs {
     let photoWhite: SIMD3<Double>
 }
 
-private func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetrics {
+func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetrics {
     let width = inputs.original.width, height = inputs.original.height, pixelCount = width * height
     var metrics = ShirtLookMetrics()
     metrics.shirtName = shirtName
@@ -584,12 +584,12 @@ private func quadraticFitResidual(_ points: [(across: Double, down: Double)]) ->
 
 // MARK: - The check
 
-private func loadImage(at url: URL) throws -> CGImage {
+func loadImage(at url: URL) throws -> CGImage {
     let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
     return try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
 }
 
-private func savePNG(_ image: CGImage, to url: URL) throws {
+func savePNG(_ image: CGImage, to url: URL) throws {
     let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
     CGImageDestinationAddImage(destination, image, nil)
     #expect(CGImageDestinationFinalize(destination))
@@ -690,7 +690,7 @@ struct ShirtLookCheckTests {
 }
 
 /// Each drawn sleeve, with the shoulder and elbow it should hold.
-private func sleeveLayers(of composition: ShirtTryOnComposition, torso: BodyTorso) -> [(side: ShirtSleeveSide, axis: CGVector, liesAlongTheArm: Bool, shoulder: CGPoint, elbow: CGPoint)] {
+func sleeveLayers(of composition: ShirtTryOnComposition, torso: BodyTorso) -> [(side: ShirtSleeveSide, axis: CGVector, liesAlongTheArm: Bool, shoulder: CGPoint, elbow: CGPoint)] {
     composition.sleeves.compactMap { sleeve in
         let isImageLeft = sleeve.side == .imageLeft
         guard let elbow = isImageLeft ? torso.imageLeftElbow : torso.imageRightElbow else { return nil }
