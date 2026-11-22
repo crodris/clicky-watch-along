@@ -64,6 +64,9 @@ struct RoomArtLoopStateTests {
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: failed, at: 24) == .fadingOut(beganAt: 10))
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showingAfterAFailedMove, at: 24) == .fadingOut(beganAt: 10))
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .waitingForAFloorClick(loopTestItem()), at: 24) == .fadingOut(beganAt: 10))
+        // Furniture waiting for its painting keeps the loop and its clock around the footprint.
+        let arrangingPhase = RoomArtPhase.arranging(id: RoomArtMeasurementID(number: 1), item: loopTestItem(), surface: .wall(loopTestWall()))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: arrangingPhase, at: 24) == .drawing(beganAt: 10))
     }
 
     @Test func aPhaseWithNoMeasurementShowsNoLoopAndStartsNone() {

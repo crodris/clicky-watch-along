@@ -509,6 +509,30 @@ private func controllerWithTheMediaInHand(
     #expect(lapWaits.started == 1)
 }
 
+@Test(.timeLimit(.minutes(1))) @MainActor func aControllerNobodyKeepsEndsItsPollWhileTheLineShows() async {
+    // A poll that held its controller would keep yielding on the main actor after the test, which starved other tests.
+    weak var droppedController: CursorLoopController?
+    do {
+        let controller = CursorLoopController(
+            readTheMediaInTheFrontTab: { _ in sparkMedia() },
+            readTheFrontTabSample: { sparkSample() },
+            waitBetweenFrontTabPolls: { await Task.yield() },
+            waitForAFinishingSparkLap: {},
+            appActivationNotificationCenter: NotificationCenter()
+        )
+        controller.agentSparksMayDraw = { true }
+        controller.pushToTalkWasReleased()
+        await controller.waitForTheMediaReadToFinish()
+        controller.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL))
+        #expect(controller.state.agentLineIsShowing)
+        droppedController = controller
+    }
+    for _ in 0..<500 where droppedController != nil {
+        await Task.yield()
+    }
+    #expect(droppedController == nil)
+}
+
 @Test(.timeLimit(.minutes(1))) @MainActor func theFrontAppChangingClearsTheAgentLine() async throws {
     // This controller listens to a center of its own, so the post reaches no other test's controller.
     let appActivationNotificationCenter = NotificationCenter()

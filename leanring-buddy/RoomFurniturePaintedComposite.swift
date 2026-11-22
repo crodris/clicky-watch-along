@@ -245,3 +245,42 @@ nonisolated func roomFurniturePaintingIsWorthAskingForAgain(after error: Error) 
     default: return true
     }
 }
+
+/// How long furniture with no look yet waits after its floor is measured before its fallback shows (the model's render,
+/// else the could-not-draw line). A painting takes 15 to 20 seconds, and a second painting after a refused one about as
+/// long again.
+nonisolated let roomFurnitureSecondsToWaitForALook = 45.0
+
+/// Where furniture's model render stands for one placement: still being made (or the model search still runs), ready, or
+/// not coming, since there is no model or it did not render.
+nonisolated enum RoomFurnitureRenderState: Equatable, Sendable {
+    case coming
+    case ready
+    case none
+}
+
+/// What furniture still being arranged shows while its painting has not arrived.
+nonisolated enum RoomFurnitureFallbackStep: Equatable, Sendable {
+    /// The loop and "Arranging it in your room…" stay.
+    case keepWaiting
+    case showTheRender
+    /// Nothing is drawn, since the flat cutout reads as a sticker: the loop stays and Clicky says it could not draw the
+    /// piece (`roomFurnitureNotDrawnLine`).
+    case sayItCouldNotBeDrawn
+}
+
+/// What Clicky says, as a failure, when furniture's painting did not come and its model has no render.
+nonisolated let roomFurnitureNotDrawnLine = "I couldn't draw it this time. Click the floor to try again."
+
+/// The painting is the only first look, so the fallback waits for it until it cannot come (the service is not set up,
+/// two paintings were refused, or the request failed) or the wait runs out (`roomFurnitureSecondsToWaitForALook`). The
+/// fallback is the model's render when one is ready, else no piece at all and a line that says so. A painting that cannot
+/// come waits for a render still being made, which takes under a second, and a wait that ran out takes whatever is ready.
+nonisolated func roomFurnitureFallbackStep(paintingCannotCome: Bool, theWaitRanOut: Bool, render: RoomFurnitureRenderState) -> RoomFurnitureFallbackStep {
+    guard paintingCannotCome || theWaitRanOut else { return .keepWaiting }
+    switch render {
+    case .ready: return .showTheRender
+    case .none: return .sayItCouldNotBeDrawn
+    case .coming: return theWaitRanOut ? .sayItCouldNotBeDrawn : .keepWaiting
+    }
+}
