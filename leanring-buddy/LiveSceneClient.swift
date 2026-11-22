@@ -19,11 +19,40 @@ struct LiveSceneJudgedAnswer {
     let spokenReply: String
 }
 
+/// How long a `POST /live-scene` request may take, which depends on whether the learner is watching the build.
+enum LiveSceneBuildWait {
+    /// A scene build the learner watches, with the video paused and "Almost there" showing.
+    /// GPT-6.1 Sol Ultrafast builds a model in 14 to 20 seconds, so 60 seconds is long enough to wait on screen.
+    case whileTheLearnerWatches
+    /// A 3D model or experiment agent's build, which runs while the video plays, so a longer wait costs nothing.
+    case inTheBackground
+
+    /// The Worker asks the model once more when a page fails its check (`maximumLiveSceneAttempts` in worker/src/liveScene.ts).
+    static let workerAttemptsPerRequest: TimeInterval = 2
+    /// GPT-6.2 Sol Ultrafast builds a simulation in about 35 seconds.
+    /// A GPT call that fails that late still leaves the request two Sonnet attempts.
+    static let slowestGPTCallBeforeTheSonnetFallbackSeconds: TimeInterval = 35
+    /// The slowest Sonnet scene build measured, on 2026-11-22.
+    /// Sonnet at low effort thought for 6,943 tokens before it wrote that simulation page.
+    static let slowestMeasuredSonnetAttemptSeconds: TimeInterval = 99
+
+    var timeoutSeconds: TimeInterval {
+        switch self {
+        case .whileTheLearnerWatches:
+            return 60
+        case .inTheBackground:
+            // A late GPT failure, then two Sonnet attempts, is 233 seconds with the numbers above.
+            return 240
+        }
+    }
+}
+
 @MainActor
 final class LiveSceneClient {
     private let liveSceneURL: URL
     private let judgeAnswerURL: URL
-    private let liveSceneSession: URLSession
+    private let sceneSessionWhileTheLearnerWatches: URLSession
+    private let sceneSessionInTheBackground: URLSession
     private let judgeAnswerSession: URLSession
 
     init(workerBaseURL: String) {
@@ -34,20 +63,25 @@ final class LiveSceneClient {
         self.liveSceneURL = liveSceneURL
         self.judgeAnswerURL = judgeAnswerURL
 
-        // Sol Ultrafast builds a scene in 14 to 20 seconds. Test runs use Sonnet, which takes about 27.
-        self.liveSceneSession = Self.session(timeoutInterval: 60)
+        self.sceneSessionWhileTheLearnerWatches = Self.session(timeoutInterval: LiveSceneBuildWait.whileTheLearnerWatches.timeoutSeconds)
+        self.sceneSessionInTheBackground = Self.session(timeoutInterval: LiveSceneBuildWait.inTheBackground.timeoutSeconds)
         // Sonnet grades in about 3 seconds and sometimes takes 6. Past this the app falls back to a word match.
         self.judgeAnswerSession = Self.session(timeoutInterval: 8)
     }
 
-    /// Past 60 seconds the request times out and Clicky says it couldn't build the scene.
+    /// Past `buildWait`'s `timeoutSeconds` the request times out and Clicky says it couldn't build the scene.
     /// `sceneKind` picks a 3D model or, for `.simulation`, a page the learner can run.
-    func requestLiveScene(question: String, cursorScreenJPEGData: Data, sceneKind: LiveSceneKind) async throws -> LiveScenePage {
+    func requestLiveScene(
+        question: String,
+        cursorScreenJPEGData: Data,
+        sceneKind: LiveSceneKind,
+        buildWait: LiveSceneBuildWait
+    ) async throws -> LiveScenePage {
         let body = try sceneRequestBody(question: question, cursorScreenJPEGData: cursorScreenJPEGData, sceneKind: sceneKind)
         let responseData = try await postJSON(
             url: liveSceneURL,
             body: body,
-            session: liveSceneSession
+            session: sceneSession(for: buildWait)
         )
         return try liveScene(from: responseData)
     }
@@ -73,6 +107,15 @@ final class LiveSceneClient {
             session: judgeAnswerSession
         )
         return try judgedAnswer(from: responseData)
+    }
+
+    func sceneSession(for buildWait: LiveSceneBuildWait) -> URLSession {
+        switch buildWait {
+        case .whileTheLearnerWatches:
+            return sceneSessionWhileTheLearnerWatches
+        case .inTheBackground:
+            return sceneSessionInTheBackground
+        }
     }
 
     private static func session(timeoutInterval: TimeInterval) -> URLSession {

@@ -27,6 +27,7 @@ import {
 import { benchModelOverride } from "./benchModelOverride";
 import { checkLiveSceneModelReply, liveSceneRequestKindSchema, type LiveSceneRequestKind } from "./liveSceneReply";
 
+// The app's background build wait (LiveSceneBuildWait.workerAttemptsPerRequest in LiveSceneClient.swift) counts these attempts, so change both together.
 const maximumLiveSceneAttempts = 2;
 
 const liveSceneModelSettingSchema = z.enum(["gpt", "sonnet", "opus", "fable"]).default("gpt");

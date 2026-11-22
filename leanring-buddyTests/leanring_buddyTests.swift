@@ -2257,6 +2257,20 @@ struct leanring_buddyTests {
         #expect(store.agents[0].stepStatuses.isEmpty)
     }
 
+    @Test func aBackgroundSceneBuildWaitsForALateGPTFailureAndTwoSlowSonnetAttempts() {
+        let worstCaseSeconds = LiveSceneBuildWait.slowestGPTCallBeforeTheSonnetFallbackSeconds
+            + LiveSceneBuildWait.workerAttemptsPerRequest * LiveSceneBuildWait.slowestMeasuredSonnetAttemptSeconds
+        #expect(LiveSceneBuildWait.inTheBackground.timeoutSeconds >= worstCaseSeconds)
+        #expect(LiveSceneBuildWait.whileTheLearnerWatches.timeoutSeconds == 60)
+
+        let liveSceneClient = LiveSceneClient(workerBaseURL: "http://127.0.0.1:8787")
+        for buildWait in [LiveSceneBuildWait.whileTheLearnerWatches, .inTheBackground] {
+            let configuration = liveSceneClient.sceneSession(for: buildWait).configuration
+            #expect(configuration.timeoutIntervalForRequest == buildWait.timeoutSeconds)
+            #expect(configuration.timeoutIntervalForResource == buildWait.timeoutSeconds)
+        }
+    }
+
     @Test func tryItPhrasesBuildASimulationAndOrdinaryTalkDoesNot() async throws {
         for transcript in ["let me try it", "Let me try it.", "let me play with it", "Can I try this?", "can I try", "Let me try.", "simulate this", "okay, let me try this out"] {
             #expect(liveSceneKind(for: transcript) == .simulation, "\(transcript)")
