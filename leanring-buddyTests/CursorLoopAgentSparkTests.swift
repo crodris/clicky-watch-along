@@ -650,11 +650,12 @@ private struct RenderedAgentLine {
     #expect(controller.state.runningAgents.first?.hasFinished == true)
 }
 
-@Test func sparksMayDrawOnlyWithShowClickyOnAndNoSceneOrQuizQuestionOnScreen() {
-    #expect(agentSparksMayDraw(clickyCursorIsEnabled: true, aSceneIsOnScreen: false, aQuizQuestionIsOpen: false))
-    #expect(!agentSparksMayDraw(clickyCursorIsEnabled: false, aSceneIsOnScreen: false, aQuizQuestionIsOpen: false))
-    #expect(!agentSparksMayDraw(clickyCursorIsEnabled: true, aSceneIsOnScreen: true, aQuizQuestionIsOpen: false))
-    #expect(!agentSparksMayDraw(clickyCursorIsEnabled: true, aSceneIsOnScreen: false, aQuizQuestionIsOpen: true))
+@Test func sparksMayDrawOnlyWithShowClickyOnAndNoSceneQuizQuestionOrRoomArtPanelOnScreen() {
+    #expect(agentSparksMayDraw(clickyCursorIsEnabled: true, aSceneIsOnScreen: false, aQuizQuestionIsOpen: false, theRoomArtPanelIsOpen: false))
+    #expect(!agentSparksMayDraw(clickyCursorIsEnabled: false, aSceneIsOnScreen: false, aQuizQuestionIsOpen: false, theRoomArtPanelIsOpen: false))
+    #expect(!agentSparksMayDraw(clickyCursorIsEnabled: true, aSceneIsOnScreen: true, aQuizQuestionIsOpen: false, theRoomArtPanelIsOpen: false))
+    #expect(!agentSparksMayDraw(clickyCursorIsEnabled: true, aSceneIsOnScreen: false, aQuizQuestionIsOpen: true, theRoomArtPanelIsOpen: false))
+    #expect(!agentSparksMayDraw(clickyCursorIsEnabled: true, aSceneIsOnScreen: false, aQuizQuestionIsOpen: false, theRoomArtPanelIsOpen: true))
 }
 
 @Test(.timeLimit(.minutes(1))) @MainActor func aLineThatIsAlreadyShowingDrawsNothingWhileSparksMayNotDrawAndDrawsAgainWhenTheyMay() async {

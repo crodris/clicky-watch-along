@@ -58,9 +58,6 @@ struct CursorLoopAgentSparkView: View {
 
     private static let trackOpacity: Double = 0.45
     private static let trackWidthInPoints: CGFloat = 2
-    private static let underStrokeColor = Color.black.opacity(0.55)
-    private static let underStrokeWidthInPoints: CGFloat = 5.5
-    private static let arcWidthInPoints: CGFloat = 3
     private static let sparkRadiusInPoints: CGFloat = 4.5
     private static let sparkOutlineWidthInPoints: CGFloat = 1.5
 
@@ -172,9 +169,8 @@ struct CursorLoopAgentSparkView: View {
         for agentOnTheLine in agents.sorted(by: { $0.progress > $1.progress }) {
             let arcShare = min(1, max(0, agentOnTheLine.progress))
             guard arcShare > 0 else { continue }
-            let arc = arcShare >= 1 ? outline : outline.trimmedPath(from: 0, to: arcShare)
-            context.stroke(arc, with: .color(Self.underStrokeColor), style: StrokeStyle(lineWidth: Self.underStrokeWidthInPoints, lineCap: .round, lineJoin: .round))
-            context.stroke(arc, with: .color(agentOnTheLine.color), style: StrokeStyle(lineWidth: Self.arcWidthInPoints, lineCap: .round, lineJoin: .round))
+            // The same line the loop and the room art loop draw, so an arc sits on the request loop's line without a seam.
+            CursorLoopDrawing.drawTheLine(outline, share: arcShare, color: agentOnTheLine.color, in: &context)
         }
     }
 }

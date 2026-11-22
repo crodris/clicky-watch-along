@@ -45,9 +45,12 @@ func requestMayDrawALoop(aSceneIsOnScreen: Bool, aQuizQuestionIsOpen: Bool) -> B
 }
 
 /// An agent's spark draws, and joins the line, only when a request's loop could draw, and with Show Clicky on, since with it
-/// off the overlay fades a second after the answer.
-func agentSparksMayDraw(clickyCursorIsEnabled: Bool, aSceneIsOnScreen: Bool, aQuizQuestionIsOpen: Bool) -> Bool {
-    clickyCursorIsEnabled && requestMayDrawALoop(aSceneIsOnScreen: aSceneIsOnScreen, aQuizQuestionIsOpen: aQuizQuestionIsOpen)
+/// off the overlay fades a second after the answer. An open room art panel covers the screen with its own loop, so it holds
+/// the sparks back as a scene does.
+func agentSparksMayDraw(clickyCursorIsEnabled: Bool, aSceneIsOnScreen: Bool, aQuizQuestionIsOpen: Bool, theRoomArtPanelIsOpen: Bool) -> Bool {
+    clickyCursorIsEnabled
+        && !theRoomArtPanelIsOpen
+        && requestMayDrawALoop(aSceneIsOnScreen: aSceneIsOnScreen, aQuizQuestionIsOpen: aQuizQuestionIsOpen)
 }
 
 /// A loop around a whole screen frames nothing, so media that covers nearly all of a screen gets none.
