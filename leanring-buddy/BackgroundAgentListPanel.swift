@@ -630,7 +630,11 @@ final class HoverAndPointerNSView: NSView {
 
     private func reportTheHoverWhereTheMouseAlreadyIs() {
         guard let window, window.isVisible else { return }
-        let mouseLocationInTheView = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        reportTheHover(atMouseLocationInTheView: convert(window.mouseLocationOutsideOfEventStream, from: nil))
+    }
+
+    /// Reports a hover from where the mouse is, in this view's coordinates, with no mouse event needed.
+    func reportTheHover(atMouseLocationInTheView mouseLocationInTheView: CGPoint) {
         reportTheHover(visibleRect.contains(mouseLocationInTheView))
         if reportedHover { NSCursor.pointingHand.set() }
     }

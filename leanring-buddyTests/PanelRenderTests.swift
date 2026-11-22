@@ -154,30 +154,22 @@ struct PanelRenderTests {
 
     // MARK: - Hover under a still pointer
 
-    @Test func aViewThatAppearsUnderAStillPointerReportsItsHoverAtOnce() throws {
-        let mouseLocation = NSEvent.mouseLocation
-        let window = NSWindow(
-            contentRect: NSRect(x: mouseLocation.x - 40, y: mouseLocation.y - 40, width: 80, height: 80),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
+    @Test func aViewThatAppearsUnderAStillPointerReportsItsHoverAtOnce() {
+        // The view sits in a window, so it has a visible rect, and the mouse location is passed in, so the test never reads
+        // the real mouse, which a CI runner's background session does not have.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        window.alphaValue = 0.01
         let hoverView = HoverAndPointerNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
+        window.contentView = hoverView
         var reportedHovers: [Bool] = []
         hoverView.onHoverChange = { reportedHovers.append($0) }
-        window.contentView = hoverView
-        window.orderFrontRegardless()
-        defer { window.close() }
-        // No mouse event arrives: the view finds the pointer already inside when its tracking area is laid out.
-        hoverView.updateTrackingAreas()
+        // The mouse already rests inside the view when it is laid out: the hover is reported with no mouse event.
+        hoverView.reportTheHover(atMouseLocationInTheView: CGPoint(x: 40, y: 40))
         #expect(reportedHovers == [true])
-        // The same hover is never reported twice.
-        hoverView.updateTrackingAreas()
-        hoverView.reportTheHover(true)
+        // The same hover is never reported twice, and leaving reports once.
+        hoverView.reportTheHover(atMouseLocationInTheView: CGPoint(x: 10, y: 10))
         #expect(reportedHovers == [true])
-        hoverView.reportTheHover(false)
+        hoverView.reportTheHover(atMouseLocationInTheView: CGPoint(x: 200, y: 200))
         #expect(reportedHovers == [true, false])
     }
 
