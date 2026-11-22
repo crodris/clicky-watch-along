@@ -58,6 +58,7 @@ uv run server.py
 Loading the model takes 15 to 100 seconds, since the first load reads 1.9 GB and compiles for MPS.
 The server prints `Depth service listening on ...` when it is ready, and `GET /health` answers then.
 It runs one Depth Pro inference at a time.
+It keeps the last two depth maps by a hash of the JPEG and the focal hint, so a second measurement of the same frame, such as furniture's wall after its floor, answers in under a second, and each reply says `depthWasCached`.
 
 ## API
 
