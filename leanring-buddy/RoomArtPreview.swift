@@ -299,7 +299,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
               let personBytes = redChannel(of: personMaskAtFrameSize, extent: frameExtent),
               let coverageBytes = redChannel(of: composition.totalAlpha, extent: frameExtent) else { return nil }
         frozenShirt = (preview: CIImage(cgImage: previewImage), painted: nil, paintedArrivedAt: 0)
-        // Until the paint mask's outline is in, the loop traces the learner's own top as last traced, held still.
+        // Until the paint mask's outline is in, the loop traces the learner's own top as last traced, held still, or no line
+        // before a first trace.
         let frozenLoop = shirtLoop(for: torso)
         latestLoop.withLock { $0 = frozenLoop }
         return ShirtFrozenFrame(
@@ -341,13 +342,11 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
     }
 
-    /// The loop for a shirt on `torso`: the learner's own top as last traced, moved with the body since, or the torso's box
-    /// before the first trace.
+    /// The loop for a shirt on `torso`: the learner's own top as last traced, moved with the body since, or no line before
+    /// the first trace, since a box over the body traces nothing of the shirt.
     private func shirtLoop(for torso: BodyTorso) -> RoomArtLoopSnapshot? {
-        if let latestShirtOutline, let outlineLoop = RoomArtLoopSnapshot(tracing: ShirtOutline.moved(latestShirtOutline.outline, from: latestShirtOutline.torso, to: torso)) {
-            return outlineLoop
-        }
-        return RoomArtLoopGeometry.torsoLoop(of: torso)
+        guard let latestShirtOutline else { return nil }
+        return RoomArtLoopSnapshot(tracing: ShirtOutline.moved(latestShirtOutline.outline, from: latestShirtOutline.torso, to: torso))
     }
 
     /// Traces the learner's own top on `shirtOutlineQueue` at most every `secondsBetweenShirtOutlines`, one trace at a time,
@@ -474,9 +473,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         if let settledKind = shirtFramingDebouncer.advance(to: ShirtFramingKind(framing), at: now), let onTheShirtFramingSettled {
             DispatchQueue.main.async { onTheShirtFramingSettled(settledKind) }
         }
-        // The loop traces the learner's own top while the shirt is not drawn yet, retraced twice a second and moved with the
-        // body in between.
-        if let torso, shirtGarment == nil || shirtFramingDebouncer.settledKind != .ready {
+        // The learner's own top is retraced twice a second and moved with the body in between, also while the preview is
+        // drawn, so a freeze for a painting starts from a fresh outline. The camera frame never holds the preview's shirt.
+        if let torso {
             traceTheShirtOutlineIfDue(in: cameraFrame, torso: torso, now: now)
         }
         let shirtLoopNow = torso.flatMap(shirtLoop(for:))

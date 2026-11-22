@@ -231,9 +231,10 @@ nonisolated enum ShirtPaintMask {
         // The hands and the face fade out past their edge, so no seam shows on the room or the arm. The neck ends with a hard
         // edge, since a fade past it would bring back a rim of the old collar above the new one.
         var protected = feathered(handsAndFace, width: width, height: height, featherPixels: protectedFeatherPixels)
+        let neckSkin = neckSkinRegion(frame: frame)
         for index in 0..<(width * height) {
-            paintable[index] = fullPaintable[index] > 127 && !handsAndFace[index] && fullCut[index] <= 127
-            if fullCut[index] > 127 && frame.personMask[index] > 127 { protected[index] = 255 }
+            paintable[index] = fullPaintable[index] > 127 && !handsAndFace[index] && fullCut[index] <= 127 && !neckSkin[index]
+            if (fullCut[index] > 127 && frame.personMask[index] > 127) || neckSkin[index] { protected[index] = 255 }
         }
         guard paintable.contains(true) else { return nil }
         return ShirtPaintMasks(
@@ -242,6 +243,35 @@ nonisolated enum ShirtPaintMask {
             protected: protected,
             oldShirt: fullOldShirt.map { $0 > 127 ? 255 : 0 }
         )
+    }
+
+    /// The skin of the neck at the frame's own size: person pixels the skin rule keeps, above the neck's base and within the
+    /// neck's half width of its middle, so the edge where the neck meets the collar is exact, which the neck cut scaled up
+    /// from the working size is not.
+    static func neckSkinRegion(frame: ShirtFrozenFrame) -> [Bool] {
+        let width = frame.width, height = frame.height
+        var region = [Bool](repeating: false, count: width * height)
+        guard let rgba = rgbaBytes(of: frame.cameraImage, width: width, height: height) else { return region }
+        let geometry = TorsoGeometry(torso: frame.torso)
+        let shoulderWidth = frame.torso.shoulderWidth
+        let neckHalfWidth = ShirtFrameAnalysis.shoulderTopsLeastDistanceFromTheNeckInShoulderWidths * shoulderWidth
+        let headHeight = headStartsAboveTheNeckBaseInShoulderWidths * shoulderWidth
+        // Only the box around the neck is walked.
+        let reach = neckHalfWidth + headHeight
+        let left = max(0, Int(geometry.neckBase.x - reach)), right = min(width - 1, Int(geometry.neckBase.x + reach))
+        let top = max(0, Int(geometry.neckBase.y - reach)), bottom = min(height - 1, Int(geometry.neckBase.y + reach))
+        guard left <= right, top <= bottom else { return region }
+        for row in top...bottom {
+            for column in left...right {
+                let index = row * width + column
+                guard frame.personMask[index] > 127 else { continue }
+                let point = SIMD2(Double(column), Double(row))
+                let above = geometry.distanceAboveTheNeckBase(point)
+                guard above > 0, above <= headHeight, abs(geometry.distanceAcross(point)) < neckHalfWidth else { continue }
+                region[index] = looksLikeSkin(red: rgba[index * 4], green: rgba[index * 4 + 1], blue: rgba[index * 4 + 2])
+            }
+        }
+        return region
     }
 
     /// The mask at the working size: where the painting may draw, the analysis's neck cut, and the old top as found.

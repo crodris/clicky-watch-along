@@ -125,20 +125,6 @@ nonisolated enum RoomArtLoopGeometry {
     static func corners(of keyframeCorners: RoomArtCorners, after warp: EuclideanWarp) -> RoomArtCorners {
         RoomArtCorners(clockwiseFromTopLeft: keyframeCorners.clockwiseFromTopLeft.map(warp.apply))
     }
-
-    /// The loop around the learner's torso while a shirt is prepared: the line is drawn around the torso's upright bounding
-    /// box and bent onto the torso's own corners, where the shirt will land (`ShirtTryOnRenderer.bodyTorsoCorners`), so it
-    /// leans with the learner. Nil when the torso has no area to outline.
-    static func torsoLoop(of torso: BodyTorso) -> RoomArtLoopSnapshot? {
-        let torsoCorners = ShirtTryOnRenderer.bodyTorsoCorners(of: torso)
-        guard let left = torsoCorners.map(\.x).min(), let right = torsoCorners.map(\.x).max(),
-              let top = torsoCorners.map(\.y).min(), let bottom = torsoCorners.map(\.y).max(),
-              right - left > 1, bottom - top > 1 else { return nil }
-        return RoomArtLoopSnapshot(
-            keyframeCorners: RoomArtCorners(rect: CGRect(x: left, y: top, width: right - left, height: bottom - top)),
-            currentCorners: RoomArtCorners(clockwiseFromTopLeft: torsoCorners)
-        )
-    }
 }
 
 // MARK: - The camera in the panel

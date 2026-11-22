@@ -238,6 +238,15 @@ struct ShirtPaintMaskTests {
         #expect(protectedWeight(160, 150) == 0)
     }
 
+    @Test func theNecksSkinIsFoundAtTheFramesOwnSizeAndNeverPainted() throws {
+        let neckSkin = ShirtPaintMask.neckSkinRegion(frame: MadeUpPerson.frame())
+        // The neck's skin down to the collar, and nothing of the old top, the face beside it, or the room.
+        #expect(neckSkin[70 * MadeUpPerson.width + 160] && neckSkin[60 * MadeUpPerson.width + 152])
+        #expect(!neckSkin[80 * MadeUpPerson.width + 160] && !neckSkin[150 * MadeUpPerson.width + 160] && !neckSkin[20 * MadeUpPerson.width + 20])
+        _ = try #require(masks)
+        #expect(!paintable(160, 70) && protectedWeight(160, 70) == 255)
+    }
+
     @Test func noMaskWhenTheOldTopCannotBeRead() {
         let frame = MadeUpPerson.frame()
         let nobody = ShirtFrozenFrame(

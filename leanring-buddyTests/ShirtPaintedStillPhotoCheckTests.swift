@@ -12,7 +12,8 @@
 //  SHIRT_PAINT_WORKER=http://localhost:8794 SHIRT_PAINT_APP_SECRET=... tools/swift-check.sh --filter ShirtPaintedStillPhotoCheck
 //
 //  The numbers, per painting:
-//  - the old top left showing: the share of the old top's pixels that look like it and are as they were;
+//  - the old top left showing: the share of the old top's pixels that look like it and are, with their 7 by 7 neighborhood,
+//    as they were;
 //  - the face, the hands, and the neck: the share of each one's pixels that are byte for byte as filmed;
 //  - print sharpness: the painting's mean gradient over the chest against the live preview's, which is the product photo
 //    warped onto the same chest, so 1 is as sharp as the product.
@@ -240,12 +241,17 @@ struct ShirtPaintedStillPhotoCheckTests {
                 }
                 return count > 0 ? Double(exact) / Double(count) : 1
             }
+            // A pixel of the old top is left showing when it and its whole 7 by 7 neighborhood are as they were, as a leftover
+            // sleeve stub or hem is. A single pixel of a new navy stripe can land within a few levels of an old navy top.
+            let unchanged = (0..<(width * height)).map { index in
+                (0..<3).allSatisfy { abs(Int(paintedPixels[index * 4 + $0]) - Int(originalPixels[index * 4 + $0])) < 6 }
+            }
+            let unchangedPatch = ShirtPaintMask.eroded(unchanged, width: width, height: height, radius: 3)
             var oldTopPixels = 0, oldTopStillShowing = 0
             for index in 0..<(width * height) where masks.oldShirt[index] > 127 {
                 oldTopPixels += 1
-                let unchanged = (0..<3).allSatisfy { abs(Int(paintedPixels[index * 4 + $0]) - Int(originalPixels[index * 4 + $0])) < 6 }
                 let lab = ShirtColorMath.quickLab(red: paintedPixels[index * 4], green: paintedPixels[index * 4 + 1], blue: paintedPixels[index * 4 + 2])
-                if unchanged && ShirtColorMath.distance(from: lab, to: oldShirtLab) < ShirtColorMath.oldShirtDistanceLimit { oldTopStillShowing += 1 }
+                if unchangedPatch[index] && ShirtColorMath.distance(from: lab, to: oldShirtLab) < ShirtColorMath.oldShirtDistanceLimit { oldTopStillShowing += 1 }
             }
             var metrics = ShirtPaintedStillMetrics()
             metrics.shirtName = shirtName
