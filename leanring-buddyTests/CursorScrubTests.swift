@@ -126,6 +126,16 @@ struct CursorScrubTests {
         #expect(cursorScrubMotion(reduceMotionIsOn: true) == .fadeAtTheMoment)
     }
 
+    /// The script runs only in Chrome, so this pins the order of its checks in the source: every reply that gives no line
+    /// returns before the script wakes YouTube's controls for 6 seconds.
+    @Test func thePageScriptWakesTheControlsOnlyAfterEveryCheckThatGivesNoLine() throws {
+        let wakePosition = try #require(videoScrubLineJavaScript.range(of: "wakeTheControls();")).lowerBound
+        for markerOfNoLine in ["'no-video'", "'off-screen'", "'no-length'"] {
+            let markerPosition = try #require(videoScrubLineJavaScript.range(of: markerOfNoLine)).lowerBound
+            #expect(markerPosition < wakePosition, "\(markerOfNoLine) returns after the wake")
+        }
+    }
+
     @Test func thePageScriptHoldsNoCharacterThatBreaksItsAppleScriptString() {
         #expect(!videoScrubLineJavaScript.contains("\""))
         #expect(!videoScrubLineJavaScript.contains("\\"))

@@ -72,8 +72,9 @@ func videoScrubLine(
 /// is the line when the video's player has one, and the video's bottom edge otherwise. A YouTube player hides its controls
 /// about 2 seconds after its last mouse move, so the script sends the player a mouse move every half second for 6 seconds,
 /// which keeps the bar showing through the flight, the slide, and the hold at the moment.
-/// It returns 'no-video', or 'off-screen' when any part of the line is outside the viewport, since the time to point mapping
-/// needs the whole line, and wakes the controls only for a line it returns. It holds no double quote or backslash, since it runs inside an AppleScript string.
+/// It returns 'no-video', 'off-screen' when any part of the line is outside the viewport, since the time to point mapping
+/// needs the whole line, or 'no-length' for a video with no known length, such as a live stream, and wakes the controls only
+/// for a line it returns. It holds no double quote or backslash, since it runs inside an AppleScript string.
 nonisolated let videoScrubLineJavaScript = [
     "(function () {",
     LearnerVideoCommand.mainVideoJavaScript,
@@ -87,6 +88,7 @@ nonisolated let videoScrubLineJavaScript = [
     "}",
     "if (!line) { var videoRect = video.getBoundingClientRect(); line = { left: videoRect.left, top: videoRect.bottom, width: videoRect.width }; bar = null; }",
     "if (line.left < -1 || line.left + line.width > window.innerWidth + 1 || line.top < 0 || line.top > window.innerHeight) { return 'off-screen'; }",
+    "if (!Number.isFinite(video.duration) || video.duration <= 0) { return 'no-length'; }",
     "if (bar) {",
     "var wakeTheControls = function () { player.dispatchEvent(new MouseEvent('mousemove', { bubbles: true })); };",
     "wakeTheControls(); var wakesLeft = 12; var wakeTimer = setInterval(function () { wakesLeft -= 1; if (wakesLeft <= 0) { clearInterval(wakeTimer); } wakeTheControls(); }, 500);",
