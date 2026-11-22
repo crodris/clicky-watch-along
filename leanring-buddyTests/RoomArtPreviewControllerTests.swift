@@ -223,6 +223,12 @@ private func furnitureCutoutImage() -> CGImage {
     return context.makeImage()!
 }
 
+/// The test garment, made once for the whole run. Every harness's cutout stub used to make its own on the main actor, and
+/// `ShirtGarment.make` takes seconds on a loaded Mac, so this suite's 50 or so harnesses held the main actor for over a minute
+/// and every main actor test waiting on it, the cursor loop suites among them, hit its time limit. A garment is a value, so
+/// the stubs can share it.
+private let sharedTestGarment = testGarment()
+
 /// A garment from a plain photo whose whole middle is the cutout, which is all the controller needs to pass on.
 private func testGarment() -> ShirtGarment? {
     let context = CGContext(data: nil, width: 100, height: 120, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -304,7 +310,7 @@ private final class WorkerStub {
 @MainActor
 private final class CutoutStub {
     var furnitureCutout: CGImage? = furnitureCutoutImage()
-    var garment: ShirtGarment? = testGarment()
+    var garment: ShirtGarment? = sharedTestGarment
     var secondsBeforeTheGarmentIsReady = 0.0
     private(set) var furnitureCutoutsAsked = 0
     private(set) var garmentsAsked = 0
