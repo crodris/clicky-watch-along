@@ -309,6 +309,19 @@ struct InstantReplayTests {
         #expect(recorder.calls.suffix(2) == ["hideNumbers", "hideControl"])
     }
 
+    @Test func stoppingTheQuizEndsAnOpenReplayAndTakesTheControlAway() async {
+        // The review of PR 88 found that the quiz summary Card showed with the replay control still under the video.
+        let recorder = RecordingReplayStage()
+        let replay = InstantReplayController(stage: recorder.stage)
+        replay.offer(threeStops, sceneNumber: 4)
+        replay.playFromTheStart()
+        await letTheReplayRun()
+        replay.endAndForget()
+        #expect(recorder.calls.suffix(4) == ["endFocus", "freeze", "hideNumbers", "hideControl"])
+        #expect(replay.phase == .notOpen)
+        #expect(replay.stops.isEmpty)
+    }
+
     @Test func showMeAgainRunsAheadOfTheRouterOnlyWhenNothingElseHoldsTheWords() {
         #expect(replayPhraseRunsAheadOfTheRouter(asksToReplay: true, stopsAreRecorded: true, quizQuestionIsOpen: false, themeStudioIsOpen: false))
         #expect(!replayPhraseRunsAheadOfTheRouter(asksToReplay: true, stopsAreRecorded: true, quizQuestionIsOpen: false, themeStudioIsOpen: true))

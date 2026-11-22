@@ -358,6 +358,13 @@ final class InstantReplayController: ObservableObject {
     }
 
     /// The scene left the screen, so its stops mean nothing anymore.
+    /// Stopping the quiz ends an open replay like Escape does, and also takes the control and the stops away, since the quiz
+    /// summary Card shows over the same video.
+    func endAndForget() {
+        endIfOpen()
+        forget()
+    }
+
     func forget() {
         if isOpen { stage.hideStopNumbers() }
         cancelTheTravel()
