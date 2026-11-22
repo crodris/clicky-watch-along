@@ -49,7 +49,8 @@ for build_folder in "$temp_folder"/clicky-swift-check-*; do
   fi
 
   # Another check's prune may delete the same folder at the same time.
-  # So a failed size read counts as 0, and a failed delete skips the folder instead of ending the prune.
+  # So a failed size read counts as 0.
+  # A failed delete skips the folder instead of ending the prune.
   folder_kilobytes="$(du -sk "$build_folder" 2>/dev/null | cut -f1)" || folder_kilobytes=0
   rm -rf "$build_folder" 2>/dev/null || continue
   removed_folder_count=$((removed_folder_count + 1))

@@ -78,7 +78,7 @@ jobs:
       - run: pnpm test
       # The committed results must still parse, since the charts are built from them.
       - run: node report.ts --out "$RUNNER_TEMP/bench-report" results/*.json
-      # swift-check.sh builds at a lower CPU priority, so the apps in use get the CPU first. This test pins that.
+      # swift-check.sh builds at a lower CPU priority, so the apps in use get the CPU first. This test pins that and the build folder's checkout record.
       - run: bash ../tools/swift-check.test.sh
       # verify-clicky's build checks that the app is newer than every Swift file under leanring-buddy/, and this test pins that check.
       - run: bash ../.claude/skills/verify-clicky/verify-clicky.test.sh

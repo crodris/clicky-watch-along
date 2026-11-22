@@ -53,7 +53,6 @@ make_build_folder clicky-swift-check-444444444444 "$one_hour_ago" "$scratch/dele
 # The folders after it are still removed. Its name sorts first, so the glob reaches it before the others.
 make_build_folder clicky-swift-check-000000000000 "$two_days_ago" "$scratch/deleted-checkout"
 chmod 000 "$temp_folder/clicky-swift-check-000000000000/.build"
-touch -t "$two_days_ago" "$temp_folder/clicky-swift-check-000000000000/.build"
 make_build_folder clicky-swift-check-cccccccccccc "$now" "$scratch/deleted-checkout"
 make_build_folder clicky-swift-check-dddddddddddd "$two_days_ago" none
 make_build_folder clicky-swift-check-eeeeeeeeeeee "$one_hour_ago" none

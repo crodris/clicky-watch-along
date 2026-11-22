@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Pins that tools/swift-check.sh builds and tests at a lower CPU priority than its caller.
+# It also pins that the build folder records its checkout, which the cleanup of gone checkouts reads.
 # Stand-ins for swiftc and swift record the nice value they run at, so no Swift build runs.
 set -euo pipefail
 script="$(cd "$(dirname "$0")" && pwd)/swift-check.sh"
@@ -45,4 +46,4 @@ fi
 if [ "$failures" -gt 0 ]; then
   exit 1
 fi
-echo "swift-check.test.sh: swiftc and swift run at nice $expected_nice"
+echo "swift-check.test.sh: swiftc and swift run at nice $expected_nice, and the build folder records its checkout"
