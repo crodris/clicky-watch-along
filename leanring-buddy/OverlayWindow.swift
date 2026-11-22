@@ -1070,12 +1070,13 @@ struct BlueCursorView: View {
         }
     }
 
-    /// Moves the buddy along the line on `CursorLoopTimeline`, the same clock the line's ink follows, so the ink ends under it.
+    /// Moves the buddy along the line on `CursorLoopTimeline`, and moves the line's ink to the same share in the same step, so
+    /// the ink ends under it.
     /// The triangle keeps its pointer angle with the ink at its tip, and a cursor that turns toward movement faces along the
     /// line. Once the line is whole, the buddy flies back to the mouse.
     private func traceTheLoop(_ line: CursorLoopLine, loopBeganAt: TimeInterval) {
         let traceBeganAt = ProcessInfo.processInfo.systemUptime
-        loopDraw?.theCursorReachedTheStart(at: traceBeganAt)
+        loopDraw?.theCursorReachedTheStart()
         let rotationWhenTheTraceBegan = triangleRotationDegrees
         navigationAnimationTimer?.invalidate()
         navigationAnimationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { _ in
@@ -1094,12 +1095,10 @@ struct BlueCursorView: View {
                 self.startFlyingBackToCursor()
                 return
             }
-            let placement = CursorLoopTracerPlacement(
-                on: line,
-                atShare: CursorLoopTimeline.tracedShare(secondsSinceTheTraceBegan: secondsSinceTheTraceBegan),
-                cursorFacing: cursorFacing
-            )
+            let tracedShare = CursorLoopTimeline.tracedShare(secondsSinceTheTraceBegan: secondsSinceTheTraceBegan)
+            let placement = CursorLoopTracerPlacement(on: line, atShare: tracedShare, cursorFacing: cursorFacing)
             self.cursorPosition = placement.glyphCenter
+            self.loopDraw?.theCursorTraced(toShare: tracedShare)
             // The triangle turns back to its pointer angle, and every other cursor's facing and streaks follow the line.
             self.triangleRotationDegrees = CursorLoopTimeline.turnTowardTheLine(
                 fromDegrees: rotationWhenTheTraceBegan,

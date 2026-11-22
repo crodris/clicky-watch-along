@@ -34,9 +34,9 @@ struct CursorLoopOnScreen: Equatable {
 enum CursorLoopInk: Equatable {
     /// The cursor is on its way to the line's start, so nothing is drawn yet.
     case waitingForTheCursor
-    /// The cursor reached the line's start at `beganAt` (`ProcessInfo.systemUptime`) and traces it. The share drawn is
-    /// `CursorLoopTimeline.tracedShare`, the same rule that moves the cursor, so the ink ends under it.
-    case tracing(beganAt: TimeInterval)
+    /// The cursor traces the line and has covered `share` of it. The overlay sets the share each time it moves the cursor,
+    /// in the same step, so the ink always ends under the cursor, even when a busy main thread drops frames.
+    case tracing(share: Double)
     /// The whole line, since `since`, when its shimmer starts. The cursor finished, or something landed its draw at once.
     case whole(since: TimeInterval)
 }
@@ -78,9 +78,15 @@ struct BuddyLoopDraw: Equatable {
     }
 
     /// The buddy landed on the line's start, so the ink starts behind it.
-    mutating func theCursorReachedTheStart(at now: TimeInterval) {
+    mutating func theCursorReachedTheStart() {
         guard ink == .waitingForTheCursor else { return }
-        ink = .tracing(beganAt: now)
+        ink = .tracing(share: 0)
+    }
+
+    /// The buddy moved `share` of the way along the line.
+    mutating func theCursorTraced(toShare share: Double) {
+        guard case .tracing = ink else { return }
+        ink = .tracing(share: min(max(share, 0), 1))
     }
 
     /// The trace ran its course, so the whole line shows and its shimmer starts.
@@ -131,7 +137,7 @@ struct CursorLoopView: View {
                     // The moment is worked out here, outside the Canvas, because SwiftUI redraws a Canvas only when a value
                     // its closure captured changes, and the clock is not one.
                     let now = ProcessInfo.processInfo.systemUptime
-                    let inkedShare = Self.inkedShare(of: ink, at: now)
+                    let inkedShare = Self.inkedShare(of: ink)
                     let shimmerLapShare = Self.shimmerLapShare(of: ink, shimmerSlowsAt: loop.shimmerSlowsAt, at: now)
                     Canvas { context, _ in
                         CursorLoopDrawing.drawTheInk(of: line, upToShare: inkedShare, color: color, in: &context)
@@ -155,10 +161,10 @@ struct CursorLoopView: View {
         return false
     }
 
-    static func inkedShare(of ink: CursorLoopInk, at now: TimeInterval) -> Double {
+    static func inkedShare(of ink: CursorLoopInk) -> Double {
         switch ink {
         case .waitingForTheCursor: return 0
-        case .tracing(let beganAt): return CursorLoopTimeline.tracedShare(secondsSinceTheTraceBegan: now - beganAt)
+        case .tracing(let share): return share
         case .whole: return 1
         }
     }
@@ -267,10 +273,10 @@ struct CursorLoopLine {
         firstLapStartLength = firstLapStart >= lapLength ? 0 : firstLapStart
     }
 
-    /// A closed line through `points` in order, back to the first one. Fewer than two points make an empty line.
+    /// A closed line through `points` in order, back to the first one. Fewer than two points make a line with no length.
     init(closedThrough points: [CGPoint]) {
         var closedPath = Path()
-        if let firstPoint = points.first, points.count > 1 {
+        if let firstPoint = points.first {
             closedPath.move(to: firstPoint)
             for point in points.dropFirst() { closedPath.addLine(to: point) }
             closedPath.closeSubpath()
