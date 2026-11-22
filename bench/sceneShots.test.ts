@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { after, before, describe, it } from "node:test";
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { aChromeOnTheFolderHasALiveParent, pageWithLocalThree, sceneShotsChromeProcesses, sceneShotsFolderIsStale, scenePageContentSecurityPolicy } from "./sceneShots.ts";
 
@@ -105,8 +105,13 @@ describe("sceneShotsFolderIsStale", () => {
   });
 });
 
-/** The fake or real Chromes that run on a scene-shots folder inside `folder`, found by their profile path in `ps`. */
+/**
+ * The fake or real Chromes that run on a scene-shots folder inside `folder`, found by their profile path in `ps`. A folder
+ * that is not an absolute path, such as a suite's sandbox before `before` made it, matches nothing, so a cleanup after a
+ * failed `before` never reaches another run's Chrome.
+ */
 function chromesInside(folder: string) {
+  if (!isAbsolute(folder) || folder === "/") return [];
   return sceneShotsChromeProcesses(execFileSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8" })).filter((chromeProcess) =>
     chromeProcess.scratchDirectory.startsWith(`${folder}/`),
   );
@@ -290,6 +295,8 @@ describe("SceneCamera ends its Chrome", { timeout: 30_000 }, () => {
       await sleep(100);
     }
     assert.notDeepEqual(chromesInside(sandbox), [], "the driver started no Chrome");
+    // A suite whose `before` failed still has an empty sandbox, which must match no Chrome, this one included.
+    assert.deepEqual(chromesInside(""), []);
 
     // The cleanup knows only the driver, as when the suite's timeout ends it before the pid file is read.
     endEveryProcessInside(sandbox, driver.pid === undefined ? [] : [driver.pid]);

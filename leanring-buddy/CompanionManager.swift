@@ -3073,7 +3073,8 @@ final class CompanionManager: ObservableObject {
             Task {
                 await LiveSceneOverlay.shared.waitForReturnToFinish()
                 self.videoQuizSession.resumeVideoAfterQuestion()
-                if aSceneWasBuilding {
+                // A scene asked for during the return owns the pause now.
+                if aSceneWasBuilding, aSceneThatEndedMayResumeItsVideo(liveScenePhase: self.liveScenePhase) {
                     self.videoQuizSession.resumeVideoAfterRequestedScene()
                 }
             }

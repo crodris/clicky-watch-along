@@ -15,5 +15,8 @@ struct SceneResumeTests {
         #expect(!aSceneThatEndedMayResumeItsVideo(liveScenePhase: .buildingScene))
         #expect(!aSceneThatEndedMayResumeItsVideo(liveScenePhase: .touring(quizToAskAfterTour: nil)))
         #expect(!aSceneThatEndedMayResumeItsVideo(liveScenePhase: .allLabelsShowing))
+        let quiz = LiveSceneQuiz(answerLabel: "Crater", question: "What is this part?", functionWords: [], explanation: "It is where the lava comes out.")
+        #expect(!aSceneThatEndedMayResumeItsVideo(liveScenePhase: .awaitingAnswer(quiz, wrongAnswerCount: 0)))
+        #expect(!aSceneThatEndedMayResumeItsVideo(liveScenePhase: .awaitingFollowUpOnWhatThePartDoes(quiz)))
     }
 }

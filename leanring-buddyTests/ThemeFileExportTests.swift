@@ -207,6 +207,24 @@ struct ThemeFileExportTests {
     }
 
     @MainActor
+    @Test func thePreviewShadesTheTriangleLightAtTheTipAndDeepAtTheBase() throws {
+        // The app's own triangle (CursorTriangleGlyph), not a flat fill: its gradient runs light at the tip to deep at the
+        // base. The triangle points up and to the left at -35 degrees, so its tip side lies up and left of the disc's center.
+        let bitmap = try renderedPreview(of: clickyBlueTheme)
+        let discCenter = CGPoint(x: 24 + 66, y: ThemeFilePreviewView.size.height / 2)
+        let towardTheTip = CGPoint(x: -sin(35 * Double.pi / 180), y: -cos(35 * Double.pi / 180))
+        func lightness(pointsAlongTheTriangle: Double) throws -> CGFloat {
+            let point = CGPoint(x: discCenter.x + towardTheTip.x * pointsAlongTheTriangle, y: discCenter.y + towardTheTip.y * pointsAlongTheTriangle)
+            let color = try #require(bitmap.colorAt(x: Int(point.x * 2), y: Int(point.y * 2))?.usingColorSpace(.sRGB))
+            return (color.redComponent + color.greenComponent + color.blueComponent) / 3
+        }
+        // The triangle fills a 63 point frame, with its tip 36 points above its center and its base 18 points below.
+        let nearTheTip = try lightness(pointsAlongTheTriangle: 18)
+        let nearTheBase = try lightness(pointsAlongTheTriangle: -14)
+        #expect(nearTheTip > nearTheBase + 0.08, "near the tip \(nearTheTip), near the base \(nearTheBase)")
+    }
+
+    @MainActor
     @Test func theThumbnailDrawsEveryBundledThemeSquareWithItsCursorInTheDisc() throws {
         // Finder asks for many sizes, so the smallest list icon and a large icon view both draw.
         for side: CGFloat in [16, 128] {
