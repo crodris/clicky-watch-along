@@ -470,8 +470,8 @@ final class CompanionManager: ObservableObject {
             guard let self else { return true }
             return self.clickyIsBusyForAVideoRecapCard || self.videoRecapIsGatheringTheDiscs
         },
-        readTheFrontTabURL: { try ChromeVideoTab.frontTabOfTheFrontWindow().url },
-        readTheFrontVideo: { try ChromeVideoTab.readWhetherTheFrontVideoHasEnded() },
+        readTheFrontTabURL: { try await ChromeFrontTabAppleEvents.frontTabURLOffTheMainActor() },
+        readTheFrontVideo: { try await ChromeFrontTabAppleEvents.frontVideoEndReadingOffTheMainActor() },
         recapForVideo: { [weak self] videoURL in self?.videoRecap(forVideoURL: videoURL) },
         showTheRecapAtTheEnd: { [weak self] recap, videoURL in self?.showTheRecapAtTheEndOfTheVideo(recap, videoURL: videoURL) }
     )

@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import CoreServices
 import SwiftUI
 import Testing
 
@@ -115,12 +116,19 @@ struct VideoRecapTests {
         #expect(FrontVideoEndReading(scriptReply: "1|") == nil)
     }
 
-    @Test func theFrontTabScriptHoldsNoDoubleQuoteOrBackslashSinceItSitsInsideAnAppleScriptString() {
-        #expect(!FrontVideoEndReading.pageScript.contains("\""))
-        #expect(!FrontVideoEndReading.pageScript.contains("\\"))
-        let appleScript = appleScriptToRunJavaScriptInTheFrontTab(FrontVideoEndReading.pageScript, timeoutSeconds: 2)
-        #expect(appleScript.contains("execute (active tab of front window) javascript"))
-        #expect(appleScript.contains("with timeout of 2 seconds"))
+    @Test func theRecapReadsAskChromeForItsFrontTabByChromesOwnCodes() throws {
+        let urlEvent = ChromeFrontTabAppleEvents.frontTabURLEvent()
+        #expect(urlEvent.eventClass == AEEventClass(kAECoreSuite) && urlEvent.eventID == AEEventID(kAEGetData))
+        let address = try #require(urlEvent.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)))
+        #expect(address.forKeyword(AEKeyword(keyAEKeyData))?.typeCodeValue == ChromeFrontTabAppleEvents.fourCharacterCode("URL "))
+        let activeTab = try #require(address.forKeyword(AEKeyword(keyAEContainer)))
+        #expect(activeTab.forKeyword(AEKeyword(keyAEKeyData))?.typeCodeValue == ChromeFrontTabAppleEvents.fourCharacterCode("acTa"))
+        #expect(activeTab.forKeyword(AEKeyword(keyAEContainer))?.forKeyword(AEKeyword(keyAEDesiredClass))?.typeCodeValue == ChromeFrontTabAppleEvents.fourCharacterCode("cwin"))
+
+        let scriptEvent = ChromeFrontTabAppleEvents.runJavaScriptInTheFrontTabEvent(FrontVideoEndReading.pageScript)
+        #expect(scriptEvent.eventClass == ChromeFrontTabAppleEvents.fourCharacterCode("CrSu") && scriptEvent.eventID == ChromeFrontTabAppleEvents.fourCharacterCode("ExJa"))
+        // The script goes as its own text parameter, so no quoting can break it.
+        #expect(scriptEvent.paramDescriptor(forKeyword: ChromeFrontTabAppleEvents.fourCharacterCode("JvSc"))?.stringValue == FrontVideoEndReading.pageScript)
     }
 
     private func endedReading(_ hasEnded: Bool, url: String? = nil) -> FrontVideoEndReading? {
@@ -207,31 +215,31 @@ struct VideoRecapTests {
         )
     }
 
-    @Test func theWatchReadsNothingUntilAVideoHasSomethingToRecap() {
+    @Test func theWatchReadsNothingUntilAVideoHasSomethingToRecap() async {
         let fixture = WatchFixture()
         fixture.reading = endedReading(true)
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.readCount == 0)
     }
 
-    @Test func theWatchReadsOnlyWhileChromeIsTheFrontAppAndClickyIsFree() throws {
+    @Test func theWatchReadsOnlyWhileChromeIsTheFrontAppAndClickyIsFree() async throws {
         let fixture = WatchFixture()
         fixture.recap = try #require(VideoRecap(quizResults: [quizResult("A?", at: 10, .gotIt)], studyGuideRecord: nil))
         fixture.reading = endedReading(true)
         fixture.watcher.startWatching(forVideoURL: videoURL)
         fixture.chromeIsFront = false
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         fixture.chromeIsFront = true
         fixture.isBusy = true
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.readCount == 0)
         // The ending was never read, so it still earns its recap once Clicky is free.
         fixture.isBusy = false
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.shownRecaps.count == 1)
     }
 
-    @Test func theWatchShowsARecapOnceForAnEndingAndNothingWhenItsCardAlreadyShowedIt() throws {
+    @Test func theWatchShowsARecapOnceForAnEndingAndNothingWhenItsCardAlreadyShowedIt() async throws {
         let fixture = WatchFixture()
         let recap = try #require(VideoRecap(quizResults: [quizResult("A?", at: 10, .gotIt)], studyGuideRecord: nil))
         fixture.recap = recap
@@ -239,68 +247,68 @@ struct VideoRecapTests {
         fixture.watcher.startWatching(forVideoURL: videoURL)
         // The end of the quiz showed this very recap already.
         fixture.watcher.recapWasShown(recap, forVideoURL: videoURL)
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.shownRecaps.isEmpty)
         // A guide written since changes the recap, so the next ending shows it.
         fixture.reading = endedReading(false)
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         fixture.recap = try #require(VideoRecap(quizResults: [quizResult("A?", at: 10, .gotIt)], studyGuideRecord: try studyGuide(summary: "Summary.")))
         fixture.reading = endedReading(true)
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.shownRecaps == [fixture.recap])
         // The same ending read again shows nothing more.
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.shownRecaps.count == 1)
     }
 
-    @Test func theWatchRunsThePageScriptOnlyOnAWatchedVideo() throws {
+    @Test func theWatchRunsThePageScriptOnlyOnAWatchedVideo() async throws {
         let fixture = WatchFixture()
         fixture.recap = try #require(VideoRecap(quizResults: [quizResult("A?", at: 10, .gotIt)], studyGuideRecord: nil))
         fixture.reading = endedReading(true)
         fixture.watcher.startWatching(forVideoURL: videoURL)
         // Another site in front: the address is read, and the page script never runs there.
         fixture.frontTabURL = "https://example.com/some-page-with-an-alert"
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.urlReadCount == 1 && fixture.readCount == 0)
         fixture.frontTabURL = videoURL
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.readCount == 1 && fixture.shownRecaps.count == 1)
     }
 
-    @Test func aFailedReadBacksTheWatchOffForThirtySeconds() throws {
+    @Test func aFailedReadBacksTheWatchOffForThirtySeconds() async throws {
         let fixture = WatchFixture()
         fixture.watcher.startWatching(forVideoURL: videoURL)
         fixture.readsFail = true
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.urlReadCount == 1)
         // Three seconds later, the next poll leaves Chrome alone.
         fixture.clock.addTimeInterval(videoEndWatchSecondsBetweenReads)
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.urlReadCount == 1)
         fixture.clock.addTimeInterval(videoEndWatchSecondsToWaitAfterAFailedRead)
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.urlReadCount == 2)
     }
 
-    @Test func aHeldBackRecapIsNotMarkedSeenSoItStillShowsAtTheNextEnding() throws {
+    @Test func aHeldBackRecapIsNotMarkedSeenSoItStillShowsAtTheNextEnding() async throws {
         let fixture = WatchFixture()
         let recap = try #require(VideoRecap(quizResults: [quizResult("A?", at: 10, .gotIt)], studyGuideRecord: nil))
         fixture.recap = recap
         fixture.reading = endedReading(true)
         fixture.watcher.startWatching(forVideoURL: videoURL)
         // The watch asks for the Card but the owner holds it back and never calls `recapWasShown`.
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         fixture.reading = endedReading(false)
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         fixture.reading = endedReading(true)
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.shownRecaps == [recap, recap])
         // Once a Card showed it, the next ending shows nothing.
         fixture.watcher.recapWasShown(recap, forVideoURL: videoURL)
         fixture.reading = endedReading(false)
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         fixture.reading = endedReading(true)
-        fixture.watcher.readTheFrontVideoOnce()
+        await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.shownRecaps.count == 2)
     }
 

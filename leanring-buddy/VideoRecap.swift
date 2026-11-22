@@ -105,26 +105,11 @@ nonisolated struct FrontVideoEndReading: Equatable, Sendable {
         pageURL = String(parts[1])
     }
 
-    /// The page's largest video, so a preview or a second player is never the one read. The script holds no double quote or
-    /// backslash, since it sits inside an AppleScript string.
+    /// The page's largest video, so a preview or a second player is never the one read.
     static let pageScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (!video) { return 'no-video'; } return (video.ended ? '1' : '0') + '|' + location.href; })()"
 }
 
-/// The AppleScript that runs `javaScript` in the active tab of Chrome's front window, in one Apple Event, and answers an
-/// empty text when Chrome has no window. The watch asks every few seconds, so it never looks the tab up first.
-nonisolated func appleScriptToRunJavaScriptInTheFrontTab(_ javaScript: String, timeoutSeconds: Int) -> String {
-    """
-    tell application "Google Chrome"
-        if (count of windows) is 0 then return ""
-        with timeout of \(timeoutSeconds) seconds
-            execute (active tab of front window) javascript "\(javaScript)"
-        end timeout
-    end tell
-    """
-}
-
-/// How often the watch reads the front tab. A video ends once, so a few seconds late is fine, and each read blocks the main
-/// actor for a moment.
+/// How often the watch reads the front tab. A video ends once, so a few seconds late is fine.
 let videoEndWatchSecondsBetweenReads: TimeInterval = 3
 
 /// What the watch remembers between reads.

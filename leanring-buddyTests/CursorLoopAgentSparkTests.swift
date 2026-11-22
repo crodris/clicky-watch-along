@@ -273,6 +273,26 @@ func aFinishedAgentsSparkReachesTheEndOfItsLapExactlyWhenTheControllerRemovesItW
     #expect(spark.stopsAtLap == nil)
 }
 
+@Test func theLoopViewHandsAPausedAgentsSparkThePausedFlagAndARunningOnesNone() {
+    let now = Date()
+    func agent(pausedAt: Date?) -> BackgroundAgent {
+        var agent = BackgroundAgent(
+            id: UUID(), kind: .task, subject: nil, studyGuideVideoKey: nil, startedAt: now, currentStepStartedAt: now,
+            endedAt: nil, phase: .running(completedStepCount: 0)
+        )
+        agent.pausedAt = pausedAt
+        return agent
+    }
+    let pausedAgent = agent(pausedAt: now)
+    let runningAgent = agent(pausedAt: nil)
+    let goneAgentID = UUID()
+    let agentsOnTheLine = cursorLoopAgentsOnTheLine(agentIDs: [pausedAgent.id, goneAgentID, runningAgent.id], agents: [runningAgent, pausedAgent], at: now)
+    // The line keeps the order the agents joined in, and an agent the store dropped is left out.
+    #expect(agentsOnTheLine.map(\.id) == [pausedAgent.id, runningAgent.id])
+    #expect(agentsOnTheLine.map(\.isPaused) == [true, false])
+    #expect(agentsOnTheLine.map(\.agentNumber) == [0, 2])
+}
+
 // MARK: - The controller
 
 /// A controller that reads the media from a fixed front tab, with a finishing lap that ends at once.

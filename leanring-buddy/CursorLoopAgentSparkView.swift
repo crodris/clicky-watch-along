@@ -87,29 +87,8 @@ struct CursorLoopAgentSparkView: View {
 
     // MARK: - What each agent shows
 
-    private struct AgentOnTheLine {
-        let id: UUID
-        let color: Color
-        let progress: Double
-        let hasFinished: Bool
-        /// True while the learner has paused every agent, which holds the spark still.
-        let isPaused: Bool
-        let agentNumber: Int
-    }
-
-    private func agentsOnTheLine() -> [AgentOnTheLine] {
-        let now = Date()
-        return agentLoop.agentIDs.enumerated().compactMap { agentNumber, agentID -> AgentOnTheLine? in
-            guard let agent = agentStore.agents.first(where: { $0.id == agentID }) else { return nil }
-            return AgentOnTheLine(
-                id: agentID,
-                color: agent.displayColor.color,
-                progress: agent.progress(at: now),
-                hasFinished: agent.loopSparkStatus == .finished,
-                isPaused: agent.loopSparkIsHeldStill,
-                agentNumber: agentNumber
-            )
-        }
+    private func agentsOnTheLine() -> [CursorLoopAgentOnTheLine] {
+        cursorLoopAgentsOnTheLine(agentIDs: agentLoop.agentIDs, agents: agentStore.agents, at: Date())
     }
 
     private struct SparkOnTheLine {
@@ -119,7 +98,7 @@ struct CursorLoopAgentSparkView: View {
 
     /// The agents whose spark still laps: a finished agent's spark goes once its last lap is complete.
     private func sparksOnTheLine(at now: TimeInterval) -> [SparkOnTheLine] {
-        agentsOnTheLine().compactMap { agentOnTheLine -> SparkOnTheLine? in
+        agentsOnTheLine().compactMap { (agentOnTheLine: CursorLoopAgentOnTheLine) -> SparkOnTheLine? in
             let phase = sparkPhaseBook.phase(
                 of: agentOnTheLine.id,
                 agentNumber: agentOnTheLine.agentNumber,
@@ -164,7 +143,7 @@ struct CursorLoopAgentSparkView: View {
     }
 
     /// Each agent's progress as an arc from the line's start, the longest first so a shorter one shows on top of it.
-    private func drawTheStillArcs(of agents: [AgentOnTheLine], along outline: Path, in context: inout GraphicsContext) {
+    private func drawTheStillArcs(of agents: [CursorLoopAgentOnTheLine], along outline: Path, in context: inout GraphicsContext) {
         drawTheTrackIfTheLoopDoesNot(outline, in: &context)
         for agentOnTheLine in agents.sorted(by: { $0.progress > $1.progress }) {
             let arcShare = min(1, max(0, agentOnTheLine.progress))
@@ -172,5 +151,34 @@ struct CursorLoopAgentSparkView: View {
             // The same line the loop and the room art loop draw, so an arc sits on the request loop's line without a seam.
             CursorLoopDrawing.drawTheLine(outline, share: arcShare, color: agentOnTheLine.color, in: &context)
         }
+    }
+}
+
+// MARK: - What each agent shows
+
+/// One agent on the line, as the view draws it: its color, progress, whether it finished, and whether its spark holds still.
+struct CursorLoopAgentOnTheLine: Equatable {
+    let id: UUID
+    let color: Color
+    let progress: Double
+    let hasFinished: Bool
+    /// True while the learner has paused every agent, which holds the spark still.
+    let isPaused: Bool
+    let agentNumber: Int
+}
+
+/// The agents the line shows, in the order they joined, for the ones the store still has. Each carries the flags the spark
+/// reads, the paused flag included, so a test can pin what the view hands each spark.
+func cursorLoopAgentsOnTheLine(agentIDs: [UUID], agents: [BackgroundAgent], at now: Date) -> [CursorLoopAgentOnTheLine] {
+    agentIDs.enumerated().compactMap { agentNumber, agentID -> CursorLoopAgentOnTheLine? in
+        guard let agent = agents.first(where: { $0.id == agentID }) else { return nil }
+        return CursorLoopAgentOnTheLine(
+            id: agentID,
+            color: agent.displayColor.color,
+            progress: agent.progress(at: now),
+            hasFinished: agent.loopSparkStatus == .finished,
+            isPaused: agent.loopSparkIsHeldStill,
+            agentNumber: agentNumber
+        )
     }
 }
