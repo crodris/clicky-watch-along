@@ -2000,7 +2000,7 @@ final class CompanionManager: ObservableObject {
                 // until the audio actually starts playing, then switch to responding.
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     do {
-                        try await elevenLabsTTSClient.speakText(spokenText)
+                        try await speakTextEndingAnOpenReplay(spokenText)
                         // speakText returns once the first streamed audio is playing, so the voice state can switch now
                         voiceState = .responding
                     } catch is CancellationError {
@@ -4949,7 +4949,7 @@ final class CompanionManager: ObservableObject {
         await waitForClickyToFinishSpeaking()
         guard !Task.isCancelled else { return }
         do {
-            try await elevenLabsTTSClient.speakText(status)
+            try await speakTextEndingAnOpenReplay(status)
             print("Live scene status spoken: \(status)")
         } catch is CancellationError {
             return
@@ -4958,6 +4958,14 @@ final class CompanionManager: ObservableObject {
         } catch {
             print("Live scene status line failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Every line Clicky says goes through here. A replay is silent, so a line starting means another answer, and an open
+    /// replay ends first, so it never moves the camera or the cursor under that answer, whichever surface started it.
+    @discardableResult
+    private func speakTextEndingAnOpenReplay(_ text: String) async throws -> SpokenLineToken {
+        instantReplay.endIfOpen()
+        return try await elevenLabsTTSClient.speakText(text)
     }
 
     /// How far through `text` Clicky's voice is, from 0 to 1, or nil when Clicky is not speaking that line.
@@ -4986,7 +4994,7 @@ final class CompanionManager: ObservableObject {
     private func speakLiveSceneLineAndReturnItsToken(_ line: String, isAFailure: Bool = false) async -> SpokenLineToken? {
         if isAFailure { playCursorEmote(.shake) }
         do {
-            let lineToken = try await elevenLabsTTSClient.speakText(line)
+            let lineToken = try await speakTextEndingAnOpenReplay(line)
             voiceState = .responding
             return lineToken
         } catch is CancellationError {

@@ -322,6 +322,18 @@ struct InstantReplayTests {
         #expect(replay.stops.isEmpty)
     }
 
+    @Test func everyLineClickySaysGoesThroughTheOneCallThatEndsAnOpenReplay() throws {
+        // The review of PR 88 found surfaces, such as the panel's Hear answer, that spoke with a replay still moving the
+        // cursor. Only the wrapper may start a line, so a new surface cannot speak under a replay.
+        let repositoryRootURL = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
+        let companionManagerSource = try String(contentsOf: repositoryRootURL.appendingPathComponent("leanring-buddy/CompanionManager.swift"), encoding: .utf8)
+        #expect(companionManagerSource.components(separatedBy: "elevenLabsTTSClient.speakText(").count - 1 == 1)
+        let wrapperStart = try #require(companionManagerSource.range(of: "private func speakTextEndingAnOpenReplay("))
+        let wrapperBody = companionManagerSource[wrapperStart.upperBound...].prefix(200)
+        #expect(wrapperBody.contains("instantReplay.endIfOpen()"))
+        #expect(wrapperBody.contains("elevenLabsTTSClient.speakText(text)"))
+    }
+
     @Test func showMeAgainRunsAheadOfTheRouterOnlyWhenNothingElseHoldsTheWords() {
         #expect(replayPhraseRunsAheadOfTheRouter(asksToReplay: true, stopsAreRecorded: true, quizQuestionIsOpen: false, themeStudioIsOpen: false))
         #expect(!replayPhraseRunsAheadOfTheRouter(asksToReplay: true, stopsAreRecorded: true, quizQuestionIsOpen: false, themeStudioIsOpen: true))
