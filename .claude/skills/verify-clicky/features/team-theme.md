@@ -67,7 +67,7 @@ Preconditions:
 - **Finder thumbnail.** After `$V build`, run `pluginkit -m -v -i com.crodris.clicky-watch-along.theme-thumbnail` and check that the path it prints is inside the Debug app `$V build` printed.
   Every Debug build registers the same ID, so an older build's extension can answer.
   When it names another build, run `pluginkit -a "<the Debug Clicky.app>/Contents/PlugIns/ClickyThemeThumbnail.appex"` and the `pluginkit -m` line again.
-  When that line still names the other build, run `pluginkit -r <that path>`.
+  Never remove another build's registration with `pluginkit -r`, since the everyday Clicky's extension has the same ID.
   Run `qlmanage -t -x -s 256 -o "$RUN" themes/02-school-nekoma.clickytheme`: `$RUN` gets a PNG of the red ball on its disc over the theme's swatches, filling the square.
   `qlmanage -t` without `-x` hangs on an extension.
   The per-user `com.apple.quicklook.ThumbnailsAgent` keeps the extension list it read when it started.
