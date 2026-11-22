@@ -260,6 +260,7 @@ enum VideoQuizFailure: Error {
     case planFailed(String)
     case lostTheYouTubeTab
     case theVideoChangedWhileReadingItsCaptions
+    case theVideoChangedDuringTheScrub
 
     /// What Clicky says out loud, in plain words.
     var spokenLine: String {
@@ -294,6 +295,8 @@ enum VideoQuizFailure: Error {
             return "I lost the YouTube tab, so I stopped the quiz."
         case .theVideoChangedWhileReadingItsCaptions:
             return "The video in front changed while I was reading its captions, so I didn't move it."
+        case .theVideoChangedDuringTheScrub:
+            return "The video in front changed before I got to the moment, so I didn't move it."
         }
     }
 }
@@ -1067,11 +1070,12 @@ final class VideoQuizSession {
     ) async throws -> JSONValue {
         let frontVideoTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
         await scrubTheCursorFirst(frontVideoTab, targetSeconds)
+        let tabToSeek = try tabToSeekAfterTheScrub(checkedTab: frontVideoTab, tabInFrontNow: try ChromeVideoTab.frontTabOfTheFrontWindow())
         return try Self.runLearnerVideoCommand(
             .seekTo(seconds: targetSeconds),
-            in: frontVideoTab,
-            title: frontVideoTab.title,
-            pageIsOnYouTube: urlIsOnYouTube(urlText: frontVideoTab.url)
+            in: tabToSeek,
+            title: tabToSeek.title,
+            pageIsOnYouTube: urlIsOnYouTube(urlText: tabToSeek.url)
         )
     }
 
@@ -1086,8 +1090,8 @@ final class VideoQuizSession {
     /// state, or nil as the line when no caption line matches. Reading the captions can take seconds, since yt-dlp may
     /// have to download them, so the learner may have switched tabs or videos by then. The seek runs only when the
     /// front tab is still the tab and the page whose captions were read, and fails otherwise instead of moving video B
-    /// to video A's time.
-    /// `scrubTheCursorFirst` plays the cursor's slide along the progress bar to the moment and returns as it arrives.
+    /// to video A's time. `scrubTheCursorFirst` plays the cursor's slide along the progress bar to the moment and returns as it
+    /// arrives, which takes up to a few seconds, so the page is checked again after it, since YouTube may have played the next video.
     func seekToTheCaptionMoment(
         matching query: String,
         scrubTheCursorFirst: (_ videoTab: ChromeVideoTab, _ targetSeconds: Double) async -> Void
@@ -1099,13 +1103,14 @@ final class VideoQuizSession {
         guard tabInFrontNow.isTheSamePage(as: tabWhoseCaptionsAreRead) else {
             throw VideoQuizFailure.theVideoChangedWhileReadingItsCaptions
         }
-        // Seek the tab that was checked, since reading the front tab again could find another one switched to meanwhile.
         await scrubTheCursorFirst(tabInFrontNow, bestCaptionMoment.seconds)
+        // Seek the tab that was checked, since reading the front tab again could find another one switched to meanwhile.
+        let tabToSeek = try tabToSeekAfterTheScrub(checkedTab: tabInFrontNow, tabInFrontNow: try ChromeVideoTab.frontTabOfTheFrontWindow())
         let videoState = try Self.runLearnerVideoCommand(
             .seekTo(seconds: bestCaptionMoment.seconds),
-            in: tabInFrontNow,
-            title: tabInFrontNow.title,
-            pageIsOnYouTube: urlIsOnYouTube(urlText: tabInFrontNow.url)
+            in: tabToSeek,
+            title: tabToSeek.title,
+            pageIsOnYouTube: urlIsOnYouTube(urlText: tabToSeek.url)
         )
         return (bestCaptionMoment, videoState)
     }
@@ -1611,7 +1616,8 @@ struct ChromeVideoTab {
                 mainDisplayHeight: NSScreen.screens.first?.frame.height ?? 0
             ) { pageGeometry in screenRect(of: pageGeometry, logPrefix: "Scrub line") }
             if scrubLine == nil {
-                // The reply holds only numbers and the page's own markers, never page text, so it is logged whole.
+                // A page can override the functions the script calls and put its own text here, so the reply is cut short.
+                // It reaches only this local log, never a model.
                 print("Scrub line: none to slide along (\(scriptReply.prefix(400)))")
             }
             return scrubLine

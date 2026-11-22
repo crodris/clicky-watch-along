@@ -480,6 +480,8 @@ struct BlueCursorView: View {
         .onDisappear {
             timer?.invalidate()
             navigationAnimationTimer?.invalidate()
+            // A scrub this view played ends with it, so a later overlay never replays a seek that already ran.
+            endThePlayingScrub()
             companionManager.tearDownOnboardingVideo()
         }
         .onChange(of: companionManager.cursorEmoteRequest) { newEmoteRequest in
@@ -499,7 +501,10 @@ struct BlueCursorView: View {
                 startScrubbing(newScrubRequest)
             } else if playingScrubID != nil {
                 // A push-to-talk press landed the scrub at once, so the buddy goes back to the mouse, where the ring listens.
-                cancelNavigationAndResumeFollowing()
+                // A pointing on another display is that display's, so this one leaves it set.
+                navigationAnimationTimer?.invalidate()
+                navigationAnimationTimer = nil
+                finishNavigationAndResumeFollowing(clearingTheSharedPointing: false)
             }
         }
         .onChange(of: companionManager.buddyFreezeCount) { _ in
@@ -950,7 +955,7 @@ struct BlueCursorView: View {
         endTheLandingRing()
 
         animateBezierFlightArc(to: cursorWithTrackingOffset) {
-            self.finishNavigationAndResumeFollowing()
+            self.finishNavigationAndResumeFollowing(clearingTheSharedPointing: self.playingScrubID == nil)
         }
     }
 
@@ -969,7 +974,8 @@ struct BlueCursorView: View {
         navigationBubbleOpacity = 0.0
         buddyFlightSpeedShare = 0
         flightFadeOpacity = 1.0
-        finishNavigationAndResumeFollowing()
+        // A scrub never owns the shared pointing, which a pointing on another display may have set during its flight back.
+        finishNavigationAndResumeFollowing(clearingTheSharedPointing: playingScrubID == nil)
     }
 
     /// Returns the buddy to normal cursor-following mode after navigation completes.
@@ -1006,10 +1012,14 @@ struct BlueCursorView: View {
         guard playingScrubID != scrubRequest.scrubID,
               targetDisplayIsThisScreen(scrubRequest.displayFrame),
               !showWelcome || welcomeText.isEmpty else { return }
-        // The buddy sits beside the point as it does beside a pointed element, so its tip touches the line.
+        // The buddy sits beside the point as it does beside a pointed element, so its tip touches the line, and stays 20
+        // points inside the screen as a pointing does, for a line on the screen's bottom edge.
         func besideThePoint(_ screenPoint: CGPoint) -> CGPoint {
             let pointInSwiftUI = convertScreenPointToSwiftUICoordinates(screenPoint)
-            return CGPoint(x: pointInSwiftUI.x + 8, y: pointInSwiftUI.y + 12)
+            return CGPoint(
+                x: max(20, min(pointInSwiftUI.x + 8, screenFrame.width - 20)),
+                y: max(20, min(pointInSwiftUI.y + 12, screenFrame.height - 20))
+            )
         }
         let scrubID = scrubRequest.scrubID
         let momentInSwiftUI = convertScreenPointToSwiftUICoordinates(scrubRequest.momentPoint)

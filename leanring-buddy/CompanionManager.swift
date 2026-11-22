@@ -5675,9 +5675,14 @@ final class CompanionManager: ObservableObject {
     /// Flies the cursor to the video's progress bar, slides it to the moment, and returns as it arrives, so the seek runs
     /// then. With no line to slide along, it returns at once and the seek runs as before.
     private func scrubTheCursorAlongTheProgressBar(of videoTab: ChromeVideoTab, toSeconds targetSeconds: Double) async {
-        let chromeIsTheFrontApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.google.Chrome"
-        guard let scrubLine = scrubLineToPlay(chromeIsTheFrontApp: chromeIsTheFrontApp, readTheLine: { ChromeVideoTab.scrubLineOfTheVideo(in: videoTab) }) else {
-            print("Scrub by voice: no line to slide along\(chromeIsTheFrontApp ? "" : ", since Chrome is not the front app"), so the video seeks at once")
+        let scrubConditions = CursorScrubConditions(
+            chromeIsTheFrontApp: NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.google.Chrome",
+            cursorIsPointing: detectedElementScreenLocation != nil,
+            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            commandWasCancelled: Task.isCancelled
+        )
+        guard let scrubLine = scrubLineToPlay(scrubConditions, readTheLine: { ChromeVideoTab.scrubLineOfTheVideo(in: videoTab) }) else {
+            print("Scrub by voice: no line to slide along (\(scrubConditions)), so the video seeks at once")
             return
         }
         showTheCursorOverlayForThisInteraction()
@@ -5695,8 +5700,8 @@ final class CompanionManager: ObservableObject {
             displayFrames: NSScreen.screens.map(\.frame),
             timeoutSeconds: timeoutSeconds
         )
+        // The voice command schedules the transient hide when it ends, which waits for the scrub's flight back.
         print("Scrub by voice: \(scrubOutcome) from \(Int(scrubLine.currentSeconds)) s to \(Int(targetSeconds)) s along \(scrubLine.followsTheProgressBar ? "the progress bar" : "the video's bottom edge")")
-        scheduleTransientHideIfNeeded()
     }
 
     // MARK: - Instant replay

@@ -73,7 +73,7 @@ func videoScrubLine(
 /// about 2 seconds after its last mouse move, so the script sends the player a mouse move every half second for 6 seconds,
 /// which keeps the bar showing through the flight, the slide, and the hold at the moment.
 /// It returns 'no-video', or 'off-screen' when any part of the line is outside the viewport, since the time to point mapping
-/// needs the whole line. It holds no double quote or backslash, since it runs inside an AppleScript string.
+/// needs the whole line, and wakes the controls only for a line it returns. It holds no double quote or backslash, since it runs inside an AppleScript string.
 nonisolated let videoScrubLineJavaScript = [
     "(function () {",
     LearnerVideoCommand.mainVideoJavaScript,
@@ -82,13 +82,15 @@ nonisolated let videoScrubLineJavaScript = [
     "var player = video.closest('.html5-video-player');",
     "var bar = player ? player.querySelector('.ytp-progress-bar') : null;",
     "if (bar) {",
-    "var wakeTheControls = function () { player.dispatchEvent(new MouseEvent('mousemove', { bubbles: true })); };",
-    "wakeTheControls(); var wakesLeft = 12; var wakeTimer = setInterval(function () { wakesLeft -= 1; if (wakesLeft <= 0) { clearInterval(wakeTimer); } wakeTheControls(); }, 500);",
     "var barRect = bar.getBoundingClientRect();",
     "if (barRect.width > 0) { line = { left: barRect.left, top: barRect.top + barRect.height / 2, width: barRect.width }; }",
     "}",
     "if (!line) { var videoRect = video.getBoundingClientRect(); line = { left: videoRect.left, top: videoRect.bottom, width: videoRect.width }; bar = null; }",
     "if (line.left < -1 || line.left + line.width > window.innerWidth + 1 || line.top < 0 || line.top > window.innerHeight) { return 'off-screen'; }",
+    "if (bar) {",
+    "var wakeTheControls = function () { player.dispatchEvent(new MouseEvent('mousemove', { bubbles: true })); };",
+    "wakeTheControls(); var wakesLeft = 12; var wakeTimer = setInterval(function () { wakesLeft -= 1; if (wakesLeft <= 0) { clearInterval(wakeTimer); } wakeTheControls(); }, 500);",
+    "}",
     "return JSON.stringify({ screenX: window.screenX, screenY: window.screenY, outerWidth: window.outerWidth, outerHeight: window.outerHeight, innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, left: line.left, top: line.top, width: line.width, height: 0, imageSourceURL: null, currentSeconds: video.currentTime, durationSeconds: Number.isFinite(video.duration) ? video.duration : 0, followsTheProgressBar: !!bar });",
     "})()",
 ].joined(separator: " ")
@@ -129,10 +131,32 @@ nonisolated enum CursorScrubOutcome: Equatable {
     case replaced
 }
 
-/// The line to scrub along, read only while Chrome is the front app, since another app's window may cover the line otherwise
-/// and the read costs an Apple Event and an accessibility walk on the main actor.
-func scrubLineToPlay(chromeIsTheFrontApp: Bool, readTheLine: () -> VideoScrubLine?) -> VideoScrubLine? {
-    chromeIsTheFrontApp ? readTheLine() : nil
+/// What decides whether a voice seek scrubs at all, read before the line, since the read costs an Apple Event and an
+/// accessibility walk on the main actor.
+nonisolated struct CursorScrubConditions: Equatable {
+    /// Another app's window may cover the line otherwise.
+    var chromeIsTheFrontApp: Bool
+    /// A narration, a quiz question, or an instant replay holds the cursor on a part, and the scrub must not take it away.
+    var cursorIsPointing: Bool
+    /// A pop-out or a scene covers the video and its bar.
+    var sceneIsOnScreen: Bool
+    /// A push-to-talk press cancelled the voice command, so the learner is talking and nothing should fly.
+    var commandWasCancelled: Bool
+}
+
+/// The line to scrub along, or nil when the seek should run at once with no motion.
+func scrubLineToPlay(_ conditions: CursorScrubConditions, readTheLine: () -> VideoScrubLine?) -> VideoScrubLine? {
+    guard conditions.chromeIsTheFrontApp, !conditions.cursorIsPointing, !conditions.sceneIsOnScreen, !conditions.commandWasCancelled else {
+        return nil
+    }
+    return readTheLine()
+}
+
+/// The tab a voice seek moves after the scrub: the tab checked before it, only while that page is still the one in front,
+/// since the scrub takes a few seconds and YouTube may have played the next video meanwhile.
+func tabToSeekAfterTheScrub(checkedTab: ChromeVideoTab, tabInFrontNow: ChromeVideoTab) throws -> ChromeVideoTab {
+    guard tabInFrontNow.isTheSamePage(as: checkedTab) else { throw VideoQuizFailure.theVideoChangedDuringTheScrub }
+    return checkedTab
 }
 
 /// Holds the one scrub the overlay plays and the wait for it. The overlay reads `request`, reports arrival with
@@ -154,8 +178,12 @@ final class CursorScrubController: ObservableObject {
         guard let scrubLine else { return .noScrubLine }
         let startPoint = scrubLine.point(atSeconds: scrubLine.currentSeconds)
         let momentPoint = scrubLine.point(atSeconds: targetSeconds)
-        // The line sits on its bottom edge for the video fallback, so a point exactly on a screen's bottom edge still counts.
-        guard let displayFrame = displayFrames.first(where: { frame in frame.insetBy(dx: -1, dy: -1).contains(momentPoint) }) else {
+        // Both ends must sit on one display, since each display's overlay draws only its own buddy, and a Chrome window can
+        // span two. The line sits on its bottom edge for the video fallback, so a point exactly on a screen's edge still counts.
+        guard let displayFrame = displayFrames.first(where: { frame in
+            let frameWithItsEdges = frame.insetBy(dx: -1, dy: -1)
+            return frameWithItsEdges.contains(startPoint) && frameWithItsEdges.contains(momentPoint)
+        }) else {
             return .noScrubLine
         }
         resumeThePendingWait(with: .replaced)

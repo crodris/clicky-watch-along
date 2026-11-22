@@ -90,12 +90,35 @@ struct CursorScrubTests {
         #expect(videoScrubLine(fromScriptReply: scriptReply(), mainDisplayHeight: 900) { _ in nil } == nil)
     }
 
-    @Test func theLineIsReadOnlyWhileChromeIsTheFrontApp() {
+    private let conditionsThatScrub = CursorScrubConditions(chromeIsTheFrontApp: true, cursorIsPointing: false, sceneIsOnScreen: false, commandWasCancelled: false)
+
+    @Test func theLineIsReadWhenNothingStandsInTheWay() {
+        #expect(scrubLineToPlay(conditionsThatScrub) { youTubeLine } == youTubeLine)
+    }
+
+    @Test(arguments: [
+        \CursorScrubConditions.chromeIsTheFrontApp,
+        \CursorScrubConditions.cursorIsPointing,
+        \CursorScrubConditions.sceneIsOnScreen,
+        \CursorScrubConditions.commandWasCancelled,
+    ])
+    func eachConditionThatStandsInTheWaySeeksAtOnceWithoutReadingTheLine(condition: WritableKeyPath<CursorScrubConditions, Bool>) {
+        var conditions = conditionsThatScrub
+        conditions[keyPath: condition].toggle()
         var readCount = 0
-        let lineWithChromeBehind = scrubLineToPlay(chromeIsTheFrontApp: false) { readCount += 1; return youTubeLine }
-        #expect(lineWithChromeBehind == nil)
+        #expect(scrubLineToPlay(conditions) { readCount += 1; return youTubeLine } == nil)
         #expect(readCount == 0)
-        #expect(scrubLineToPlay(chromeIsTheFrontApp: true) { youTubeLine } == youTubeLine)
+    }
+
+    @Test func theSeekMovesOnlyThePageTheScrubWasFor() throws {
+        let volcanoTab = ChromeVideoTab(windowId: 1, tabId: 7, url: "https://www.youtube.com/watch?v=p1eE93vybrc", title: "Volcano")
+        let sameTabWithANewTitle = ChromeVideoTab(windowId: 1, tabId: 7, url: "https://www.youtube.com/watch?v=p1eE93vybrc", title: "(1) Volcano")
+        let nextVideoAutoplayedInTheSameTab = ChromeVideoTab(windowId: 1, tabId: 7, url: "https://www.youtube.com/watch?v=next", title: "Next")
+        let tabToSeek = try tabToSeekAfterTheScrub(checkedTab: volcanoTab, tabInFrontNow: sameTabWithANewTitle)
+        #expect(tabToSeek.title == "Volcano")
+        #expect(throws: VideoQuizFailure.self) {
+            try tabToSeekAfterTheScrub(checkedTab: volcanoTab, tabInFrontNow: nextVideoAutoplayedInTheSameTab)
+        }
     }
 
     @Test func reduceMotionFadesInAtTheMomentWithNoTravel() {
@@ -126,6 +149,16 @@ struct CursorScrubTests {
     @Test func withNoLineTheSeekRunsAtOnceAndNothingFlies() async {
         let scrubController = CursorScrubController(sleep: { _ in })
         let outcome = await scrubController.scrubBeforeTheSeek(along: nil, toSeconds: 300, displayFrames: [mainDisplay], timeoutSeconds: 3)
+        #expect(outcome == .noScrubLine)
+        #expect(scrubController.request == nil)
+    }
+
+    @Test func aLineAcrossTwoDisplaysFliesNowhere() async {
+        let scrubController = CursorScrubController(sleep: { _ in })
+        let secondDisplay = CGRect(x: 1440, y: 0, width: 1920, height: 1080)
+        // The current time sits on the main display and the moment on the second one.
+        let lineAcrossTwoDisplays = VideoScrubLine(startPoint: CGPoint(x: 1000, y: 300), endPoint: CGPoint(x: 2400, y: 300), durationSeconds: 400, currentSeconds: 20, followsTheProgressBar: true)
+        let outcome = await scrubController.scrubBeforeTheSeek(along: lineAcrossTwoDisplays, toSeconds: 390, displayFrames: [mainDisplay, secondDisplay], timeoutSeconds: 3)
         #expect(outcome == .noScrubLine)
         #expect(scrubController.request == nil)
     }
