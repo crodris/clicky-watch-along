@@ -1060,6 +1060,21 @@ final class VideoQuizSession {
         return videoState
     }
 
+    /// Moves the video in front to a time, after `scrubTheCursorFirst` played the cursor's slide to it on the same tab.
+    func seekTheFrontVideo(
+        toSeconds targetSeconds: Double,
+        scrubTheCursorFirst: (_ videoTab: ChromeVideoTab, _ targetSeconds: Double) async -> Void
+    ) async throws -> JSONValue {
+        let frontVideoTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
+        await scrubTheCursorFirst(frontVideoTab, targetSeconds)
+        return try Self.runLearnerVideoCommand(
+            .seekTo(seconds: targetSeconds),
+            in: frontVideoTab,
+            title: frontVideoTab.title,
+            pageIsOnYouTube: urlIsOnYouTube(urlText: frontVideoTab.url)
+        )
+    }
+
     /// The caption lines that best match the query in the video in front.
     func captionMomentsInTheFrontVideo(matching query: String) async throws -> [VideoCaptionMoment] {
         let frontVideoTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
@@ -1072,7 +1087,11 @@ final class VideoQuizSession {
     /// have to download them, so the learner may have switched tabs or videos by then. The seek runs only when the
     /// front tab is still the tab and the page whose captions were read, and fails otherwise instead of moving video B
     /// to video A's time.
-    func seekToTheCaptionMoment(matching query: String) async throws -> (captionMoment: VideoCaptionMoment, videoState: JSONValue)? {
+    /// `scrubTheCursorFirst` plays the cursor's slide along the progress bar to the moment and returns as it arrives.
+    func seekToTheCaptionMoment(
+        matching query: String,
+        scrubTheCursorFirst: (_ videoTab: ChromeVideoTab, _ targetSeconds: Double) async -> Void
+    ) async throws -> (captionMoment: VideoCaptionMoment, videoState: JSONValue)? {
         let tabWhoseCaptionsAreRead = try ChromeVideoTab.frontTabOfTheFrontWindow()
         let captionLines = try await captionLines(ofTheVideoIn: tabWhoseCaptionsAreRead)
         guard let bestCaptionMoment = videoCaptionMomentsMatching(query: query, captionLines: captionLines).first else { return nil }
@@ -1081,6 +1100,7 @@ final class VideoQuizSession {
             throw VideoQuizFailure.theVideoChangedWhileReadingItsCaptions
         }
         // Seek the tab that was checked, since reading the front tab again could find another one switched to meanwhile.
+        await scrubTheCursorFirst(tabInFrontNow, bestCaptionMoment.seconds)
         let videoState = try Self.runLearnerVideoCommand(
             .seekTo(seconds: bestCaptionMoment.seconds),
             in: tabInFrontNow,
@@ -1557,22 +1577,46 @@ struct ChromeVideoTab {
         guard let pageGeometry = try pageGeometryOfTheLargestVisibleMediaInFrontTab() else {
             return nil
         }
-        // The web area of Chrome's window says where the viewport sits, which the page geometry cannot when a
-        // side panel, vertical tabs, or docked DevTools take window space. The page geometry is the fallback.
+        return screenRect(of: pageGeometry, logPrefix: "Media rect").map { screenRect in
+            LargestVisibleMediaInFrontTab(screenRect: screenRect, pageGeometry: pageGeometry, imageSourceURL: pageGeometry.imageSourceURL.flatMap(URL.init(string:)))
+        }
+    }
+
+    /// Where an element the page measured sits on screen. The web area of Chrome's window says where the viewport sits,
+    /// which the page geometry cannot when a side panel, vertical tabs, or docked DevTools take window space. The page
+    /// geometry is the fallback.
+    static func screenRect(of pageGeometry: ChromePageGeometry, logPrefix: String) -> ScreenRectInChromeCoordinates? {
         if let rectFromWebArea = screenRectInChromeCoordinates(
             from: pageGeometry,
             matchingWebAreaFrames: ChromeWebArea.webAreaFramesOfChromesFocusedWindow()
         ) {
-            print("Media rect: placed from Chrome's accessibility web area")
-            return LargestVisibleMediaInFrontTab(screenRect: rectFromWebArea, pageGeometry: pageGeometry, imageSourceURL: pageGeometry.imageSourceURL.flatMap(URL.init(string:)))
+            print("\(logPrefix): placed from Chrome's accessibility web area")
+            return rectFromWebArea
         }
         let rectFromPageGeometry = screenRectInChromeCoordinates(
             from: pageGeometry,
             backingScaleFactor: backingScaleFactorOfTheScreenHoldingTheWindow(of: pageGeometry)
         )
-        print("Media rect: no matching web area, \(rectFromPageGeometry == nil ? "the page geometry gave no rect either" : "placed from the page geometry")")
-        return rectFromPageGeometry.map { screenRect in
-            LargestVisibleMediaInFrontTab(screenRect: screenRect, pageGeometry: pageGeometry, imageSourceURL: pageGeometry.imageSourceURL.flatMap(URL.init(string:)))
+        print("\(logPrefix): no matching web area, \(rectFromPageGeometry == nil ? "the page geometry gave no rect either" : "placed from the page geometry")")
+        return rectFromPageGeometry
+    }
+
+    /// The line the cursor slides along for a seek in this tab: YouTube's progress bar, or the video's bottom edge. Nil for
+    /// any failure, such as no video, a line off the screen, or Chrome refusing the script, so the seek runs without it.
+    static func scrubLineOfTheVideo(in videoTab: ChromeVideoTab) -> VideoScrubLine? {
+        do {
+            let scriptReply = try runJavaScript(videoScrubLineJavaScript, in: videoTab)
+            let scrubLine = videoScrubLine(
+                fromScriptReply: scriptReply,
+                mainDisplayHeight: NSScreen.screens.first?.frame.height ?? 0
+            ) { pageGeometry in screenRect(of: pageGeometry, logPrefix: "Scrub line") }
+            if scrubLine == nil {
+                print("Scrub line: none to slide along (\(scriptReply.prefix(40)))")
+            }
+            return scrubLine
+        } catch {
+            print("Scrub line: could not read it: \(error)")
+            return nil
         }
     }
 
