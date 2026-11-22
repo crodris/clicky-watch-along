@@ -1611,7 +1611,8 @@ struct ChromeVideoTab {
                 mainDisplayHeight: NSScreen.screens.first?.frame.height ?? 0
             ) { pageGeometry in screenRect(of: pageGeometry, logPrefix: "Scrub line") }
             if scrubLine == nil {
-                print("Scrub line: none to slide along (\(scriptReply.prefix(40)))")
+                // The reply holds only numbers and the page's own markers, never page text, so it is logged whole.
+                print("Scrub line: none to slide along (\(scriptReply.prefix(400)))")
             }
             return scrubLine
         } catch {

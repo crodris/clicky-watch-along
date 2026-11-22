@@ -309,7 +309,7 @@ A tile that is not highlighted sits at 0.92 of its size and springs up with its 
 
 **Scrub by voice**: when the router seeks the front video with `seek_to_moment` or `seek_to_time` (so also the `seek_to_time` that follows a `find_moment`), the blue cursor flies to the video's progress bar at the current time, slides along it to the moment, and the video seeks as it arrives (`CursorScrub.swift`).
 The line is YouTube's `.ytp-progress-bar` in the video's player, or the video's bottom edge on any other player, read by one page script in the tab the seek acts on (`videoScrubLineJavaScript`) and placed on screen by the same web area math as the media rect (`ChromeVideoTab.screenRect(of:logPrefix:)`, `scrubLineOfTheVideo(in:)`).
-The script sends the YouTube player a mouse move, so its controls show for the slide.
+A YouTube player hides its controls about 2 seconds after its last mouse move, so the script sends the player a mouse move every half second for 6 seconds, which keeps the bar showing through the flight, the slide, and the hold.
 A line partly outside the viewport, a video with no known length, such as a live stream, or a line under 40 points gives no line, and the line is read only while Chrome is the front app (`scrubLineToPlay`), since another app's window may cover it.
 With no line, the seek runs at once as before, and the log says `Scrub by voice: no line to slide along`.
 `CursorScrubController` holds the one scrub (`CursorScrubRequest`: the current time's point, the moment's point, and the display), and the tool call awaits it (`scrubBeforeTheSeek`), so the seek, the chip, and the spoken confirmation come after the arrival, and a `pop_out` after the seek in the same reply grabs the new frame.

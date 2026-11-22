@@ -69,8 +69,9 @@ func videoScrubLine(
 
 /// The page script that finds the scrub line of the front tab's main video. It reports the line as an element box of height
 /// 0 in the shape of `ChromePageGeometry`, so the same web area math places it, plus the video's times. YouTube's progress bar
-/// is the line when the video's player has one, and the video's bottom edge otherwise. A YouTube player hides its controls a
-/// few seconds after the mouse leaves it, so the script sends the player a mouse move, which shows them again for the slide.
+/// is the line when the video's player has one, and the video's bottom edge otherwise. A YouTube player hides its controls
+/// about 2 seconds after its last mouse move, so the script sends the player a mouse move every half second for 6 seconds,
+/// which keeps the bar showing through the flight, the slide, and the hold at the moment.
 /// It returns 'no-video', or 'off-screen' when any part of the line is outside the viewport, since the time to point mapping
 /// needs the whole line. It holds no double quote or backslash, since it runs inside an AppleScript string.
 nonisolated let videoScrubLineJavaScript = [
@@ -81,7 +82,8 @@ nonisolated let videoScrubLineJavaScript = [
     "var player = video.closest('.html5-video-player');",
     "var bar = player ? player.querySelector('.ytp-progress-bar') : null;",
     "if (bar) {",
-    "player.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));",
+    "var wakeTheControls = function () { player.dispatchEvent(new MouseEvent('mousemove', { bubbles: true })); };",
+    "wakeTheControls(); var wakesLeft = 12; var wakeTimer = setInterval(function () { wakesLeft -= 1; if (wakesLeft <= 0) { clearInterval(wakeTimer); } wakeTheControls(); }, 500);",
     "var barRect = bar.getBoundingClientRect();",
     "if (barRect.width > 0) { line = { left: barRect.left, top: barRect.top + barRect.height / 2, width: barRect.width }; }",
     "}",
