@@ -186,6 +186,33 @@ struct VoiceCommandSpeculationTests {
         #expect(VoiceCommandSpeculationState.none.screenReadToStartFrom(whenThePartialWordsBecome: "zoom in") == nil)
     }
 
+    @Test func anEmptyFinalTranscriptDiscardsTheWaitingCommandAtOnceWithACancelThatNamesNoCall() async {
+        let recorder = SpeculationLineRecorder()
+        let lines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in recorder.record(harnessCommand) })
+        var speculation = VoiceCommandSpeculationState.awaitingTheFinalTranscript(speculativeCommand(ofPress: 3, lines: lines))
+
+        // Another press's empty session leaves this press's command waiting.
+        #expect(speculation.endForAnEmptyFinalTranscript(ofPress: 2) == nil)
+        if case .awaitingTheFinalTranscript = speculation {} else { Issue.record("another press's empty session ended this command") }
+
+        // The press's own session came back empty, so no final transcript will decide its command: it comes back to be
+        // discarded now, and the cancel names no call, since the harness held every call.
+        let commandToDiscard = speculation.endForAnEmptyFinalTranscript(ofPress: 3)
+        #expect(commandToDiscard?.pressCount == 3)
+        if case .none = speculation {} else { Issue.record("an empty final transcript left the command waiting") }
+        commandToDiscard?.command.lines.commandWasCancelled()
+        #expect(recorder.lines == [.cancelTask(taskID: commandID, runningToolUseID: nil)])
+
+        // A press that was still waiting for words, or for its screen read, ends there too.
+        var waitingForWords = VoiceCommandSpeculationState.waitingForWords(screenRead(ofPress: 4))
+        #expect(waitingForWords.endForAnEmptyFinalTranscript(ofPress: 4) == nil)
+        if case .none = waitingForWords {} else { Issue.record("an empty final transcript left the press waiting for words") }
+        let startOnceTheScreenIsRead = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+        var waitingForTheScreenRead = VoiceCommandSpeculationState.waitingForTheScreenRead(pressCount: 5, start: startOnceTheScreenIsRead)
+        #expect(waitingForTheScreenRead.endForAnEmptyFinalTranscript(ofPress: 5) == nil)
+        #expect(startOnceTheScreenIsRead.isCancelled)
+    }
+
     @Test func theFinalTranscriptEndsAPressThatWaitsForWords() {
         var speculation = VoiceCommandSpeculationState.waitingForWords(screenRead(ofPress: 6))
         #expect(speculation.takeForTheFinalTranscript(ofPress: 7) == nil)

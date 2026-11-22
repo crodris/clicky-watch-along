@@ -175,6 +175,9 @@ enum BuddyDictationPermissionProblem {
 private struct BuddyDictationDraftCallbacks {
     let updateDraftText: (String) -> Void
     let submitDraftText: (String) -> Void
+    /// The session ended with no transcript to submit: the final transcript came back empty, or the session was cancelled,
+    /// such as on Apple Speech's "No speech detected".
+    let endWithNoTranscript: () -> Void
 }
 
 @MainActor
@@ -264,13 +267,18 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         audioEngine.inputNode.removeTap(onBus: 0)
         activeTranscriptionSession?.cancel()
 
+        let cancelledDraftCallbacks = draftCallbacks
         resetSessionState()
+        cancelledDraftCallbacks?.endWithNoTranscript()
     }
 
+    /// `endWithNoTranscript` runs once when the session ends with nothing to submit, after its state is reset, so a voice
+    /// command started on the press's partial transcript is not left waiting for a final transcript that never comes.
     func startPushToTalkFromKeyboardShortcut(
         currentDraftText: String,
         updateDraftText: @escaping (String) -> Void,
-        submitDraftText: @escaping (String) -> Void
+        submitDraftText: @escaping (String) -> Void,
+        endWithNoTranscript: @escaping () -> Void = {}
     ) async {
         let shouldAutomaticallySubmitFinalDraftOnStop = currentDraftText
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -319,7 +327,8 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         latestRecognizedText = ""
         draftCallbacks = BuddyDictationDraftCallbacks(
             updateDraftText: updateDraftText,
-            submitDraftText: submitDraftText
+            submitDraftText: submitDraftText,
+            endWithNoTranscript: endWithNoTranscript
         )
         shouldAutomaticallySubmitFinalDraft = shouldAutomaticallySubmitFinalDraftOnStop
         hasFinishedCurrentDictationSession = false
@@ -502,7 +511,10 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         resetSessionState()
 
         guard shouldSubmitFinalDraft else { return }
-        guard !finalTranscriptText.isEmpty else { return }
+        guard !finalTranscriptText.isEmpty else {
+            currentDraftCallbacks?.endWithNoTranscript()
+            return
+        }
 
         currentDraftCallbacks?.submitDraftText(finalDraftText)
     }

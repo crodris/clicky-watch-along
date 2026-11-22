@@ -263,6 +263,16 @@ extension VoiceCommandSpeculationState {
     }
 }
 
+extension VoiceCommandSpeculationState {
+    /// The press's dictation ended with no final transcript: it came back empty, or Apple Speech heard no speech. No final
+    /// transcript will ever decide the press's command, so it comes back for the caller to discard at once, the way a final
+    /// transcript with other words discards it, and a start still waiting for the screen read is cancelled. Another press's
+    /// state is left as it is.
+    mutating func endForAnEmptyFinalTranscript(ofPress pressCount: Int) -> SpeculativeVoiceCommand? {
+        takeForTheFinalTranscript(ofPress: pressCount)
+    }
+}
+
 /// How a timed voice command relates to speculation, for its timing line.
 nonisolated enum VoiceCommandSpeculationOutcome: Equatable, Sendable {
     /// The command started on the partial transcript and the final one kept it.

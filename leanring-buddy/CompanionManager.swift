@@ -1026,6 +1026,9 @@ final class CompanionManager: ObservableObject {
                         self?.lastTranscript = finalTranscript
                         print("🗣️ Companion received transcript: \(finalTranscript)")
                         self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript, pushToTalkPressCount: pressCountOfThisPress)
+                    },
+                    endWithNoTranscript: { [weak self] in
+                        self?.discardTheSpeculationOfAPressThatEndedWithNoTranscript(pressCountOfThisPress)
                     }
                 )
             }
@@ -1507,6 +1510,14 @@ final class CompanionManager: ObservableObject {
     private func endTheVoiceCommandSpeculation(because reason: String) {
         if let speculativeCommand = voiceCommandSpeculation.end() {
             discardTheSpeculativeVoiceCommand(speculativeCommand, because: reason)
+        }
+    }
+
+    /// A press's dictation ended with no final transcript, so nothing will keep the command it started on its partial
+    /// transcript, and it is discarded now instead of waiting in the harness until the next press.
+    private func discardTheSpeculationOfAPressThatEndedWithNoTranscript(_ pressCount: Int) {
+        if let speculativeCommand = voiceCommandSpeculation.endForAnEmptyFinalTranscript(ofPress: pressCount) {
+            discardTheSpeculativeVoiceCommand(speculativeCommand, because: "the final transcript came back empty")
         }
     }
 
