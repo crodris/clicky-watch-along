@@ -600,6 +600,8 @@ final class RoomArtPreviewController: ObservableObject {
     private var pageRequest: RoomArtPageRequest?
     private var pictureImage: CGImage?
     private var measurementTask: Task<Void, Never>?
+    /// The picture's download or capture, which a close cancels, so Escape stops a slow download at once.
+    private var pictureTask: Task<RoomArtPicture?, Never>?
     private var lastMeasurementNumber = 0
     /// Each open counts up, so an await that resumes after the panel closed or reopened changes nothing.
     private var openingNumber = 0
@@ -639,6 +641,8 @@ final class RoomArtPreviewController: ObservableObject {
         if isOpen { close() }
         openingNumber += 1
         let thisOpening = openingNumber
+        // An earlier request still fetching its picture is stale now, so its download stops instead of running to its deadline.
+        pictureTask?.cancel()
         anOpeningIsUnderway = true
         defer { if thisOpening == openingNumber { anOpeningIsUnderway = false } }
 
@@ -659,7 +663,10 @@ final class RoomArtPreviewController: ObservableObject {
             return
         }
         // The picture is captured before the panel opens, since the panel covers the screen.
-        let picture = await environment.capturePicture()
+        let capturePicture = environment.capturePicture
+        let pictureTask = Task { await capturePicture() }
+        self.pictureTask = pictureTask
+        let picture = await withTaskCancellationHandler { await pictureTask.value } onCancel: { pictureTask.cancel() }
         // Escape or a new request moved the opening number on, and a push-to-talk press cancelled this task, so the
         // learner moved on and nothing opens or speaks.
         guard thisOpening == openingNumber, !Task.isCancelled else { return }
@@ -728,6 +735,8 @@ final class RoomArtPreviewController: ObservableObject {
         environment.endTheSpokenLine()
         openingNumber += 1
         anOpeningIsUnderway = false
+        pictureTask?.cancel()
+        pictureTask = nil
         measurementTask?.cancel()
         measurementTask = nil
         frameSource?.stop()
