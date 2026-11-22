@@ -89,6 +89,8 @@ Preconditions:
   Move the mouse over the row and click the trash can once: it turns into a red "Delete" button, which goes back to the trash can after 3 seconds with no second click.
   Click the trash can and then "Delete": the row goes, the theme's folder is gone from `~/Library/Application Support/Clicky/Themes/`, and when it was the theme in use, `companionTheme` is `clickyBlue` and the cursor is the blue triangle.
   Seed agents with `debug_seed_agents` before the delete: they keep their colors after it.
+  Click the trash can and "Delete" within 3 seconds, with both clicks in one command, since the armed Delete goes back after 3 seconds. Keep the pointer still and take a shot of the panel's window by its ID: only the card that slid under the pointer looks hovered, and the cards the delete moved elsewhere stay dim.
+  Tab to a card with a long name: its full-name pill wraps inside the card and never reaches the next card or the panel's edge.
 - **Close and Escape.** Open the card again, then post `close_theme_studio`, or run `$V key escape`.
   The card closes, the cursor goes back to the saved theme, and the saved `companionTheme` is unchanged.
 - **Closing stops the studio's own line.** Open the card and, while Clicky is still saying the ideas' line (about 5 seconds after the tiles show), post `close_theme_studio`, or click Save.

@@ -64,6 +64,7 @@ Preconditions:
 - **Picker.** The panel's buttons have no accessibility names, so press one with the real mouse: `swift demo/scripts/mouse/mouse.swift click <x> <y>` at a button's center in global points, read from a `$V shot` of the open panel.
   `defaults read com.crodris.clicky-watch-along companionTheme` shows the new value, the cursor changes at once, and the menu bar icon stays the Clicky cursor.
 - **Install.** Copy `themes/02-school-nekoma.clickytheme` to `$RUN/Shared.clickytheme`, run `open -a "<the Debug Clicky.app>" "$RUN/Shared.clickytheme"`, `$V shot add-theme-card` (the "Add theme?" card near the top of the screen), click Add theme with the real mouse (read its point from the shot), and `$V shot installed`: the "Theme added · Nekoma" chip and the red ball. The log says `Themes: installed Shared.clickytheme as nekoma-<4 hex>`. Delete that folder from `~/Library/Application Support/Clicky/Themes` when done.
+- **Finder thumbnail.** After `$V build`, run `qlmanage -t -x -s 256 -o "$RUN" themes/02-school-nekoma.clickytheme`: `$RUN` gets a PNG of the red ball on its disc over the theme's swatches, filling the square. `qlmanage -t` without `-x` hangs on an extension. When it prints `No thumbnail created`, end your user's `com.apple.quicklook.ThumbnailsAgent` process, which keeps the extension list it read when it started, and run it again.
 - Write back the value `defaults read` showed before the run when done, or delete the key if there was none, since the everyday app reads it too.
 
 ## Gotchas

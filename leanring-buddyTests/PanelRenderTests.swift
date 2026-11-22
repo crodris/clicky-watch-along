@@ -204,7 +204,7 @@ struct PanelRenderTests {
         #expect(reportedHovers == [true, false])
     }
 
-    @Test func aViewThatMovesAwayFromAStillPointerInsideTheWindowReportsNoHover() {
+    @Test func onlyTheViewUnderAStillPointerReportsAHoverAfterARelayout() {
         // Three cards in a row, as the theme grid lays them out. Each view keeps AppKit's default of not clipping to its
         // bounds, as SwiftUI's hosted views do, so its visible rect reaches across the whole window.
         let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 300, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)

@@ -225,6 +225,9 @@ struct ThemeFilePreviewCursor: View {
     }
 
     @ViewBuilder private func pictureCursor(_ picture: NSImage, style: CustomCursorPictureStyle) -> some View {
+        // 4 points of outline on the preview's 96 point drawing, scaled with the drawing, so a 16 point Finder thumbnail's
+        // 7 point picture is not all outline.
+        let outlineWidth = drawingSide / 24
         let imageLayers = ZStack {
             Image(nsImage: picture).resizable().scaledToFill()
             if let tintHex = style.tintHex {
@@ -235,9 +238,9 @@ struct ThemeFilePreviewCursor: View {
         switch style.fit {
         case .whole:
             let cornerShape = RoundedRectangle(cornerRadius: drawingSide * 0.125, style: .continuous)
-            imageLayers.clipShape(cornerShape).overlay(cornerShape.strokeBorder(Color(hex: style.outlineHex), lineWidth: 4))
+            imageLayers.clipShape(cornerShape).overlay(cornerShape.strokeBorder(Color(hex: style.outlineHex), lineWidth: outlineWidth))
         case .circle:
-            imageLayers.clipShape(Circle()).overlay(Circle().strokeBorder(Color(hex: style.outlineHex), lineWidth: 4))
+            imageLayers.clipShape(Circle()).overlay(Circle().strokeBorder(Color(hex: style.outlineHex), lineWidth: outlineWidth))
         }
     }
 }

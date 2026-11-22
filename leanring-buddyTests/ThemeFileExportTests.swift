@@ -233,6 +233,24 @@ struct ThemeFileExportTests {
         #expect(abs(cursorColor.greenComponent - accentColor.greenComponent) < 0.12)
         #expect(abs(cursorColor.blueComponent - accentColor.blueComponent) < 0.12)
     }
+
+    @MainActor
+    @Test func aPictureThemesSmallestThumbnailStillShowsThePicture() throws {
+        // A solid red picture with a white outline. At Finder's 16 point list size the cursor is about 7 points wide, so a
+        // fixed 4 point outline on each side would cover it whole and the disc's middle would be white.
+        let theme = try ClickyTheme.parse(themeJSON: goodPictureCursorThemeIdea, id: "idea-1", pictureIsAvailable: true)
+        let picture = NSImage(size: NSSize(width: 40, height: 40), flipped: false) { drawingRect in
+            NSColor(red: 1, green: 0, blue: 0, alpha: 1).setFill()
+            drawingRect.fill()
+            return true
+        }
+        let thumbnailImage = try #require(themeFileThumbnailImage(theme: theme, picture: picture, side: 16, scale: 2))
+        let bitmap = NSBitmapImageRep(cgImage: thumbnailImage)
+        // The disc's center is 42 percent of the way down, and the picture there is red with the theme's light blue tint.
+        let middleColor = try #require(bitmap.colorAt(x: 16, y: Int(32 * 0.42))?.usingColorSpace(.sRGB))
+        #expect(middleColor.redComponent > 0.6)
+        #expect(middleColor.greenComponent < 0.6)
+    }
 }
 
 private extension NSColor {
