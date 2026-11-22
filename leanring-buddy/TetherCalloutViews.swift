@@ -217,10 +217,13 @@ final class TetherCalloutPresence: ObservableObject {
     @Published private(set) var leavingExit: TetherCalloutExit?
     /// Counts each appear and leave, so a removal waiting for a leave to play never removes a Callout that appeared since.
     private var removalGeneration = 0
+    /// The removal that waits for the current leave to play, kept so a test can wait on it instead of a guessed time.
+    private var removalTask: Task<Void, Never>?
 
     /// The Callout pops in, or comes back from a leave that has not finished.
     func appear() {
         removalGeneration += 1
+        removalTask?.cancel()
         isInTheViewTree = true
         leavingExit = nil
     }
@@ -232,11 +235,19 @@ final class TetherCalloutPresence: ObservableObject {
         removalGeneration += 1
         let generationOfThisLeave = removalGeneration
         leavingExit = exit
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.secondsToLeave(exit, reduceMotionIsOn: reduceMotionIsOn)) { [weak self] in
-            guard let self, self.removalGeneration == generationOfThisLeave else { return }
+        let secondsToLeave = Self.secondsToLeave(exit, reduceMotionIsOn: reduceMotionIsOn)
+        removalTask?.cancel()
+        removalTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(secondsToLeave * 1_000_000_000))
+            guard let self, !Task.isCancelled, self.removalGeneration == generationOfThisLeave else { return }
             self.isInTheViewTree = false
             self.leavingExit = nil
         }
+    }
+
+    /// Returns once the latest leave has played, or at once when an appear cancelled it.
+    func waitForTheLeaveToPlay() async {
+        await removalTask?.value
     }
 
     /// How long a leave takes: the 150 ms crossfade with Reduce Motion on, else 0.7 of the Pop's time for a fade-rise and the

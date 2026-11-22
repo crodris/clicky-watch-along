@@ -137,8 +137,8 @@ struct TetherCalloutTests {
         presence.leave(.recall, reduceMotionIsOn: false)
         #expect(presence.leavingExit == .recall)
 
-        let deadline = Date().addingTimeInterval(3)
-        while presence.isInTheViewTree && Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        // Waiting on the removal itself, since a main actor busy with other tests ran a 3 second wall clock wait out.
+        await presence.waitForTheLeaveToPlay()
         #expect(!presence.isInTheViewTree && presence.leavingExit == nil)
     }
 
@@ -148,8 +148,8 @@ struct TetherCalloutTests {
         presence.leave(.recall, reduceMotionIsOn: false)
         presence.appear()
         #expect(presence.isInTheViewTree && presence.leavingExit == nil)
-        // Past the Recall's 180 ms, the removal that was waiting has been cancelled.
-        try await Task.sleep(nanoseconds: 400_000_000)
+        // The removal that was waiting has been cancelled, so once it has run the Callout is still up.
+        await presence.waitForTheLeaveToPlay()
         #expect(presence.isInTheViewTree && presence.leavingExit == nil)
     }
 
