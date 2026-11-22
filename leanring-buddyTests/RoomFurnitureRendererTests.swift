@@ -167,7 +167,7 @@ struct RoomFurniturePaintedCompositeTests {
 
     private func layers(paintedFromRow topRow: Int) throws -> (layers: RoomFurnitureKeyframeLayers?, paintedHeightRatio: Double?, paintedRows: ClosedRange<Int>?) {
         let keyframe = try #require(roomFurnitureTestKeyframe())
-        let maskPNG = try #require(furnitureCompositeMaskPNG(projectedCorners: projectedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: projectedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
         return RoomFurniturePaintedComposite.itemLayers(painted: try painting(topRow: topRow, over: keyframe), keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
     }
 
@@ -193,7 +193,7 @@ struct RoomFurniturePaintedCompositeTests {
         context.fill(CGRect(x: 510, y: keyframe.height - 330, width: 180, height: 30))
         context.fill(CGRect(x: 512, y: keyframe.height - 500, width: 8, height: 170))
         context.fill(CGRect(x: 680, y: keyframe.height - 500, width: 8, height: 170))
-        let maskPNG = try #require(furnitureCompositeMaskPNG(projectedCorners: projectedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: projectedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
         let result = RoomFurniturePaintedComposite.itemLayers(painted: try #require(context.makeImage()), keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
         #expect(abs((result.paintedHeightRatio ?? 0) - 1) < 0.03)
         #expect(result.layers != nil)
@@ -208,7 +208,7 @@ struct RoomFurniturePaintedCompositeTests {
 
     private func chairLayers(paintedFromRow topRow: Int) throws -> RoomFurnitureKeyframeLayers? {
         let keyframe = try #require(roomFurnitureTestKeyframe())
-        let maskPNG = try #require(furnitureCompositeMaskPNG(projectedCorners: chairBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: chairBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
         return RoomFurniturePaintedComposite.itemLayers(painted: try painting(topRow: topRow, over: keyframe), keyframe: keyframe, maskPNG: maskPNG, projectedBox: chairBox).layers
     }
 
@@ -235,18 +235,69 @@ struct RoomFurniturePaintedCompositeTests {
     @Test func theShadowAndFloorPaintedBelowTheBoxDoNotCountAsTheItem() throws {
         // The live check's paintings darkened the floor for 40 to 50 rows under the piece's feet, inside the pasted region.
         let keyframe = try #require(roomFurnitureTestKeyframe())
-        let maskPNG = try #require(furnitureCompositeMaskPNG(projectedCorners: projectedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: projectedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
         let painted = try painting(topRow: 310, over: keyframe, andBandFromRow: 500, toRow: 548, color: CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
         let result = RoomFurniturePaintedComposite.itemLayers(painted: painted, keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
         #expect(result.paintedRows == 310...500)
         #expect(result.layers != nil)
     }
 
-    @Test func aPaintingFarTallerThanTheMeasuredBoxIsRefused() throws {
-        // A painted item from row 220 is 1.4 times the box's 200 rows. Only the pasted region, the mask grown by the
-        // client's slack, is measured, since the client pasted nothing past it, so the ratio reads lower but still fails.
+    @Test func theMaskGrowsOnlyAlongTheFloorAndNeverAboveTheBox() throws {
+        // A low, wide table seen from above: its top is row 370, and its floor footprint's back edge is row 380, so the
+        // footprint grown by 24 rows would reach row 356, above the box.
+        let lowTableBox = [
+            CGPoint(x: 500, y: 400), CGPoint(x: 700, y: 400), CGPoint(x: 700, y: 420), CGPoint(x: 500, y: 420),
+            CGPoint(x: 530, y: 370), CGPoint(x: 670, y: 370), CGPoint(x: 670, y: 380), CGPoint(x: 530, y: 380),
+        ]
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: lowTableBox, frameWidth: 1280, frameHeight: 720, shadowMarginPixels: 24))
+        let maskSource = try #require(CGImageSourceCreateWithData(maskPNG as CFData, nil))
+        let mask = RoomFurnitureTestPixels(try #require(CGImageSourceCreateImageAtIndex(maskSource, 0, nil)))
+        func isWhite(_ column: Int, _ row: Int) -> Bool { mask.bytes[(row * mask.width + column) * 4] > 127 }
+        // Inside the box, and the shadow margin below and beside the floor footprint.
+        #expect(isWhite(600, 410))
+        #expect(isWhite(600, 440))
+        #expect(isWhite(480, 418))
+        #expect(!isWhite(600, 450))
+        // Beside the box above the floor, 22 pixels left of its front top corner and 30 from its footprint.
+        #expect(!isWhite(478, 400))
+        // Nothing above the box's top row, where the whole outline's margin would reach.
+        #expect(!isWhite(600, 362))
+        #expect(!isWhite(600, 350))
+    }
+
+    @Test func aWallRedrawnOverPartOfThePastedRegionsTopIsKept() throws {
+        // The live check's Blu Dot painting changed about 20 percent of the region's top rows above the chair. Here a dark
+        // patch covers 50 of the region's 200 or so columns at its top, and the item stands at its measured height.
+        let keyframe = try #require(roomFurnitureTestKeyframe())
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: projectedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        let context = try #require(CGContext(data: nil, width: keyframe.width, height: keyframe.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(try painting(topRow: 310, over: keyframe), in: CGRect(x: 0, y: 0, width: keyframe.width, height: keyframe.height))
+        context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 560, y: keyframe.height - 292, width: 50, height: 22))
+        let result = RoomFurniturePaintedComposite.itemLayers(painted: try #require(context.makeImage()), keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
+        #expect(result.layers != nil)
+    }
+
+    @Test func aPaintingCutOffAlongThePastedRegionsTopIsRefused() throws {
+        // A painted item from row 220 is 1.4 times the box's 200 rows. The client pasted nothing above the region, which
+        // starts 24 rows above the box, so the measured height is only 1.125 times, and the cut along the top refuses it.
         let result = try layers(paintedFromRow: 220)
+        #expect(result.paintedRows?.lowerBound ?? 0 > 260)
+        #expect((result.paintedHeightRatio ?? 0) < 1 + RoomFurniturePaintedComposite.mostHeightDifference)
         #expect(result.layers == nil)
+    }
+
+    @Test func aPaintingTallerThanASmallBoxIsRefused() throws {
+        // A box 100 rows tall, from 400 to 500: an item painted from row 380 is 1.2 times it, inside the pasted region.
+        let smallBox = [
+            CGPoint(x: 500, y: 400), CGPoint(x: 700, y: 400), CGPoint(x: 700, y: 500), CGPoint(x: 500, y: 500),
+            CGPoint(x: 520, y: 405), CGPoint(x: 680, y: 405), CGPoint(x: 680, y: 490), CGPoint(x: 520, y: 490),
+        ]
+        let keyframe = try #require(roomFurnitureTestKeyframe())
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: smallBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        let result = RoomFurniturePaintedComposite.itemLayers(painted: try painting(topRow: 380, over: keyframe), keyframe: keyframe, maskPNG: maskPNG, projectedBox: smallBox)
         #expect((result.paintedHeightRatio ?? 0) > 1 + RoomFurniturePaintedComposite.mostHeightDifference)
+        #expect(result.layers == nil)
     }
 }

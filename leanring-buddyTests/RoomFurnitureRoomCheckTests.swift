@@ -362,7 +362,7 @@ struct RoomFurnitureRoomCheckTests {
         UserDefaults.standard.set(try #require(roomCheckEnvironment["ROOM_FURNITURE_APP_SECRET"]), forKey: ClickyAppSecret.defaultsKey)
         let client = RoomFurnitureGenerationClient(workerBaseURL: try #require(roomCheckEnvironment["ROOM_FURNITURE_WORKER"]))
         let projectedBox = try #require(inputs.floor.keyframeBoxCorners(widthMeters: inputs.widthMeters, heightMeters: inputs.heightMeters, depthMeters: inputs.depthMeters))
-        let maskPNG = try #require(furnitureCompositeMaskPNG(projectedCorners: projectedBox, frameWidth: inputs.keyframeImage.width, frameHeight: inputs.keyframeImage.height, shadowMarginPixels: 24))
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: projectedBox, frameWidth: inputs.keyframeImage.width, frameHeight: inputs.keyframeImage.height, shadowMarginPixels: 24))
         let sizeWords = String(format: "%.0f cm wide, %.0f cm tall, %.0f cm deep", inputs.widthMeters * 100, inputs.heightMeters * 100, inputs.depthMeters * 100)
         let paintingStartedAt = Date()
         // ROOM_FURNITURE_PAINTING judges a painting an earlier run saved, with no new request.
