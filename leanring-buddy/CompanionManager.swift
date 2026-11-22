@@ -3192,16 +3192,15 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Runs the one step `escapeStep(for:)` picks from what is open now: a surface ahead of the scene takes the Escape alone,
-    /// then a video quiz question is skipped, then the answer Clicky is giving stops when no scene is up, and a finished
-    /// scene clears with anything Clicky is still saying about it.
+    /// Runs the step `escapeStep(for:)` returns for what is open now. The order is documented on `escapeStep(for:)`.
+    /// A pop-out landing in its frame hides at once. With no scene up, Escape stops the answer Clicky is giving. A finished
+    /// scene clears along with anything Clicky is still saying about it.
     private func closeLiveSceneOnEscape() {
-        var noSceneIsUp = false
-        var aFinishedSceneShowsAllItsLabels = false
+        let sceneOnScreen: EscapeSceneState
         switch liveScenePhase {
-        case .idle: noSceneIsUp = true
-        case .allLabelsShowing: aFinishedSceneShowsAllItsLabels = true
-        default: break
+        case .idle: sceneOnScreen = .none
+        case .allLabelsShowing: sceneOnScreen = .finishedWithAllLabels
+        case .buildingScene, .touring, .awaitingAnswer, .awaitingFollowUpOnWhatThePartDoes: sceneOnScreen = .buildingOrTouringOrAsking
         }
         let escapeFacts = EscapeFacts(
             // The event tap also sees an Escape a text field takes as its cancel.
@@ -3218,8 +3217,7 @@ final class CompanionManager: ObservableObject {
             anInstantReplayIsOpen: instantReplay.isOpen,
             aPopOutIsReturningToSource: LiveSceneOverlay.shared.isReturningToSource,
             aVideoQuizQuestionIsOpen: videoQuizQuestionIsActive,
-            noSceneIsUp: noSceneIsUp,
-            aFinishedSceneShowsAllItsLabels: aFinishedSceneShowsAllItsLabels
+            sceneOnScreen: sceneOnScreen
         )
         switch escapeStep(for: escapeFacts) {
         case .leaveItToTheTextField, .leaveItToTheMenuPanel, .leaveItToTheSettingsDial, .nothing:
@@ -3239,7 +3237,7 @@ final class CompanionManager: ObservableObject {
             videoQuizSummaryPanelController.close(animated: true)
         case .endTheInstantReplay:
             // The camera and the cursor stop where they are.
-            _ = instantReplay.endIfOpen()
+            instantReplay.endIfOpen()
         case .hideThePopOutAtOnce:
             clearTheLiveSceneAndReleaseTheBuddy()
         case .skipTheQuizQuestion:

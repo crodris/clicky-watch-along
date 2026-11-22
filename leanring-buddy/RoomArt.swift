@@ -1166,7 +1166,7 @@ nonisolated func roomArtLineStep(
 /// What CompanionManager keeps about the newest room art request: the push-to-talk press count when it started, so only a
 /// later press counts as the learner's next request, and whether it still reads the page and its picture, which holds the
 /// thinking state until the panel opens.
-struct RoomArtRequestRecord: Equatable {
+nonisolated struct RoomArtRequestRecord: Equatable, Sendable {
     private(set) var pushToTalkPressCountWhenItStarted = 0
     private(set) var isOpeningThePanel = false
 

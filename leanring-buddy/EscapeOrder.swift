@@ -23,10 +23,17 @@ nonisolated struct EscapeFacts: Equatable, Sendable {
     var anInstantReplayIsOpen = false
     var aPopOutIsReturningToSource = false
     var aVideoQuizQuestionIsOpen = false
+    var sceneOnScreen = EscapeSceneState.none
+}
+
+/// The live scene as Escape sees it, one case for each way `liveScenePhase` changes what Escape does.
+nonisolated enum EscapeSceneState: Equatable, Sendable {
     /// `liveScenePhase` is `.idle`: no scene is building or on screen.
-    var noSceneIsUp = false
+    case none
     /// `liveScenePhase` is `.allLabelsShowing`: a finished scene with no question waiting on it.
-    var aFinishedSceneShowsAllItsLabels = false
+    case finishedWithAllLabels
+    /// A scene is building, touring, or waiting on a quiz answer, and Escape leaves it alone.
+    case buildingOrTouringOrAsking
 }
 
 /// What one Escape does.
@@ -77,7 +84,9 @@ nonisolated func escapeStep(for facts: EscapeFacts) -> EscapeStep {
     if facts.anInstantReplayIsOpen { return .endTheInstantReplay }
     if facts.aPopOutIsReturningToSource { return .hideThePopOutAtOnce }
     if facts.aVideoQuizQuestionIsOpen { return .skipTheQuizQuestion }
-    if facts.noSceneIsUp { return .stopTheReply }
-    if facts.aFinishedSceneShowsAllItsLabels { return .clearTheFinishedScene }
-    return .nothing
+    switch facts.sceneOnScreen {
+    case .none: return .stopTheReply
+    case .finishedWithAllLabels: return .clearTheFinishedScene
+    case .buildingOrTouringOrAsking: return .nothing
+    }
 }

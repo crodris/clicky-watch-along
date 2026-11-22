@@ -21,14 +21,23 @@ struct EscapeOrderTests {
         (\.anInstantReplayIsOpen, .endTheInstantReplay),
         (\.aPopOutIsReturningToSource, .hideThePopOutAtOnce),
         (\.aVideoQuizQuestionIsOpen, .skipTheQuizQuestion),
-        (\.noSceneIsUp, .stopTheReply),
-        (\.aFinishedSceneShowsAllItsLabels, .clearTheFinishedScene),
     ]
 
+    /// No surface is open, so the scene decides.
+    private func step(withTheScene sceneOnScreen: EscapeSceneState) -> EscapeStep {
+        escapeStep(for: EscapeFacts(sceneOnScreen: sceneOnScreen))
+    }
+
+    @Test func withNoSurfaceOpenTheSceneDecides() {
+        #expect(step(withTheScene: .none) == .stopTheReply)
+        #expect(step(withTheScene: .finishedWithAllLabels) == .clearTheFinishedScene)
+        #expect(step(withTheScene: .buildingOrTouringOrAsking) == .nothing)
+    }
+
     @Test func eachSurfaceAloneTakesTheEscape() {
-        #expect(escapeStep(for: EscapeFacts()) == .nothing)
         for (fact, step) in escapeOrder {
-            var facts = EscapeFacts()
+            // A scene that would clear sits behind every surface.
+            var facts = EscapeFacts(sceneOnScreen: .finishedWithAllLabels)
             facts[keyPath: fact] = true
             #expect(escapeStep(for: facts) == step, "\(fact) alone should give \(step)")
         }
@@ -36,7 +45,7 @@ struct EscapeOrderTests {
 
     @Test func aSurfaceTakesTheEscapeAheadOfEverySurfaceAfterIt() {
         for (index, entry) in escapeOrder.enumerated() {
-            var facts = EscapeFacts()
+            var facts = EscapeFacts(sceneOnScreen: .finishedWithAllLabels)
             for (laterFact, _) in escapeOrder[index...] {
                 facts[keyPath: laterFact] = true
             }
@@ -45,7 +54,7 @@ struct EscapeOrderTests {
     }
 
     @Test func theRoomArtPanelTakesTheEscapeAfterTheAddThemeCardAndAheadOfTheRecapAndTheScene() {
-        let roomArtAndTheScene = EscapeFacts(theRoomArtPanelTakesEscape: true, aVideoQuizQuestionIsOpen: true, aFinishedSceneShowsAllItsLabels: true)
+        let roomArtAndTheScene = EscapeFacts(theRoomArtPanelTakesEscape: true, aVideoQuizQuestionIsOpen: true, sceneOnScreen: .finishedWithAllLabels)
         #expect(escapeStep(for: roomArtAndTheScene) == .closeTheRoomArtPanel)
         #expect(escapeStep(for: EscapeFacts(theRoomArtPanelTakesEscape: true, theRecapIsGatheringTheDiscs: true)) == .closeTheRoomArtPanel)
         #expect(escapeStep(for: EscapeFacts(anAddThemeCardIsOpen: true, theRoomArtPanelTakesEscape: true)) == .declineTheAddThemeCard)

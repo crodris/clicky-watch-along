@@ -34,9 +34,32 @@ struct FrameGrabFormatTests {
         #expect(frameGrabHoldsAJPEG(base64JPEG: try base64Image(encodedAs: .jpeg)))
     }
 
-    @Test func aFrameGrabInAnotherFormatIsRefusedBeforeAnyDecode() throws {
+    @Test func aFrameGrabInAnotherFormatIsNotAJPEG() throws {
         #expect(!frameGrabHoldsAJPEG(base64JPEG: try base64Image(encodedAs: .tiff)))
         #expect(!frameGrabHoldsAJPEG(base64JPEG: try base64Image(encodedAs: .png)))
+        // Two of the three marker bytes are not enough.
+        #expect(!frameGrabHoldsAJPEG(base64JPEG: Data([0xFF, 0xD8]).base64EncodedString()))
+        #expect(!frameGrabHoldsAJPEG(base64JPEG: Data([0xFF, 0xD8, 0x00, 0xE0]).base64EncodedString()))
+    }
+
+    /// The page script's reply, as `grabFrameJavaScript` writes it, holding `base64Bytes` as the grab.
+    private func scriptReply(holding base64Bytes: String) -> String {
+        "{\"jpeg\":\"\(base64Bytes)\",\"width\":8,\"height\":8,\"videoSeconds\":12.5,\"rectX\":0,\"rectY\":0,\"rectWidth\":8,\"rectHeight\":8}"
+    }
+
+    @MainActor
+    @Test func theScriptReplyKeepsAJPEGGrab() throws {
+        let jpegBytes = try base64Image(encodedAs: .jpeg)
+        let frameGrab = try VideoQuizSession.frameGrab(inTheScriptReply: scriptReply(holding: jpegBytes))
+        #expect(frameGrab.jpeg == jpegBytes)
+        #expect(frameGrab.videoSeconds == 12.5)
+    }
+
+    @MainActor
+    @Test func theScriptReplyRefusesAGrabInAnotherFormatBeforeAnyDecode() throws {
+        let pngBytes = try base64Image(encodedAs: .png)
+        #expect(throws: (any Error).self) { try VideoQuizSession.frameGrab(inTheScriptReply: scriptReply(holding: pngBytes)) }
+        #expect(throws: (any Error).self) { try VideoQuizSession.frameGrab(inTheScriptReply: "no-video") }
     }
 
     @Test func aFrameGrabThatIsNotBase64OrNotAnImageIsRefused() {
