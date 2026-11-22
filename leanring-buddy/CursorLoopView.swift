@@ -88,6 +88,11 @@ enum CursorLoopDrawing {
         case .onTheLoop(let share):
             sparkCenter = outline.trimmedPath(from: 0, to: max(share, 0.0005)).currentPoint ?? outlineStart
         }
+        drawTheSpark(at: sparkCenter, color: color, in: &context)
+    }
+
+    /// The white spark with its colored outline and glow, which the furniture's ghost draws its lines with too.
+    static func drawTheSpark(at sparkCenter: CGPoint, color: Color, in context: inout GraphicsContext) {
         let sparkPath = Path(ellipseIn: CGRect(
             x: sparkCenter.x - sparkRadiusInPoints,
             y: sparkCenter.y - sparkRadiusInPoints,

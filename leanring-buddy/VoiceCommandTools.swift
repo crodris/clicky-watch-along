@@ -57,6 +57,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case popOut = "pop_out"
     case animatePicture = "animate_picture"
     case showArtInMyRoom = "show_art_in_my_room"
+    case placeFurniture = "place_furniture"
+    case moveFurniture = "move_furniture"
     case closeScene = "close_scene"
     case explainPart = "explain_part"
     case replayExplanation = "replay_explanation"
@@ -146,6 +148,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var replayStopsAreRecorded = false
         /// An instant replay is open, so next, back, and stop step through it instead of moving the video or closing the scene.
         var replayIsOpen = false
+        /// The furniture's ghost shows in the room art panel, so it can be moved, turned, and placed.
+        var furnitureGhostShows = false
     }
 
     static func available(in context: Context) -> [AppVoiceTool] {
@@ -170,6 +174,9 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 return context.replayStopsAreRecorded && !context.quizQuestionIsOpen
             case .replayStep:
                 return context.replayIsOpen && !context.quizQuestionIsOpen
+            // "Move it left" and "right there" mean something only while the ghost is placed.
+            case .placeFurniture, .moveFurniture:
+                return context.furnitureGhostShows && !context.quizQuestionIsOpen
             case .pauseVideo, .playVideo, .seekRelative, .seekToTime, .setSpeed:
                 return context.videoIsInFront
             case .findMoment, .seekToMoment:
@@ -272,6 +279,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return "Lift the video frame or the largest picture in Chrome's front tab out in 3D and show what flows through it as moving streams, such as air through an engine or blood through a heart. Over a pop-out already on screen, it animates that one. Use it only when the learner says animate this, make it move, or make it flow. A painting is left as the artist made it, and the app says so. Use answer_with_screen when they ask how to animate something in another app. It pauses a playing video by itself."
         case .showArtInMyRoom:
             return "Try the item on Chrome's front tab in the learner's live camera view. Wall art hangs on their wall and furniture stands on their floor, each at its real size from the page, and a shirt is drawn over the shirt they wear. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room', 'how would this chair look in my room', 'could I see this shirt on me', 'how would this look on me', and 'can I try this on'."
+        case .placeFurniture:
+            return "Place the furniture where its ghost stands in the room art panel, so Clicky paints the real piece there. Use it when the learner says right there, put it there, place it, leave it there, or that's good, about the piece they are placing. Your confirmation is a few plain words, such as \"placing it\"."
+        case .moveFurniture:
+            return "Move or turn the furniture's ghost in the room art panel before it is placed. direction is left or right as the learner sees the screen, closer to the camera, or farther from it. Put the distance in distanceCentimeters only when they name one, such as a foot (30) or a meter (100), and leave it out for a bit or a little. Put a turn in turnDegrees, positive to turn its front toward the right of the screen and negative toward the left, such as 90 for turn it sideways or 180 for turn it around, and leave direction out when they only ask to turn it. A piece moved near the wall behind it stands square against it. Your confirmation is a few plain words, such as \"moving it left\"."
         case .closeScene:
             return "Close the 3D scene on screen. A paused video plays again."
         case .explainPart:
@@ -343,6 +354,21 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         switch self {
         case .answerWithScreen, .buildSimulation, .popOut, .animatePicture, .showArtInMyRoom, .closeScene, .pauseVideo, .playVideo, .endQuiz, .replayExplanation:
             return objectSchema([:], required: [])
+        case .placeFurniture:
+            return objectSchema([:], required: [])
+        case .moveFurniture:
+            return objectSchema(
+                [
+                    "direction": .object([
+                        "type": .string("string"),
+                        "enum": .array(RoomFurnitureNudgeDirection.allCases.map { .string($0.rawValue) }),
+                        "description": .string("left, right, closer, or farther. Leave it out to only turn it."),
+                    ]),
+                    "distanceCentimeters": numberProperty("How far to move it, only when the learner names a distance. 30 when left out."),
+                    "turnDegrees": numberProperty("How far to turn it, positive toward the right of the screen. Leave it out to only move it."),
+                ],
+                required: []
+            )
         case .replayStep:
             return objectSchema(
                 ["step": .object([
@@ -477,6 +503,13 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Putting it back"
         case "explain_part":
             return textInput("label").map { partLabel in "The \(partLabel)" }
+        case "place_furniture":
+            return "Placing it"
+        case "move_furniture":
+            return roomFurnitureMoveChipPhrase(
+                direction: textInput("direction").flatMap(RoomFurnitureNudgeDirection.init(rawValue:)),
+                turnDegrees: numberInput("turnDegrees")
+            )
         case "replay_explanation":
             return "Showing it again"
         case "replay_step":
@@ -859,12 +892,15 @@ nonisolated func voiceCommandRouterTakesTheTranscript(
     themeStudioIsOpen: Bool = false,
     backgroundAgentIsRunning: Bool = false,
     backgroundAgentsArePaused: Bool = false,
+    furnitureGhostShows: Bool = false,
     phaseIsWaitingForAQuizAnswer: Bool,
     sceneIsBuilding: Bool,
     brainTakesEveryRequest: Bool = false
 ) -> Bool {
     if phaseIsWaitingForAQuizAnswer { return false }
     if themeStudioIsOpen { return true }
+    // A store page has no video and no scene, so the ghost is what "move it a bit to the left" commands.
+    if furnitureGhostShows && !sceneIsBuilding { return true }
     if sceneIsBuilding { return false }
     if brainTakesEveryRequest { return true }
     // While an agent runs or waits paused, "hold on" and "go ahead" reach the router with nothing on screen.

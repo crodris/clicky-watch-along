@@ -32,10 +32,11 @@ enum RoomArtLoopState: Equatable {
     /// fades it, and a panel that closes or is still reading the page has no loop at all.
     func after(phaseChangedTo phase: RoomArtPhase, at now: TimeInterval) -> RoomArtLoopState {
         switch phase {
-        case .measuring, .moving, .retrying, .arranging, .couldNotDraw, .preparingTheShirt, .waitingToSeeTheLearner:
+        case .measuring, .moving, .arranging, .couldNotDraw, .preparingTheShirt, .waitingToSeeTheLearner:
             if case .drawing = self { return self }
             return .drawing(beganAt: now)
-        case .showing, .waitingForAFloorClick, .showingTheShirt, .failed:
+        // The ghost appearing takes over from the loop: its spark leaves the loop's line as the loop fades.
+        case .showing, .placingTheFurniture, .waitingForAFloorClick, .showingTheShirt, .failed:
             if case .drawing(let beganAt) = self { return .fadingOut(beganAt: beganAt) }
             return self
         case .closed, .readingThePage, .waitingForTheCamera:
@@ -100,6 +101,14 @@ nonisolated enum RoomArtLoopGeometry {
         let left = min(max(anchor.x - windowSize.width / 2, 0), frameSize.width - windowSize.width)
         let top = min(max(anchor.y - windowSize.height / 2, 0), frameSize.height - windowSize.height)
         return RoomArtCorners(rect: CGRect(origin: CGPoint(x: left, y: top), size: windowSize))
+    }
+
+    /// The axis-aligned rectangle around four corners, which a loop bent onto those corners is drawn around.
+    static func boundingCorners(of corners: RoomArtCorners) -> RoomArtCorners {
+        let points = corners.clockwiseFromTopLeft
+        let left = points.map(\.x).min() ?? 0, right = points.map(\.x).max() ?? 0
+        let top = points.map(\.y).min() ?? 0, bottom = points.map(\.y).max() ?? 0
+        return RoomArtCorners(rect: CGRect(x: left, y: top, width: max(right - left, 1), height: max(bottom - top, 1)))
     }
 
     /// Where the keyframe's corners are after the tracker's turn of the laptop, the same warp that moves the art's corners.

@@ -1,0 +1,910 @@
+{
+  "label": "furniture-ghost",
+  "benchKind": "brain-evals",
+  "commitSHA": "c34260f1fadf",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-22T21:31:52.113Z",
+  "runCount": 3,
+  "port": 8797,
+  "backend": "harness",
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "summaryByBackend": {
+    "harness": {
+      "overall": {
+        "runs": 18,
+        "passed": 18,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 692,
+        "p95Ms": 872,
+        "totalCostUSD": 0.00243,
+        "meanCostUSD": 0.000135,
+        "fullCommandP50Ms": 692,
+        "meanFullCommandCostUSD": 0.000135
+      },
+      "byContext": {
+        "nothing": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "furnitureGhost": {
+          "runs": 18,
+          "passed": 18,
+          "passRate": 1,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": 692,
+          "p95Ms": 872,
+          "totalCostUSD": 0.00243,
+          "meanCostUSD": 0.000135,
+          "fullCommandP50Ms": 692,
+          "meanFullCommandCostUSD": 0.000135
+        },
+        "video": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "scene3D": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "experimentGuess": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "experimentExplore": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "popout": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "readyModel": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "taskAnswer": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "approvalWaiting": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioClosed": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioIdeas": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "agentsRunning": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "agentsRunningNoVideo": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "agentsPaused": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "agentsPausedApprovalWaiting": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "popoutReplayOffered": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "popoutReplayOpen": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "popoutReplayOpenAgentsPaused": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        }
+      }
+    }
+  },
+  "samples": [
+    {
+      "backend": "harness",
+      "caseId": "ghost-move-left",
+      "context": "furnitureGhost",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 749.3904579999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 163,
+          "cacheWriteTokens": 4639,
+          "cacheReadTokens": 0,
+          "outputTokens": 77
+        }
+      ],
+      "costUSD": 0.0006346749999999999,
+      "fullCommandCostUSD": 0.0006346749999999999,
+      "totalMs": 748.7658330000004,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "direction": "left"
+          }
+        }
+      ],
+      "spokenText": "moving it left"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-move-left",
+      "context": "furnitureGhost",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 666.8403330000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 163,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 77
+        }
+      ],
+      "costUSD": 0.00010119,
+      "fullCommandCostUSD": 0.00010119,
+      "totalMs": 666.2609579999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "direction": "left"
+          }
+        }
+      ],
+      "spokenText": "moving it left"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-move-left",
+      "context": "furnitureGhost",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 665.6248750000004,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 163,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 77
+        }
+      ],
+      "costUSD": 0.00010119,
+      "fullCommandCostUSD": 0.00010119,
+      "totalMs": 665.2736249999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "direction": "left"
+          }
+        }
+      ],
+      "spokenText": "moving it left"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-move-a-foot-closer",
+      "context": "furnitureGhost",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 705.1695,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 164,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 108
+        }
+      ],
+      "costUSD": 0.00011679000000000001,
+      "fullCommandCostUSD": 0.00011679000000000001,
+      "totalMs": 704.6619580000006,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "direction": "closer",
+            "distanceCentimeters": 30
+          }
+        }
+      ],
+      "spokenText": "bringing it closer"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-move-a-foot-closer",
+      "context": "furnitureGhost",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 721.5073750000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 164,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 108
+        }
+      ],
+      "costUSD": 0.00011679000000000001,
+      "fullCommandCostUSD": 0.00011679000000000001,
+      "totalMs": 721.2202920000009,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "direction": "closer",
+            "distanceCentimeters": 30
+          }
+        }
+      ],
+      "spokenText": "bringing it closer"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-move-a-foot-closer",
+      "context": "furnitureGhost",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 679.9606249999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 164,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 108
+        }
+      ],
+      "costUSD": 0.00011679000000000001,
+      "fullCommandCostUSD": 0.00011679000000000001,
+      "totalMs": 679.6897499999995,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "direction": "closer",
+            "distanceCentimeters": 30
+          }
+        }
+      ],
+      "spokenText": "bringing it closer"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-turn-around",
+      "context": "furnitureGhost",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 665.5543749999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 159,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00010279,
+      "fullCommandCostUSD": 0.00010279,
+      "totalMs": 665.2684999999983,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "turnDegrees": 180
+          }
+        }
+      ],
+      "spokenText": "turning it around"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-turn-around",
+      "context": "furnitureGhost",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 672.3409169999995,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 159,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00010279,
+      "fullCommandCostUSD": 0.00010279,
+      "totalMs": 671.9815830000007,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "turnDegrees": 180
+          }
+        }
+      ],
+      "spokenText": "turning it around"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-turn-around",
+      "context": "furnitureGhost",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 668.8015420000011,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 159,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00010279,
+      "fullCommandCostUSD": 0.00010279,
+      "totalMs": 668.4418330000008,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "turnDegrees": 180
+          }
+        }
+      ],
+      "spokenText": "turning it around"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-push-back",
+      "context": "furnitureGhost",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 872.526917000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 162,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 136
+        }
+      ],
+      "costUSD": 0.00013059,
+      "fullCommandCostUSD": 0.00013059,
+      "totalMs": 872.2619590000013,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "direction": "farther",
+            "distanceCentimeters": 100
+          }
+        }
+      ],
+      "spokenText": "pushing it back to the wall"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-push-back",
+      "context": "furnitureGhost",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 730.1034999999993,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 162,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 83
+        }
+      ],
+      "costUSD": 0.00010409,
+      "fullCommandCostUSD": 0.00010409,
+      "totalMs": 729.7483329999995,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "direction": "farther"
+          }
+        }
+      ],
+      "spokenText": "pushing it back to the wall"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-push-back",
+      "context": "furnitureGhost",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 856.8837919999987,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 162,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 142
+        }
+      ],
+      "costUSD": 0.00013359,
+      "fullCommandCostUSD": 0.00013359,
+      "totalMs": 856.5497500000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "direction": "farther",
+            "distanceCentimeters": 100
+          }
+        }
+      ],
+      "spokenText": "pushing it back to the wall"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-place-it-here",
+      "context": "furnitureGhost",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 691.8220829999991,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 164,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00008979,
+      "fullCommandCostUSD": 0.00008979,
+      "totalMs": 691.5555829999994,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "place_furniture",
+          "input": {}
+        }
+      ],
+      "spokenText": "placing it"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-place-it-here",
+      "context": "furnitureGhost",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 605.3622500000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 164,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00008979,
+      "fullCommandCostUSD": 0.00008979,
+      "totalMs": 605.1397919999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "place_furniture",
+          "input": {}
+        }
+      ],
+      "spokenText": "placing it"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-place-it-here",
+      "context": "furnitureGhost",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 620.9250409999986,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 164,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00008979,
+      "fullCommandCostUSD": 0.00008979,
+      "totalMs": 620.6387909999994,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "place_furniture",
+          "input": {}
+        }
+      ],
+      "spokenText": "placing it"
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-question",
+      "context": "furnitureGhost",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 706.6886249999989,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 162,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 74
+        }
+      ],
+      "costUSD": 0.00009959,
+      "fullCommandCostUSD": 0.00009959,
+      "totalMs": 706.1017090000023,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-question",
+      "context": "furnitureGhost",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 700.6522499999992,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 162,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 74
+        }
+      ],
+      "costUSD": 0.00009959,
+      "fullCommandCostUSD": 0.00009959,
+      "totalMs": 700.3578329999982,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "ghost-question",
+      "context": "furnitureGhost",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 712.2958330000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 162,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 75
+        }
+      ],
+      "costUSD": 0.00010009,
+      "fullCommandCostUSD": 0.00010009,
+      "totalMs": 712.0162080000009,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    }
+  ]
+}

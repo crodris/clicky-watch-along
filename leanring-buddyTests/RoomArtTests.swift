@@ -705,12 +705,22 @@ struct RoomArtPhaseTests {
         #expect(measuring.statusLine == "Measuring your floor…")
         // A wall reply never places furniture, so a mixed-up reply changes nothing.
         #expect(measuring.withTheSurfaceMeasured(.wall(wall), measurementID: firstMeasurement) == measuring)
-        // Furniture is arranged with no look until its painting or its fallback shows.
-        let arranging = measuring.withTheSurfaceMeasured(.floor(floor), measurementID: firstMeasurement)
-        #expect(arranging == .arranging(id: firstMeasurement, item: .furniture(furniture()), surface: .floor(floor)))
+        // Furniture shows its ghost first, which the learner moves until they place it.
+        let placing = measuring.withTheSurfaceMeasured(.floor(floor), measurementID: firstMeasurement)
+        #expect(placing == .placingTheFurniture(id: firstMeasurement, item: .furniture(furniture()), surface: .floor(floor)))
+        #expect(placing.furnitureGhostShows)
+        #expect(placing.statusLine == "Drag to move · say \u{201C}right there\u{201D}")
+        #expect(placing.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the floor. Turn back, or click the floor to place it again.")
+        #expect(!placing.statusLineIsAFailure(theSurfaceIsLost: false))
+        // Placed, it is arranged with no look until its painting or its fallback shows, under a placement number of its own.
+        let arranging = placing.placingTheFurnitureWhereItsGhostStands(placementID: secondMeasurement)
+        #expect(arranging == .arranging(id: secondMeasurement, item: .furniture(furniture()), surface: .floor(floor)))
+        #expect(!arranging.furnitureGhostShows)
         #expect(arranging.statusLine == "Arranging it in your room…")
         #expect(!arranging.statusLineIsAFailure(theSurfaceIsLost: false))
-        let showing = arranging.withTheFurnitureShowing(measurementID: firstMeasurement)
+        // Only a ghost can be placed.
+        #expect(arranging.placingTheFurnitureWhereItsGhostStands(placementID: RoomArtMeasurementID(number: 3)) == arranging)
+        let showing = arranging.withTheFurnitureShowing(measurementID: secondMeasurement)
         #expect(showing == .showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil))
         #expect(showing.statusLine == "On your floor, 21.5 inches wide and 17.5 tall")
         #expect(RoomArtPlacedItem.furniture(furniture()).hereItIsLine == "Here it is, 21.5 inches wide and 17.5 tall.")
@@ -730,18 +740,30 @@ struct RoomArtPhaseTests {
         let showing = arranging.withTheFurnitureShowing(measurementID: secondMeasurement)
         #expect(showing.withTheFurnitureShowing(measurementID: secondMeasurement) == showing)
         #expect(RoomArtPhase.measuring(id: secondMeasurement, item: .furniture(furniture())).withTheFurnitureShowing(measurementID: secondMeasurement) == .measuring(id: secondMeasurement, item: .furniture(furniture())))
-        // A move arranges the piece again on its new floor, and the camera failing ends it.
-        let moving = showing.startingAMeasurement(id: RoomArtMeasurementID(number: 3))
-        #expect(moving.withTheSurfaceMeasured(.floor(floor), measurementID: RoomArtMeasurementID(number: 3)) == .arranging(id: RoomArtMeasurementID(number: 3), item: .furniture(furniture()), surface: .floor(floor)))
+        // A click on placed furniture measures nothing: a press picks it back up as its ghost on the floor already measured,
+        // whether its look shows or is still on its way, and the camera failing ends it.
+        let thirdPlacement = RoomArtMeasurementID(number: 3)
+        #expect(showing.startingAMeasurement(id: thirdPlacement) == showing)
+        #expect(showing.pickingTheFurnitureBackUp(placementID: thirdPlacement) == .placingTheFurniture(id: thirdPlacement, item: .furniture(furniture()), surface: .floor(floor)))
+        #expect(arranging.pickingTheFurnitureBackUp(placementID: thirdPlacement) == .placingTheFurniture(id: thirdPlacement, item: .furniture(furniture()), surface: .floor(floor)))
+        // Wall art is never picked up, and a ghost waits for its own placement: a click or a late reply changes nothing.
+        let showingTheArt = RoomArtPhase.showing(item: .wallArt(artwork()), surface: .wall(wall), moveFailure: nil)
+        #expect(showingTheArt.pickingTheFurnitureBackUp(placementID: thirdPlacement) == showingTheArt)
+        let placing = RoomArtPhase.placingTheFurniture(id: secondMeasurement, item: .furniture(furniture()), surface: .floor(floor))
+        #expect(placing.startingAMeasurement(id: thirdPlacement) == placing)
+        #expect(placing.withTheSurfaceMeasured(.floor(floor), measurementID: secondMeasurement) == placing)
+        #expect(placing.withTheFurnitureShowing(measurementID: secondMeasurement) == placing)
+        #expect(placing.pickingTheFurnitureBackUp(placementID: thirdPlacement) == placing)
+        #expect(placing.theItemIsPlacedByClicking)
         #expect(arranging.afterTheCameraFailed(.noCamera) == .failed(.noCamera))
         #expect(arranging.closing() == .closed)
     }
 
-    @Test func furnitureThatCouldNotBeDrawnKeepsItsLoopAndAClickOnTheFloorTriesAgain() {
+    @Test func furnitureThatCouldNotBeDrawnKeepsItsLoopAndAPressPicksItsGhostBackUp() {
         let arranging = RoomArtPhase.arranging(id: secondMeasurement, item: .furniture(furniture()), surface: .floor(floor))
         #expect(arranging.afterTheFurnitureCouldNotBeDrawn(measurementID: firstMeasurement) == arranging)
         let couldNotDraw = arranging.afterTheFurnitureCouldNotBeDrawn(measurementID: secondMeasurement)
-        #expect(couldNotDraw == .couldNotDraw(id: secondMeasurement, item: .furniture(furniture()), surface: .floor(floor), retryFailure: nil))
+        #expect(couldNotDraw == .couldNotDraw(id: secondMeasurement, item: .furniture(furniture()), surface: .floor(floor)))
         #expect(couldNotDraw.statusLine == "I couldn't draw it this time. Click the floor to try again")
         #expect(couldNotDraw.statusLineIsAFailure(theSurfaceIsLost: false))
         #expect(couldNotDraw.theItemIsPlacedByClicking)
@@ -749,27 +771,10 @@ struct RoomArtPhaseTests {
         // A painting that still arrives for this placement shows the piece, and one for another does nothing.
         #expect(couldNotDraw.withTheFurnitureShowing(measurementID: secondMeasurement) == .showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil))
         #expect(couldNotDraw.withTheFurnitureShowing(measurementID: firstMeasurement) == couldNotDraw)
-        // A click measures again where the learner clicked, and its failure never ends the panel.
+        // A click measures nothing: a press picks the ghost back up on the floor already measured, to be placed again.
         let third = RoomArtMeasurementID(number: 3)
-        let retrying = couldNotDraw.startingAMeasurement(id: third)
-        #expect(retrying == .retrying(id: third, item: .furniture(furniture()), surfaceBeforeTheRetry: .floor(floor)))
-        #expect(retrying.statusLine == "Measuring your floor…")
-        #expect(retrying.theItemIsPlacedByClicking)
-        #expect(retrying.startingAMeasurement(id: RoomArtMeasurementID(number: 4)) == retrying)
-        #expect(RoomArtLoopState.drawing(beganAt: 3).after(phaseChangedTo: retrying, at: 9) == .drawing(beganAt: 3))
-        #expect(retrying.withTheSurfaceMeasured(.floor(floor), measurementID: third) == .arranging(id: third, item: .furniture(furniture()), surface: .floor(floor)))
-        #expect(retrying.withTheSurfaceMeasured(.floor(floor), measurementID: secondMeasurement) == retrying)
-        #expect(retrying.withTheSurfaceMeasured(.floor(floorBehindTheCamera), measurementID: third) == .couldNotDraw(id: third, item: .furniture(furniture()), surface: .floor(floor), retryFailure: .floorNotFound))
-        // A failed retry says why, and a floor not found stays a retry too, so a click after it never ends the panel.
-        let failedRetry = retrying.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: third)
-        #expect(failedRetry == .couldNotDraw(id: third, item: .furniture(furniture()), surface: .floor(floor), retryFailure: .depthServiceUnavailable))
-        #expect(failedRetry.statusLine == RoomArtFailure.depthServiceUnavailable.statusLine)
-        #expect(failedRetry.statusLineIsAFailure(theSurfaceIsLost: false))
-        let noFloorRetry = retrying.afterTheMeasurementFailed(.floorNotFound, measurementID: third)
-        #expect(noFloorRetry == .couldNotDraw(id: third, item: .furniture(furniture()), surface: .floor(floor), retryFailure: .floorNotFound))
-        let fourth = RoomArtMeasurementID(number: 4)
-        #expect(noFloorRetry.startingAMeasurement(id: fourth) == .retrying(id: fourth, item: .furniture(furniture()), surfaceBeforeTheRetry: .floor(floor)))
-        #expect(retrying.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: secondMeasurement) == retrying)
+        #expect(couldNotDraw.startingAMeasurement(id: third) == couldNotDraw)
+        #expect(couldNotDraw.pickingTheFurnitureBackUp(placementID: third) == .placingTheFurniture(id: third, item: .furniture(furniture()), surface: .floor(floor)))
         #expect(roomFurnitureNotDrawnLine == "I couldn't draw it this time. Click the floor to try again.")
     }
 
@@ -802,7 +807,7 @@ struct RoomArtPhaseTests {
         // The click measures again, and a floor found stands the piece on it.
         let measuringAgain = waitingForAClick.startingAMeasurement(id: secondMeasurement)
         #expect(measuringAgain == .measuring(id: secondMeasurement, item: .furniture(furniture())))
-        #expect(measuringAgain.withTheSurfaceMeasured(.floor(floor), measurementID: secondMeasurement) == .arranging(id: secondMeasurement, item: .furniture(furniture()), surface: .floor(floor)))
+        #expect(measuringAgain.withTheSurfaceMeasured(.floor(floor), measurementID: secondMeasurement) == .placingTheFurniture(id: secondMeasurement, item: .furniture(furniture()), surface: .floor(floor)))
         // Any other failure of the first floor measurement ends the panel.
         #expect(measuring.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .failed(.depthServiceUnavailable))
     }
@@ -849,9 +854,9 @@ struct RoomArtPhaseTests {
         let movingAgain = afterAFailedMove.startingAMeasurement(id: RoomArtMeasurementID(number: 3))
         #expect(movingAgain == .moving(id: RoomArtMeasurementID(number: 3), item: theArt, surfaceBeforeTheMove: .wall(wall)))
         #expect(movingAgain.withTheSurfaceMeasured(.wall(movedWall), measurementID: RoomArtMeasurementID(number: 3)) == .showing(item: theArt, surface: .wall(movedWall), moveFailure: nil))
-        // Furniture whose move finds no floor stays on the floor it stood on.
-        let movingTheTable = RoomArtPhase.showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil).startingAMeasurement(id: secondMeasurement)
-        #expect(movingTheTable.afterTheMeasurementFailed(.floorNotFound, measurementID: secondMeasurement) == .showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: .floorNotFound))
+        // Furniture never moves by a new measurement, since its ghost moves on the floor already measured.
+        let showingTheTable = RoomArtPhase.showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil)
+        #expect(showingTheTable.startingAMeasurement(id: secondMeasurement) == showingTheTable)
     }
 
     @Test func aLostSurfaceSaysSoWhileTheItemShowsAndTheSizeLineReturnsWhenFound() {
@@ -986,6 +991,15 @@ struct RoomArtLineTests {
         // While the page is read, the request's own thinking state does not hold its line back.
         #expect(lineStep(presses: 7, thinking: true) == .speakNow)
         #expect(lineStep(presses: 8) == .drop)
+    }
+
+    @Test func speakingToTheOpenPanelKeepsItsLaterLines() {
+        var request = RoomArtRequestRecord()
+        request.start(atPushToTalkPressCount: 7)
+        // "Right there" is a press, and the panel answers it with "Here it is" seconds later, which must not be dropped.
+        request.theLearnerSpokeToThePanel(atPushToTalkPressCount: 8)
+        #expect(request.lineStep(dictationIsInProgress: false, clickyIsThinking: false, audioIsPlaying: false, pushToTalkPressCount: 8) == .speakNow)
+        #expect(request.lineStep(dictationIsInProgress: false, clickyIsThinking: false, audioIsPlaying: false, pushToTalkPressCount: 9) == .drop)
     }
 
     @Test func aCancelledRequestLeavesTheOpeningToTheNewerRequest() {

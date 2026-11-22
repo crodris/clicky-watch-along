@@ -23,7 +23,8 @@ protocol RoomFurnitureGenerating {
     /// GLB bytes of a model of the product in `productJPEG`, the furniture's cutout over white. `cacheKeyData` is what the
     /// model is cached by, the page picture's JPEG bytes.
     func generateAModel(productJPEG: Data, itemTitle: String, cacheKeyData: Data) async throws -> Data
-    /// The keyframe with the item painted in where the mask is white, at the keyframe's size.
+    /// The keyframe with the item painted in where the mask is white, at the keyframe's size. `orientation` says which way
+    /// the piece faces, which the mask alone cannot: a convex area looks the same turned 180 degrees.
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data,
         keyframeWidth: Int,
@@ -31,8 +32,27 @@ protocol RoomFurnitureGenerating {
         productJPEG: Data,
         maskPNG: Data,
         itemTitle: String,
-        itemSizeWords: String
+        itemSizeWords: String,
+        orientation: RoomFurniturePaintingOrientation?
     ) async throws -> CGImage
+}
+
+extension RoomFurnitureGenerating {
+    /// A painting with no orientation, which the Worker asks for turned the way the masked area's shape shows.
+    func paintTheItemIntoTheKeyframe(
+        keyframeJPEG: Data, keyframeWidth: Int, keyframeHeight: Int, productJPEG: Data, maskPNG: Data, itemTitle: String, itemSizeWords: String
+    ) async throws -> CGImage {
+        try await paintTheItemIntoTheKeyframe(
+            keyframeJPEG: keyframeJPEG, keyframeWidth: keyframeWidth, keyframeHeight: keyframeHeight, productJPEG: productJPEG,
+            maskPNG: maskPNG, itemTitle: itemTitle, itemSizeWords: itemSizeWords, orientation: nil
+        )
+    }
+}
+
+/// Which way the painted piece faces, from the ghost the learner placed: the Worker turns it into its own words.
+nonisolated struct RoomFurniturePaintingOrientation: Equatable, Sendable {
+    let facing: RoomFurnitureFacing
+    let backAgainstTheWall: Bool
 }
 
 extension RoomFurnitureGenerationClient: RoomFurnitureGenerating {}
@@ -45,7 +65,8 @@ struct RoomFurnitureGenerationNotSetUp: RoomFurnitureGenerating {
     }
 
     func paintTheItemIntoTheKeyframe(
-        keyframeJPEG: Data, keyframeWidth: Int, keyframeHeight: Int, productJPEG: Data, maskPNG: Data, itemTitle: String, itemSizeWords: String
+        keyframeJPEG: Data, keyframeWidth: Int, keyframeHeight: Int, productJPEG: Data, maskPNG: Data, itemTitle: String, itemSizeWords: String,
+        orientation: RoomFurniturePaintingOrientation?
     ) async throws -> CGImage {
         throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")
     }
@@ -70,6 +91,10 @@ nonisolated enum RoomFurniturePaintedComposite {
     /// where the first rows hold only a few pixels and one redrawn patch of wall refused a good painting of the chair.
     static let mostOfTheRegionsTopThatMayChange = 0.5
     static let pixelsAlongTheRegionsTop = 200
+    /// The painted piece's floor contact, the middle of its lowest painted row, must land on the box's footprint, grown by
+    /// this share of the footprint's size on each side. A piece painted floating above its footprint, or beside it, stands
+    /// where the learner did not put it, even at the right height.
+    static let floorContactSlackShare = 0.15
 
     /// The painted item as keyframe layers, or nil when the painting is not the keyframe's size, the mask does not read, the
     /// painted item is shorter than the box's front face or taller than its outline, each by more than
@@ -100,11 +125,16 @@ nonisolated enum RoomFurniturePaintedComposite {
         // outline (plus `mostHeightDifference`). The outline alone overstates a chair, whose top is lower than the box's
         // back corners: on one frame the painted Target chair matched the exact render of the store's model and still
         // measured 79 percent of the outline.
-        let boxOutlineHeight = (projectedBox.map(\.y).max() ?? 0) - (projectedBox.map(\.y).min() ?? 0)
-        let frontFace = projectedBox.prefix(4)
+        // A box that runs past the frame's edge, such as a long sofa placed near the camera, is measured as far as the frame
+        // shows it, since the painter paints only the frame and the piece is cut off there as the box is.
+        let boxInTheFrame = projectedBox.map { corner in
+            CGPoint(x: min(max(corner.x, 0), Double(keyframe.width - 1)), y: min(max(corner.y, 0), Double(keyframe.height - 1)))
+        }
+        let boxOutlineHeight = (boxInTheFrame.map(\.y).max() ?? 0) - (boxInTheFrame.map(\.y).min() ?? 0)
+        let frontFace = boxInTheFrame.prefix(4)
         let frontFaceHeight = (frontFace.map(\.y).max() ?? 0) - (frontFace.map(\.y).min() ?? 0)
-        let lowestItemRow = Int((projectedBox.map(\.y).max() ?? 0).rounded(.up))
-        guard let (paintedRowSpan, shareChangedAlongTheRegionsTop) = rowsThePaintingChanged(
+        let lowestItemRow = Int((boxInTheFrame.map(\.y).max() ?? 0).rounded(.up))
+        guard let (paintedRowSpan, shareChangedAlongTheRegionsTop, lowestRowMiddleColumn) = rowsThePaintingChanged(
             painted: paintedImage, keyframe: CIImage(cgImage: keyframe), mask: mask, frameRectangle: frameRectangle, lowestItemRow: lowestItemRow, ciContext: ciContext
         ) else {
             return (nil, nil, nil)
@@ -116,6 +146,9 @@ nonisolated enum RoomFurniturePaintedComposite {
         guard shareChangedAlongTheRegionsTop < mostOfTheRegionsTopThatMayChange else { return (nil, paintedHeightRatio, paintedRowSpan) }
         guard paintedRows >= frontFaceHeight * (1 - mostHeightDifference),
               paintedRows <= boxOutlineHeight * (1 + mostHeightDifference) else { return (nil, paintedHeightRatio, paintedRowSpan) }
+        guard floorContactLandsOnTheFootprint(
+            CGPoint(x: lowestRowMiddleColumn, y: Double(paintedRowSpan.upperBound)), footprint: [boxInTheFrame[2], boxInTheFrame[3], boxInTheFrame[6], boxInTheFrame[7]]
+        ) else { return (nil, paintedHeightRatio, paintedRowSpan) }
 
         let itemLayer = paintedImage.applyingFilter("CIBlendWithMask", parameters: [
             kCIInputBackgroundImageKey: CIImage.empty(),
@@ -136,9 +169,20 @@ nonisolated enum RoomFurniturePaintedComposite {
         return (layers, paintedHeightRatio, paintedRowSpan)
     }
 
+    /// Whether a floor contact point, in y-down keyframe pixels, lies on the footprint's bounding box grown by
+    /// `floorContactSlackShare` of its size on each side.
+    static func floorContactLandsOnTheFootprint(_ floorContact: CGPoint, footprint: [CGPoint]) -> Bool {
+        guard let left = footprint.map(\.x).min(), let right = footprint.map(\.x).max(),
+              let top = footprint.map(\.y).min(), let bottom = footprint.map(\.y).max() else { return false }
+        let horizontalSlack = (right - left) * floorContactSlackShare, verticalSlack = max(bottom - top, 1) * floorContactSlackShare
+        return floorContact.x >= left - horizontalSlack && floorContact.x <= right + horizontalSlack
+            && floorContact.y >= top - verticalSlack && floorContact.y <= bottom + verticalSlack
+    }
+
     /// The rows from the highest to the lowest where the painting changed enough of the pasted region's pixels in that row
     /// (`shareOfARowThatMustChange`, `fewestChangedPixelsInARow`), in y-down keyframe rows, and the share of the region's
-    /// top `pixelsAlongTheRegionsTop` pixels that changed, or nil when no row did.
+    /// top `pixelsAlongTheRegionsTop` pixels that changed, and the mean column of the changed pixels in the lowest painted
+    /// row, where the piece meets the floor, or nil when no row did.
     ///
     /// Rows below the box's lowest corner (`lowestItemRow`) never count. The piece stands on the floor at that row, and below
     /// it the pasted region holds only the painted shadow and the floor the service drew again. Counting them ran the item
@@ -146,7 +190,7 @@ nonisolated enum RoomFurniturePaintedComposite {
     /// box as 121 percent and refused it (2026-11-22, room-floor.mp4).
     private static func rowsThePaintingChanged(
         painted: CIImage, keyframe: CIImage, mask: CIImage, frameRectangle: CGRect, lowestItemRow: Int, ciContext: CIContext
-    ) -> (paintedRows: ClosedRange<Int>, shareChangedAlongTheRegionsTop: Double)? {
+    ) -> (paintedRows: ClosedRange<Int>, shareChangedAlongTheRegionsTop: Double, lowestRowMiddleColumn: Double)? {
         let width = Int(frameRectangle.width), height = Int(frameRectangle.height)
         let difference = painted.applyingFilter("CIDifferenceBlendMode", parameters: [kCIInputBackgroundImageKey: keyframe])
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0])
@@ -157,13 +201,17 @@ nonisolated enum RoomFurniturePaintedComposite {
         ciContext.render(mask.cropped(to: frameRectangle), toBitmap: &maskBytes, rowBytes: width, bounds: frameRectangle, format: .L8, colorSpace: gray)
         let changeThreshold = UInt8(paintedLuminanceChange * 255)
         var firstPaintedRow: Int?, lastPaintedRow: Int?
+        var lastPaintedRowColumnTotal = 0, lastPaintedRowColumnCount = 0
         var regionTopPixels = 0, regionTopPixelsChanged = 0
         // Row 0 of the rendered bytes is the frame's top row, as y-down keyframe pixels count.
         for row in 0..<min(height, lowestItemRow + 1) {
-            var maskPixels = 0, changedPixels = 0
+            var maskPixels = 0, changedPixels = 0, changedColumnTotal = 0
             for column in 0..<width where maskBytes[row * width + column] > 127 {
                 maskPixels += 1
-                if differenceBytes[row * width + column] > changeThreshold { changedPixels += 1 }
+                if differenceBytes[row * width + column] > changeThreshold {
+                    changedPixels += 1
+                    changedColumnTotal += column
+                }
             }
             if maskPixels > 0, regionTopPixels < pixelsAlongTheRegionsTop {
                 regionTopPixels += maskPixels
@@ -172,9 +220,11 @@ nonisolated enum RoomFurniturePaintedComposite {
             guard maskPixels > 0, changedPixels >= max(fewestChangedPixelsInARow, Int((Double(maskPixels) * shareOfARowThatMustChange).rounded(.up))) else { continue }
             firstPaintedRow = firstPaintedRow ?? row
             lastPaintedRow = row
+            lastPaintedRowColumnTotal = changedColumnTotal
+            lastPaintedRowColumnCount = changedPixels
         }
-        guard let firstPaintedRow, let lastPaintedRow, regionTopPixels > 0 else { return nil }
-        return (firstPaintedRow...lastPaintedRow, Double(regionTopPixelsChanged) / Double(regionTopPixels))
+        guard let firstPaintedRow, let lastPaintedRow, regionTopPixels > 0, lastPaintedRowColumnCount > 0 else { return nil }
+        return (firstPaintedRow...lastPaintedRow, Double(regionTopPixelsChanged) / Double(regionTopPixels), Double(lastPaintedRowColumnTotal) / Double(lastPaintedRowColumnCount))
     }
 }
 

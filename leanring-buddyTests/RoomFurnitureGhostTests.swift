@@ -1,0 +1,595 @@
+//
+//  RoomFurnitureGhostTests.swift
+//  leanring-buddyTests
+//
+//  The furniture's ghost: where it stands, the drag that goes back through the tracker's turn onto the floor, the snap
+//  to the wall and its release, turning with the scroll wheel, voice nudges, the timeline that draws it line by line, its
+//  lines in the panel, and the phrases that place it.
+//
+
+import CoreGraphics
+import Foundation
+import Testing
+import simd
+@testable import Clicky
+
+/// A floor below a camera tilted down, the anchor about 2.8 m ahead, as `RoomFurnitureModelTests` uses.
+private func floorAhead(centerX: Double = 0) -> FloorPlane {
+    let up = simd_normalize(SIMD3<Double>(0, -0.96, -0.28))
+    let right = SIMD3<Double>(1, 0, 0)
+    return FloorPlane(
+        center: SIMD3(centerX, 0.8, 2.8),
+        right: right,
+        up: up,
+        forward: simd_cross(up, right),
+        focalLengthPixels: 1100,
+        principalPoint: SIMD2(640, 360),
+        distanceMeters: 2.6,
+        floorTiltDegrees: 16,
+        planeInlierShare: 0.95
+    )
+}
+
+/// An upright wall `metersBeyond` past the floor's anchor along the floor, facing the camera.
+private func wallBehind(_ floor: FloorPlane, metersBeyond: Double) -> WallPlane {
+    WallPlane(
+        center: floor.center + floor.forward * metersBeyond + floor.up * 1.0,
+        right: floor.right,
+        up: floor.up,
+        focalLengthPixels: floor.focalLengthPixels,
+        principalPoint: floor.principalPoint,
+        distanceMeters: 4,
+        wallAngleDegrees: 0,
+        planeInlierShare: 0.9
+    )
+}
+
+/// A sofa 2.29 m wide, 0.81 m tall, and 0.9 m deep.
+private func sofaGhost(on floor: FloorPlane = floorAhead(), wall: WallPlane?) throws -> RoomFurnitureGhost {
+    try #require(RoomFurnitureGhost(standingOn: floor, wall: wall, widthMeters: 2.29, heightMeters: 0.81, depthMeters: 0.9))
+}
+
+/// How far the shown box's back face is in front of the wall, along the wall's normal toward the camera.
+private func backFaceGap(of ghost: RoomFurnitureGhost, wall: WallPlane) throws -> Double {
+    let placement = try #require(ghost.shownPlacement)
+    let wallNormal = simd_normalize(simd_cross(wall.right, wall.up))
+    return placement.boxCorners[4...7].map { simd_dot($0 - wall.center, wallNormal) }.min() ?? .nan
+}
+
+private func degreesBetween(_ first: SIMD3<Double>, _ second: SIMD3<Double>) -> Double {
+    acos(min(1, max(-1, simd_dot(simd_normalize(first), simd_normalize(second))))) * 180 / .pi
+}
+
+struct RoomFurnitureGhostPoseTests {
+    @Test func theGhostStartsWhereTheSpotSearchPutThePieceFacingTheCamera() throws {
+        let floor = floorAhead(centerX: 0.3)
+        let ghost = try sofaGhost(on: floor, wall: nil)
+        let ghostCorners = try #require(ghost.keyframeBoxCorners)
+        let spotCorners = try #require(floor.keyframeBoxCorners(widthMeters: 2.29, heightMeters: 0.81, depthMeters: 0.9))
+        for (ghostCorner, spotCorner) in zip(ghostCorners, spotCorners) {
+            #expect(hypot(ghostCorner.x - spotCorner.x, ghostCorner.y - spotCorner.y) < 1e-6)
+        }
+        #expect(!ghost.shownPose.isSnappedToTheWall)
+    }
+
+    @Test func dragsCarryTheGhostWithThePointerWithoutAJump() throws {
+        var ghost = try sofaGhost(wall: nil)
+        let startingCenter = ghost.shownPose.footprintCenter
+        let pressPoint = startingCenter + ghost.floor.right * 0.2
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        #expect(simd_length(ghost.shownPose.footprintCenter - startingCenter) < 1e-9)
+        ghost.drag(toFloorPoint: pressPoint + ghost.floor.right * 0.5)
+        #expect(simd_length(ghost.shownPose.footprintCenter - (startingCenter + ghost.floor.right * 0.5)) < 1e-9)
+        ghost.release()
+        #expect(!ghost.isBeingDragged)
+        // A drag with nothing grabbed changes nothing.
+        ghost.drag(toFloorPoint: pressPoint)
+        #expect(simd_length(ghost.shownPose.footprintCenter - (startingCenter + ghost.floor.right * 0.5)) < 1e-9)
+    }
+
+    @Test func aPressOffTheGhostJumpsItThere() throws {
+        var ghost = try sofaGhost(wall: nil)
+        let elsewhere = ghost.floor.center + ghost.floor.right * 0.8
+        ghost.grab(atFloorPoint: elsewhere, onTheGhost: false)
+        #expect(simd_length(ghost.shownPose.footprintCenter - elsewhere) < 1e-9)
+    }
+
+    @Test func theGhostKeepsToTheFloor() throws {
+        var ghost = try sofaGhost(wall: nil)
+        ghost.grab(atFloorPoint: ghost.floor.center, onTheGhost: true)
+        ghost.drag(toFloorPoint: ghost.floor.center + ghost.floor.up * 0.4)
+        let height = simd_dot(ghost.shownPose.footprintCenter - ghost.floor.center, ghost.floor.up)
+        #expect(abs(height) < 1e-9)
+    }
+
+    @Test func aPressOnTheGhostIsInsideItsOutline() throws {
+        let ghost = try sofaGhost(wall: nil)
+        let corners = try #require(ghost.keyframeBoxCorners)
+        let middle = CGPoint(x: corners.map(\.x).reduce(0, +) / 8, y: corners.map(\.y).reduce(0, +) / 8)
+        #expect(ghost.contains(keyframePixel: middle))
+        #expect(!ghost.contains(keyframePixel: CGPoint(x: 5, y: 5)))
+    }
+}
+
+struct RoomFurnitureGhostWallSnapTests {
+    @Test func aGhostOnAFloorInferredFromTheWallStandsOnTheWallAndStillDragsAndSnaps() throws {
+        // A laptop camera that sees only the wall: the floor is inferred 1.05 m below the camera, square to the wall.
+        let wall = WallPlane(center: SIMD3(0.1, -0.1, 3.2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 1100,
+                             principalPoint: SIMD2(640, 360), distanceMeters: 3.2, wallAngleDegrees: 0, planeInlierShare: 0.9)
+        let inferredFloor = try #require(FloorPlane.inferred(fromTheWall: wall, itemDepthMeters: 0.9))
+        var ghost = try #require(RoomFurnitureGhost(standingOn: inferredFloor, wall: wall, widthMeters: 2.29, heightMeters: 0.81, depthMeters: 0.9))
+        #expect(ghost.shownPose.isSnappedToTheWall)
+        #expect(abs(try backFaceGap(of: ghost, wall: wall)) < 1e-6)
+        #expect(ghost.keyframeBoxCorners != nil)
+        // A drag along the wall slides it there, still on the wall.
+        let pressPoint = ghost.shownPose.footprintCenter
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        ghost.drag(toFloorPoint: pressPoint + SIMD3(0.6, 0, 0))
+        #expect(ghost.shownPose.isSnappedToTheWall)
+        #expect(abs(ghost.shownPose.footprintCenter.x - (pressPoint.x + 0.6)) < 1e-9)
+        // A drag out into the room lets it go.
+        ghost.drag(toFloorPoint: pressPoint + SIMD3(0.6, 0, -0.8))
+        #expect(!ghost.shownPose.isSnappedToTheWall)
+        // The floor under a pixel is the inferred plane's.
+        let floorPoint = try #require(ghost.floorPoint(underKeyframePixel: CGPoint(x: 640, y: 650)))
+        #expect(abs(simd_dot(floorPoint - inferredFloor.center, inferredFloor.up)) < 1e-9)
+    }
+
+    @Test func theBackSnapsToTheWallWithinThirtyCentimetersAndSquaresTheFront() throws {
+        let floor = floorAhead()
+        let wall = wallBehind(floor, metersBeyond: 1.5)
+        var ghost = try sofaGhost(on: floor, wall: wall)
+        // At the start the back is 0.6 m from the wall: 1.5 m less the footprint's half depth twice.
+        #expect(!ghost.shownPose.isSnappedToTheWall)
+        ghost.turn(byDegrees: 30)
+        let pressPoint = ghost.shownPose.footprintCenter
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        ghost.drag(toFloorPoint: pressPoint + floor.forward * 0.35)
+        #expect(ghost.shownPose.isSnappedToTheWall)
+        #expect(abs(try backFaceGap(of: ghost, wall: wall)) < 1e-6)
+        let wallNormalTowardTheCamera = simd_normalize(simd_cross(wall.right, wall.up))
+        #expect(degreesBetween(ghost.shownPose.towardTheFront, wallNormalTowardTheCamera) < 1e-6)
+    }
+
+    @Test func theBackJustOutsideThirtyCentimetersDoesNotSnap() throws {
+        let floor = floorAhead()
+        let wall = wallBehind(floor, metersBeyond: 1.5)
+        var ghost = try sofaGhost(on: floor, wall: wall)
+        let pressPoint = ghost.shownPose.footprintCenter
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        ghost.drag(toFloorPoint: pressPoint + floor.forward * 0.29)
+        #expect(!ghost.shownPose.isSnappedToTheWall)
+        #expect(abs(try backFaceGap(of: ghost, wall: wall) - 0.31) < 1e-6)
+    }
+
+    @Test func aDragPastTheWallStopsAtTheWall() throws {
+        let floor = floorAhead()
+        let wall = wallBehind(floor, metersBeyond: 1.5)
+        var ghost = try sofaGhost(on: floor, wall: wall)
+        let pressPoint = ghost.shownPose.footprintCenter
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        ghost.drag(toFloorPoint: pressPoint + floor.forward * 2)
+        #expect(ghost.shownPose.isSnappedToTheWall)
+        #expect(abs(try backFaceGap(of: ghost, wall: wall)) < 1e-6)
+    }
+
+    @Test func movingAwayReleasesTheSnapAndTheLearnersTurnComesBack() throws {
+        let floor = floorAhead()
+        let wall = wallBehind(floor, metersBeyond: 1.5)
+        var ghost = try sofaGhost(on: floor, wall: wall)
+        ghost.turn(byDegrees: 30)
+        let pressPoint = ghost.shownPose.footprintCenter
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        ghost.drag(toFloorPoint: pressPoint + floor.forward * 0.5)
+        #expect(ghost.shownPose.isSnappedToTheWall)
+        ghost.drag(toFloorPoint: pressPoint)
+        #expect(!ghost.shownPose.isSnappedToTheWall)
+    }
+
+    @Test func noWallNeverSnaps() throws {
+        var ghost = try sofaGhost(wall: nil)
+        let pressPoint = ghost.shownPose.footprintCenter
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        ghost.drag(toFloorPoint: pressPoint + ghost.floor.forward * 3)
+        #expect(!ghost.shownPose.isSnappedToTheWall)
+    }
+
+    @Test func aWallLyingFlatIsNoWall() throws {
+        let floor = floorAhead()
+        // A "wall" whose up lies along the floor, like a table top caught by the measurement.
+        let flatWall = WallPlane(center: floor.center + floor.forward * 1.2, right: floor.right, up: floor.forward,
+                                 focalLengthPixels: 1100, principalPoint: SIMD2(640, 360), distanceMeters: 4, wallAngleDegrees: 80, planeInlierShare: 0.9)
+        var ghost = try sofaGhost(on: floor, wall: flatWall)
+        let pressPoint = ghost.shownPose.footprintCenter
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        ghost.drag(toFloorPoint: pressPoint + floor.forward * 0.9)
+        #expect(!ghost.shownPose.isSnappedToTheWall)
+    }
+
+    @Test func aWallLeaningFarOverIsNoWall() throws {
+        let floor = floorAhead()
+        // A plane leaning 75 degrees from upright, such as a sloped ceiling or a table caught at an angle: its normal is
+        // mostly along the floor's up, and only a little of it lies level.
+        let leanRadians = 75.0 * .pi / 180
+        let leaningUp = simd_normalize(floor.up * cos(leanRadians) + floor.forward * sin(leanRadians))
+        let leaningWall = WallPlane(center: floor.center + floor.forward * 1.2, right: floor.right, up: leaningUp,
+                                    focalLengthPixels: 1100, principalPoint: SIMD2(640, 360), distanceMeters: 4, wallAngleDegrees: 75, planeInlierShare: 0.9)
+        var ghost = try sofaGhost(on: floor, wall: leaningWall)
+        let pressPoint = ghost.shownPose.footprintCenter
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        ghost.drag(toFloorPoint: pressPoint + floor.forward * 0.9)
+        #expect(!ghost.shownPose.isSnappedToTheWall)
+    }
+
+    @Test func aTurnAgainstTheWallTurnsFromItsSquareAndHoldsTheSnapOff() throws {
+        let floor = floorAhead()
+        let wall = wallBehind(floor, metersBeyond: 1.5)
+        var ghost = try sofaGhost(on: floor, wall: wall)
+        let pressPoint = ghost.shownPose.footprintCenter
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        ghost.drag(toFloorPoint: pressPoint + floor.forward * 0.5)
+        ghost.release()
+        let squareFront = ghost.shownPose.towardTheFront
+        let snappedCenter = ghost.shownPose.footprintCenter
+        ghost.turn(byDegrees: 15)
+        #expect(!ghost.shownPose.isSnappedToTheWall)
+        #expect(abs(degreesBetween(ghost.shownPose.towardTheFront, squareFront) - 15) < 1e-6)
+        #expect(simd_length(ghost.shownPose.footprintCenter - snappedCenter) < 1e-9)
+        // The next drag lets the snap apply again.
+        ghost.grab(atFloorPoint: snappedCenter, onTheGhost: true)
+        #expect(ghost.shownPose.isSnappedToTheWall)
+    }
+
+    @Test func aNudgeAlongTheWallStaysSnappedAndANudgeCloserPullsItOff() throws {
+        let floor = floorAhead()
+        let wall = wallBehind(floor, metersBeyond: 1.5)
+        var ghost = try sofaGhost(on: floor, wall: wall)
+        let pressPoint = ghost.shownPose.footprintCenter
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        ghost.drag(toFloorPoint: pressPoint + floor.forward * 0.5)
+        ghost.release()
+        let snappedCenter = ghost.shownPose.footprintCenter
+        ghost.nudge(.left, distanceMeters: 0.3, turnDegrees: 0)
+        #expect(ghost.shownPose.isSnappedToTheWall)
+        // Left on screen is the image's left, which is the camera's -x here.
+        #expect(ghost.shownPose.footprintCenter.x < snappedCenter.x - 0.25)
+        let squareFront = ghost.shownPose.towardTheFront
+        ghost.nudge(.closer, distanceMeters: 0.3, turnDegrees: 0)
+        #expect(!ghost.shownPose.isSnappedToTheWall)
+        #expect(abs(try backFaceGap(of: ghost, wall: wall) - 0.3) < 0.02)
+        // Pulled off the wall, it keeps facing out from it.
+        #expect(degreesBetween(ghost.shownPose.towardTheFront, squareFront) < 2)
+        // A nudge farther lets the snap apply again.
+        ghost.nudge(.farther, distanceMeters: 0.1, turnDegrees: 0)
+        #expect(ghost.shownPose.isSnappedToTheWall)
+    }
+
+    @Test func aNudgeOnlyTurningTurnsInPlace() throws {
+        var ghost = try sofaGhost(wall: nil)
+        let before = ghost.shownPose
+        ghost.nudge(nil, distanceMeters: 0.3, turnDegrees: 90)
+        #expect(simd_length(ghost.shownPose.footprintCenter - before.footprintCenter) < 1e-9)
+        #expect(abs(degreesBetween(ghost.shownPose.towardTheFront, before.towardTheFront) - 90) < 1e-6)
+    }
+
+    @Test func aPickedUpPieceKeepsThePoseItWasPlacedIn() throws {
+        let floor = floorAhead()
+        let wall = wallBehind(floor, metersBeyond: 1.5)
+        var ghost = try sofaGhost(on: floor, wall: wall)
+        let pressPoint = ghost.shownPose.footprintCenter
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        ghost.drag(toFloorPoint: pressPoint + floor.forward * 0.5)
+        let placedPose = ghost.shownPose
+        let pickedUp = RoomFurnitureGhost(pickedUpFrom: ghost)
+        #expect(!pickedUp.isBeingDragged)
+        #expect(simd_length(pickedUp.shownPose.footprintCenter - placedPose.footprintCenter) < 1e-9)
+        #expect(degreesBetween(pickedUp.shownPose.towardTheFront, placedPose.towardTheFront) < 1e-6)
+    }
+}
+
+struct RoomFurnitureFacingTests {
+    @Test(arguments: [
+        (0.0, RoomFurnitureFacing.camera), (11, .camera), (-11, .camera), (20, .cameraSlightlyRight), (-20, .cameraSlightlyLeft),
+        (60, .right), (-60, .left), (134, .right), (150, .awayFromTheCamera), (-180, .awayFromTheCamera), (350, .camera), (-340, .cameraSlightlyRight),
+    ])
+    func eachTurnHasAFacing(turnDegrees: Double, expectedFacing: RoomFurnitureFacing) {
+        #expect(RoomFurnitureFacing(turnDegreesFromFacingTheCamera: turnDegrees) == expectedFacing)
+    }
+
+    @Test func aPositiveTurnFacesTheImagesRight() throws {
+        var ghost = try sofaGhost(wall: nil)
+        #expect(ghost.facing == .camera)
+        ghost.turn(byDegrees: 75)
+        #expect(ghost.facing == .right)
+        // The front's level direction points toward +x, which the pinhole draws to the right.
+        #expect(ghost.shownPose.towardTheFront.x > 0.5)
+    }
+
+    @Test func aPieceOnTheWallTellsThePainterSo() throws {
+        let floor = floorAhead()
+        let wall = wallBehind(floor, metersBeyond: 1.5)
+        var ghost = try sofaGhost(on: floor, wall: wall)
+        #expect(ghost.paintingOrientation == RoomFurniturePaintingOrientation(facing: .camera, backAgainstTheWall: false))
+        let pressPoint = ghost.shownPose.footprintCenter
+        ghost.grab(atFloorPoint: pressPoint, onTheGhost: true)
+        ghost.drag(toFloorPoint: pressPoint + floor.forward * 0.5)
+        #expect(ghost.paintingOrientation == RoomFurniturePaintingOrientation(facing: .camera, backAgainstTheWall: true))
+    }
+}
+
+struct RoomFurnitureGhostDragMappingTests {
+    @Test func aCurrentPixelGoesBackThroughTheTrackersTurnToTheSameFloorPoint() throws {
+        let ghost = try sofaGhost(wall: nil)
+        let warp = EuclideanWarp(angleRadians: 0.04, translationX: -38, translationY: 12)
+        let tracked = RoomArtTrackedWarp(keyframeNumber: 3, keyframeToCurrent: warp, theRoomIsLost: false)
+        let keyframePixel = CGPoint(x: 700, y: 610)
+        let currentPixel = warp.apply(to: keyframePixel)
+        let throughTheWarp = try #require(tracked.floorPoint(underCurrentPixel: currentPixel, of: ghost))
+        let direct = try #require(ghost.floorPoint(underKeyframePixel: keyframePixel))
+        #expect(simd_length(throughTheWarp - direct) < 1e-9)
+        // Taking the current pixel as a keyframe pixel would land somewhere else.
+        let untracked = try #require(ghost.floorPoint(underKeyframePixel: currentPixel))
+        #expect(simd_length(untracked - direct) > 0.05)
+    }
+
+    @Test func aLostRoomOrAPixelAboveTheHorizonGivesNoFloorPoint() throws {
+        let ghost = try sofaGhost(wall: nil)
+        let lost = RoomArtTrackedWarp(keyframeNumber: 1, keyframeToCurrent: .identity, theRoomIsLost: true)
+        #expect(lost.floorPoint(underCurrentPixel: CGPoint(x: 640, y: 600), of: ghost) == nil)
+        let found = RoomArtTrackedWarp(keyframeNumber: 1, keyframeToCurrent: .identity, theRoomIsLost: false)
+        #expect(found.floorPoint(underCurrentPixel: CGPoint(x: 640, y: -4000), of: ghost) == nil)
+    }
+
+    @Test func theInvertedWarpUndoesTheWarp() {
+        let warp = EuclideanWarp(angleRadians: -0.3, translationX: 55, translationY: -21)
+        let point = CGPoint(x: 312, y: 489)
+        let roundTrip = warp.inverted.apply(to: warp.apply(to: point))
+        #expect(hypot(roundTrip.x - point.x, roundTrip.y - point.y) < 1e-9)
+    }
+
+    @Test func anEasedWarpMovesThatShareOfTheWay() {
+        let eased = EuclideanWarp.identity.eased(toward: EuclideanWarp(angleRadians: 0.2, translationX: 10, translationY: -20), share: 0.25)
+        #expect(abs(eased.angleRadians - 0.05) < 1e-12 && abs(eased.translationX - 2.5) < 1e-12 && abs(eased.translationY + 5) < 1e-12)
+    }
+}
+
+struct RoomFurnitureGhostPersonShareTests {
+    @Test func theShareOfTheBoxThePersonCoversCountsOnlyThePersonsPixelsInsideIt() {
+        // A 10 by 10 mask over a 100 by 100 frame, with the person in the left half (columns 0 to 4).
+        var maskBytes = [UInt8](repeating: 0, count: 100)
+        for row in 0..<10 { for column in 0..<5 { maskBytes[row * 10 + column] = 255 } }
+        let frameSize = CGSize(width: 100, height: 100)
+        func share(_ rect: CGRect) -> Double {
+            shareOfTheOutlineThePersonCovers(
+                maskBytes: maskBytes, maskWidth: 10, maskHeight: 10,
+                outlineInFramePixels: [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.maxY)],
+                frameSize: frameSize
+            )
+        }
+        #expect(share(CGRect(x: 0, y: 0, width: 100, height: 100)) == 0.5)
+        #expect(share(CGRect(x: 60, y: 0, width: 40, height: 100)) == 0)
+        #expect(share(CGRect(x: 0, y: 0, width: 40, height: 50)) == 1)
+        // An outline off the frame, or with no area, covers nothing.
+        #expect(share(CGRect(x: 200, y: 200, width: 10, height: 10)) == 0)
+        #expect(shareOfTheOutlineThePersonCovers(maskBytes: maskBytes, maskWidth: 10, maskHeight: 10, outlineInFramePixels: [.zero, CGPoint(x: 5, y: 5)], frameSize: frameSize) == 0)
+    }
+}
+
+struct RoomFurnitureScrollTurnTests {
+    @Test func aWheelNotchIsOneStepEachWay() {
+        var scrollTurn = RoomFurnitureScrollTurn()
+        #expect(scrollTurn.steps(afterScrollingBy: 3, hasPreciseDeltas: false) == 1)
+        #expect(scrollTurn.steps(afterScrollingBy: -1, hasPreciseDeltas: false) == -1)
+        #expect(scrollTurn.steps(afterScrollingBy: 0, hasPreciseDeltas: false) == 0)
+    }
+
+    @Test func trackpadDeltasAddUpToAStep() {
+        var scrollTurn = RoomFurnitureScrollTurn()
+        #expect(scrollTurn.steps(afterScrollingBy: 10, hasPreciseDeltas: true) == 0)
+        #expect(scrollTurn.steps(afterScrollingBy: 10, hasPreciseDeltas: true) == 0)
+        #expect(scrollTurn.steps(afterScrollingBy: 10, hasPreciseDeltas: true) == 1)
+        #expect(scrollTurn.steps(afterScrollingBy: 60, hasPreciseDeltas: true) == 2)
+    }
+
+    @Test func aChangeOfDirectionDropsThePointsSavedTheOtherWay() {
+        var scrollTurn = RoomFurnitureScrollTurn()
+        _ = scrollTurn.steps(afterScrollingBy: 25, hasPreciseDeltas: true)
+        #expect(scrollTurn.steps(afterScrollingBy: -10, hasPreciseDeltas: true) == 0)
+        #expect(scrollTurn.leftoverPoints == -10)
+    }
+}
+
+struct RoomFurnitureGhostDrawTimelineTests {
+    typealias Timeline = RoomFurnitureGhostDrawTimeline
+
+    @Test func theWholeDrawTakesAboutASecondAndAHalf() {
+        #expect((1.2...1.5).contains(Timeline.totalSeconds(startsFromTheLoop: true)))
+        #expect((1.2...1.5).contains(Timeline.totalSeconds(startsFromTheLoop: false)))
+    }
+
+    @Test func theSparkLeavesTheLoopFirst() {
+        let frame = Timeline.frame(secondsSinceBegan: Timeline.handoffSeconds / 2, startsFromTheLoop: true)
+        #expect(frame.spark == .leavingTheLoop(share: 0.5))
+        #expect(frame.footprintShare == 0)
+        // A pick-up has no loop, so it starts on the footprint.
+        #expect(Timeline.frame(secondsSinceBegan: 0, startsFromTheLoop: false).spark == .onTheFootprint(share: 0))
+    }
+
+    @Test func theFootprintDrawsBeforeAnyPost() {
+        let midFootprint = Timeline.frame(secondsSinceBegan: Timeline.footprintSeconds * 0.4, startsFromTheLoop: false)
+        #expect(abs(midFootprint.footprintShare - 0.4) < 1e-9)
+        #expect(midFootprint.spark == .onTheFootprint(share: midFootprint.footprintShare))
+        #expect(midFootprint.postShares == [0, 0, 0, 0])
+        #expect(midFootprint.fillShare == 0 && !midFootprint.pillIsShown)
+    }
+
+    @Test func thePostsGrowOneAfterAnother() {
+        let secondPostHalfway = Timeline.footprintSeconds + Timeline.secondsPerPost * 1.5
+        let frame = Timeline.frame(secondsSinceBegan: secondPostHalfway, startsFromTheLoop: false)
+        #expect(frame.footprintShare == 1)
+        #expect(frame.postShares[0] == 1)
+        #expect(abs(frame.postShares[1] - 0.5) < 1e-9)
+        #expect(frame.postShares[2] == 0 && frame.postShares[3] == 0)
+        #expect(frame.topShare == 0)
+        guard case .onAPost(let index, let share) = frame.spark else {
+            Issue.record("the spark should ride the second post")
+            return
+        }
+        #expect(index == 1 && abs(share - 0.5) < 1e-9)
+    }
+
+    @Test func theTopDrawsAfterTheLastPostThenTheFillAndThePillComeIn() {
+        let postsEnd = Timeline.footprintSeconds + Timeline.secondsPerPost * 4
+        let midTop = Timeline.frame(secondsSinceBegan: postsEnd + Timeline.topSeconds / 2, startsFromTheLoop: false)
+        #expect(midTop.postShares == [1, 1, 1, 1])
+        #expect(abs(midTop.topShare - 0.5) < 1e-9)
+        #expect(midTop.fillShare == 0 && !midTop.pillIsShown)
+        let midFill = Timeline.frame(secondsSinceBegan: postsEnd + Timeline.topSeconds + Timeline.fillSeconds / 2, startsFromTheLoop: false)
+        #expect(midFill.topShare == 1)
+        #expect(abs(midFill.fillShare - 0.5) < 1e-9)
+        #expect(midFill.pillIsShown)
+        #expect(midFill.spark == .gone)
+        #expect(Timeline.frame(secondsSinceBegan: 10, startsFromTheLoop: true) == .whole)
+    }
+
+    @Test func theGlowBreathesAndHoldsStillWithReduceMotion() {
+        let quarterBreath = RoomFurnitureGhostGlow.secondsPerBreath / 4
+        #expect(RoomFurnitureGhostGlow.fillOpacity(secondsSinceDrawn: quarterBreath, reduceMotionIsOn: false) > RoomFurnitureGhostGlow.restingFillOpacity)
+        #expect(RoomFurnitureGhostGlow.fillOpacity(secondsSinceDrawn: quarterBreath, reduceMotionIsOn: true) == RoomFurnitureGhostGlow.restingFillOpacity)
+    }
+}
+
+struct RoomFurnitureGhostLinesTests {
+    @Test func theLinesFollowTheTrackersTurnIntoThePanel() throws {
+        let ghost = try sofaGhost(wall: nil)
+        let corners = try #require(ghost.keyframeBoxCorners)
+        let warp = EuclideanWarp(angleRadians: 0, translationX: 20, translationY: -10)
+        let fit = RoomArtVideoFit(cameraSize: CGSize(width: 1280, height: 720), viewSize: CGSize(width: 960, height: 540))
+        let lines = try #require(RoomFurnitureGhostLines(keyframeBoxCorners: corners, keyframeToCurrent: warp, fit: fit, cameraSize: CGSize(width: 1280, height: 720)))
+        // Front left bottom is corner 3, shifted by the warp and scaled by 0.75 into the panel.
+        #expect(abs(lines.footprint[0].x - (corners[3].x + 20) * 0.75) < 1e-9)
+        #expect(abs(lines.footprint[0].y - (corners[3].y - 10) * 0.75) < 1e-9)
+        // The last post ends where the top starts, so the spark never jumps there.
+        #expect(lines.posts[3].top == lines.top[0])
+        // Each post rises from its footprint corner.
+        for (post, footprintCorner) in zip(lines.posts, lines.footprint) { #expect(post.bottom == footprintCorner) }
+        #expect(lines.pillCenter.y < (lines.top.map(\.y).min() ?? 0))
+    }
+
+    @Test func thePillStaysOverTheVisiblePartOfATopThatRunsOffTheFrame() throws {
+        // A top outline whose left half is past the frame's left edge, as for a long sofa dragged near the camera.
+        let boxCorners = [
+            CGPoint(x: -600, y: 300), CGPoint(x: 700, y: 330), CGPoint(x: 700, y: 700), CGPoint(x: -600, y: 680),
+            CGPoint(x: -300, y: 200), CGPoint(x: 900, y: 230), CGPoint(x: 900, y: 500), CGPoint(x: -300, y: 480),
+        ]
+        let fit = RoomArtVideoFit(cameraSize: CGSize(width: 1280, height: 720), viewSize: CGSize(width: 960, height: 540))
+        let lines = try #require(RoomFurnitureGhostLines(keyframeBoxCorners: boxCorners, keyframeToCurrent: .identity, fit: fit, cameraSize: CGSize(width: 1280, height: 720)))
+        let pill = lines.pillCenter
+        // Inside the frame, over the visible part of the top (x from 0 to 675 in the panel), and above its highest point
+        // there, about 155 points down.
+        #expect(lines.videoRect.insetBy(dx: 1, dy: 1).contains(pill))
+        #expect(pill.x > 200 && pill.x < 600)
+        #expect(pill.y < 150)
+    }
+
+    @Test func noLinesWithoutEightCornersOrAFrame() {
+        let fit = RoomArtVideoFit(cameraSize: .zero, viewSize: CGSize(width: 960, height: 540))
+        #expect(RoomFurnitureGhostLines(keyframeBoxCorners: Array(repeating: .zero, count: 8), keyframeToCurrent: .identity, fit: fit, cameraSize: .zero) == nil)
+        let goodFit = RoomArtVideoFit(cameraSize: CGSize(width: 1280, height: 720), viewSize: CGSize(width: 960, height: 540))
+        #expect(RoomFurnitureGhostLines(keyframeBoxCorners: Array(repeating: .zero, count: 4), keyframeToCurrent: .identity, fit: goodFit, cameraSize: CGSize(width: 1280, height: 720)) == nil)
+    }
+
+    @Test func theSizePillSaysWidthAndHeightInInches() {
+        #expect(roomFurnitureGhostSizePillText(widthMeters: 2.286, heightMeters: 0.813) == "90\u{2033} wide · 32\u{2033} tall")
+    }
+}
+
+struct RoomFurnitureGhostVoiceTests {
+    @Test(arguments: ["right there", "Right there.", "put it there", "place it", "That's good", "that\u{2019}s good", "okay, right there please", "perfect, put it right there"])
+    func phrasesThatPlaceIt(transcript: String) {
+        #expect(RoomArtConfirmPhrase.matches(transcript))
+    }
+
+    @Test(arguments: ["right there is the window", "put it there and make it blue", "what's good about it", "place it on the left", "move it to the left", "there"])
+    func phrasesThatDoNot(transcript: String) {
+        #expect(!RoomArtConfirmPhrase.matches(transcript))
+    }
+
+    @Test func thePhraseRunsAheadOfTheRouterOnlyWhileSomethingWaitsToBeConfirmed() {
+        #expect(RoomArtConfirmPhrase.runsAheadOfTheRouter(matches: true, somethingWaitsToBeConfirmed: true, quizQuestionIsOpen: false, themeStudioIsOpen: false))
+        #expect(!RoomArtConfirmPhrase.runsAheadOfTheRouter(matches: true, somethingWaitsToBeConfirmed: false, quizQuestionIsOpen: false, themeStudioIsOpen: false))
+        #expect(!RoomArtConfirmPhrase.runsAheadOfTheRouter(matches: true, somethingWaitsToBeConfirmed: true, quizQuestionIsOpen: true, themeStudioIsOpen: false))
+        #expect(!RoomArtConfirmPhrase.runsAheadOfTheRouter(matches: true, somethingWaitsToBeConfirmed: true, quizQuestionIsOpen: false, themeStudioIsOpen: true))
+        #expect(!RoomArtConfirmPhrase.runsAheadOfTheRouter(matches: false, somethingWaitsToBeConfirmed: true, quizQuestionIsOpen: false, themeStudioIsOpen: false))
+    }
+
+    @Test func theMoveChipSaysWhereItGoes() {
+        #expect(roomFurnitureMoveChipPhrase(direction: .left, turnDegrees: nil) == "Moving it left")
+        #expect(roomFurnitureMoveChipPhrase(direction: nil, turnDegrees: 45) == "Turning it")
+        #expect(roomFurnitureMoveChipPhrase(direction: nil, turnDegrees: 0) == nil)
+    }
+}
+
+struct RoomFurnitureGhostVoiceRoutingTests {
+    /// The room art panel on a store page: no scene, no video, nothing else for the router to command.
+    private func storePageContext(ghostShows: Bool) -> TranscriptRouteContext {
+        TranscriptRouteContext(
+            themeStudioIsOpen: false,
+            phaseIsWaitingForAQuizAnswer: false,
+            liveSceneIsUpWithNoQuizQuestion: false,
+            sceneIsBuilding: false,
+            sceneIsOnScreen: false,
+            brainTakesEveryRequest: false,
+            backgroundSceneIsReady: false,
+            taskAnswerIsReady: false,
+            approvalIsWaiting: false,
+            backgroundAgentIsRunning: false,
+            backgroundAgentsArePaused: false,
+            furnitureGhostShows: ghostShows
+        )
+    }
+
+    @Test func rightTherePlacesTheGhostWithNoModelCallAndOtherWordsReachTheRouter() {
+        #expect(transcriptRoute(for: "right there", in: storePageContext(ghostShows: true), videoIsInFront: { false }) == .confirmTheRoomArt)
+        #expect(transcriptRoute(for: "move it a bit to the left", in: storePageContext(ghostShows: true), videoIsInFront: { false }) == .voiceCommandRouter)
+        // With no ghost, a store page has nothing for the router, and "right there" is a question for the keyword path.
+        #expect(transcriptRoute(for: "right there", in: storePageContext(ghostShows: false), videoIsInFront: { false }) == .keywordPath)
+        #expect(transcriptRoute(for: "move it a bit to the left", in: storePageContext(ghostShows: false), videoIsInFront: { false }) == .keywordPath)
+    }
+
+    @Test func theRouterTakesTheGhostsCommandsButNotAQuizAnswerOrABuildingScene() {
+        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, furnitureGhostShows: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
+        #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, furnitureGhostShows: true, phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: false))
+        #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, furnitureGhostShows: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: true))
+        #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, furnitureGhostShows: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
+    }
+
+    @Test func theGhostsToolsAreOfferedOnlyWhileItShows() {
+        var context = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: false, videoIsOnYouTube: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        #expect(!AppVoiceTool.available(in: context).contains(.placeFurniture))
+        #expect(!AppVoiceTool.available(in: context).contains(.moveFurniture))
+        context.furnitureGhostShows = true
+        #expect(AppVoiceTool.available(in: context).contains(.placeFurniture))
+        #expect(AppVoiceTool.available(in: context).contains(.moveFurniture))
+        context.quizQuestionIsOpen = true
+        #expect(!AppVoiceTool.available(in: context).contains(.moveFurniture))
+        #expect(!AppVoiceTool.placeFurniture.mayHandOff && !AppVoiceTool.moveFurniture.mayHandOff)
+    }
+
+    @Test func theChipsSayWhatMoved() {
+        func chip(_ name: String, _ input: [String: JSONValue]) -> String? { VoiceToolCall(id: "1", name: name, input: input).chipPhrase }
+        #expect(chip("move_furniture", ["direction": .string("left")]) == "Moving it left")
+        #expect(chip("move_furniture", ["turnDegrees": .number(90)]) == "Turning it")
+        #expect(chip("move_furniture", ["direction": .string("sideways")]) == nil)
+        #expect(chip("place_furniture", [:]) == "Placing it")
+    }
+
+    @Test func theSceneStateNamesTheGhostsFacingAndItsWall() throws {
+        let floor = floorAhead()
+        let ghost = try sofaGhost(on: floor, wall: wallBehind(floor, metersBeyond: 1.5))
+        let state = voiceCommandFurnitureGhostState(ghost)
+        #expect(state["placing"]?.boolValue == true)
+        #expect(state["facing"]?.stringValue == "camera")
+        #expect(state["againstTheWall"]?.boolValue == false)
+    }
+}

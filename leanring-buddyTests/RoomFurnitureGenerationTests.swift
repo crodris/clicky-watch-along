@@ -472,6 +472,26 @@ struct RoomFurnitureGenerationClientTests {
         #expect(reader.isMostlyRed(x: 5, y: 5))
     }
 
+    @Test func theCompositeSaysWhichWayThePieceFacesOnlyWhenTheGhostGaveIt() async throws {
+        answer("room-furniture-composite", statusCode: 200, body: compositeReply())
+        let furnitureClient = client()
+
+        _ = try await furnitureClient.paintTheItemIntoTheKeyframe(
+            keyframeJPEG: keyframeJPEG, keyframeWidth: 200, keyframeHeight: 100, productJPEG: productJPEG, maskPNG: maskPNG,
+            itemTitle: "Dawson sofa", itemSizeWords: "90 inches wide and 32 tall",
+            orientation: RoomFurniturePaintingOrientation(facing: .cameraSlightlyLeft, backAgainstTheWall: true)
+        )
+        _ = try await paint(using: furnitureClient)
+
+        let sentBodies = requestBodies(of: "room-furniture-composite")
+        let firstBody = try #require(sentBodies.first), lastBody = try #require(sentBodies.last)
+        let withOrientation = try #require(JSONSerialization.jsonObject(with: firstBody) as? [String: Any])
+        #expect(withOrientation["itemFacing"] as? String == "cameraSlightlyLeft")
+        #expect(withOrientation["backAgainstTheWall"] as? Bool == true)
+        let withoutOrientation = try #require(JSONSerialization.jsonObject(with: lastBody) as? [String: Any])
+        #expect(withoutOrientation["itemFacing"] == nil && withoutOrientation["backAgainstTheWall"] == nil)
+    }
+
     @Test func aTitleOverTheWorkersLimitIsCutBeforeBothRequestsAreSent() async throws {
         let longTitle = String(repeating: "Sofa ", count: 100)
         answer("room-furniture-composite", statusCode: 200, body: compositeReply())

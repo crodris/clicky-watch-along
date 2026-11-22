@@ -4,6 +4,7 @@ import {
   maskBounds,
   furnitureCompositeImageModel,
   furnitureCompositePrompt,
+  furnitureOrientationSentence,
   handleRoomFurnitureComposite,
   imageEditSizeFor,
   imageEditSizeRules,
@@ -296,6 +297,40 @@ describe("handleRoomFurnitureComposite", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     // Whatever the body, the app hears that the service is not set up.
     expect((await handleRoomFurnitureComposite(requestWithBody({}), missingKey)).status).toBe(503);
+  });
+
+  it("tells the painter which way the piece faces and whether its back is on the wall", async () => {
+    const fetchMock = stubFetch(async () => new Response(JSON.stringify(goodOpenAIReply), { status: 200 }));
+
+    const response = await handleRoomFurnitureComposite(
+      requestWithBody(goodBody({ itemFacing: "cameraSlightlyLeft", backAgainstTheWall: true })),
+      openAIAPIKey,
+    );
+
+    expect(response.status).toBe(200);
+    const sentPrompt: string = JSON.parse(String(fetchMock.mock.calls[0][1].body)).prompt;
+    expect(sentPrompt).toContain("Its front, the side a person uses, faces the camera, turned slightly toward the left of the picture.");
+    expect(sentPrompt).toContain("Its back stands against the wall behind it.");
+    expect(sentPrompt).not.toContain("turned the way the area's shape shows");
+  });
+
+  it("names each facing in the Worker's own words, and falls back to the area's shape with none", () => {
+    expect(furnitureOrientationSentence("camera", false)).toContain("faces the camera.");
+    expect(furnitureOrientationSentence("camera", false)).not.toContain("wall");
+    expect(furnitureOrientationSentence("right", undefined)).toContain("faces the right of the picture, so the camera sees it from the side.");
+    expect(furnitureOrientationSentence("awayFromTheCamera", true)).toContain("the camera sees its back. Its back stands against the wall");
+    expect(furnitureOrientationSentence(undefined, true)).toBe(
+      "Draw it from the room camera's viewpoint and perspective, turned the way the area's shape shows, not at the angle of the product photo.",
+    );
+  });
+
+  it("refuses a facing it does not know before any model call", async () => {
+    const fetchMock = stubFetch(async () => new Response(JSON.stringify(goodOpenAIReply), { status: 200 }));
+
+    const response = await handleRoomFurnitureComposite(requestWithBody(goodBody({ itemFacing: "upsideDown" })), openAIAPIKey);
+
+    expect(response.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("puts the title and size words in tags whose text cannot close them", () => {

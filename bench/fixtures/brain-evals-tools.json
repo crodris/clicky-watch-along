@@ -607,6 +607,45 @@
         "additionalProperties": false
       },
       "readOnly": false
+    },
+    {
+      "name": "place_furniture",
+      "description": "Place the furniture where its ghost stands in the room art panel, so Clicky paints the real piece there. Use it when the learner says right there, put it there, place it, leave it there, or that's good, about the piece they are placing. Your confirmation is a few plain words, such as \"placing it\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "move_furniture",
+      "description": "Move or turn the furniture's ghost in the room art panel before it is placed. direction is left or right as the learner sees the screen, closer to the camera, or farther from it. Put the distance in distanceCentimeters only when they name one, such as a foot (30) or a meter (100), and leave it out for a bit or a little. Put a turn in turnDegrees, positive to turn its front toward the right of the screen and negative toward the left, such as 90 for turn it sideways or 180 for turn it around, and leave direction out when they only ask to turn it. A piece moved near the wall behind it stands square against it. Your confirmation is a few plain words, such as \"moving it left\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right",
+              "closer",
+              "farther"
+            ],
+            "description": "left, right, closer, or farther. Leave it out to only turn it."
+          },
+          "distanceCentimeters": {
+            "type": "number",
+            "description": "How far to move it, only when the learner names a distance. 30 when left out."
+          },
+          "turnDegrees": {
+            "type": "number",
+            "description": "How far to turn it, positive toward the right of the screen. Leave it out to only move it."
+          }
+        },
+        "required": []
+      },
+      "readOnly": false
     }
   ]
 }

@@ -22,6 +22,29 @@
         "show_art_in_my_room"
       ]
     },
+    "furnitureGhost": {
+      "description": "The room art panel shows a sofa's ghost on the learner's floor, over a store page with no video. The offered tools are the nothing set plus the ghost's place_furniture and move_furniture.",
+      "sceneState": {
+        "page": "none",
+        "videoQuizIsRunning": false,
+        "furnitureGhost": {
+          "placing": true,
+          "facing": "camera",
+          "againstTheWall": false
+        }
+      },
+      "tools": [
+        "answer_with_screen",
+        "build_new_scene",
+        "build_simulation",
+        "pop_out",
+        "animate_picture",
+        "start_background_task",
+        "show_art_in_my_room",
+        "place_furniture",
+        "move_furniture"
+      ]
+    },
     "video": {
       "description": "A YouTube video is playing in Chrome's front tab. The tools and state match fixtures/voice-command-video.json.",
       "sceneState": {
@@ -1803,6 +1826,83 @@
         "resume_agents"
       ],
       "why": "Go ahead is the resume phrase, and a replay step never takes it."
+    },
+    {
+      "id": "ghost-move-left",
+      "context": "furnitureGhost",
+      "say": "move it a bit to the left",
+      "accept": [
+        "move_furniture"
+      ],
+      "input": {
+        "move_furniture": {
+          "direction": "left",
+          "distanceCentimeters": null
+        }
+      },
+      "why": "A nudge of the ghost, with no distance named, so distanceCentimeters is left out and the app moves it 30 cm."
+    },
+    {
+      "id": "ghost-move-a-foot-closer",
+      "context": "furnitureGhost",
+      "say": "bring it about a foot closer",
+      "accept": [
+        "move_furniture"
+      ],
+      "input": {
+        "move_furniture": {
+          "direction": "closer",
+          "distanceCentimeters": 30
+        }
+      },
+      "why": "Closer means toward the camera, and a foot is 30 cm."
+    },
+    {
+      "id": "ghost-turn-around",
+      "context": "furnitureGhost",
+      "say": "turn it around",
+      "accept": [
+        "move_furniture"
+      ],
+      "input": {
+        "move_furniture": {
+          "turnDegrees": 180,
+          "direction": null
+        }
+      },
+      "why": "Turning it around is a half turn, with no move, so direction is left out."
+    },
+    {
+      "id": "ghost-push-back",
+      "context": "furnitureGhost",
+      "say": "push it back against the wall",
+      "accept": [
+        "move_furniture"
+      ],
+      "input": {
+        "move_furniture": {
+          "direction": "farther"
+        }
+      },
+      "why": "Back toward the wall is farther from the camera, and the app squares it to the wall when its back comes near."
+    },
+    {
+      "id": "ghost-place-it-here",
+      "context": "furnitureGhost",
+      "say": "yeah that works, put it there",
+      "accept": [
+        "place_furniture"
+      ],
+      "why": "The phrase match takes only the whole phrase, so a longer confirm like this one reaches the router, which must place it."
+    },
+    {
+      "id": "ghost-question",
+      "context": "furnitureGhost",
+      "say": "would this fit under the window",
+      "accept": [
+        "answer_with_screen"
+      ],
+      "why": "A question about the room is answered from the screen, never a move or a placement."
     }
   ]
 }
