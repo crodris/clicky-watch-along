@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -620,6 +621,22 @@ func TestACommandGetsItsFirstCallWhileATaskWaitsOnTheMCPServersAndAResultIsInFli
 		writeStreamedMessage(writer, "tool_use", toolUseBlock("toolu_finish", "finish", `{"spokenSummary":"Done."}`))
 	})
 	driver := startHarnessWith(t, configuration{workerBaseURL: worker.server.URL, appSecret: "test-secret", mcpConfigPath: configPath, lookupEnvironment: noEnvironment})
+	// Opening the pipe for writing releases the server, once it reaches its own open. The open runs in a goroutine, so a
+	// server that never starts fails the test at its next wait and not in a hang. Cleanup releases the server too, since
+	// a test that failed first would otherwise leave it blocked, and the harness cannot stop while its task connects.
+	// Cleanups run last in first out, so this one runs before the harness stops.
+	var releaseTheMCPServerOnce sync.Once
+	releaseTheMCPServer := func() {
+		releaseTheMCPServerOnce.Do(func() {
+			go func() {
+				startGate, err := os.OpenFile(mcpServerStartGatePath, os.O_WRONLY, 0)
+				if err == nil {
+					startGate.Close()
+				}
+			}()
+		})
+	}
+	t.Cleanup(releaseTheMCPServer)
 	driver.send(startTaskLine("task-1", "read my note"))
 	// A screenshot-sized result for the task, which it cannot read yet, since it is still connecting.
 	largeResultText := strings.Repeat("x", 4_000_000)
@@ -639,12 +656,7 @@ func TestACommandGetsItsFirstCallWhileATaskWaitsOnTheMCPServersAndAResultIsInFli
 	// The command ends while the server is still stopped, so the task cannot finish ahead of it.
 	driver.send(voiceToolResultLine("command-1", "toolu_rotate", voiceToolChanged, `{"ok":true,"state":null}`))
 	driver.expectLine("voice_command_finished")
-	// Opening the pipe for writing releases the server. The open waits for the server's own open, which it makes at start.
-	startGate, err := os.OpenFile(mcpServerStartGatePath, os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	startGate.Close()
+	releaseTheMCPServer()
 	driver.expectLine("task_finished")
 }
 
