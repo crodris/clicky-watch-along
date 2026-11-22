@@ -114,7 +114,7 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 16 Pause every agent by voice | Merged: [#94](https://github.com/crodris/clicky-watch-along/pull/94) |
 | 17 Scrub by voice | Merged: [#111](https://github.com/crodris/clicky-watch-along/pull/111). Seen in the app on the volcano video: a long slide, a short one from a spoken request, and a press mid-scrub. Reduce Motion is covered by a unit test only |
 | 18 Share themes as files | Merged: [#102](https://github.com/crodris/clicky-watch-along/pull/102) |
-| 19 Tether polish | Building in three parallel PRs: 19a agents, menu bar, and recap (in review); 19b speech, cursor, quiz, and replay; 19c themes, panel, Quick Look, and the app icon |
+| 19 Tether polish | Three parallel PRs: 19a agents, menu bar, and recap merged as [#114](https://github.com/crodris/clicky-watch-along/pull/114); 19b speech, cursor, quiz, and replay merged as [#112](https://github.com/crodris/clicky-watch-along/pull/112); 19c themes, panel, Quick Look, and the app icon is building |
 
 Deferred from PR 1, to fold into later PRs: the Chrome control row hides after onboarding (PR 8), a hover that shows only after the next mouse move on a still pointer (PR 8), the dimmed No button's low contrast (PR 5), a pop-out label's leader line that can point off screen after a resize (PR 10), and the menu bar icon not found beside the notch (PR 7).
 
