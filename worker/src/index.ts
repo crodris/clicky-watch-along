@@ -17,6 +17,8 @@
  *   POST /try-it-item → Anthropic Messages API (Sonnet reads a store page and its product photo for wall art, furniture, or clothing: its kind, size or garment details, and the item's corners)
  *   POST /room-wall    → the local depth service (tools/depth-service) at DEPTH_SERVICE_URL, which measures the wall plane in a photo of the learner's room
  *   POST /room-floor   → the local depth service at DEPTH_SERVICE_URL, which measures the floor plane under an anchor in a photo of the learner's room, for standing furniture
+ *   POST /room-furniture-composite → OpenAI image edits (gpt-image-2.6-sunburst draws a furniture product into a camera frame of the learner's room, inside a mask)
+ *   POST /try-it-model → fal.ai's queue (TRELLIS 2 by default, or TRY_IT_MODEL_ENDPOINT), which turns a furniture product photo into a GLB the Worker downloads and returns
  *   POST /voice-command → Anthropic Messages API (Haiku picks the app's tools for a spoken follow-up command)
  *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)
  *   POST /theme-ideas  → Anthropic Messages API (Sonnet writes three cursor theme ideas for the theme studio, optionally from a picture)
@@ -41,6 +43,8 @@ import { handleLandmark } from "./landmark";
 import { handleTryItItem } from "./tryItItem";
 import { handleRoomFloor } from "./roomFloor";
 import { handleRoomWall } from "./roomWall";
+import { handleRoomFurnitureComposite } from "./roomFurnitureComposite";
+import { handleTryItModel } from "./tryItModel";
 import { handleVoiceCommand } from "./voiceCommand";
 import { handlePictureFlows } from "./pictureFlows";
 import { handleThemeIdeas } from "./themeIdeas";
@@ -65,7 +69,17 @@ interface Env {
   NOTION_API_KEY?: string;
   /** Where the local depth service runs (tools/depth-service), which /room-wall and /room-floor forward to. Unset answers 503. */
   DEPTH_SERVICE_URL?: string;
-  /** The secret the app sends in x-clicky-app-secret. The Notion routes, /v1/messages, /try-it-item, /room-wall, and /room-floor refuse a request without it. */
+  /**
+   * fal.ai's key, for /try-it-model. Without it, /try-it-model answers 503, which the app reads as a service that is not
+   * set up.
+   */
+  FAL_KEY?: string;
+  /** The fal model id /try-it-model runs, fal-ai/trellis-2 when unset, so the image-to-3D model can change without a deploy of new code. */
+  TRY_IT_MODEL_ENDPOINT?: string;
+  /**
+   * The secret the app sends in x-clicky-app-secret. The Notion routes, /v1/messages, /try-it-item, /room-wall,
+   * /room-floor, /room-furniture-composite, and /try-it-model refuse a request without it.
+   */
   CLICKY_APP_SECRET?: string;
   /** Local benchmark runs only: a gemini-* BENCH_MODEL calls Google's OpenAI-compatible endpoint with this key. */
   GEMINI_API_KEY?: string;
@@ -145,6 +159,14 @@ export default {
 
       if (url.pathname === "/room-floor") {
         return await handleRoomFloor(request, env.DEPTH_SERVICE_URL);
+      }
+
+      if (url.pathname === "/room-furniture-composite") {
+        return await handleRoomFurnitureComposite(request, env.OPENAI_API_KEY);
+      }
+
+      if (url.pathname === "/try-it-model") {
+        return await handleTryItModel(request, env.FAL_KEY, { endpoint: env.TRY_IT_MODEL_ENDPOINT });
       }
 
       if (url.pathname === "/voice-command") {

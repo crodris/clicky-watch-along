@@ -203,7 +203,7 @@ describe("the app secret on the gated routes", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    for (const path of ["/notion-page", "/study-guide", "/study-guide-status", "/v1/messages", "/try-it-item", "/room-wall", "/room-floor"]) {
+    for (const path of ["/notion-page", "/study-guide", "/study-guide-status", "/v1/messages", "/try-it-item", "/room-wall", "/room-floor", "/room-furniture-composite", "/try-it-model"]) {
       expect((await worker.fetch(postTo(path, {}), notionEnv)).status).toBe(401);
       expect((await worker.fetch(postTo(path, { "x-clicky-app-secret": "app-secreT" }), notionEnv)).status).toBe(401);
       expect((await worker.fetch(postTo(path, { "x-clicky-app-secret": "app-secret" }), { ...notionEnv, CLICKY_APP_SECRET: undefined })).status).toBe(401);
@@ -238,5 +238,24 @@ describe("the app secret on the gated routes", () => {
     );
 
     expect(response.status).toBe(503);
+  });
+
+  it("routes /try-it-model to its handler once the secret is right", async () => {
+    // With no FAL_KEY, the handler's own 503 shows the route reached it.
+    const response = await worker.fetch(postTo("/try-it-model", { "x-clicky-app-secret": "app-secret" }), notionEnv);
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "FAL_KEY is not set" });
+  });
+
+  it("routes /room-furniture-composite to its handler once the secret is right", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    // The Notion body is not a composite body, so the handler's own 400 shows the route reached it.
+    const response = await worker.fetch(postTo("/room-furniture-composite", { "x-clicky-app-secret": "app-secret" }), notionEnv);
+
+    expect(response.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
