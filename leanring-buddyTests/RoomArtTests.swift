@@ -67,6 +67,51 @@ private func wallArtItem(sizeFound: String = "true", size: String = #"{"label": 
     #"{"kind": "wallArt", "wallArt": {"sizeFoundOnPage": \#(sizeFound), "size": \#(size), "otherSizes": []}}"#
 }
 
+/// The fixture the Worker's tests read too: one `POST /try-it-item` response per kind, shaped as the Worker returns it.
+private struct TryItItemRepliesFixture: Decodable {
+    struct PictureSize: Decodable {
+        let width: Int
+        let height: Int
+    }
+
+    struct Case: Decodable {
+        let name: String
+        let kind: String
+        let response: JSONValue
+    }
+
+    let picture: PictureSize
+    let cases: [Case]
+
+    static func load() throws -> TryItItemRepliesFixture {
+        let fixtureData = try Data(contentsOf: repositoryRootURL.appendingPathComponent("worker/src/testdata/try-it-item-replies.json"))
+        return try JSONDecoder().decode(TryItItemRepliesFixture.self, from: fixtureData)
+    }
+}
+
+private func kindName(of reading: RoomArtPageReading) -> String {
+    switch reading {
+    case .wallArt, .sizeNotOnThePage: "wallArt"
+    case .furniture: "furniture"
+    case .clothing: "clothing"
+    case .other: "other"
+    }
+}
+
+struct RoomArtTryItReplyFixtureTests {
+    @Test func everyWorkerReplyInTheSharedFixtureParsesAsItsOwnKind() throws {
+        let fixture = try TryItItemRepliesFixture.load()
+        #expect(Set(fixture.cases.map(\.kind)) == ["wallArt", "furniture", "clothing", "other"])
+
+        for fixtureCase in fixture.cases {
+            let responseData = try JSONEncoder().encode(fixtureCase.response)
+            let reading = try RoomArtPageReading(responseData: responseData, pictureWidth: fixture.picture.width, pictureHeight: fixture.picture.height)
+
+            #expect(kindName(of: reading) == fixtureCase.kind, "the \(fixtureCase.name) reply read as \(reading)")
+        }
+    }
+}
+
 struct RoomArtReplyTests {
     @Test func aWallArtReplyBecomesItsSizeAndCornersClampedIntoThePicture() throws {
         let reading = try RoomArtPageReading(responseData: jsonData(goodRoomArtReply), pictureWidth: 400, pictureHeight: 500)

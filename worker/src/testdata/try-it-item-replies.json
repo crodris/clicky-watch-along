@@ -1,0 +1,89 @@
+{
+  "description": "One POST /try-it-item response per kind, shaped exactly as the Worker returns it. worker/src/tryItItem.test.ts feeds each one to handleTryItItem as the model's reply and expects it back unchanged, and leanring-buddyTests/RoomArtTests.swift parses each one with RoomArtPageReading, so the Worker's response and the app's reader cannot drift apart. The corners fit the picture size below.",
+  "picture": { "width": 400, "height": 500 },
+  "cases": [
+    {
+      "name": "wall art with a stated size",
+      "kind": "wallArt",
+      "response": {
+        "title": "Water Lilies print, framed",
+        "whyThisSize": "The page's size menu shows 16 x 20 in selected.",
+        "itemCorners": {
+          "topLeft": { "x": 40, "y": 50 },
+          "topRight": { "x": 360, "y": 50 },
+          "bottomRight": { "x": 360, "y": 450 },
+          "bottomLeft": { "x": 40, "y": 450 }
+        },
+        "item": {
+          "kind": "wallArt",
+          "wallArt": {
+            "sizeFoundOnPage": true,
+            "size": { "label": "16 x 20 in", "widthCentimeters": 40.6, "heightCentimeters": 50.8, "includesFrame": true },
+            "otherSizes": [{ "label": "8 x 10 in", "widthCentimeters": 20.3, "heightCentimeters": 25.4 }]
+          }
+        }
+      }
+    },
+    {
+      "name": "furniture only 5 centimeters deep",
+      "kind": "furniture",
+      "response": {
+        "title": "Slim floor mirror",
+        "whyThisSize": "The page lists one size, 50 x 170 cm.",
+        "itemCorners": {
+          "topLeft": { "x": 120, "y": 20 },
+          "topRight": { "x": 280, "y": 20 },
+          "bottomRight": { "x": 280, "y": 480 },
+          "bottomLeft": { "x": 120, "y": 480 }
+        },
+        "item": {
+          "kind": "furniture",
+          "furniture": {
+            "sizeFoundOnPage": true,
+            "size": { "label": "50 x 170 cm", "widthCentimeters": 50, "heightCentimeters": 170, "depthCentimeters": 5 },
+            "otherSizes": []
+          }
+        }
+      }
+    },
+    {
+      "name": "clothing",
+      "kind": "clothing",
+      "response": {
+        "title": "Great Wave tee",
+        "whyThisSize": "The page has size M selected.",
+        "itemCorners": {
+          "topLeft": { "x": 30, "y": 60 },
+          "topRight": { "x": 370, "y": 60 },
+          "bottomRight": { "x": 370, "y": 440 },
+          "bottomLeft": { "x": 30, "y": 440 }
+        },
+        "item": {
+          "kind": "clothing",
+          "clothing": {
+            "garment": "tshirt",
+            "sleeves": "short",
+            "chosenSizeLabel": "M",
+            "photoShows": "flatLay",
+            "printDescription": "large wave print across the chest"
+          }
+        }
+      }
+    },
+    {
+      "name": "other",
+      "kind": "other",
+      "response": {
+        "title": "Brass lamp",
+        "whyThisSize": "A lamp is not wall art, furniture, or clothing.",
+        "itemCorners": {
+          "topLeft": { "x": 100, "y": 40 },
+          "topRight": { "x": 300, "y": 40 },
+          "bottomRight": { "x": 300, "y": 460 },
+          "bottomLeft": { "x": 100, "y": 460 }
+        },
+        "item": { "kind": "other" }
+      }
+    }
+  ]
+}

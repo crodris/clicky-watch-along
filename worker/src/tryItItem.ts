@@ -24,6 +24,10 @@ const maximumPrintDescriptionLength = 120;
 const wallArtSizeRangeCentimeters = { lowest: 5, highest: 1000 };
 /** Real furniture is at least a stool's width and at most a long sofa or wardrobe. */
 const furnitureSizeRangeCentimeters = { lowest: 10, highest: 600 };
+/** A floor mirror or a picture ledge is only a few centimeters deep, so depth has its own, lower bound. */
+const lowestFurnitureDepthCentimeters = 1;
+const furnitureDepthRangeCentimeters = { lowest: lowestFurnitureDepthCentimeters, highest: furnitureSizeRangeCentimeters.highest };
+const maximumJPEGBase64Length = 4_000_000;
 /** An item that fills less of the photo than this is too small to cut out into a usable image. */
 const minimumCornerAreaShare = 0.04;
 const maximumAttemptCount = 2;
@@ -40,7 +44,7 @@ const tryItItemRequestSchema = z.object({
   // The learner's own words, which say which item they mean when the page shows several.
   learnerRequest: z.string().max(maximumLearnerRequestLength).optional(),
   picture: z.object({
-    jpegBase64: z.string().min(1),
+    jpegBase64: z.string().min(1).max(maximumJPEGBase64Length),
     width: z.number().int().min(1).max(maximumPictureSide),
     height: z.number().int().min(1).max(maximumPictureSide),
   }),
@@ -115,8 +119,8 @@ type ModelReply = z.infer<typeof modelReplySchema>;
 type Item = z.infer<typeof itemSchema>;
 type ItemCorners = z.infer<typeof itemCornersSchema>;
 
-/** The reply the app reads: the shared fields, plus `kind` and the one per-kind object that kind names. */
-export type TryItItem = { title: string; whyThisSize: string; itemCorners: ItemCorners } & Item;
+/** The reply the app reads: the shared fields, and `item`, which holds `kind` and the one per-kind object that kind names. */
+export type TryItItem = { title: string; whyThisSize: string; itemCorners: ItemCorners; item: Item };
 
 const sizeJSONSchemaProperties = {
   label: { type: "string" },
@@ -213,9 +217,11 @@ const clamp = (value: number, lowest: number, highest: number) => Math.min(highe
 
 type Corner = { x: number; y: number };
 
-/** Twice the signed area of the triangle a, b, c. Its sign says which way the path turns at b. */
-function turn(a: Corner, b: Corner, c: Corner): number {
-  return (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+/** The cross product of the path's two edges, firstCorner to middleCorner and middleCorner to lastCorner. Its sign says which way the path turns at middleCorner. */
+function turn(firstCorner: Corner, middleCorner: Corner, lastCorner: Corner): number {
+  return (
+    (middleCorner.x - firstCorner.x) * (lastCorner.y - middleCorner.y) - (middleCorner.y - firstCorner.y) * (lastCorner.x - middleCorner.x)
+  );
 }
 
 function polygonArea(corners: Corner[]): number {
@@ -238,16 +244,38 @@ function isConvexQuadrilateral(corners: Corner[]): boolean {
 type SizeRange = { lowest: number; highest: number };
 type Size = { label: string; widthCentimeters: number; heightCentimeters: number; depthCentimeters?: number };
 
-function sizeProblem(sizeName: string, size: Size, range: SizeRange): string | undefined {
+function sizeProblem(sizeName: string, size: Size, range: SizeRange, depthRange: SizeRange): string | undefined {
   const sides = [size.widthCentimeters, size.heightCentimeters, ...(size.depthCentimeters === undefined ? [] : [size.depthCentimeters])];
-  if (sides.every((centimeters) => centimeters >= range.lowest && centimeters <= range.highest)) {
+  const isWithinRange = (centimeters: number, allowedRange: SizeRange) => centimeters >= allowedRange.lowest && centimeters <= allowedRange.highest;
+  const fitsEverySide =
+    isWithinRange(size.widthCentimeters, range) &&
+    isWithinRange(size.heightCentimeters, range) &&
+    (size.depthCentimeters === undefined || isWithinRange(size.depthCentimeters, depthRange));
+  if (fitsEverySide) {
     return undefined;
   }
-  return `${sizeName} must be from ${range.lowest} to ${range.highest} centimeters on each side, and it is ${sides.join(" by ")}.`;
+  const rangeText =
+    size.depthCentimeters === undefined
+      ? `from ${range.lowest} to ${range.highest} centimeters on each side`
+      : `from ${range.lowest} to ${range.highest} centimeters in width and height, and from ${depthRange.lowest} to ${depthRange.highest} in depth`;
+  return `${sizeName} must be ${rangeText}, and it is ${sides.join(" by ")}.`;
 }
 
-/** Checks the labels and the size range of a wallArt or furniture object, other sizes included. */
-function sizedItemProblem(kindName: string, details: { size: Size; otherSizes: Size[] }, range: SizeRange): string | undefined {
+/**
+ * A model-written label as it may appear in a problem sentence. The sentence goes into the retry prompt outside any tag
+ * and into the logs, so a label cannot close a tag with "<" or start a new line.
+ */
+function labelSafeForProblemText(label: string): string {
+  return label.replaceAll("<", "‹").replace(/[\r\n\v\f\u0085\u2028\u2029]/g, " ");
+}
+
+/** Checks the labels and the size range of a wallArt or furniture object, other sizes included. Only furniture has a depth. */
+function sizedItemProblem(
+  kindName: string,
+  details: { size: Size; otherSizes: Size[] },
+  range: SizeRange,
+  depthRange: SizeRange = range,
+): string | undefined {
   if (details.size.label.trim() === "") {
     return `${kindName}.size needs a label, the size as the page writes it.`;
   }
@@ -256,8 +284,10 @@ function sizedItemProblem(kindName: string, details: { size: Size; otherSizes: S
     return `every size label must be at most ${maximumLabelLength} characters.`;
   }
   return (
-    sizeProblem(`${kindName}.size`, details.size, range) ??
-    details.otherSizes.map((size) => sizeProblem(`The ${kindName}.otherSizes entry "${size.label}"`, size, range)).find((otherSizeProblem) => otherSizeProblem !== undefined)
+    sizeProblem(`${kindName}.size`, details.size, range, depthRange) ??
+    details.otherSizes
+      .map((size) => sizeProblem(`The ${kindName}.otherSizes entry "${labelSafeForProblemText(size.label)}"`, size, range, depthRange))
+      .find((otherSizeProblem) => otherSizeProblem !== undefined)
   );
 }
 
@@ -277,7 +307,7 @@ function itemProblem(item: Item): string | undefined {
     case "wallArt":
       return sizedItemProblem("wallArt", item.wallArt, wallArtSizeRangeCentimeters);
     case "furniture":
-      return sizedItemProblem("furniture", item.furniture, furnitureSizeRangeCentimeters);
+      return sizedItemProblem("furniture", item.furniture, furnitureSizeRangeCentimeters, furnitureDepthRangeCentimeters);
     case "clothing":
       return clothingProblem(item.clothing);
     case "other":
@@ -285,8 +315,8 @@ function itemProblem(item: Item): string | undefined {
   }
 }
 
-/** Keeps at most 8 other sizes, so a page that lists dozens of sizes does not grow the reply. */
-function withAtMostEightOtherSizes(item: Item): Item {
+/** Cuts the other sizes to `maximumOtherSizeCount`, so a page that lists dozens of sizes does not grow the reply. */
+function withTheOtherSizesCut(item: Item): Item {
   switch (item.kind) {
     case "wallArt":
       return { ...item, wallArt: { ...item.wallArt, otherSizes: item.wallArt.otherSizes.slice(0, maximumOtherSizeCount) } };
@@ -315,7 +345,7 @@ export type CheckedTryItItem = { accepted: true; reply: TryItItem } | { accepted
 
 /**
  * Clamps the corners into the picture and checks the rules the app relies on: the size range of the kind (wall art 5 to
- * 1000 centimeters, furniture 10 to 600 on each side), short labels and print text, and corners that form a convex
+ * 1000 centimeters, furniture 10 to 600 in width and height and 1 to 600 in depth), short labels and print text, and corners that form a convex
  * quadrilateral covering at least 4 percent of the picture, since the app cuts that quadrilateral out of the photo.
  * An item of kind other, and wall art or furniture whose page states no size (`sizeFoundOnPage` false), pass with their
  * corners clamped and no other rule, because the app only says so and never places them. Wall art and furniture whose
@@ -332,8 +362,8 @@ export function checkTryItItem(modelReply: ModelReply, pictureWidth: number, pic
     bottomRight: clampedCorner(modelReply.itemCorners.bottomRight),
     bottomLeft: clampedCorner(modelReply.itemCorners.bottomLeft),
   };
-  const item = withAtMostEightOtherSizes(modelReply.item);
-  const cleanedReply: TryItItem = { title: modelReply.title, whyThisSize: modelReply.whyThisSize, itemCorners, ...item };
+  const item = withTheOtherSizesCut(modelReply.item);
+  const cleanedReply: TryItItem = { title: modelReply.title, whyThisSize: modelReply.whyThisSize, itemCorners, item };
   if (item.kind === "other" || pageStatesNoSize(item)) {
     return { accepted: true, reply: cleanedReply };
   }
