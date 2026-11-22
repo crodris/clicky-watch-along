@@ -1,0 +1,477 @@
+//
+//  ShirtPaintedStillTests.swift
+//  leanring-buddyTests
+//
+//  The shirt's painted still: the phases and their status lines and loop, the phrases and their route, the mask a painting
+//  may draw in on a made-up frame (the whole old top, never the face, neck, hands, or bare arms), the paste that keeps the
+//  hands exactly as filmed, what the Worker is sent, and the client against a stubbed Worker.
+//
+
+import CoreGraphics
+import CoreImage
+import Foundation
+import ImageIO
+import os
+import Testing
+import UniformTypeIdentifiers
+@testable import Clicky
+
+// MARK: - Phases
+
+struct ShirtPaintedStillPhaseTests {
+    private let paintingID = ShirtPaintingID(number: 3)
+    private let live = RoomArtPhase.showingTheShirt(title: "Tee")
+
+    @Test func paintingStartsOnlyFromTheLivePreview() {
+        #expect(live.startingToPaintTheShirt(id: paintingID) == .paintingTheShirt(title: "Tee", id: paintingID))
+        for otherPhase: RoomArtPhase in [
+            .closed, .readingThePage, .preparingTheShirt(title: "Tee"), .waitingToSeeTheLearner(title: "Tee"),
+            .paintingTheShirt(title: "Tee", id: ShirtPaintingID(number: 1)), .showingThePaintedShirt(title: "Tee"), .failed(.garmentNotCutOut),
+        ] {
+            #expect(otherPhase.startingToPaintTheShirt(id: paintingID) == otherPhase)
+        }
+    }
+
+    @Test func onlyThisPaintingsReplyShowsTheStillOrGoesBackOnAFailure() {
+        let painting = RoomArtPhase.paintingTheShirt(title: "Tee", id: paintingID)
+        #expect(painting.withThePaintedShirt(id: paintingID) == .showingThePaintedShirt(title: "Tee"))
+        #expect(painting.withThePaintedShirt(id: ShirtPaintingID(number: 2)) == painting)
+        #expect(painting.afterThePaintingFailed(id: paintingID) == live)
+        #expect(painting.afterThePaintingFailed(id: ShirtPaintingID(number: 2)) == painting)
+        // A reply after the learner went back changes nothing.
+        #expect(live.withThePaintedShirt(id: paintingID) == live)
+        #expect(live.afterThePaintingFailed(id: paintingID) == live)
+    }
+
+    @Test func goingBackReturnsToTheLivePreviewFromAPaintingOrTheStill() {
+        #expect(RoomArtPhase.paintingTheShirt(title: "Tee", id: paintingID).backToTheLiveShirt() == live)
+        #expect(RoomArtPhase.showingThePaintedShirt(title: "Tee").backToTheLiveShirt() == live)
+        #expect(live.backToTheLiveShirt() == live)
+        #expect(RoomArtPhase.closed.backToTheLiveShirt() == .closed)
+    }
+
+    @Test func theStatusLinesSayWhatIsHappeningAndIgnoreCoaching() {
+        let painting = RoomArtPhase.paintingTheShirt(title: "Tee", id: paintingID)
+        let still = RoomArtPhase.showingThePaintedShirt(title: "Tee")
+        #expect(painting.statusLine(theSurfaceIsLost: false, shirtCoachingLine: "Stand back") == "Putting it on you…")
+        #expect(still.statusLine(theSurfaceIsLost: false, shirtCoachingLine: "Stand back") == "On you · say go back for the live view")
+        #expect(!painting.statusLineIsAFailure(theSurfaceIsLost: false) && !still.statusLineIsAFailure(theSurfaceIsLost: false))
+        #expect(!painting.theItemIsPlacedByClicking && !still.theItemIsPlacedByClicking)
+    }
+
+    @Test func theLoopTracesTheTorsoWhilePaintingAndFadesWhenTheStillShows() {
+        let drawing = RoomArtLoopState.hidden.after(phaseChangedTo: .paintingTheShirt(title: "Tee", id: paintingID), at: 10)
+        #expect(drawing == .drawing(beganAt: 10))
+        #expect(drawing.after(phaseChangedTo: .showingThePaintedShirt(title: "Tee"), at: 20) == .fadingOut(beganAt: 10))
+        // A failed or abandoned painting fades it too, as the live preview showing does.
+        #expect(drawing.after(phaseChangedTo: live, at: 20) == .fadingOut(beganAt: 10))
+    }
+
+    @Test func aLineAfterTheLearnersRightThereIsStillTheirs() {
+        var request = RoomArtRequestRecord()
+        request.start(atPushToTalkPressCount: 4)
+        _ = request.openingReturned(requestWasCancelled: false)
+        let step = { (presses: Int) in request.lineStep(dictationIsInProgress: false, clickyIsThinking: false, audioIsPlaying: false, pushToTalkPressCount: presses) }
+        #expect(step(5) == .drop)
+        request.continued(atPushToTalkPressCount: 5)
+        #expect(step(5) == .speakNow)
+        #expect(!request.isOpeningThePanel)
+    }
+}
+
+// MARK: - The voice
+
+struct ShirtPaintedStillVoiceTests {
+    @Test func thePaintPhrasesAsTheWholeUtterance() {
+        for transcript in ["Right there.", "okay, right there please", "That's good", "that’s good", "take it", "Paint it.", "paint it on me", "yeah put it on me", "Perfect, right here"] {
+            #expect(shirtStillVoiceRequest(for: transcript) == .paintIt, "\(transcript)")
+        }
+    }
+
+    @Test func theBackPhrasesAsTheWholeUtterance() {
+        for transcript in ["Go back.", "back to live", "Go back to live, please", "go live", "show me live"] {
+            #expect(shirtStillVoiceRequest(for: transcript) == .backToLive, "\(transcript)")
+        }
+    }
+
+    @Test func longerRequestsGoToTheRouter() {
+        for transcript in ["right there is a window", "go back to the last video", "take it off", "paint it blue", "what's right there", "is that good", ""] {
+            #expect(shirtStillVoiceRequest(for: transcript) == nil, "\(transcript)")
+        }
+    }
+
+    @Test func eachPhraseRunsAheadOfTheRouterOnlyWhenThePanelCanTakeIt() {
+        func runs(_ request: ShirtStillVoiceRequest?, _ targets: ShirtStillVoiceTargets, quiz: Bool = false, studio: Bool = false) -> Bool {
+            shirtStillPhraseRunsAheadOfTheRouter(request: request, targets: targets, quizQuestionIsOpen: quiz, themeStudioIsOpen: studio)
+        }
+        #expect(runs(.paintIt, .livePreview))
+        #expect(runs(.backToLive, .paintedStill))
+        #expect(!runs(.paintIt, .paintedStill))
+        #expect(!runs(.backToLive, .livePreview))
+        #expect(!runs(.paintIt, .none) && !runs(.backToLive, .none))
+        #expect(!runs(nil, .livePreview))
+        #expect(!runs(.paintIt, .livePreview, quiz: true))
+        #expect(!runs(.paintIt, .livePreview, studio: true))
+    }
+
+    private func context(_ targets: ShirtStillVoiceTargets) -> TranscriptRouteContext {
+        TranscriptRouteContext(
+            themeStudioIsOpen: false, phaseIsWaitingForAQuizAnswer: false, liveSceneIsUpWithNoQuizQuestion: false, sceneIsBuilding: false,
+            sceneIsOnScreen: false, brainTakesEveryRequest: false, backgroundSceneIsReady: false, taskAnswerIsReady: false, approvalIsWaiting: false,
+            backgroundAgentIsRunning: false, backgroundAgentsArePaused: false, shirtStillVoiceTargets: targets
+        )
+    }
+
+    @Test func theRouteTakesThePhrasesAheadOfTheRouterWhileTheShirtShows() {
+        #expect(transcriptRoute(for: "right there", in: context(.livePreview), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
+        #expect(transcriptRoute(for: "go back", in: context(.paintedStill), videoIsInFront: { true }) == .shirtPaintedStill(.backToLive))
+        // With no shirt, "right there" and "go back" reach the router or the keyword path as before.
+        #expect(transcriptRoute(for: "right there", in: context(.none), videoIsInFront: { true }) == .voiceCommandRouter)
+        #expect(transcriptRoute(for: "go back", in: context(.livePreview), videoIsInFront: { false }) == .keywordPath)
+    }
+}
+
+// MARK: - The mask
+
+/// A made-up 320 by 240 frame: a person in an oversized navy top, wider and longer than the new top and with sleeve stubs,
+/// a white print on its chest, a bare head, neck, arms, and hands, and gray shorts, against a gray wall.
+private struct MadeUpPerson {
+    static let width = 320, height = 240
+    static let torso = BodyTorso(
+        imageLeftShoulder: CGPoint(x: 120, y: 80), imageRightShoulder: CGPoint(x: 200, y: 80),
+        imageLeftHip: CGPoint(x: 125, y: 190), imageRightHip: CGPoint(x: 195, y: 190),
+        hipsWereEstimated: false, shouldersAreSeen: true,
+        imageLeftElbow: CGPoint(x: 82, y: 140), imageRightElbow: CGPoint(x: 238, y: 140)
+    )
+    static let faceBox = CGRect(x: 140, y: 12, width: 40, height: 44)
+    static let leftHand = [CGPoint(x: 76, y: 204), CGPoint(x: 88, y: 204), CGPoint(x: 82, y: 213)]
+    static let rightHand = [CGPoint(x: 232, y: 204), CGPoint(x: 244, y: 204), CGPoint(x: 238, y: 213)]
+
+    enum Region { case wall, skin, oldTop, print, shorts }
+
+    static func region(column: Int, row: Int) -> Region {
+        let x = Double(column), y = Double(row)
+        if pow((x - 160) / 22, 2) + pow((y - 35) / 25, 2) < 1 { return .skin }
+        if (148..<172).contains(column), (55..<74).contains(row) { return .skin }
+        if (140..<180).contains(column), (100..<130).contains(row) { return .print }
+        if (90..<230).contains(column), (72..<215).contains(row) { return .oldTop }
+        if (68..<95).contains(column) || (225..<252).contains(column), (75..<125).contains(row) { return .oldTop }
+        if (72..<92).contains(column) || (228..<248).contains(column), (125..<216).contains(row) { return .skin }
+        if (100..<220).contains(column), (215..<240).contains(row) { return .shorts }
+        return .wall
+    }
+
+    static func frame() -> ShirtFrozenFrame {
+        var rgba = [UInt8](repeating: 255, count: width * height * 4)
+        var person = [UInt8](repeating: 0, count: width * height)
+        var coverage = [UInt8](repeating: 0, count: width * height)
+        for row in 0..<height {
+            for column in 0..<width {
+                let index = row * width + column
+                let color: (UInt8, UInt8, UInt8)
+                switch region(column: column, row: row) {
+                case .wall: color = (150, 150, 150)
+                case .skin: color = (200, 150, 120)
+                case .oldTop: color = (30, 40, 80)
+                case .print: color = (240, 240, 240)
+                case .shorts: color = (70, 70, 70)
+                }
+                rgba[index * 4] = color.0; rgba[index * 4 + 1] = color.1; rgba[index * 4 + 2] = color.2
+                if region(column: column, row: row) != .wall { person[index] = 255 }
+                // The new top is narrower and shorter than the old one, with no sleeves past the torso.
+                if (110..<210).contains(column), (76..<196).contains(row) { coverage[index] = 255 }
+            }
+        }
+        let image = rgbImage(bytes: rgba, width: width, height: height)!
+        return ShirtFrozenFrame(cameraImage: image, previewImage: image, personMask: person, previewGarmentCoverage: coverage, torso: torso)
+    }
+
+    static var bodyParts: ShirtPaintBodyParts {
+        ShirtPaintBodyParts(faceBoxes: [faceBox], hands: [leftHand, rightHand])
+    }
+}
+
+struct ShirtPaintMaskTests {
+    private let masks = ShirtPaintMask.make(frame: MadeUpPerson.frame(), bodyParts: MadeUpPerson.bodyParts)
+
+    private func paintable(_ column: Int, _ row: Int) -> Bool { (masks?.paintable[row * MadeUpPerson.width + column] ?? 0) > 127 }
+    private func protectedWeight(_ column: Int, _ row: Int) -> UInt8 { masks?.protected[row * MadeUpPerson.width + column] ?? 0 }
+
+    @Test func theMaskCoversTheWholeOldTopPastTheNewOne() throws {
+        let masks = try #require(masks)
+        #expect(masks.width == MadeUpPerson.width && masks.height == MadeUpPerson.height)
+        // Where the new top lands.
+        #expect(paintable(160, 150))
+        // The old top's hem below where the new one ends, and its sides past the new one's.
+        #expect(paintable(160, 208))
+        #expect(paintable(96, 150) && paintable(224, 150))
+        // Its sleeve stubs, past the torso.
+        #expect(paintable(74, 100) && paintable(246, 100))
+        // The old top's print, whose colors are not the old top's, is a hole the mask fills.
+        #expect(paintable(160, 115))
+        // Every pixel of the old top is in it.
+        var oldTopPixels = 0, oldTopPixelsLeftOut = 0
+        for row in 0..<MadeUpPerson.height {
+            for column in 0..<MadeUpPerson.width where MadeUpPerson.region(column: column, row: row) == .oldTop || MadeUpPerson.region(column: column, row: row) == .print {
+                oldTopPixels += 1
+                if !paintable(column, row) { oldTopPixelsLeftOut += 1 }
+            }
+        }
+        // The collar band next to the neck is left to the neck cut, so a few pixels at the top stay out.
+        #expect(Double(oldTopPixelsLeftOut) / Double(oldTopPixels) < 0.01, "\(oldTopPixelsLeftOut) of \(oldTopPixels) old top pixels left out")
+    }
+
+    @Test func theMaskNeverTouchesTheFaceNeckHandsBareArmsOrTheRoom() throws {
+        _ = try #require(masks)
+        #expect(!paintable(160, 35))
+        #expect(!paintable(160, 62))
+        #expect(!paintable(82, 208) && !paintable(238, 208))
+        #expect(!paintable(82, 170) && !paintable(238, 170))
+        #expect(!paintable(20, 20) && !paintable(300, 150) && !paintable(160, 232))
+    }
+
+    @Test func theHandsTheFaceAndTheNeckAreProtectedFromThePaste() throws {
+        _ = try #require(masks)
+        #expect(protectedWeight(82, 208) == 255 && protectedWeight(238, 208) == 255)
+        #expect(protectedWeight(160, 35) == 255)
+        #expect(protectedWeight(160, 62) == 255)
+        #expect(protectedWeight(160, 150) == 0)
+    }
+
+    @Test func noMaskWhenTheOldTopCannotBeRead() {
+        let frame = MadeUpPerson.frame()
+        let nobody = ShirtFrozenFrame(
+            cameraImage: frame.cameraImage, previewImage: frame.previewImage,
+            personMask: [UInt8](repeating: 0, count: frame.personMask.count), previewGarmentCoverage: [UInt8](repeating: 0, count: frame.personMask.count),
+            torso: BodyTorso(imageLeftShoulder: CGPoint(x: 400, y: 400), imageRightShoulder: CGPoint(x: 401, y: 400), imageLeftHip: CGPoint(x: 400, y: 401), imageRightHip: CGPoint(x: 401, y: 401), hipsWereEstimated: true, shouldersAreSeen: false)
+        )
+        #expect(ShirtPaintMask.make(frame: nobody, bodyParts: ShirtPaintBodyParts()) == nil)
+    }
+
+    @Test func theSkinRuleKeepsSkinAndLeavesShirtsAndWalls() {
+        #expect(ShirtPaintMask.looksLikeSkin(red: 200, green: 150, blue: 120))
+        #expect(ShirtPaintMask.looksLikeSkin(red: 120, green: 80, blue: 60))
+        #expect(!ShirtPaintMask.looksLikeSkin(red: 30, green: 40, blue: 80))
+        #expect(!ShirtPaintMask.looksLikeSkin(red: 150, green: 150, blue: 150))
+        #expect(!ShirtPaintMask.looksLikeSkin(red: 250, green: 250, blue: 250))
+    }
+
+    @Test func theMorphologyFillsHolesAndDropsSpecks() {
+        let width = 9, height = 9
+        var ring = [Bool](repeating: false, count: width * height)
+        for row in 2...6 { for column in 2...6 where row == 2 || row == 6 || column == 2 || column == 6 { ring[row * width + column] = true } }
+        let filled = ShirtPaintMask.withTheHolesFilled(ring, width: width, height: height)
+        #expect(filled[4 * width + 4] && !filled[0])
+        var speck = [Bool](repeating: false, count: width * height)
+        speck[0] = true
+        #expect(!ShirtPaintMask.withoutSmallPieces(speck, width: width, height: height, smallestPieceSize: 2).contains(true))
+        #expect(ShirtPaintMask.withoutSmallPieces(filled, width: width, height: height, smallestPieceSize: 2)[4 * width + 4])
+        let grown = ShirtPaintMask.dilated(speck, width: width, height: height, radius: 1)
+        #expect(grown[1] && grown[width] && grown[width + 1] && !grown[2])
+        #expect(ShirtPaintMask.eroded(grown, width: width, height: height, radius: 1)[0])
+        #expect(!ShirtPaintMask.eroded(grown, width: width, height: height, radius: 1)[width + 1])
+        let feathered = ShirtPaintMask.feathered(speck, width: width, height: height, featherPixels: 3)
+        #expect(feathered[0] == 255 && feathered[1] < 255 && feathered[1] > feathered[2] && feathered[4] == 0)
+    }
+}
+
+// MARK: - The paste
+
+struct ShirtPaintedStillPasteTests {
+    private func solid(_ red: UInt8, _ green: UInt8, _ blue: UInt8, width: Int, height: Int) -> CGImage {
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for index in 0..<(width * height) { bytes[index * 4] = red; bytes[index * 4 + 1] = green; bytes[index * 4 + 2] = blue }
+        return rgbImage(bytes: bytes, width: width, height: height)!
+    }
+
+    @Test func theProtectedRegionsStayExactlyAsFilmedInsideThePastesGrowth() throws {
+        let width = 160, height = 100
+        let keyframe = solid(128, 128, 128, width: width, height: height)
+        let painted = solid(220, 30, 30, width: width, height: height)
+        var paintable = [UInt8](repeating: 0, count: width * height)
+        var protectedRegion = [Bool](repeating: false, count: width * height)
+        for row in 20..<70 { for column in 30..<90 { paintable[row * width + column] = 255 } }
+        // A hand right beside the mask, inside the 24 pixels the paste grows it by.
+        for row in 35..<50 { for column in 94..<104 { protectedRegion[row * width + column] = true } }
+        let masks = ShirtPaintMasks(
+            width: width, height: height, paintable: paintable,
+            protected: ShirtPaintMask.feathered(protectedRegion, width: width, height: height, featherPixels: 3),
+            oldShirt: paintable
+        )
+
+        let pasted = try #require(shirtPaintedStillPasted(keyframe: keyframe, painted: painted, masks: masks, context: CIContext()))
+        let pixels = try #require(rgbaBytes(of: pasted, width: width, height: height))
+        func color(_ column: Int, _ row: Int) -> [UInt8] { Array(pixels[(row * width + column) * 4..<(row * width + column) * 4 + 3]) }
+
+        #expect(color(60, 45) == [220, 30, 30])
+        // Every pixel of the hand is the frame's own.
+        for row in 35..<50 { for column in 94..<104 { #expect(color(column, row) == [128, 128, 128]) } }
+        // Without the protection, the paste's growth would have painted it.
+        let maskImage = try #require(grayImage(bytes: paintable, width: width, height: height))
+        let unprotected = try #require(furnitureCompositePasted(keyframe: keyframe, generated: painted, mask: maskImage, context: CIContext()))
+        let unprotectedPixels = try #require(rgbaBytes(of: unprotected, width: width, height: height))
+        #expect(unprotectedPixels[(40 * width + 96) * 4] != 128)
+        // Past the growth, the frame is untouched.
+        #expect(color(150, 90) == [128, 128, 128])
+    }
+
+    @Test func masksOfAnotherSizeAreRefused() {
+        let keyframe = solid(1, 2, 3, width: 10, height: 10)
+        let masks = ShirtPaintMasks(width: 9, height: 10, paintable: [], protected: [], oldShirt: [])
+        #expect(shirtPaintedStillPasted(keyframe: keyframe, painted: keyframe, masks: masks, context: CIContext()) == nil)
+    }
+}
+
+// MARK: - What the Worker is sent
+
+private func paintingRequest(width: Int = 64, height: Int = 36, printDescription: String = "a line drawing", title: String = "Ringer tee") -> ShirtPaintingRequest {
+    var bytes = [UInt8](repeating: 200, count: width * height * 4)
+    for index in stride(from: 3, to: bytes.count, by: 4) { bytes[index] = 255 }
+    let keyframe = rgbImage(bytes: bytes, width: width, height: height)!
+    var paintable = [UInt8](repeating: 0, count: width * height)
+    for index in (width * 10)..<(width * 20) { paintable[index] = 255 }
+    return ShirtPaintingRequest(
+        keyframe: keyframe,
+        productJPEG: jpegData(of: keyframe)!,
+        masks: ShirtPaintMasks(width: width, height: height, paintable: paintable, protected: [UInt8](repeating: 0, count: width * height), oldShirt: paintable),
+        itemTitle: title,
+        garment: ShirtPaintingGarment(kind: .tshirt, sleeves: .short, baseColorHex: "#E9E1CF", printDescription: printDescription)
+    )
+}
+
+struct ShirtPaintingRequestTests {
+    @Test func theBodyIsTheShirtKindWithTheGarmentsOwnWords() throws {
+        let body = try #require(shirtPaintingRequestBody(paintingRequest()))
+        #expect(body["kind"] as? String == "shirt")
+        #expect(body["keyframeWidth"] as? Int == 64 && body["keyframeHeight"] as? Int == 36)
+        #expect(body["itemTitle"] as? String == "Ringer tee")
+        #expect(body["itemSizeWords"] == nil)
+        let garment = try #require(body["garment"] as? [String: String])
+        #expect(garment == ["kind": "tshirt", "sleeves": "short", "baseColorHex": "#E9E1CF", "printDescription": "a line drawing"])
+        // The mask is an 8-bit gray PNG the frame's size, white where the painting may draw.
+        let maskBase64 = try #require(body["maskPNGBase64"] as? String)
+        let maskData = try #require(Data(base64Encoded: maskBase64))
+        let mask = try #require(decodedImage(from: maskData))
+        #expect(mask.width == 64 && mask.height == 36 && mask.bitsPerPixel == 8)
+        let maskBytes = try #require(grayBytes(of: mask, width: 64, height: 36))
+        #expect(maskBytes[15 * 64 + 3] == 255 && maskBytes[2 * 64 + 3] == 0)
+    }
+
+    @Test func theTitleAndThePrintDescriptionAreCutToTheWorkersLimit() throws {
+        let body = try #require(shirtPaintingRequestBody(paintingRequest(printDescription: String(repeating: "😀", count: 200), title: String(repeating: "x", count: 400))))
+        let printDescription = try #require((body["garment"] as? [String: String])?["printDescription"])
+        #expect(printDescription.utf16.count == 300)
+        #expect((body["itemTitle"] as? String)?.utf16.count == 300)
+    }
+
+    @Test func aLinearColorIsWrittenAsSRGBHex() {
+        #expect(sRGBHex(ofLinear: ShirtRGB(red: 0, green: 0, blue: 0)) == "#000000")
+        #expect(sRGBHex(ofLinear: ShirtRGB(red: 1, green: 1, blue: 1)) == "#FFFFFF")
+        #expect(sRGBHex(ofLinear: ShirtRGB(red: 0.2159, green: 0, blue: 2)) == "#8000FF")
+    }
+
+    @Test func theProductIsThePicturesCropAtItsOwnResolution() throws {
+        let picture = rgbImage(bytes: [UInt8](repeating: 255, count: 400 * 500 * 4), width: 400, height: 500)!
+        let corners = RoomArtCorners(topLeft: CGPoint(x: 100, y: 100), topRight: CGPoint(x: 300, y: 100), bottomRight: CGPoint(x: 300, y: 400), bottomLeft: CGPoint(x: 100, y: 400))
+        let productJPEG = try #require(shirtPaintingProductJPEG(picture: picture, itemCorners: corners))
+        let product = try #require(decodedImage(from: productJPEG))
+        #expect(product.width == 220 && product.height == 330)
+        let tiny = RoomArtCorners(topLeft: .zero, topRight: CGPoint(x: 10, y: 0), bottomRight: CGPoint(x: 10, y: 10), bottomLeft: CGPoint(x: 0, y: 10))
+        #expect(shirtPaintingProductJPEG(picture: picture, itemCorners: tiny) == nil)
+    }
+
+    @Test func eachFailureHasItsOwnLine() {
+        #expect(shirtPaintingFailure(for: RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")) == .serviceIsNotSetUp)
+        #expect(shirtPaintingFailure(for: RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "")) == .paintingFailed)
+        #expect(shirtPaintingFailure(for: URLError(.timedOut)) == .paintingFailed)
+        let lines = [ShirtPaintingFailure.nobodyToPaintOn, .maskNotMade, .serviceIsNotSetUp, .paintingFailed].map(\.spokenLine)
+        #expect(Set(lines).count == 4)
+    }
+}
+
+// MARK: - The client
+
+/// Answers `http://shirt.stub/<test id>/room-furniture-composite` with the reply a test set, and records each body.
+private final class StubbedShirtWorkerURLProtocol: URLProtocol, @unchecked Sendable {
+    static let replies = OSAllocatedUnfairLock<[String: (statusCode: Int, body: Data)]>(initialState: [:])
+    static let requestBodies = OSAllocatedUnfairLock<[String: [Data]]>(initialState: [:])
+
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "shirt.stub" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url, let reply = Self.replies.withLock({ $0[url.path] }) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        var body = request.httpBody ?? Data()
+        if body.isEmpty, let stream = request.httpBodyStream {
+            stream.open()
+            var buffer = [UInt8](repeating: 0, count: 65_536)
+            while stream.hasBytesAvailable {
+                let readCount = stream.read(&buffer, maxLength: buffer.count)
+                guard readCount > 0 else { break }
+                body.append(buffer, count: readCount)
+            }
+            stream.close()
+        }
+        Self.requestBodies.withLock { $0[url.path, default: []].append(body) }
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: reply.statusCode, httpVersion: "HTTP/1.1", headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: reply.body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+@MainActor
+struct ShirtPaintingClientTests {
+    private let testID = UUID().uuidString
+
+    private func client() -> ShirtPaintingClient {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubbedShirtWorkerURLProtocol.self]
+        return ShirtPaintingClient(workerBaseURL: "http://shirt.stub/\(testID)", sessionConfiguration: configuration)
+    }
+
+    private func answer(statusCode: Int, body: Data) {
+        StubbedShirtWorkerURLProtocol.replies.withLock { $0["/\(testID)/room-furniture-composite"] = (statusCode, body) }
+    }
+
+    private func replyBody(width: Int, height: Int, statedWidth: Int? = nil) -> Data {
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        for index in 0..<(width * height) { bytes[index * 4] = 20; bytes[index * 4 + 1] = 200; bytes[index * 4 + 2] = 40; bytes[index * 4 + 3] = 255 }
+        let painted = jpegData(of: rgbImage(bytes: bytes, width: width, height: height)!)!
+        return try! JSONSerialization.data(withJSONObject: ["imageJPEGBase64": painted.base64EncodedString(), "width": statedWidth ?? width, "height": height])
+    }
+
+    @Test func aPaintingIsSentAsAShirtAndPastedIntoTheFrame() async throws {
+        answer(statusCode: 200, body: replyBody(width: 64, height: 36))
+
+        let pasted = try await client().paint(paintingRequest())
+
+        #expect(pasted.width == 64 && pasted.height == 36)
+        let pixels = try #require(rgbaBytes(of: pasted, width: 64, height: 36))
+        // Painted inside the mask, and the frame as filmed far from it.
+        #expect(pixels[(15 * 64 + 30) * 4 + 1] > 150)
+        let sentBody = try #require(StubbedShirtWorkerURLProtocol.requestBodies.withLock { $0["/\(testID)/room-furniture-composite"]?.first })
+        let sentJSON = try #require(try JSONSerialization.jsonObject(with: sentBody) as? [String: Any])
+        #expect(sentJSON["kind"] as? String == "shirt")
+    }
+
+    @Test func aWorkerWithNoKeyIsNotSetUpAndOtherFailuresAreFailures() async {
+        answer(statusCode: 503, body: Data(#"{"error":"OPENAI_API_KEY is not set"}"#.utf8))
+        await #expect(throws: RoomFurnitureGenerationError.serviceIsNotSetUp(body: #"{"error":"OPENAI_API_KEY is not set"}"#)) {
+            try await client().paint(paintingRequest())
+        }
+        answer(statusCode: 502, body: Data(#"{"error":"The shirt could not be drawn on you"}"#.utf8))
+        await #expect(throws: RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: #"{"error":"The shirt could not be drawn on you"}"#)) {
+            try await client().paint(paintingRequest())
+        }
+    }
+
+    @Test func aReplyWhoseImageIsNotTheSizeItStatesIsRefused() async {
+        answer(statusCode: 200, body: replyBody(width: 64, height: 36, statedWidth: 80))
+        await #expect(throws: RoomFurnitureGenerationError.self) { try await client().paint(paintingRequest()) }
+    }
+}

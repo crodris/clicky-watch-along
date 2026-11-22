@@ -967,6 +967,11 @@ nonisolated struct RoomArtMeasurementID: Hashable, Sendable {
 
 /// What the panel is doing. The page is read as the panel opens, and its kind picks the rest: wall art and furniture are
 /// measured on their surface and tracked, and a shirt is drawn over the learner with no measurement at all.
+/// Names one painting of the shirt, so a reply for a painting the learner left changes nothing.
+nonisolated struct ShirtPaintingID: Equatable, Sendable {
+    let number: Int
+}
+
 nonisolated enum RoomArtPhase: Equatable, Sendable {
     case closed
     /// The panel is open: the camera starts and the page is read at once.
@@ -987,8 +992,13 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     case preparingTheShirt(title: String)
     /// The garment is ready, and the learner is not yet standing where the shirt can be drawn.
     case waitingToSeeTheLearner(title: String)
-    /// The shirt is drawn over the learner every frame they stand in view.
+    /// The shirt is drawn over the learner every frame they stand in view: the live preview.
     case showingTheShirt(title: String)
+    /// The learner said "right there" or clicked Paint it: the frame is frozen and the shirt is painted into it. `id` names
+    /// this painting, so a reply for one the learner left by going back changes nothing.
+    case paintingTheShirt(title: String, id: ShirtPaintingID)
+    /// The painted still shows until the learner goes back to the live preview.
+    case showingThePaintedShirt(title: String)
     case failed(RoomArtFailure)
 
     var isOpen: Bool { self != .closed }
@@ -1026,7 +1036,8 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
             return .measuring(id: id, item: item)
         case .showing(let item, let surface, _):
             return .moving(id: id, item: item, surfaceBeforeTheMove: surface)
-        case .closed, .readingThePage, .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt, .failed:
+        case .closed, .readingThePage, .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt,
+             .paintingTheShirt, .showingThePaintedShirt, .failed:
             return self
         }
     }
@@ -1081,6 +1092,33 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         return .showingTheShirt(title: title)
     }
 
+    /// The learner asked for the painted look while the live preview shows. One painting runs at a time, so a request during
+    /// one, or before the shirt shows, changes nothing.
+    func startingToPaintTheShirt(id: ShirtPaintingID) -> RoomArtPhase {
+        guard case .showingTheShirt(let title) = self else { return self }
+        return .paintingTheShirt(title: title, id: id)
+    }
+
+    /// The painting for `id` is pasted into the frozen frame and shows.
+    func withThePaintedShirt(id: ShirtPaintingID) -> RoomArtPhase {
+        guard case .paintingTheShirt(let title, let paintingID) = self, paintingID == id else { return self }
+        return .showingThePaintedShirt(title: title)
+    }
+
+    /// The painting for `id` failed, so the live preview comes back and a line says why.
+    func afterThePaintingFailed(id: ShirtPaintingID) -> RoomArtPhase {
+        guard case .paintingTheShirt(let title, let paintingID) = self, paintingID == id else { return self }
+        return .showingTheShirt(title: title)
+    }
+
+    /// "Go back" or Back to live: the live preview comes back, from the painted still or from a painting still on its way.
+    func backToTheLiveShirt() -> RoomArtPhase {
+        switch self {
+        case .paintingTheShirt(let title, _), .showingThePaintedShirt(let title): return .showingTheShirt(title: title)
+        default: return self
+        }
+    }
+
     /// The camera could not start. It starts while the page is read, so this can come in any open phase before a frame.
     func afterTheCameraFailed(_ failure: RoomArtFailure) -> RoomArtPhase {
         switch self {
@@ -1114,6 +1152,9 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         case .preparingTheShirt: return shirtCoachingLine ?? "Getting the shirt ready…"
         case .waitingToSeeTheLearner: return shirtCoachingLine ?? "Looking for you…"
         case .showingTheShirt: return shirtCoachingLine ?? "On you"
+        // The frame is frozen, so the learner moving out of view changes nothing on screen and no coaching shows.
+        case .paintingTheShirt: return roomArtShirtPaintingStatusLine
+        case .showingThePaintedShirt: return roomArtShirtPaintedStatusLine
         case .failed(let failure): return failure.statusLine
         }
     }
@@ -1123,7 +1164,8 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         switch self {
         case .failed, .waitingForAFloorClick: return true
         case .showing(_, _, let moveFailure): return moveFailure != nil && !theSurfaceIsLost
-        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt:
+        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt,
+             .paintingTheShirt, .showingThePaintedShirt:
             return false
         }
     }
@@ -1174,6 +1216,12 @@ nonisolated struct RoomArtRequestRecord: Equatable, Sendable {
     mutating func start(atPushToTalkPressCount pushToTalkPressCount: Int) {
         pushToTalkPressCountWhenItStarted = pushToTalkPressCount
         isOpeningThePanel = true
+    }
+
+    /// The learner asked the open panel for something by voice, such as "right there" for the shirt, so a line about it
+    /// that lands after this press is still theirs. The panel is already open, so the opening flag is left as it is.
+    mutating func continued(atPushToTalkPressCount pushToTalkPressCount: Int) {
+        pushToTalkPressCountWhenItStarted = pushToTalkPressCount
     }
 
     /// The panel's opening returned, and the result says whether this request still owns the voice state. A push-to-talk
