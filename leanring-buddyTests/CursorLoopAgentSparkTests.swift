@@ -9,6 +9,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import SwiftUI
 import Testing
 @testable import Clicky
 
@@ -387,4 +388,91 @@ private func controllerWithTheMediaInHand(
     controller.pushToTalkWasPressed()
     controller.end(because: .scrolled)
     #expect(!controller.state.agentLineIsShowing)
+}
+
+// MARK: - The drawing
+
+/// Renders the agent line at 2x, with a studyGuide agent whose first of two steps is done, so its progress is a half and its color is amber.
+@MainActor
+private struct RenderedAgentLine {
+    static let lineRect = CGRect(x: 20, y: 20, width: 200, height: 120)
+    static let seed: UInt64 = 7
+    let pixels: NSBitmapImageRep
+    let agentColor: NSColor
+
+    init(reduceMotion: Bool, drawsItsOwnTrack: Bool = false) throws {
+        let store = makeBackgroundAgentStore()
+        let agentID = store.start(kind: .studyGuide)
+        store.completeStep(for: agentID)
+        let agent = try #require(store.agents.first)
+        agentColor = NSColor(agent.displayColor.color).usingColorSpace(.sRGB) ?? .clear
+        let line = AgentLoopOnScreen(lineRect: Self.lineRect, seed: Self.seed, agentIDs: [agentID], drawsItsOwnTrack: drawsItsOwnTrack, isFadingOut: false)
+        let view = CursorLoopAgentSparkView(agentLoop: line, agentStore: store, trackColor: .white, reduceMotionIsOn: reduceMotion, fadesInWhenItAppears: false)
+            .frame(width: 240, height: 160)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2
+        pixels = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+    }
+
+    /// The pixel under a point along the line, `share` of the way round it from its start.
+    func color(atShare share: Double) throws -> NSColor {
+        let outline = CursorLoopOutline.path(along: Self.lineRect, seed: Self.seed)
+        let point = try #require(outline.trimmedPath(from: 0, to: max(share, 0.0005)).currentPoint)
+        return try #require(pixels.colorAt(x: Int(point.x * 2), y: Int(point.y * 2))?.usingColorSpace(.sRGB))
+    }
+
+    func isTheAgentsColor(_ color: NSColor) -> Bool {
+        abs(color.redComponent - agentColor.redComponent) < 0.06
+            && abs(color.greenComponent - agentColor.greenComponent) < 0.06
+            && abs(color.blueComponent - agentColor.blueComponent) < 0.06
+            && color.alphaComponent > 0.9
+    }
+}
+
+@Test @MainActor func reduceMotionDrawsAStillArcInTheAgentsColorAsLongAsItsProgressAndNoSpark() throws {
+    let render = try RenderedAgentLine(reduceMotion: true)
+    // The agent is half done, so the line's first part is its color and the rest is empty.
+    #expect(render.isTheAgentsColor(try render.color(atShare: 0.15)))
+    #expect(render.isTheAgentsColor(try render.color(atShare: 0.4)))
+    #expect(try render.color(atShare: 0.7).alphaComponent < 0.05)
+    #expect(try render.color(atShare: 0.95).alphaComponent < 0.05)
+}
+
+@Test @MainActor func theSparkStartsOnTheLinesStartInTheAgentsColorWithNoTrackWhenARequestLoopDrawsTheLine() throws {
+    let render = try RenderedAgentLine(reduceMotion: false)
+    #expect(render.isTheAgentsColor(try render.color(atShare: 0)))
+    // Nothing else is drawn on the line, since the request's loop draws it.
+    #expect(try render.color(atShare: 0.5).alphaComponent < 0.05)
+}
+
+@Test @MainActor func withNoRequestLoopTheAgentsDrawAQuietTrackForTheSpark() throws {
+    let render = try RenderedAgentLine(reduceMotion: false, drawsItsOwnTrack: true)
+    let trackPixel = try render.color(atShare: 0.5)
+    // White at 45 percent over nothing: visible, but quieter than the spark.
+    #expect(trackPixel.alphaComponent > 0.3 && trackPixel.alphaComponent < 0.6)
+}
+
+@Test @MainActor func reduceMotionDrawsTheShorterArcOverTheLongerOne() throws {
+    let store = makeBackgroundAgentStore()
+    let halfDoneAgentID = store.start(kind: .studyGuide)
+    store.completeStep(for: halfDoneAgentID)
+    let finishedAgentID = store.start(kind: .threeDModel)
+    store.finish(finishedAgentID, with: .readyScene)
+    let halfDoneColor = try #require(store.agents.first { $0.id == halfDoneAgentID }?.displayColor.color)
+    // The half done agent joined first, so drawing in the order they joined would cover its arc with the finished agent's.
+    let line = AgentLoopOnScreen(
+        lineRect: RenderedAgentLine.lineRect, seed: RenderedAgentLine.seed,
+        agentIDs: [halfDoneAgentID, finishedAgentID], drawsItsOwnTrack: false, isFadingOut: false
+    )
+    let renderer = ImageRenderer(
+        content: CursorLoopAgentSparkView(agentLoop: line, agentStore: store, trackColor: .white, reduceMotionIsOn: true, fadesInWhenItAppears: false)
+            .frame(width: 240, height: 160)
+    )
+    renderer.scale = 2
+    let pixels = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+    let outline = CursorLoopOutline.path(along: RenderedAgentLine.lineRect, seed: RenderedAgentLine.seed)
+    let point = try #require(outline.trimmedPath(from: 0, to: 0.3).currentPoint)
+    let pixel = try #require(pixels.colorAt(x: Int(point.x * 2), y: Int(point.y * 2))?.usingColorSpace(.sRGB))
+    let expected = try #require(NSColor(halfDoneColor).usingColorSpace(.sRGB))
+    #expect(abs(pixel.redComponent - expected.redComponent) < 0.06 && abs(pixel.blueComponent - expected.blueComponent) < 0.06)
 }

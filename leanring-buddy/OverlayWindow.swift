@@ -367,7 +367,8 @@ struct BlueCursorView: View {
                 CursorLoopAgentSparkView(
                     agentLoop: agentLoopToDraw,
                     agentStore: companionManager.backgroundAgentStore,
-                    trackColor: themeSettings.shownTheme.cursorColor
+                    trackColor: themeSettings.shownTheme.cursorColor,
+                    reduceMotionIsOn: reduceMotionIsOn
                 )
             }
 

@@ -42,9 +42,19 @@ struct CursorLoopAgentSparkView: View {
     let agentStore: BackgroundAgentStore
     /// The theme's accent, which the track is drawn in.
     let trackColor: Color
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Reduce Motion is passed in, since a test cannot set the environment value.
+    let reduceMotionIsOn: Bool
     @State private var sparkPhaseBook = AgentSparkPhaseBook()
-    @State private var hasAppeared = false
+    @State private var hasAppeared: Bool
+
+    /// `fadesInWhenItAppears` is false only for a render in a test, where `onAppear` never runs and the line would stay invisible.
+    init(agentLoop: AgentLoopOnScreen, agentStore: BackgroundAgentStore, trackColor: Color, reduceMotionIsOn: Bool, fadesInWhenItAppears: Bool = true) {
+        self.agentLoop = agentLoop
+        self.agentStore = agentStore
+        self.trackColor = trackColor
+        self.reduceMotionIsOn = reduceMotionIsOn
+        _hasAppeared = State(initialValue: !fadesInWhenItAppears)
+    }
 
     private static let trackOpacity: Double = 0.45
     private static let trackWidthInPoints: CGFloat = 2
@@ -57,7 +67,7 @@ struct CursorLoopAgentSparkView: View {
     var body: some View {
         let outline = CursorLoopOutline.path(along: agentLoop.lineRect, seed: agentLoop.seed)
         Group {
-            if reduceMotion {
+            if reduceMotionIsOn {
                 // A still arc moves only when the progress does, so a slow clock is enough.
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     Canvas { context, _ in drawTheStillArcs(of: agentsOnTheLine(), along: outline, in: &context) }

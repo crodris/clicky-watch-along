@@ -186,7 +186,7 @@ final class CursorLoopController: ObservableObject {
     /// sleeping for a guessed time, which a loaded runner can outlast. A task that has not started yet is not waited for.
     func waitForTheMediaReadToFinish() async { await mediaRectReadTask?.value }
     func waitForTheIdleHoldToFinish() async { await idleMustHoldTask?.value }
-    /// Only returns when the poll ends the loop, since a poll whose samples match keeps sampling for as long as the loop shows.
+    /// Only returns when the poll ends the loop or the agent line, since a poll whose samples match keeps sampling for as long as one shows.
     func waitForThePollToEndTheLoop() async { await pollTask?.value }
     func waitForTheFinishingLapsToEnd() async {
         for finishingLapTask in Array(finishingLapTasks.values) { await finishingLapTask.value }
@@ -277,8 +277,8 @@ final class CursorLoopController: ObservableObject {
         }
     }
 
-    /// While a loop shows, the front tab's window, tab, URL, and media position are sampled as the loop starts and once
-    /// a second after, and any difference, or a sample that fails, clears the loop. The first sample catches a tab switch
+    /// While a loop or an agent line shows, the front tab's window, tab, URL, and media position are sampled as it starts and once
+    /// a second after, and any difference, or a sample that fails, clears it. The first sample catches a tab switch
     /// or window move between the release and the hand-off. This also covers a switch to a duplicate tab.
     private func startPollingTheFrontTab() {
         pollTask = Task {
