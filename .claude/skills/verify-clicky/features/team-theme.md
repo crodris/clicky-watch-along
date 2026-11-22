@@ -1,15 +1,15 @@
 # Team theme
 
 Every theme is a `.clickytheme` file: the eleven bundled ones in `themes/` (Clicky blue and ten Haikyu!! schools) and the ones the learner saved or installed.
-The learner picks one in the menu bar panel's "Team theme" section or the settings dial's Team fan, and the panel's Shuffle switch gives each new agent the look of a random installed theme while the cursor stays the chosen one's.
+The learner picks one of the menu bar panel's theme cards or the settings dial's Team fan, and the Shuffle switch under the panel's "All themes" gives each new agent the look of a random installed theme while the cursor stays the chosen one's.
 A school's file draws the cursor as a volleyball in the team's colors, and turns every background agent that starts into one of that team's roster players, shown as a round portrait in a progress ring in a token beside the notch and as a themed row in the agent list.
 
 ## Sub-features
 
 - `theme-picker` saves the pick under `companionTheme` in UserDefaults as `bundled:<id>` or `custom:<id>` and applies it at once, with no relaunch.
-  The menu bar panel's buttons and the settings dial's Team fan set the same value.
+  The menu bar panel's cards and the settings dial's Team fan set the same value.
   A value an older version wrote (`clickyBlue`, `school:karasuno`, `random`) reads as the theme it named, with `random` as Clicky blue and Shuffle on, and is not rewritten until the learner picks a theme or flips Shuffle.
-- `theme-shuffle` is the panel's "Shuffle agents" switch, saved under `shufflesAgentThemes`. With it on, new agents wear several themes' looks and the cursor stays the picked theme's.
+- `theme-shuffle` is the "Shuffle agents across themes" switch on the panel's All themes page, saved under `shufflesAgentThemes`. With it on, new agents wear several themes' looks and the cursor stays the picked theme's.
 - `theme-files` reads every bundled `themes/*.clickytheme` from `Contents/Resources/Themes`, which the "Copy Bundled Themes" build phase fills. A missing folder logs `Themes: the app has no bundled Themes folder`.
 - `theme-install` asks "Add theme?" for a double-clicked `.clickytheme` package (a card with the theme's cursor, `Add "<name>" to Clicky?`, how it moves, Cancel and Add theme; Escape and Cancel install nothing), and on Add theme installs it: the chip says "Theme added" with its name, the theme's done sound plays, the panel lists it, and the cursor wears it. A package that does not parse logs `Themes: refused <name>: <rule>` and shows "Couldn't add that theme" with no card.
 - `theme-cursor` draws the cursor as a volleyball in the school's colors, and colors its glow, the ring's ticks and dots, the loop, and the navigation bubble in the school's accent.
@@ -27,7 +27,7 @@ A school's file draws the cursor as a volleyball in the team's colors, and turns
 
 ## How to get to it (user POV)
 
-- Click the menu bar icon, then a theme under "Team theme", or the "Shuffle agents" switch, or hold shift + option, flick to Team, and let go on a theme ([`settings-dial.md`](./settings-dial.md)).
+- Click the menu bar icon, then a theme card, or "All themes" and its "Shuffle agents across themes" switch, or hold shift + option, flick to Team, and let go on a theme ([`settings-dial.md`](./settings-dial.md)).
 - Double-click a `.clickytheme` folder in Finder, or run `open -a <the Debug Clicky.app> <package>.clickytheme`.
 - Start any background agent by voice, such as "make me a study guide" while a YouTube video plays.
 - Click an agent's token beside the notch, or the "+N" disc, to open the agent list under it, or hold shift + option, flick to Agents, and let go to open the list next to the mouse.
