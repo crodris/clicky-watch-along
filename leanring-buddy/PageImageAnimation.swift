@@ -24,9 +24,9 @@ enum PageImageAnimation {
     nonisolated static let largestOutputPixelCountForAllFrames = 60_000_000
     /// The download runs while Sonnet reads the frame, which takes about 4 seconds.
     nonisolated private static let downloadTimeoutSeconds: TimeInterval = 4
-    nonisolated private static let largestDownloadByteCount = 8_000_000
+    nonisolated static let largestDownloadByteCount = 8_000_000
     /// No cookies, credentials, or cache, since the URL comes from whatever page is open.
-    nonisolated private static let downloadSession: URLSession = {
+    nonisolated static let downloadSession: URLSession = {
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.httpCookieStorage = nil
         sessionConfiguration.httpShouldSetCookies = false
@@ -43,20 +43,7 @@ enum PageImageAnimation {
         frameHeight: Int,
         capturedFrameJPEGBase64: String
     ) async -> [PageImageAnimationFrame]? {
-        guard mayDownload(imageURL) else { return nil }
-        var imageData = Data()
-        do {
-            let (imageBytes, response) = try await downloadSession.bytes(
-                for: URLRequest(url: imageURL, timeoutInterval: downloadTimeoutSeconds),
-                delegate: HTTPSOnlyRedirects()
-            )
-            guard response.expectedContentLength <= largestDownloadByteCount else { return nil }
-            for try await byte in imageBytes {
-                imageData.append(byte)
-                guard imageData.count <= largestDownloadByteCount else { return nil }
-            }
-        } catch {
-            print("Frame pop-out: could not download the page image to animate it: \(error.localizedDescription)")
+        guard let imageData = await downloadedImageData(atImageURL: imageURL, timeoutSeconds: downloadTimeoutSeconds) else {
             return nil
         }
         return frames(
@@ -65,6 +52,35 @@ enum PageImageAnimation {
             frameHeight: frameHeight,
             backgroundColor: cornerColor(ofJPEGBase64: capturedFrameJPEGBase64)
         )
+    }
+
+    /// The bytes of the file at an https URL, the one download every page image use shares (the animation's frames and
+    /// room art's picture). Https only for the first request and every redirect, no cookies or credentials (the session),
+    /// at most `largestDownloadByteCount` bytes, and a 200 reply, since a refused redirect leaves the 3xx reply behind.
+    /// Nil for anything else. The session is a parameter so a test can stub the network.
+    @concurrent nonisolated static func downloadedImageData(
+        atImageURL imageURL: URL,
+        timeoutSeconds: TimeInterval,
+        session: URLSession = downloadSession
+    ) async -> Data? {
+        guard mayDownload(imageURL) else { return nil }
+        var imageData = Data()
+        do {
+            let (imageBytes, response) = try await session.bytes(
+                for: URLRequest(url: imageURL, timeoutInterval: timeoutSeconds),
+                delegate: HTTPSOnlyRedirects()
+            )
+            guard (response as? HTTPURLResponse)?.statusCode == 200,
+                  response.expectedContentLength <= largestDownloadByteCount else { return nil }
+            for try await byte in imageBytes {
+                imageData.append(byte)
+                guard imageData.count <= largestDownloadByteCount else { return nil }
+            }
+        } catch {
+            print("Page image: could not download \(imageURL.host ?? "the page image"): \(error.localizedDescription)")
+            return nil
+        }
+        return imageData
     }
 
     /// The page names the URL, so only https is fetched, for the first request and for every redirect.
