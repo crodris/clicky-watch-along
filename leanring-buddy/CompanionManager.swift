@@ -5796,8 +5796,9 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// The buddy flies on its usual arc to the part's label and stays until the narration that pointed it
-    /// releases it. Its bubble shows the sentence Clicky is speaking, since the label already names the part.
+    /// The buddy flies on its usual arc to the part, the point where its label's leader line ends on the model, and
+    /// stays until the narration that pointed it releases it. Its bubble shows the sentence Clicky is speaking, since
+    /// the label already names the part.
     private func pointTheBuddy(atLiveScenePart partScreenPoint: LiveScenePartScreenPoint, bubbleText: String, narrationID: UUID) {
         guard let displayFrame = NSScreen.screens.first(where: { screen in
             screen.frame.contains(partScreenPoint.globalPoint)
@@ -5808,7 +5809,7 @@ final class CompanionManager: ObservableObject {
         detectedElementScreenLocation = partScreenPoint.globalPoint
     }
 
-    /// The blue cursor flies to the quiz's "?" label and its speech Callout shows the question, brightening its words along with the voice, so a
+    /// The blue cursor flies to the part the quiz's "?" label points at and its speech Callout shows the question, brightening its words along with the voice, so a
     /// learner can read a long question again while answering. It stays until the question is answered, or the scene
     /// clears, which releases any held pointing.
     private func pointTheBuddyAtTheQuizQuestion(_ quiz: LiveSceneQuiz, labelScreenPoints: [LiveScenePartScreenPoint]) {
