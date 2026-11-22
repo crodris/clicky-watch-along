@@ -99,6 +99,57 @@ private func tShirtPhotoAndMask(withNeckHole: Bool = true) -> (photo: CGImage, m
     return (canvas.cgImage, ShirtCutoutMask(width: 400, height: 500, pixels: maskPixels))
 }
 
+/// The no-hole T-shirt of `tShirtPhotoAndMask(withNeckHole: false)` as a flat lay photo shows it: a brown collar ring
+/// around an opening centered on column 199, from `openingTopRow` to row 52 and 40 pixels either side, through which the
+/// inside of the shirt's back shows in light blue with a dark label at its top. The ring's outside is centered on row 32,
+/// 52 pixels either side and 32 up and down (`ringOutside`), so it is 12 pixels wide at the sides and the front. A
+/// `textured` ring has rows in five shades from 0 to 32 levels lighter, as a rib knit photographs, which no 3 by 3 mean
+/// smooths flat. With `striped`, the body, the ring's color aside, and the inside of the back are black and white stripes
+/// 4 rows each and the ring is white, as on a Breton shirt. The cutout has no hole, as subject lifting gives.
+private func flatLayTShirtWithItsInsideBackShowing(
+    openingTopRow: Int = 12, textured: Bool = false, striped: Bool = false, ringOutside: (middleRow: Double, halfHeight: Double) = (32, 32)
+) -> (photo: CGImage, mask: ShirtCutoutMask) {
+    let (photo, mask) = tShirtPhotoAndMask(withNeckHole: false)
+    var canvas = ShirtTestCanvas(width: 400, height: 500, color: (0, 0, 0))
+    canvas.bytes = photoBytes(photo)
+    let stripe = { (row: Int) -> (UInt8, UInt8, UInt8) in (row / 4) % 2 == 0 ? (20, 20, 20) : (245, 245, 245) }
+    if striped {
+        for row in 0..<500 {
+            for column in 0..<400 where mask.pixels[row * 400 + column] != 0 { canvas.fill(columns: column..<(column + 1), rows: row..<(row + 1), color: stripe(row)) }
+        }
+    }
+    let openingHalfHeight = Double(52 - openingTopRow) / 2, openingMiddleRow = Double(52 + openingTopRow) / 2
+    func inside(column: Int, row: Int, halfWidth: Double, middleRow: Double, halfHeight: Double) -> Bool {
+        let across = (Double(column) - 199) / halfWidth, down = (Double(row) - middleRow) / halfHeight
+        return across * across + down * down <= 1
+    }
+    for row in 0..<70 {
+        for column in 140..<260 {
+            if inside(column: column, row: row, halfWidth: 40, middleRow: openingMiddleRow, halfHeight: openingHalfHeight) {
+                canvas.fill(columns: column..<(column + 1), rows: row..<(row + 1), color: striped ? stripe(row) : (170, 200, 235))
+            } else if inside(column: column, row: row, halfWidth: 52, middleRow: ringOutside.middleRow, halfHeight: ringOutside.halfHeight) {
+                let shade = UInt8(textured ? (row % 5) * 8 : 0)
+                canvas.fill(columns: column..<(column + 1), rows: row..<(row + 1), color: striped ? (240, 240, 240) : (90 + shade, 55 + shade, 30 + shade))
+            }
+        }
+    }
+    canvas.fill(columns: 187..<212, rows: (openingTopRow + 4)..<(openingTopRow + 13), color: (20, 20, 20))
+    return (canvas.cgImage, mask)
+}
+
+/// A CGImage's pixels as tight RGBA rows, the first row at the top.
+private func photoBytes(_ image: CGImage) -> [UInt8] {
+    var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+    bytes.withUnsafeMutableBytes { buffer in
+        let context = CGContext(
+            data: buffer.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )
+        context?.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    }
+    return bytes
+}
+
 private func readings(leftShoulder: (Double, Double, Float), rightShoulder: (Double, Double, Float), leftHip: (Double, Double, Float)? = nil, rightHip: (Double, Double, Float)? = nil) -> ShirtBodyJointReadings {
     func reading(_ joint: (Double, Double, Float)?) -> ShirtJointReading? {
         joint.map { ShirtJointReading(visionPoint: CGPoint(x: $0.0, y: $0.1), confidence: $0.2) }
@@ -376,6 +427,132 @@ struct ShirtGarmentTests {
         #expect(!measurements.frontNeckWasFound)
     }
 
+    @Test func theInsideOfTheBackSeenThroughTheCollarIsFoundAsTheNeckOpening() throws {
+        let (photo, mask) = flatLayTShirtWithItsInsideBackShowing()
+        let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
+        let opening = try #require(ShirtNeckOpening.find(photoPixels: photoBytes(photo), mask: mask, measurements: measurements))
+        #expect(opening.centerColumn == 199)
+        #expect(abs(opening.topRow - 12) <= 2, "top \(opening.topRow)")
+        #expect(abs(opening.bottomRow - 52) <= 2, "bottom \(opening.bottomRow)")
+        #expect(abs(opening.halfWidth - 40) <= 2, "half width \(opening.halfWidth)")
+    }
+
+    @Test func theOpeningsTopIsTheRingsInnerEdgeAndNotTheRibOfAThickBackCollar() throws {
+        // A back collar 20 rows deep whose rib shades its rows: the shades never differ enough to be the opening's top.
+        let (photo, mask) = flatLayTShirtWithItsInsideBackShowing(openingTopRow: 20, textured: true)
+        let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
+        let opening = try #require(ShirtNeckOpening.find(photoPixels: photoBytes(photo), mask: mask, measurements: measurements))
+        #expect(abs(opening.topRow - 20) <= 2, "top \(opening.topRow)")
+    }
+
+    @Test func theOpeningLeavesAtLeast8PixelsOfCollarAboveIt() throws {
+        // A white collar on a white sweep, cropped to 4 rows above the inside of the back (rows 0 to 7 are background, as
+        // white as the collar). An opening there would cut the collar's top off, so it starts 8 rows into the cloth or lower.
+        let (photo, wholeMask) = flatLayTShirtWithItsInsideBackShowing(striped: true)
+        var maskPixels = wholeMask.pixels
+        for row in 0..<8 { for column in 0..<400 { maskPixels[row * 400 + column] = 0 } }
+        let mask = ShirtCutoutMask(width: 400, height: 500, pixels: maskPixels)
+        let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
+        let opening = try #require(ShirtNeckOpening.find(photoPixels: photoBytes(photo), mask: mask, measurements: measurements))
+        #expect(opening.topRow >= 16, "top \(opening.topRow)")
+    }
+
+    @Test func theOpeningIsTheEdgeWithTheRingOutsideItAndNotAStripesEdge() throws {
+        // A white ring on a striped shirt with a striped inside back: every stripe is an edge, but only the ring's inner edge
+        // has the ring's white all the way round outside it.
+        let (photo, mask) = flatLayTShirtWithItsInsideBackShowing(striped: true)
+        let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
+        let opening = try #require(ShirtNeckOpening.find(photoPixels: photoBytes(photo), mask: mask, measurements: measurements))
+        #expect(abs(opening.halfWidth - 40) <= 3, "half width \(opening.halfWidth)")
+        #expect(abs(opening.bottomRow - 52) <= 3, "bottom \(opening.bottomRow)")
+    }
+
+    @Test func theGarmentLeavesTheInsideOfItsBackOutAndKeepsItsCollarRing() throws {
+        let (photo, mask) = flatLayTShirtWithItsInsideBackShowing()
+        let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
+        // The opening is now the neck hole the necklines meet at, its front at the top of the front collar.
+        #expect(garment.frontNeckWasFound)
+        #expect(abs(garment.frontNeckPoint.y - 53) <= 3, "front neck \(garment.frontNeckPoint)")
+        let cutout = renderedCanvas(of: garment.cutout)
+        func alpha(column: Int, row: Int) -> Int { Int(cutout.bytes[(row * 400 + column) * 4 + 3]) }
+        // The label and the inside of the back are gone; the collar ring stays at the back, the front, and both sides.
+        #expect(alpha(column: 199, row: 20) == 0)
+        #expect(alpha(column: 199, row: 40) == 0)
+        #expect(alpha(column: 199, row: 5) > 200)
+        #expect(alpha(column: 199, row: 59) > 200)
+        #expect(alpha(column: 199 - 46, row: 32) > 200)
+        #expect(alpha(column: 199 + 46, row: 32) > 200)
+        // The ring beside the opening's top corner, inside the opening's bounding box but outside the ellipse, stays too.
+        #expect(alpha(column: 199 - 38, row: 15) > 200)
+    }
+
+    @Test func aNarrowFrontCollarKeepsItsOwnColorAtTheOpening() throws {
+        // The ring's outside ends at row 56, so the front collar is 4 rows under the opening's bottom at row 52, narrower
+        // than the band a cutout's edge takes its colors from. The opening is no outline, so the collar stays brown.
+        let (photo, mask) = flatLayTShirtWithItsInsideBackShowing(ringOutside: (middleRow: 28, halfHeight: 28))
+        let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
+        #expect(garment.frontNeckWasFound)
+        let cutout = renderedCanvas(of: garment.cutout)
+        let index = (54 * 400 + 199) * 4
+        let alpha = Double(cutout.bytes[index + 3])
+        try #require(alpha > 100, "the front collar should be drawn, alpha \(alpha)")
+        // Premultiplied, so the color is the stored value over the alpha.
+        let red = Double(cutout.bytes[index]) / alpha * 255, green = Double(cutout.bytes[index + 1]) / alpha * 255
+        #expect(red < 150 && green < 90, "brown, got \(red), \(green)")
+    }
+
+    @Test func theInsideOfTheBackLeftOutIsNotTakenForThePhotosBackground() throws {
+        // The background is split into black and white, with 1,000 more white pixels than black, so its median is white. The
+        // inside of the back, about 2,500 pixels, would pull that median to its own color if it counted as background, and a
+        // light blue and a black inside of the back would then give two different whites. Left out of the cutout, it is not
+        // background either, so both give the same white.
+        let (photo, mask) = flatLayTShirtWithItsInsideBackShowing()
+        try #require(mask.width == 400 && mask.height == 500)
+        let backgroundPixelIndices = mask.pixels.indices.filter { pixelIndex in mask.pixels[pixelIndex] == 0 }
+        let blackBackgroundPixelCount = (backgroundPixelIndices.count - 1000) / 2
+        func photoWithItsInsideBack(in insideBackColor: (UInt8, UInt8, UInt8)) -> CGImage {
+            var canvas = ShirtTestCanvas(width: 400, height: 500, color: (0, 0, 0))
+            canvas.bytes = photoBytes(photo)
+            for row in 0..<70 {
+                for column in 140..<260 where canvas.pixel(column: column, row: row) == (red: 170, green: 200, blue: 235) {
+                    canvas.fill(columns: column..<(column + 1), rows: row..<(row + 1), color: insideBackColor)
+                }
+            }
+            for (position, pixelIndex) in backgroundPixelIndices.enumerated() {
+                let shade: UInt8 = position < blackBackgroundPixelCount ? 0 : 255
+                canvas.fill(columns: (pixelIndex % 400)..<(pixelIndex % 400 + 1), rows: (pixelIndex / 400)..<(pixelIndex / 400 + 1), color: (shade, shade, shade))
+            }
+            return canvas.cgImage
+        }
+        let light = try #require(ShirtGarment.make(workingPhoto: photoWithItsInsideBack(in: (170, 200, 235)), cutoutMask: mask))
+        let dark = try #require(ShirtGarment.make(workingPhoto: photoWithItsInsideBack(in: (10, 10, 10)), cutoutMask: mask))
+        #expect(dark.frontNeckWasFound && light.frontNeckWasFound)
+        #expect(simd_distance(light.photoWhite, dark.photoWhite) < 1e-6, "\(light.photoWhite) against \(dark.photoWhite)")
+    }
+
+    @Test func aShirtWithItsNeckHoleAlreadyCutHasNoOpeningToFind() throws {
+        let (photo, mask) = tShirtPhotoAndMask()
+        let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
+        #expect(ShirtNeckOpening.find(photoPixels: photoBytes(photo), mask: mask, measurements: measurements) == nil)
+    }
+
+    @Test func aSmallMarkBelowThePlainCollarIsNotAnOpening() throws {
+        // A plain shirt with a 5 pixel mark below its collar: the mark is a strong edge, but no ellipse's edge has contrast
+        // along enough of it to be the collar ring's inner edge.
+        let (photo, mask) = tShirtPhotoAndMask(withNeckHole: false)
+        var canvas = ShirtTestCanvas(width: 400, height: 500, color: (0, 0, 0))
+        canvas.bytes = photoBytes(photo)
+        canvas.fill(columns: 197..<202, rows: 18..<23, color: (20, 20, 20))
+        let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
+        #expect(ShirtNeckOpening.find(photoPixels: canvas.bytes, mask: mask, measurements: measurements) == nil)
+    }
+
+    @Test func aPlainShirtWithNoEdgeBelowItsCollarHasNoOpening() throws {
+        let (photo, mask) = tShirtPhotoAndMask(withNeckHole: false)
+        let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
+        #expect(ShirtNeckOpening.find(photoPixels: photoBytes(photo), mask: mask, measurements: measurements) == nil)
+    }
+
     @Test func anEmptyCutoutHasNoMeasurements() {
         #expect(ShirtGarmentMeasurements(mask: ShirtCutoutMask(width: 100, height: 100, pixels: [UInt8](repeating: 0, count: 10_000))) == nil)
     }
@@ -457,6 +634,28 @@ struct ShirtFrameAnalysisTests {
     @Test func theNeckIsFoundWhereTheSkinGivesWayToTheOldShirt() throws {
         let frame = smallFrameOfAPerson(shirtBottomRow: 110)
         #expect(frame.bodyNeckRow(oldShirtColor: SIMD3(30, 60, 150)) == 70)
+    }
+
+    @Test func theNeckInTheChinsShadowIsNotTakenForADarkOldShirt() {
+        // A navy shirt from row 70, and the neck above it in shadow, as dark as the shirt but warm. Only the shirt's hue
+        // marks where the neck meets it.
+        let person = smallFrameOfAPerson(shirtBottomRow: 110)
+        var canvas = ShirtTestCanvas(width: 160, height: 120, color: (0, 0, 0))
+        canvas.bytes = person.rgba
+        canvas.fill(columns: 50..<110, rows: 70..<110, color: (25, 29, 40))
+        canvas.fill(columns: 72..<88, rows: 58..<70, color: (53, 38, 33))
+        let frame = ShirtSmallFrame(width: 160, height: 120, rgba: canvas.bytes, personMask: person.personMask, torso: person.torso)
+        #expect(frame.bodyNeckRow(oldShirtColor: SIMD3(25, 29, 40)) == 70)
+    }
+
+    @Test func aBlackShirtsNecklineIsFoundThoughItsHueIsNoise() {
+        // A black shirt from row 70 whose pixels lean red, though the shirt's measured color is a neutral black.
+        let person = smallFrameOfAPerson(shirtBottomRow: 110)
+        var canvas = ShirtTestCanvas(width: 160, height: 120, color: (0, 0, 0))
+        canvas.bytes = person.rgba
+        canvas.fill(columns: 50..<110, rows: 70..<110, color: (14, 6, 9))
+        let frame = ShirtSmallFrame(width: 160, height: 120, rgba: canvas.bytes, personMask: person.personMask, torso: person.torso)
+        #expect(frame.bodyNeckRow(oldShirtColor: SIMD3(9, 9, 9)) == 70)
     }
 
     @Test func theNewShirtIsCutAtTheNeckAndAboveButNotAcrossTheOldShirt() {
@@ -850,7 +1049,8 @@ struct ShirtTryOnRendererTests {
 
     @Test func theNecklinesMeetSoALowerCollarPullsTheGarmentDown() throws {
         // The learner's shirt starts at row 205, not 185, so the garment's front neck, which would land near row 186, moves
-        // down about 19 rows. The print, a band from row 238 to 274 without the move, covers rows 257 to 293 with it.
+        // down to 0.05 shoulder widths above row 205 with the shoulder corners. The print, a band from row 238 to 274 without
+        // the move, moves down with the upper torso, off row 238 and onto row 272.
         let (frame, personMask, torso) = personFrame(shirtTopRow: 205)
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
@@ -860,6 +1060,38 @@ struct ShirtTryOnRendererTests {
         #expect(print.green > print.red + 20, "the print should have moved down to row 272, got \(print)")
         let formerPrint = result.pixel(column: 320, row: 238)
         #expect(formerPrint.green < formerPrint.red, "the print should have left row 238, got \(formerPrint)")
+    }
+
+    @Test func theNeckMatchMovesOnlyTheShouldersAndLeavesTheHemAndTheSleevesWhereTheyWere() throws {
+        // The same person with their own neckline at row 185 and at row 205. The garment's front neck lands 0.05 of the 180
+        // pixel shoulder width, 9 pixels, above it, the shoulder corners follow, and the hem corners stay put. Each sleeve's
+        // seam top moves with the shoulder corners, so it lands where the torso's map puts it, and the rest of the sleeve stays
+        // where it was.
+        let (photo, mask) = tShirtPhotoAndMask()
+        let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
+        let context = CIContext()
+        func composition(shirtTopRow: Int) throws -> ShirtTryOnComposition {
+            let (frame, personMask, torso) = personFrame(shirtTopRow: shirtTopRow)
+            let armsDown = torso.withElbowsForTesting(imageLeft: CGPoint(x: 225, y: 340), imageRight: CGPoint(x: 415, y: 340))
+            return try #require(ShirtTryOnRenderer(ciContext: context, analysisRunsInTheBackground: false).composition(frame: frame.ciImage, personMask: personMask, torso: armsDown, garment: garment))
+        }
+        let higher = try composition(shirtTopRow: 185), lower = try composition(shirtTopRow: 205)
+        let toTheBody = try #require(perspectiveTransform(from: garment.torsoCorners.clockwiseFromTopLeft, to: lower.landedTorsoCorners))
+        let landedFrontNeck = applyingPerspective(toTheBody, to: garment.frontNeckPoint)
+        // The front collar lands 0.05 shoulder widths, 9 pixels of this 180 pixel shoulder width, above the old neckline at 205.
+        #expect(abs(landedFrontNeck.y - 196) < 1.5, "front neck at \(landedFrontNeck.y)")
+        #expect(lower.landedTorsoCorners[0].y - higher.landedTorsoCorners[0].y > 15)
+        for corner in 2..<4 { #expect(abs(lower.landedTorsoCorners[corner].y - higher.landedTorsoCorners[corner].y) < 0.5) }
+        #expect(lower.sleeves.count == 2 && higher.sleeves.count == 2)
+        for (lowerSleeve, higherSleeve) in zip(lower.sleeves, higher.sleeves) {
+            let geometry = try #require(garment.sleeves.first { $0.geometry.side == lowerSleeve.side }).geometry
+            let seamTopByTheTorsosMap = applyingPerspective(toTheBody, to: geometry.seamTop)
+            #expect(hypot(lowerSleeve.landing[0].x - seamTopByTheTorsosMap.x, lowerSleeve.landing[0].y - seamTopByTheTorsosMap.y) < 0.5)
+            for index in 1..<4 {
+                let lowerPoint = lowerSleeve.landing[index], higherPoint = higherSleeve.landing[index]
+                #expect(hypot(lowerPoint.x - higherPoint.x, lowerPoint.y - higherPoint.y) < 0.5)
+            }
+        }
     }
 
     @Test func thePanelsRendererDrawsTheFrameAsItIsUntilItsFirstAnalysisIsIn() throws {

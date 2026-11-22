@@ -196,6 +196,9 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     static let oldShirtCoverMarginInShoulderWidths = 0.03
     /// The most a lower torso corner moves out to cover a looser old shirt, so a misread never turns the shirt into a tent.
     static let mostHipWideningInShoulderWidths = 0.15
+    /// How far above the learner's own neckline the garment's front collar lands. The old collar's edge is a few pixels of
+    /// dark blend with the neck's skin, and a collar any lower leaves it as a dark line between the two.
+    static let frontCollarRiseAboveTheOldNecklineInShoulderWidths = 0.05
     /// The fill covers the old shirt within this many shoulder widths of the center: over the old sleeves when the garment is
     /// drawn in one piece, and only over the torso (its shoulder corners are 0.62 out) when the sleeves are drawn apart,
     /// since each is then lengthened to cover its old sleeve itself, and a fill out there would hang under it as a tab.
@@ -298,7 +301,9 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         guard let unshiftedHomography = perspectiveTransform(from: sourceCorners, to: bodyCorners) else { return nil }
         var rawNeckShift = 0.0
         if garment.frontNeckWasFound, let neckRowAtTheAnalysis = analysis.neckRow {
+            // The front collar rises a little above the old neckline, so the old shirt's own collar never shows above it.
             let neckRow = neckRowAtTheAnalysis + (torso.shoulderMidpoint.y - analysis.torso.shoulderMidpoint.y)
+                - Self.frontCollarRiseAboveTheOldNecklineInShoulderWidths * shoulderWidth
             let garmentNeckInFrame = applyingPerspective(unshiftedHomography, to: garment.frontNeckPoint)
             let difference = neckRow - garmentNeckInFrame.y
             // Further apart than a quarter of the shoulders, the scan found something other than the old collar.
@@ -306,7 +311,8 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         }
         smoothedNeckShift = hasNeckShift ? smoothedNeckShift + (rawNeckShift - smoothedNeckShift) * 0.35 : rawNeckShift
         hasNeckShift = true
-        bodyCorners = bodyCorners.map { CGPoint(x: $0.x, y: $0.y + smoothedNeckShift) }
+        // Only the shoulder corners move, so the collar meets the neck while the hem stays at the old shirt's hem.
+        bodyCorners = bodyCorners.enumerated().map { index, corner in index < 2 ? CGPoint(x: corner.x, y: corner.y + smoothedNeckShift) : corner }
         guard let homography = perspectiveTransform(from: sourceCorners, to: bodyCorners) else { return nil }
 
         // 3. The garment warped onto the body: in one piece when an elbow is not seen, or its torso with each sleeve drawn on
@@ -324,14 +330,19 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         let clearFrame = CIImage(color: .clear).cropped(to: frameExtent)
         let wholeGarmentBox = CGRect(origin: .zero, size: garment.size)
         var warpedGarment: CIImage
-        let wholeGarmentSleeves = Self.wholeGarmentSleeveLandings(of: garment, torso: torso, torsoHomography: homography)
+        // The sleeves land by the torso's map before the neck match, except each seam's top, which moves with the shoulder
+        // corners so the sleeve stays joined to the torso. Raising the shoulder corners stretches the garment's top, which
+        // would lift each sleeve's armpit too and bare the old shirt under it.
+        let sleeveHomography = unshiftedHomography
+        let wholeGarmentSleeves = Self.wholeGarmentSleeveLandings(of: garment, torso: torso, torsoHomography: sleeveHomography)
         let sleevesHoldTheArms = Self.wholeGarmentSleevesHoldTheArms(
             wholeGarmentSleeves, torso: torso,
             pastTheSleeveDegrees: lastFrameLaidTheSleevesAlongTheArms ? Self.armPastTheSleeveToGoBackToTheWholeGarmentDegrees : Self.armPastTheSleeveToDrawItApartDegrees
         )
         var drawnSleeves: [ShirtDrawnSleeve] = []
         if let sleeveLayers = warpedSleeves(
-            of: garment, torso: torso, torsoHomography: homography, landedTorsoWidth: landedTorsoWidth, frameExtent: frameExtent, alongTheArms: !sleevesHoldTheArms
+            of: garment, torso: torso, torsoHomography: sleeveHomography, shoulderHomography: homography,
+            landedTorsoWidth: landedTorsoWidth, frameExtent: frameExtent, alongTheArms: !sleevesHoldTheArms
         ),
            let torsoWithoutSleeves = garment.torsoWithoutSleeves,
            let warpedTorso = Self.warped(preScaled(torsoWithoutSleeves), lyingIn: wholeGarmentBox, by: homography, frameExtent: frameExtent) {
@@ -762,11 +773,13 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     }
 
     /// Each sleeve drawn on its own, image left first: laid along its arm (`alongTheArms`), or at the whole garment's angle
-    /// and lengthened to cover the old sleeve, or for a photo on a model carried from the model's arm to the learner's. Nil when the garment has no sleeves apart, an elbow is not seen, or a sleeve
-    /// cannot be mapped, when the garment is drawn in one piece. Each half of a sleeve takes the affine map of its own
+    /// and lengthened to cover the old sleeve, or for a photo on a model carried from the model's arm to the learner's. Nil
+    /// when the garment has no sleeves apart, an elbow is not seen, or a sleeve cannot be mapped, when the garment is drawn
+    /// in one piece. Each half of a sleeve takes the affine map of its own
     /// triangle (see `ShirtGarmentSleeve`), and the inner half is drawn over the outer half's strip past the diagonal.
     private func warpedSleeves(
-        of garment: ShirtGarment, torso: BodyTorso, torsoHomography: simd_double3x3, landedTorsoWidth: Double, frameExtent: CGRect, alongTheArms: Bool
+        of garment: ShirtGarment, torso: BodyTorso, torsoHomography: simd_double3x3, shoulderHomography: simd_double3x3,
+        landedTorsoWidth: Double, frameExtent: CGRect, alongTheArms: Bool
     ) -> [(side: ShirtSleeveSide, landing: [CGPoint], image: CIImage)]? {
         guard garment.sleeves.count == 2, let imageLeftElbow = torso.imageLeftElbow, let imageRightElbow = torso.imageRightElbow else { return nil }
         let garmentToBodyScale = landedTorsoWidth / max(garment.torsoCorners.topRight.x - garment.torsoCorners.topLeft.x, 1)
@@ -800,7 +813,9 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
                 let wholeGarmentLanding = sleeve.geometry.quadrilateral.map { applyingPerspective(torsoHomography, to: $0) }
                 landingResult = Self.wholeGarmentSleeveLanding(wholeGarmentLanding, lengthenedToCover: oldSleeve, shoulder: shoulder, elbow: elbow, bodyCenter: bodyCenter)
             }
-            guard let landing = landingResult else { return nil }
+            guard var landing = landingResult else { return nil }
+            // The seam's top lands where the torso's shoulder does (`shoulderHomography`), so the two meet at the shoulder.
+            landing[0] = applyingPerspective(shoulderHomography, to: sleeve.geometry.seamTop)
             let geometry = sleeve.geometry
             guard let outerMap = Self.affineTransform(from: [geometry.seamTop, geometry.openingOuter, geometry.openingInner], to: [landing[0], landing[1], landing[2]]),
                   let innerMap = Self.affineTransform(from: [geometry.seamTop, geometry.openingInner, geometry.seamBottom], to: [landing[0], landing[2], landing[3]]) else { return nil }
