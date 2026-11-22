@@ -287,19 +287,20 @@ struct RoomArtPictureSourceTests {
         #expect(screenCaptureCount.withLock { $0 } == 0)
     }
 
-    @Test func aRequestCancelledBeforeTheDownloadStartsSendsNothingToTheHost() async throws {
+    @Test func aRequestCancelledBeforeItStartsReturnsNilAndCapturesNothing() async {
         let imageURL = stubbedImageURL(answeringWith: .image(pngData(width: 200, height: 200)))
         let session = stubbedSession()
+        let screenCaptureCount = OSAllocatedUnfairLock(initialState: 0)
+        // This test class runs on the main actor, so the task is cancelled before its body first runs.
         let cancelledRequest = Task {
-            // Waits until the cancel arrives, so the download is asked for by a task that is already cancelled.
-            while !Task.isCancelled { await Task.yield() }
-            return await RoomArtPictureSource.downloadedPicture(atImageURL: imageURL, session: session)
+            await RoomArtPictureSource.picture(imageFileURL: imageURL, session: session) {
+                screenCaptureCount.withLock { $0 += 1 }
+                return RoomArtPicture(jpegData: Data("screen capture".utf8), width: 640, height: 360)
+            }
         }
         cancelledRequest.cancel()
         #expect(await cancelledRequest.value == nil)
-        // A request that did start would have reached the stub by now.
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(!StubbedPictureURLProtocol.startedRequests.withLock { $0.contains("https://\(imageURL.path)") })
+        #expect(screenCaptureCount.withLock { $0 } == 0)
     }
 
     @Test func aHostOnThisMacOrAPrivateNetworkIsNeverDownloadedFrom() {
