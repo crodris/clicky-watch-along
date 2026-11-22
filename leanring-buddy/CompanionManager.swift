@@ -396,8 +396,24 @@ final class CompanionManager: ObservableObject {
     /// What Clicky says after a run. A newer run's line replaces it.
     private var simulationRunNarrationTask: Task<Void, Never>?
 
-    /// The Card that sums up a quiz when it ends.
+    /// The Card that sums up a quiz when it ends, and recaps a video when it ends.
     private let videoQuizSummaryPanelController = VideoQuizSummaryPanelController()
+    /// True from the moment a video's end starts to gather the discs until the Card shows, so nothing else starts meanwhile.
+    private var videoRecapIsGatheringTheDiscs = false
+    /// Set by a press, Escape, or a scene starting while the discs gather, so the Card does not unfold over what came next.
+    private var videoRecapGatherWasCancelled = false
+    /// Watches the front tab for the end of a video that has a quiz or a guide, and asks for its recap.
+    private lazy var videoRecapWatcher = VideoRecapWatcher(
+        chromeIsTheFrontApp: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.google.Chrome" },
+        clickyIsBusy: { [weak self] in
+            guard let self else { return true }
+            return self.clickyIsBusyForAVideoRecapCard || self.videoRecapIsGatheringTheDiscs
+        },
+        readTheFrontTabURL: { try ChromeVideoTab.frontTabOfTheFrontWindow().url },
+        readTheFrontVideo: { try ChromeVideoTab.readWhetherTheFrontVideoHasEnded() },
+        recapForVideo: { [weak self] videoURL in self?.videoRecap(forVideoURL: videoURL) },
+        showTheRecapAtTheEnd: { [weak self] recap, videoURL in self?.showTheRecapAtTheEndOfTheVideo(recap, videoURL: videoURL) }
+    )
     private lazy var videoQuizSession = VideoQuizSession(
         workerBaseURL: Self.workerBaseURL,
         canAskQuestionNow: { [weak self] in
@@ -533,13 +549,18 @@ final class CompanionManager: ObservableObject {
         LiveSceneOverlay.shared.onASceneStartedToShow = { [weak self] in
             self?.cursorLoopController.end(because: .aSceneStartedToShow)
             // A scene rises over the video the quiz summary sits on, so the Card goes back into the video.
+            self?.cancelTheVideoRecapGather()
             self?.videoQuizSummaryPanelController.close(animated: true)
         }
         LiveSceneOverlay.shared.onPartTapped = { [weak self] untrustedTappedLabel in
             self?.explainTheTappedPart(untrustedTappedLabel: untrustedTappedLabel)
         }
-        videoQuizSession.onQuizEnded = { [weak self] summary in
-            self?.showTheVideoQuizSummary(summary)
+        videoQuizSession.onQuizEnded = { [weak self] _ in
+            self?.showTheVideoQuizSummary()
+        }
+        // The discs a video's end gathered at the cursor go back when the Card closes, however it closes.
+        videoQuizSummaryPanelController.onClosed = { [weak self] glideOrigin in
+            self?.agentTokenDockController.sendTheDiscsBack(from: glideOrigin)
         }
         videoQuizSession.onProgressChanged = { [weak self] progress in
             self?.videoQuizProgress = progress
@@ -1203,6 +1224,7 @@ final class CompanionManager: ObservableObject {
             forgetTheVoiceCommandScreenRead()
             // A token still flying from the cursor to its slot lands there at once, and so does a Bring back spark. The chip a
             // spark carries shows as it lands, so this comes before the Recall, which then shrinks it into the cursor like any chip.
+            cancelTheVideoRecapGather()
             agentTokenDockController.finishTheServeAtOnce()
             // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
@@ -2875,7 +2897,8 @@ final class CompanionManager: ObservableObject {
     /// is, does nothing more when the menu bar panel took it as its own close, only cancels the settings dial when it is
     /// open, only closes the agent list when that is open, and then closes the Theme Studio card when that is open, keeping
     /// the old theme, then answers an "Add theme?" card with a no, then closes the room art panel (or stops its page read),
-    /// then closes the quiz summary Card. Otherwise it ends the scene and anything Clicky is still saying about it.
+    /// then stops a recap's disc gather, then closes the quiz summary Card. Otherwise it ends the scene and anything Clicky
+    /// is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
@@ -2910,6 +2933,11 @@ final class CompanionManager: ObservableObject {
         // With the room art panel open, or its page still being read, Escape closes it, stops the camera, and ends its
         // spoken line (`stopTheRoomArtSpeech`, which every close runs), ahead of any scene behavior.
         if roomArtPreviewController.closeOnEscape() {
+            return
+        }
+        // Escape while the discs gather for the recap stops it, and the discs go back.
+        if videoRecapIsGatheringTheDiscs {
+            cancelTheVideoRecapGather()
             return
         }
         // With the quiz summary open, Escape closes it.
@@ -2967,19 +2995,116 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Shows the Card that sums up a quiz that just ended, out of the quiz video when its tab is in front.
-    private func showTheVideoQuizSummary(_ summary: VideoQuizSummary) {
+    private func showTheVideoQuizSummary() {
+        guard let lastQuiz = videoQuizSession.lastQuizVideoURLAndResults else { return }
+        videoRecapWatcher.startWatching(forVideoURL: lastQuiz.videoURL)
+        guard let recap = videoRecap(forVideoURL: lastQuiz.videoURL) else { return }
         let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? 0
         let videoRect = videoQuizSession.quizVideoIsTheTabInFront()
             ? ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTab().map { appKitRect(of: $0, mainDisplayHeight: mainDisplayHeight) }
             : nil
+        showTheVideoRecapCard(recap, moment: .quizEnded, videoURL: lastQuiz.videoURL, videoRect: videoRect)
+    }
+
+    /// What a video's recap holds: the last quiz Clicky ran on it, when it ran on this video, and its saved study guide.
+    private func videoRecap(forVideoURL videoURL: String) -> VideoRecap? {
+        let lastQuiz = videoQuizSession.lastQuizVideoURLAndResults
+        let quizResults = lastQuiz.map { studyGuideVideoKey(forVideoURL: $0.videoURL) == studyGuideVideoKey(forVideoURL: videoURL) ? $0.results : [] } ?? []
+        return VideoRecap(quizResults: quizResults, studyGuideRecord: savedStudyGuides.record(forVideoURL: videoURL))
+    }
+
+    /// The video in Chrome's front tab ended: the discs gather at the cursor, then the Card unfolds from it.
+    private func showTheRecapAtTheEndOfTheVideo(_ recap: VideoRecap, videoURL: String) {
+        let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? 0
+        let videoRect = ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTab().map { appKitRect(of: $0, mainDisplayHeight: mainDisplayHeight) }
+        let cursorPoint = agentTokenServeStartPoint(mouseLocation: NSEvent.mouseLocation)
+        videoRecapIsGatheringTheDiscs = true
+        videoRecapGatherWasCancelled = false
+        agentTokenDockController.gatherTheDiscs(at: cursorPoint) { [weak self] in
+            guard let self else { return }
+            self.videoRecapIsGatheringTheDiscs = false
+            // A press, Escape, or a scene during the gather, or something that opened meanwhile, keeps the Card back.
+            guard videoRecapCardMayShowAfterTheGather(gatherWasCancelled: self.videoRecapGatherWasCancelled, clickyIsBusy: self.clickyIsBusyForAVideoRecapCard) else {
+                print("Video recap: the Card does not unfold, since the learner moved on during the gather")
+                self.agentTokenDockController.sendTheDiscsBack(from: cursorPoint)
+                return
+            }
+            self.showTheVideoRecapCard(recap, moment: .videoEnded, videoURL: videoURL, videoRect: videoRect, cursorPoint: cursorPoint)
+            // A Card that could not show (no screen) would leave the discs hidden, so they go back.
+            if !self.videoQuizSummaryPanelController.isShowing {
+                self.agentTokenDockController.sendTheDiscsBack(from: cursorPoint)
+            }
+        }
+    }
+
+    /// A press, Escape, or a scene starting ends a recap's gather: the flights land at once, and the Card stays away.
+    private func cancelTheVideoRecapGather() {
+        guard videoRecapIsGatheringTheDiscs else { return }
+        videoRecapGatherWasCancelled = true
+        agentTokenDockController.finishTheServeAtOnce()
+    }
+
+    private func showTheVideoRecapCard(_ recap: VideoRecap, moment: VideoRecapMoment, videoURL: String, videoRect: CGRect?, cursorPoint: CGPoint? = nil) {
         videoQuizSummaryPanelController.show(
-            summary: summary,
+            recap: recap,
+            moment: moment,
+            cursorPoint: cursorPoint,
             videoRect: videoRect,
             accentColor: themeSettings.shownTheme.cursorColor,
             goBackToTheMissedQuestion: { [weak self] missedQuestion in
                 self?.goBackToTheMissedQuizQuestion(missedQuestion)
+            },
+            openTheStudyGuide: { [weak self] in
+                self?.openTheStudyGuideFromTheRecap(forVideoURL: videoURL)
             }
         )
+        // Only a Card that showed counts as seen, so a recap that was held back still shows at the next ending.
+        if videoQuizSummaryPanelController.isShowing {
+            videoRecapWatcher.recapWasShown(recap, forVideoURL: videoURL)
+        }
+    }
+
+    /// The Card's Study guide button: the Card closes, and the guide opens the way "open my study guide" opens it, after
+    /// Notion confirms the page is still there.
+    private func openTheStudyGuideFromTheRecap(forVideoURL videoURL: String) {
+        videoQuizSummaryPanelController.close(animated: true)
+        Task {
+            guard let studyGuideRecord = await self.savedStudyGuideStillInNotion(forVideoURL: videoURL, checkEvenIfCheckedBefore: true) else {
+                VoiceToolCallChip.shared.show("That study guide was deleted in Notion", sender: .failure)
+                return
+            }
+            guard self.openTheStudyGuidePage(at: studyGuideRecord.pageURL) else {
+                VoiceToolCallChip.shared.show("Couldn't open the study guide", sender: .failure)
+                return
+            }
+        }
+    }
+
+    /// Switches to the Chrome tab the guide opened in, or opens its page, which only an https page on Notion may be.
+    private func openTheStudyGuidePage(at pageURL: URL) -> Bool {
+        if let chromeTabID = notionPageChromeTabIDsByPageURL[pageURL], videoQuizSession.bringChromeTabForward(tabID: chromeTabID) {
+            return true
+        }
+        // NSWorkspace opens any URL scheme, and a guide saved by an older build was never checked.
+        return pageURLIsOnNotion(pageURL) && NSWorkspace.shared.open(pageURL)
+    }
+
+    /// Whether Clicky is doing something a recap Card would cover or talk over, which the watch waits out: listening, thinking,
+    /// speaking, a quiz question or a running quiz, a scene, a Card already up, the Theme Studio card, the settings dial, the
+    /// agent list, the room art panel, the "Add theme?" card, or an approval waiting for the learner.
+    private var clickyIsBusyForAVideoRecapCard: Bool {
+        guard case .idle = liveScenePhase else { return true }
+        return voiceState != .idle
+            || elevenLabsTTSClient.isPlaying
+            || videoQuizQuestionIsActive
+            || videoQuizSession.isRunning
+            || videoQuizSummaryPanelController.isShowing
+            || themeStudioController.isOpen
+            || settingsDialController.isOpen
+            || agentListPanelController.isOpen
+            || roomArtPreviewController.isOpen
+            || themeInstallConfirmation.isOpen
+            || agentHarness.approvalDesk.oldestWaitingRequest != nil
     }
 
     /// A click on a question in the quiz summary: the video goes back there and its pop-out shows again, with every label
@@ -3579,12 +3704,7 @@ final class CompanionManager: ObservableObject {
             guard let studyGuideRecord = await savedStudyGuideStillInNotion(forVideoURL: frontVideoURL, checkEvenIfCheckedBefore: true) else {
                 return .outcome(.failed(error: "This video's study guide was deleted in Notion, so there is nothing to open. Tell the learner, and that asking for a study guide again will write a new one.", state: nil))
             }
-            let pageURL = studyGuideRecord.pageURL
-            if let chromeTabID = notionPageChromeTabIDsByPageURL[pageURL], videoQuizSession.bringChromeTabForward(tabID: chromeTabID) {
-                return .outcome(.changed(state: nil))
-            }
-            // NSWorkspace opens any URL scheme, and a guide saved by an older build was never checked.
-            guard pageURLIsOnNotion(pageURL), NSWorkspace.shared.open(pageURL) else {
+            guard openTheStudyGuidePage(at: studyGuideRecord.pageURL) else {
                 return .outcome(.failed(error: "The study guide page would not open", state: nil))
             }
             return .outcome(.changed(state: nil))
@@ -4509,6 +4629,7 @@ final class CompanionManager: ObservableObject {
             guard !agentWasCancelled || studyGuideJob.replyIsSavedEvenWhenCancelled else { throw CancellationError() }
             // Filed under the video the guide was written for, not whichever tab is in front now.
             savedStudyGuides.save(studyGuideRecord, forVideoURL: video.url)
+            videoRecapWatcher.startWatching(forVideoURL: video.url)
             // The Worker just wrote this page, so the next voice command does not wait on a status check for it.
             studyGuidePageHandlesFoundInNotion.insert(studyGuideRecord.pageHandle)
             guard !agentWasCancelled else {

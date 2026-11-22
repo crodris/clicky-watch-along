@@ -551,6 +551,9 @@ The judge loads each saved page in headless Chrome with three.js from `leanring-
 The first shot is when the camera tour ends, and the second is after a half turn for a 3D model, or after one run for a simulation.
 Both go side by side into one picture, which the judges see next to the learner's screen.
 A page that never ends its tour, has no `run()`, or throws is said so in the words under its picture.
+The judge's headless Chrome ends with the run, including after Ctrl-C, a kill, or an error.
+If the run was killed with SIGKILL, the next `judge.ts` run that draws a scene kills the leftover Chrome and deletes its `scene-shots-` folder first.
+Until then that Chrome answers the Apple Events meant for Chris's Chrome, and `verify-clicky.sh doctor` warns about it.
 Each page takes about 40 seconds on Chrome's software renderer, so 27 pages take about 18 minutes before the first judging call.
 
 Round one on 2026-11-19 cost $5.43 for 26 renders and $1.42 for the judge's 92 calls, and took 52 minutes.

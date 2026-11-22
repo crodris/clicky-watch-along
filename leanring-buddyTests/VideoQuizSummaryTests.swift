@@ -113,10 +113,10 @@ struct VideoQuizSummaryTests {
     @Test func theCardCountsAsShowingWhileItGlidesInSoEscapeCanCloseIt() throws {
         // The panel orders front only when the Glide lands, so a check on the window's visibility missed Escape during the Glide.
         try #require(!NSScreen.screens.isEmpty, "the test host has no screen to show the Card on")
-        let summary = try #require(VideoQuizSummary(quizResults: [quizResult("What does the vent do?", at: 134, .missed)]))
         let controller = VideoQuizSummaryPanelController()
         #expect(!controller.isShowing)
-        controller.show(summary: summary, videoRect: CGRect(x: 200, y: 300, width: 800, height: 450), accentColor: Color(hex: "#3380FF"), goBackToTheMissedQuestion: { _ in })
+        let recap = try #require(VideoRecap(quizResults: [quizResult("What does the vent do?", at: 134, .missed)], studyGuideRecord: nil))
+        controller.show(recap: recap, moment: .quizEnded, videoRect: CGRect(x: 200, y: 300, width: 800, height: 450), accentColor: Color(hex: "#3380FF"), goBackToTheMissedQuestion: { _ in }, openTheStudyGuide: {})
         #expect(controller.isShowing)
         controller.close(animated: false)
         #expect(!controller.isShowing)
@@ -125,11 +125,11 @@ struct VideoQuizSummaryTests {
     // MARK: - The Card at 2x
 
     @Test func theCardIsDarkAndThreeHundredTwentyPointsWideOnAWhitePage() throws {
-        let summary = try #require(VideoQuizSummary(quizResults: [
+        let recap = try #require(VideoRecap(quizResults: [
             quizResult("What does the vent do when the pressure under the volcano builds up for a long time?", at: 134, .missed),
             quizResult("What is this?", at: 40, .gotIt),
-        ]))
-        let card = VideoQuizSummaryCardView(summary: summary, accentColor: Color(hex: "#3380FF"), goBackToTheMissedQuestion: { _ in }, close: {})
+        ], studyGuideRecord: nil))
+        let card = VideoQuizSummaryCardView(recap: recap, moment: .quizEnded, accentColor: Color(hex: "#3380FF"), goBackToTheMissedQuestion: { _ in }, openTheStudyGuide: {}, close: {})
         let renderer = ImageRenderer(content: card.padding(30).background(Color.white))
         renderer.scale = 2
         let pixels = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
