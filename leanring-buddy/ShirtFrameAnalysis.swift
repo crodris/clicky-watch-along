@@ -184,8 +184,29 @@ nonisolated struct ShirtSmallFrame: Sendable {
     }
 }
 
+/// How far one old sleeve reaches on its arm, in the small frame's pixels: down the line from the shoulder joint to the elbow,
+/// and out to either side of that line, away from the body and toward it. The new sleeve is drawn to cover it, so the
+/// learner's own sleeve never shows past the new one.
+nonisolated struct ShirtOldSleeveExtent: Equatable, Sendable {
+    let reachAlongTheArm: Double
+    let outward: Double
+    let inward: Double
+}
+
 /// What the renderer needs from one frame.
 nonisolated struct ShirtFrameAnalysis: Sendable {
+    /// The fractions of the way from the shoulders to the hips at which the old shirt's half width is measured. Above half
+    /// way the old sleeves hang beside the torso, so its width there is not the torso's.
+    static let torsoWidthFractions = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    /// A pixel more than this many shoulder widths from the torso's center line, on its side of the body, may be the old
+    /// sleeve: the shoulder joints are half a shoulder width out, and the torso below them is a little narrower.
+    /// Past this distance from the neck's middle, the old shirt above the neck's base is the tops of the shoulders, which
+    /// the fill covers; nearer in it is the collar and the neck, which the neck cut decides.
+    static let shoulderTopsLeastDistanceFromTheNeckInShoulderWidths = 0.32
+    static let oldSleeveLeastDistanceFromTheCenterInShoulderWidths = 0.45
+    /// An old sleeve's width is read from its pixels past this share of its reach down the arm.
+    static let oldSleeveWidthIsReadBelowThisShareOfItsReach = 0.6
+
     /// RGBA bytes the size of the small frame: red is 255 where the new shirt must not draw (the neck, the face, above the
     /// shoulders), green is 255 where the learner's old shirt shows beyond the new shirt's outline and takes its base color,
     /// and blue is 255 on every pixel of the person below the neck that looks like the old shirt and has its chromaticity
@@ -199,6 +220,12 @@ nonisolated struct ShirtFrameAnalysis: Sendable {
     /// How far below the shoulder midpoint the old shirt ends, along the body, or nil when it runs to the frame's edge or
     /// cannot be told apart from what is below it.
     let oldShirtHemDistance: Double?
+    /// How far the old shirt reaches from the torso's center line, on the image left side and the image right side, at each of
+    /// `torsoWidthFractions`, in the small frame's pixels, nil where none of it was found there. The renderer widens the
+    /// garment's lower torso to cover it, so less of it needs the fill.
+    let oldShirtHalfWidths: [[Double?]]
+    /// Each old sleeve, image left first, nil when its elbow is not seen or too little of the sleeve was found.
+    let oldSleeves: [ShirtOldSleeveExtent?]
 
     /// Classifies each pixel of `frame` against `oldShirtColor`, and finds the neck cut and the uncovered old shirt.
     ///
@@ -207,10 +234,12 @@ nonisolated struct ShirtFrameAnalysis: Sendable {
     /// head, so the new shirt does not draw there unless the pixel is the old collar (which the new shirt then covers).
     /// Everything more than 30 percent of a shoulder width above the base is cut whatever its color.
     ///
-    /// The uncovered old shirt is the pixels of the person, in the shirt's zone (below the shoulder line, above a little
-    /// under the hips, within 0.9 shoulder widths of the center), that look like it, with specks removed and gaps of its trim
-    /// closed.
-    init(frame: ShirtSmallFrame, oldShirtColor: SIMD3<Float>) {
+    /// The uncovered old shirt is the pixels of the person, in the shirt's zone (below the neck's base, or beside the neck
+    /// up to the cut, since the tops of the shoulders rise above the line through the shoulder joints; above where the
+    /// garment's hem lands; within `oldShirtZoneHalfWidthInShoulderWidths` of the center), that look like it, with specks
+    /// removed and gaps of its trim closed. The zone reaches 0.9 shoulder widths, over the old sleeves, when the garment is
+    /// drawn in one piece, and only over the torso when its sleeves are drawn apart, each lengthened over its old sleeve.
+    init(frame: ShirtSmallFrame, oldShirtColor: SIMD3<Float>, oldShirtZoneHalfWidthInShoulderWidths: Double = 0.9) {
         let torso = frame.torso
         let width = frame.width, height = frame.height
         let shoulderWidth = torso.shoulderWidth
@@ -227,6 +256,20 @@ nonisolated struct ShirtFrameAnalysis: Sendable {
         // 1.08 torso lengths), so same-colored trousers never take the shirt's color, and the fill, which the renderer grows a
         // pixel or two under the garment's edge, never draws a band of base color over the waistband below the hem.
         let lowestTorsoDistance = torsoLength * 1.08 - 2
+
+        // Each arm with a seen elbow: its shoulder, its direction down to the elbow, its length, and its side away from the body.
+        let arms: [(shoulder: SIMD2<Double>, down: SIMD2<Double>, length: Double, awayFromTheBody: SIMD2<Double>)?] = [
+            (torso.imageLeftShoulder, torso.imageLeftElbow), (torso.imageRightShoulder, torso.imageRightElbow),
+        ].map { shoulder, elbow in
+            guard let elbow else { return nil }
+            let armVector = vector(elbow) - vector(shoulder)
+            guard simd_length(armVector) > 2 else { return nil }
+            let down = simd_normalize(armVector)
+            var away = SIMD2(-down.y, down.x)
+            if simd_dot(away, vector(shoulder) - shoulderMidpoint) < 0 { away = -away }
+            return (vector(shoulder), down, simd_length(armVector), away)
+        }
+        var oldSleevePoints: [[(alongTheArm: Double, outward: Double)]] = [[], []]
 
         let oldShirtLab = ShirtColorMath.lab(red: ShirtColorMath.byte(oldShirtColor.x), green: ShirtColorMath.byte(oldShirtColor.y), blue: ShirtColorMath.byte(oldShirtColor.z))
         let oldShirtChromaticity = ShirtColorMath.chromaticity(red: ShirtColorMath.byte(oldShirtColor.x), green: ShirtColorMath.byte(oldShirtColor.y), blue: ShirtColorMath.byte(oldShirtColor.z))
@@ -262,7 +305,18 @@ nonisolated struct ShirtFrameAnalysis: Sendable {
                 // The old shirt's sleeves reach about 0.9 shoulder widths either side of the center, so something farther out that
                 // happens to share its color, such as a dark chair back, is not the shirt.
                 let acrossFromTheCenter = simd_dot(SIMD2(Double(column), Double(row)) - shoulderMidpoint, along)
-                inTheOldShirtZone[index] = isPerson && upward < 0 && distanceFromTheShoulders < lowestTorsoDistance && abs(acrossFromTheCenter) < 0.9 * shoulderWidth
+                let besideTheNeckBelowTheCut = abs(across) > Self.shoulderTopsLeastDistanceFromTheNeckInShoulderWidths * shoulderWidth && upward < 0.30 * shoulderWidth
+                inTheOldShirtZone[index] = isPerson && (upward < 0 || besideTheNeckBelowTheCut) && distanceFromTheShoulders < lowestTorsoDistance
+                    && abs(acrossFromTheCenter) < oldShirtZoneHalfWidthInShoulderWidths * shoulderWidth
+                // The old sleeve: the old shirt beside the torso, near the line from a shoulder down to its elbow.
+                if looksOld, isPerson, upward < 0, abs(acrossFromTheCenter) > Self.oldSleeveLeastDistanceFromTheCenterInShoulderWidths * shoulderWidth {
+                    let side = acrossFromTheCenter < 0 ? 0 : 1
+                    if let arm = arms[side] {
+                        let offset = SIMD2(Double(column), Double(row)) - arm.shoulder
+                        let alongTheArm = simd_dot(offset, arm.down), outward = simd_dot(offset, arm.awayFromTheBody)
+                        if alongTheArm > 0, alongTheArm < arm.length, abs(outward) < 0.45 * shoulderWidth { oldSleevePoints[side].append((alongTheArm, outward)) }
+                    }
+                }
                 if looksOld, inTheOldShirtZone[index] {
                     uncovered[index] = true
                     let linearLuminance = 0.2126 * ShirtColorMath.linearValueOfEachByte[Int(frame.rgba[pixelIndex])]
@@ -301,6 +355,31 @@ nonisolated struct ShirtFrameAnalysis: Sendable {
         // the mask (growing it by a pixel and shrinking it back) swallows such gaps, and the zone keeps it from spreading.
         let closed = Self.eroded(Self.dilated(despeckled, width: width, height: height), width: width, height: height)
         for index in despeckled.indices { despeckled[index] = closed[index] && inTheOldShirtZone[index] }
+
+        // The old shirt's half width on each side, at each fraction of the way down the torso, within 3 percent of it.
+        var halfWidths: [[Double?]] = [Array(repeating: nil, count: Self.torsoWidthFractions.count), Array(repeating: nil, count: Self.torsoWidthFractions.count)]
+        for index in despeckled.indices where despeckled[index] {
+            let point = SIMD2(Double(index % width), Double(index / width))
+            let fraction = simd_dot(point - shoulderMidpoint, torsoAxis) / torsoLength
+            guard let bucket = Self.torsoWidthFractions.firstIndex(where: { abs($0 - fraction) < 0.03 }) else { continue }
+            let across = simd_dot(point - shoulderMidpoint, along)
+            let side = across < 0 ? 0 : 1
+            halfWidths[side][bucket] = max(halfWidths[side][bucket] ?? 0, abs(across))
+        }
+        oldShirtHalfWidths = halfWidths
+        // Each old sleeve's reach and width, from the 95th percentiles, so a stray pixel of the old shirt's color on the arm
+        // does not stretch the new sleeve. Its width is read over its lower part, where the new sleeve's opening must cover it;
+        // up by the armpit its inner side runs into the torso. Under 20 pixels is not a sleeve.
+        oldSleeves = oldSleevePoints.map { points in
+            guard points.count >= 20 else { return nil }
+            func nearlyTheLargest(_ values: [Double]) -> Double { values.sorted()[Int(0.95 * Double(values.count - 1))] }
+            let reach = nearlyTheLargest(points.map(\.alongTheArm))
+            let lowerPart = points.filter { $0.alongTheArm > Self.oldSleeveWidthIsReadBelowThisShareOfItsReach * reach }
+            guard !lowerPart.isEmpty else { return nil }
+            return ShirtOldSleeveExtent(
+                reachAlongTheArm: reach, outward: nearlyTheLargest(lowerPart.map(\.outward)), inward: nearlyTheLargest(lowerPart.map { -$0.outward })
+            )
+        }
         var maskPixels = [UInt8](repeating: 0, count: width * height * 4)
         for index in 0..<(width * height) {
             maskPixels[index * 4] = cut[index] ? 255 : 0
