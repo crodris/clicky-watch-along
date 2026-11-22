@@ -349,8 +349,9 @@ final class VideoQuizSummaryPanelController {
         guard let closingPanel = panel else { return }
         panel = nil
         onClosed?(glideOrigin)
-        // A Card still Gliding in lands at once, and the guard in its landing keeps the real panel from showing.
-        glideInFlight?.landAtOnce()
+        // A Card still Gliding in lands at once and leaves with it, and the guard in its landing keeps the real panel from
+        // showing.
+        glideInFlight?.landAtOnce(hidingTheCarriedView: true)
         glideInFlight = nil
         guard animated, closingPanel.isVisible, let cardFrame = shownCardFrame, let cardView = shownCardView else {
             closingPanel.orderOut(nil)

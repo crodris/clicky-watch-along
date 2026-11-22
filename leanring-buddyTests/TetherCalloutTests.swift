@@ -263,21 +263,24 @@ struct TetherCalloutTests {
 
     @Test func spokenWordsAreWhiteAndUnspokenWordsAreSixtyPercentWhite() {
         let line = SpeechCalloutLine(text: "ab cd", startOffset: 0)
-        let styledLine = SpeechCalloutLayout.styledText(of: line, revealedCharacterCount: 2, currentWordRange: 0..<2, accent: .red)
-        let characters = Array(styledLine.characters)
+        let coloredLine = SpeechCalloutLayout.coloredText(of: line, characterRange: 0..<5, revealedCharacterCount: 2)
+        let characters = Array(coloredLine.characters)
         func color(at characterIndex: Int) -> Color? {
-            let start = styledLine.index(styledLine.startIndex, offsetByCharacters: characterIndex)
-            return styledLine[start..<styledLine.index(afterCharacter: start)].swiftUI.foregroundColor
-        }
-        func underline(at characterIndex: Int) -> Text.LineStyle? {
-            let start = styledLine.index(styledLine.startIndex, offsetByCharacters: characterIndex)
-            return styledLine[start..<styledLine.index(afterCharacter: start)].swiftUI.underlineStyle
+            let start = coloredLine.index(coloredLine.startIndex, offsetByCharacters: characterIndex)
+            return coloredLine[start..<coloredLine.index(afterCharacter: start)].swiftUI.foregroundColor
         }
         #expect(characters.count == 5)
         #expect(color(at: 0) == Color.white)
         #expect(color(at: 3) == Color.white.opacity(0.6))
-        #expect(underline(at: 1) != nil)
-        #expect(underline(at: 3) == nil)
+    }
+
+    @Test func aLineSplitsAroundTheSpokenWordAndALineWithoutItStaysWhole() {
+        // The second line of a sentence starts at offset 8, and the word being spoken is "spins" at 12..<17.
+        let line = SpeechCalloutLine(text: "the fan spins", startOffset: 4)
+        let parts = SpeechCalloutLayout.partsAroundTheSpokenWord(of: line, currentWordRange: 12..<17)
+        #expect(parts.before == 0..<8 && parts.word == 8..<13 && parts.after == 13..<13)
+        let wholeLine = SpeechCalloutLayout.partsAroundTheSpokenWord(of: line, currentWordRange: nil)
+        #expect(wholeLine.before == 0..<13 && wholeLine.word.isEmpty && wholeLine.after.isEmpty)
     }
 
     // MARK: - Status line letters
@@ -334,6 +337,27 @@ struct TetherCalloutTests {
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
         return renderer.cgImage.map { CGSize(width: CGFloat($0.width) / 2, height: CGFloat($0.height) / 2) } ?? .zero
+    }
+
+    @Test func theSpokenWordsUnderlineIsExactlyTwoPointsOfTheAccent() throws {
+        let accentHex = "#FF00FF"
+        let line = SpeechCalloutLine(text: "the fan spins", startOffset: 0)
+        let lineView = SpeechCalloutLayout.lineText(of: line, revealedCharacterCount: 6, currentWordRange: 4..<7, accent: Color(hex: accentHex))
+            .font(DS.TypeScale.voice.font)
+            .spokenWordUnderline(accent: Color(hex: accentHex))
+            .fixedSize()
+        let pixels = try renderedPixels(of: lineView, onPage: Color(hex: "#14171E"))
+        let rowsWithTheAccent = (0..<pixels.pixelsHigh).filter { row in
+            (0..<pixels.pixelsWide).contains { column in pixel(pixels.colorAt(x: column, y: row), isCloseTo: accentHex) }
+        }
+        // 2 points at 2x is 4 rows of solid accent, side by side.
+        #expect(rowsWithTheAccent.count == 4, "accent rows: \(rowsWithTheAccent)")
+        #expect(rowsWithTheAccent.last.map { $0 - rowsWithTheAccent[0] } == 3)
+        // The bar spans only the spoken word "fan", not the whole line.
+        let barRow = try #require(rowsWithTheAccent.first)
+        let barColumns = (0..<pixels.pixelsWide).filter { column in pixel(pixels.colorAt(x: column, y: barRow), isCloseTo: accentHex) }
+        let lineWidthInPixels = pixels.pixelsWide - 2 * 30 * 2
+        #expect(barColumns.count > 0 && barColumns.count < lineWidthInPixels / 2)
     }
 
     @Test func everyStatusLineFitsItsPanelAndShowsItsOwnHueInTheRimAndDisc() throws {

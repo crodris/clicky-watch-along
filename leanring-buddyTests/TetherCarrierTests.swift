@@ -134,4 +134,15 @@ struct TetherCarrierTests {
         #expect(landedCount == 1)
         #expect(goneCount == 1)
     }
+
+    @Test func aGlideInThatIsClosedEarlyHidesTheCarriedCardInsteadOfShowingItWhole() throws {
+        let glideIn = CarrierFlightPlan.glideFromOrigin(CGPoint(x: 200, y: 200), into: CGRect(x: 400, y: 300, width: 360, height: 240))
+        let glideInEndOpacity = try #require(glideIn.poses.last?.opacity)
+        // A Glide in that lands on its own rests at full size until the real Card covers it.
+        #expect(!carriedViewHidesOnLanding(endOpacity: glideInEndOpacity, closedDuringTheMove: false))
+        // Closed during the Glide, the real Card never shows, so the carried one goes too.
+        #expect(carriedViewHidesOnLanding(endOpacity: glideInEndOpacity, closedDuringTheMove: true))
+        let glideClose = CarrierFlightPlan.glideClose(from: CGRect(x: 400, y: 300, width: 360, height: 240), into: CGPoint(x: 200, y: 200))
+        #expect(carriedViewHidesOnLanding(endOpacity: glideClose.poses.last?.opacity, closedDuringTheMove: false))
+    }
 }

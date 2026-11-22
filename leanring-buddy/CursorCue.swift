@@ -5,9 +5,9 @@
 //  The ring around the cursor, which gives Clicky's voice states one home: a ring of ticks that follows
 //  your voice while you speak, and three dots orbiting the cursor while Clicky thinks. Speaking hides the
 //  ring, because the speech Callout brightens its words with the voice. A status line's Callout sits above the cursor and
-//  does not hide the ring, so the ring keeps showing, and the dots' orbit (24 points out) reaches about 3 points into the
-//  Callout's body each time a dot passes the top. While a loop shows around the media Clicky is looking at, the loop's
-//  spark is the thinking light instead, and the dots stay away.
+//  does not hide the ring, so the ring keeps showing, and while it shows the dots orbit closer in (17 points instead of
+//  24), so a dot at the top of its orbit stays under the Callout's body and crosses only its tail. While a loop shows
+//  around the media Clicky is looking at, the loop's spark is the thinking light instead, and the dots stay away.
 //
 //  The cues hand off to one another instead of cutting: on release the ticks shrink into the dots (0.3 s), and when speech
 //  starts the dots fly into the speech Callout's tail (0.38 s). Reduce Motion crossfades every cue change.
@@ -52,6 +52,15 @@ enum CursorRingGeometry {
     static let dotCount = 3
     static let dotOrbitRadiusInPoints: CGFloat = 24
     static let dotDiameterInPoints: CGFloat = 6
+    /// How far above the cursor's center a status line's Callout body starts: its tail's tip, then the tail.
+    static let statusLineCalloutBodyRiseAboveTheCursorInPoints: CGFloat = tetherCalloutTipRiseAboveTheCursor + TetherCalloutShape.tailHeight
+    /// The orbit while a status line shows: a dot at the top stays 1 point under the Callout's body.
+    static let dotOrbitRadiusUnderAStatusLineInPoints: CGFloat = statusLineCalloutBodyRiseAboveTheCursorInPoints - dotDiameterInPoints / 2 - 1
+
+    /// How far out the dots orbit. A status line's Callout sits above the cursor, so its dots orbit closer in.
+    static func dotOrbitRadius(aStatusLineShows: Bool) -> CGFloat {
+        aStatusLineShows ? dotOrbitRadiusUnderAStatusLineInPoints : dotOrbitRadiusInPoints
+    }
     static let secondsPerDotOrbit: TimeInterval = 1.2
     /// The dots trail one another, so the leading one is the brightest.
     static let dotOpacities: [Double] = [1, 0.7, 0.45]
@@ -82,12 +91,15 @@ enum CursorRingGeometry {
     static let stillTickLengths = tickLengths(audioPowerLevel: 0.12, shimmerPhase: 0)
 
     /// Where each dot is relative to the cursor's center, and how bright, a given time into its orbit.
-    static func dotPlacements(secondsSinceTheOrbitBegan secondsSinceBegan: TimeInterval) -> [(offset: CGPoint, opacity: Double)] {
+    static func dotPlacements(
+        secondsSinceTheOrbitBegan secondsSinceBegan: TimeInterval,
+        orbitRadius: CGFloat = dotOrbitRadiusInPoints
+    ) -> [(offset: CGPoint, opacity: Double)] {
         let degreesTurned = 360 * secondsSinceBegan / secondsPerDotOrbit
         return (0..<dotCount).map { dotIndex in
             let angleInRadians = (dotStartingAnglesInDegrees[dotIndex] + degreesTurned) * .pi / 180
             return (
-                offset: CGPoint(x: cos(angleInRadians) * dotOrbitRadiusInPoints, y: sin(angleInRadians) * dotOrbitRadiusInPoints),
+                offset: CGPoint(x: cos(angleInRadians) * orbitRadius, y: sin(angleInRadians) * orbitRadius),
                 opacity: dotOpacities[dotIndex]
             )
         }
@@ -176,11 +188,12 @@ extension CursorRingGeometry {
     /// where the Callout pops in.
     static func dotsFlyingIntoTheSpeechTail(
         secondsSinceTheOrbitBegan: TimeInterval,
+        orbitRadius: CGFloat = dotOrbitRadiusInPoints,
         speechTailOffset: CGPoint,
         progress: Double
     ) -> [(offset: CGPoint, diameter: CGFloat, opacity: Double)] {
         let easedProgress = MoveBezier.smoothstep.progress(atLinearProgress: progress)
-        return dotPlacements(secondsSinceTheOrbitBegan: secondsSinceTheOrbitBegan).map { orbitPlacement in
+        return dotPlacements(secondsSinceTheOrbitBegan: secondsSinceTheOrbitBegan, orbitRadius: orbitRadius).map { orbitPlacement in
             (
                 offset: CGPoint(
                     x: orbitPlacement.offset.x + (speechTailOffset.x - orbitPlacement.offset.x) * easedProgress,
@@ -199,6 +212,8 @@ struct CursorRingView: View {
     let cue: CursorCue
     let audioPowerLevel: CGFloat
     let color: Color
+    /// Whether a status line's Callout shows above the cursor, which pulls the dots' orbit in under it.
+    var aStatusLineShows = false
     /// Where the dots fly when speech starts, from the cursor's center.
     var speechTailOffset: CGPoint = CursorRingHandoff.defaultSpeechTailOffset
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -221,13 +236,16 @@ struct CursorRingView: View {
                     .transition(.opacity)
             }
             if cue == .thinkingWithDots, playingHandoff == nil, lastSeenCue == nil || lastSeenCue == cue {
-                ThinkingDotsView(color: color, orbitBeganAt: dotsBeganOrbitingAt)
+                ThinkingDotsView(color: color, orbitBeganAt: dotsBeganOrbitingAt, orbitRadius: CursorRingGeometry.dotOrbitRadius(aStatusLineShows: aStatusLineShows))
                     // After the ticks turned into the dots, the dots are already on screen, so they do not fade in again.
                     .transition(reduceMotion ? .opacity : .asymmetric(insertion: .identity, removal: .opacity))
             }
         }
         .frame(width: CursorRingGeometry.outerRadiusInPoints * 2, height: CursorRingGeometry.outerRadiusInPoints * 2)
         .animation(.easeOut(duration: DS.Move.fadeSeconds), value: cue)
+        // The orbit eases in and out as a status line comes and goes. With Reduce Motion on the dots move to the new radius
+        // with no travel.
+        .animation(reduceMotion ? nil : DS.Move.snap.animation(reduceMotionIsOn: false), value: aStatusLineShows)
         .allowsHitTesting(false)
         .onAppear { lastSeenCue = cue }
         .onChange(of: cue) { previousCue, newCue in
@@ -252,7 +270,8 @@ struct CursorRingView: View {
                 shimmerPhase: now.timeIntervalSinceReferenceDate * 5
             ),
             // The ticks may have turned into the dots only a moment ago, so the orbit may not have begun: it starts at the top.
-            secondsTheDotsHadOrbitedAtTheStart: max(now.timeIntervalSince(dotsBeganOrbitingAt), 0)
+            secondsTheDotsHadOrbitedAtTheStart: max(now.timeIntervalSince(dotsBeganOrbitingAt), 0),
+            dotOrbitRadiusAtTheStart: CursorRingGeometry.dotOrbitRadius(aStatusLineShows: aStatusLineShows)
         )
         playingHandoff = handoffToPlay
         // The dots start orbiting at the top where the ticks left them.
@@ -271,6 +290,7 @@ private struct PlayingRingHandoff: Equatable {
     let startedAt: Date
     let tickLengthsAtTheStart: [CGFloat]
     let secondsTheDotsHadOrbitedAtTheStart: TimeInterval
+    let dotOrbitRadiusAtTheStart: CGFloat
 }
 
 /// Draws a handoff frame by frame, from its start to its end.
@@ -305,6 +325,7 @@ private struct CursorRingHandoffView: View {
                 case .dotsIntoSpeech:
                     for dot in CursorRingGeometry.dotsFlyingIntoTheSpeechTail(
                         secondsSinceTheOrbitBegan: playingHandoff.secondsTheDotsHadOrbitedAtTheStart,
+                        orbitRadius: playingHandoff.dotOrbitRadiusAtTheStart,
                         speechTailOffset: speechTailOffset,
                         progress: progress
                     ) {
@@ -363,18 +384,25 @@ private struct ListeningTicksView: View {
     }
 }
 
-/// Three dots orbiting the cursor once every 1.2 seconds. With Reduce Motion they stay put and breathe.
-private struct ThinkingDotsView: View {
+/// Three dots orbiting the cursor once every 1.2 seconds. With Reduce Motion they stay put and breathe. The orbit's radius
+/// animates, so the dots ease in under a status line's Callout and back out when it goes.
+private struct ThinkingDotsView: View, Animatable {
     let color: Color
     /// The orbit and the breath both count from here, so they always start at the top. It is the moment the dots appear, or
     /// the moment the ticks finished turning into them.
     let orbitBeganAt: Date
+    var orbitRadius: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var animatableData: CGFloat {
+        get { orbitRadius }
+        set { orbitRadius = newValue }
+    }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: reduceMotion ? 1.0 / 10.0 : 1.0 / 36.0)) { timelineContext in
             let secondsSinceAppearing = max(timelineContext.date.timeIntervalSince(orbitBeganAt), 0)
-            let dotPlacements = CursorRingGeometry.dotPlacements(secondsSinceTheOrbitBegan: reduceMotion ? 0 : secondsSinceAppearing)
+            let dotPlacements = CursorRingGeometry.dotPlacements(secondsSinceTheOrbitBegan: reduceMotion ? 0 : secondsSinceAppearing, orbitRadius: orbitRadius)
             let breathShare = reduceMotion ? CursorRingGeometry.stillDotBrightness(secondsSinceTheBreathBegan: secondsSinceAppearing) : 1
             Canvas { context, size in
                 let ringCenter = CGPoint(x: size.width / 2, y: size.height / 2)

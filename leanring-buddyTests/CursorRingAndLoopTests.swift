@@ -436,3 +436,17 @@ func theLoopClosesWithAnOvershootThatPassesItsStartAndStaysInsideTheLine(mediaRe
     #expect(abs(atTheStart[0].offset.x) < 0.001 && atTheStart[0].offset.y < 0)
     #expect(abs(aQuarterOrbitIn[0].offset.y) < 0.001 && aQuarterOrbitIn[0].offset.x > 0)
 }
+
+@Test func underAStatusLineTheDotsNeverReachTheCalloutsBodyAndWithoutOneTheyOrbitAt24Points() {
+    let dotRadius = CursorRingGeometry.dotDiameterInPoints / 2
+    let calloutBodyRise = tetherCalloutTipRiseAboveTheCursor + TetherCalloutShape.tailHeight
+    let orbitUnderAStatusLine = CursorRingGeometry.dotOrbitRadius(aStatusLineShows: true)
+    // A whole orbit, sampled every 10 ms: the top edge of every dot stays under the Callout's body (y grows down).
+    for sampleIndex in 0...120 {
+        let placements = CursorRingGeometry.dotPlacements(secondsSinceTheOrbitBegan: Double(sampleIndex) * 0.01, orbitRadius: orbitUnderAStatusLine)
+        #expect(placements.allSatisfy { -($0.offset.y - dotRadius) < calloutBodyRise })
+    }
+    // The pulled-in orbit still clears the 16 point triangle at the center.
+    #expect(orbitUnderAStatusLine - dotRadius > 8)
+    #expect(CursorRingGeometry.dotOrbitRadius(aStatusLineShows: false) == 24)
+}
