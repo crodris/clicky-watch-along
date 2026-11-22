@@ -97,8 +97,10 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 3 Theme files | Merged: [#74](https://github.com/crodris/clicky-watch-along/pull/74) |
 | 12 App icon | Merged: [#73](https://github.com/crodris/clicky-watch-along/pull/73). Dark, tinted, and clear modes still need the layers imported into Icon Composer by hand. |
 | 4 Callouts and speech | Merged: [#81](https://github.com/crodris/clicky-watch-along/pull/81) |
-| 5, 6, 7, 9, 10, 11 | Building in parallel |
-| 8 Panel, onboarding, keyboard | Waiting for PRs 2, 3, and 7 |
+| 6 Agent list, Theme Studio, dial | Merged: [#87](https://github.com/crodris/clicky-watch-along/pull/87) |
+| 7 Menu bar | Merged: [#86](https://github.com/crodris/clicky-watch-along/pull/86) |
+| 5, 9, 10, 11 | Building in parallel |
+| 8 Panel, onboarding, keyboard | Building |
 | 13 Theme Studio designs motion | After the build order |
 | 14 The loop carries background work | After the build order |
 | 15 End-of-video recap | After the build order |
@@ -111,7 +113,9 @@ Deferred from PR 1, to fold into later PRs: the Chrome control row hides after o
 
 Left open by PR 2, folded into PR 7: the serve has no still ring under Reduce Motion, the tether fades for about 200 ms after a disc covers its slot, and the flush is unchecked through a real Apple Event stall. PR 6 writes the first Glide caller.
 
-Deferred from PR 3: the "Add theme?" card shown before an install (PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18).
+Deferred from PR 3: the "Add theme?" card shown before an install (done in PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18).
 
 Left open by PR 4: the ring still hides while a status line shows (PR 9), and a push-to-talk press during a narration leaves the bubble with a rise instead of shrinking it into the cursor (PR 11).
-PR 19 takes the rest: stacked chips (a new chip pushes the old one up, which needs a second panel), the speech underline at exactly 2 points, and the `start_background_task` description that still says "a chip under the cursor", with its three fixtures and recorded evals.
+PR 19 takes the rest, plus PR 7's leftovers: Bring back's drop to the cursor can cross the video, no unit test pins the tether cut when a disc slides, the right-click menu's quiz check, or the press-handler order, and the app icon's cursor points down and right while the app's cursor points up and left. PR 4's leftovers in PR 19: stacked chips (a new chip pushes the old one up, which needs a second panel), the speech underline at exactly 2 points, and the `start_background_task` description that still says "a chip under the cursor", with its three fixtures and recorded evals.
+
+Folded into PR 8 from PR 7: keyboard focus on the agent discs, and the status badge on a light menu bar.

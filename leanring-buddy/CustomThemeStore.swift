@@ -19,6 +19,8 @@ nonisolated enum CustomThemeStoreError: Error, Equatable {
     case themeIDIsNotAValidFolderName
     /// A rename or delete named a theme id that has no folder, such as a theme already deleted.
     case noThemeHasThatID
+    /// The package on disk is not the one the "Add theme?" card showed.
+    case packageChangedSinceItWasPreviewed
     /// A new name is empty after trimming, or longer than `ClickyTheme.longestName`.
     case themeNameIsNotValid
     /// An opened file is not a `.clickytheme` folder with a theme.json in it.
@@ -149,15 +151,28 @@ nonisolated struct CustomThemeStore: Sendable {
 
     // MARK: - Installing a package
 
-    /// Parses a `.clickytheme` package the learner opened and copies it in as a new saved theme with an id of its own,
-    /// which it returns. Only theme.json, picture.jpg when the theme uses it, and the roster's portrait files are read, each
-    /// only as a regular file under its size cap with no symbolic link on its path (`plainFileData`), and their bytes are
-    /// written into a folder this call creates, so a package someone sent can never make install read or write outside it.
-    /// Every file is read before anything is written, and a theme.json that does not parse throws its
-    /// `CustomThemeParseError` before any folder is made. A portrait the roster names but the package lacks is left out,
-    /// and that face shows its initials.
-    @discardableResult
-    func install(packageAt packageURL: URL) throws -> ClickyTheme {
+    /// What a package holds, read and checked the way an install reads it, for the "Add theme?" card to show.
+    struct ThemePackagePreview: Equatable {
+        let theme: ClickyTheme
+        let pictureJPEG: Data?
+    }
+
+    /// Reads a `.clickytheme` package and checks it with every rule an install applies, and writes nothing. Throws what
+    /// `install` throws for a package that would be refused, so a card is only shown for one that can install.
+    func previewPackage(at packageURL: URL) throws -> ThemePackagePreview {
+        let package = try readPackage(at: packageURL)
+        return ThemePackagePreview(theme: package.theme, pictureJPEG: package.pictureJPEG)
+    }
+
+    private struct ReadPackage {
+        let theme: ClickyTheme
+        let pictureJPEG: Data?
+        let portraitDataByFileName: [String: Data]
+    }
+
+    /// Reads and parses a package: `theme.json`, `picture.jpg` when there is one, and each roster portrait it names. Every
+    /// file is read as a plain file within its size cap (`plainFileData`).
+    private func readPackage(at packageURL: URL) throws -> ReadPackage {
         var packageIsAFolder: ObjCBool = false
         guard FileManager.default.fileExists(atPath: packageURL.path, isDirectory: &packageIsAFolder), packageIsAFolder.boolValue,
               let themeFileData = try Self.plainFileData(atRelativePath: Self.themeFileName, inPackageAt: packageURL, mostBytes: Self.mostThemeFileBytes) else {
@@ -176,6 +191,30 @@ nonisolated struct CustomThemeStore: Sendable {
                 portraitDataByFileName[portraitFileName] = try Self.plainFileData(atRelativePath: portraitFileName, inPackageAt: packageURL, mostBytes: Self.mostPortraitBytes)
             }
         }
+
+        return ReadPackage(theme: packagedTheme, pictureJPEG: pictureJPEG, portraitDataByFileName: portraitDataByFileName)
+    }
+
+    /// Parses a `.clickytheme` package the learner opened and copies it in as a new saved theme with an id of its own,
+    /// which it returns. Only theme.json, picture.jpg when the theme uses it, and the roster's portrait files are read, each
+    /// only as a regular file under its size cap with no symbolic link on its path (`plainFileData`), and their bytes are
+    /// written into a folder this call creates, so a package someone sent can never make install read or write outside it.
+    /// Every file is read before anything is written, and a theme.json that does not parse throws its
+    /// `CustomThemeParseError` before any folder is made. A portrait the roster names but the package lacks is left out,
+    /// and that face shows its initials.
+    ///
+    /// With `expectedPreview`, the package is read once and compared with what the "Add theme?" card showed, and a package
+    /// that changed since throws `packageChangedSinceItWasPreviewed` before anything is written, so the learner installs
+    /// what they agreed to.
+    @discardableResult
+    func install(packageAt packageURL: URL, expectedPreview: ThemePackagePreview? = nil) throws -> ClickyTheme {
+        let package = try readPackage(at: packageURL)
+        if let expectedPreview, ThemePackagePreview(theme: package.theme, pictureJPEG: package.pictureJPEG) != expectedPreview {
+            throw CustomThemeStoreError.packageChangedSinceItWasPreviewed
+        }
+        let packagedTheme = package.theme
+        let pictureJPEG = package.pictureJPEG
+        let portraitDataByFileName = package.portraitDataByFileName
 
         let themeID = try freeThemeID(forName: packagedTheme.name)
         let installedFolderURL = folderURL(forThemeID: themeID)

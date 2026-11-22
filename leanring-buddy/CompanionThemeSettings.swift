@@ -233,11 +233,17 @@ final class CompanionThemeSettings: ObservableObject {
         return savedTheme
     }
 
+    /// Reads and checks a `.clickytheme` package without installing it, for the "Add theme?" card. Throws what
+    /// `installAndApply` would throw for a package it refuses.
+    func previewPackage(at packageURL: URL) throws -> CustomThemeStore.ThemePackagePreview {
+        try customThemeStore.previewPackage(at: packageURL)
+    }
+
     /// Installs a `.clickytheme` package the learner opened, such as by a double-click in Finder, and makes it the theme.
     /// Throws what `CustomThemeStore.install` throws, such as a theme.json that does not parse, and changes nothing then.
     @discardableResult
-    func installAndApply(packageAt packageURL: URL) throws -> ClickyTheme {
-        let installedTheme = try customThemeStore.install(packageAt: packageURL)
+    func installAndApply(packageAt packageURL: URL, expectedPreview: CustomThemeStore.ThemePackagePreview? = nil) throws -> ClickyTheme {
+        let installedTheme = try customThemeStore.install(packageAt: packageURL, expectedPreview: expectedPreview)
         savedCustomThemesWithSavedDates = customThemeStore.loadSavedThemes()
         theme = installedTheme
         return installedTheme
