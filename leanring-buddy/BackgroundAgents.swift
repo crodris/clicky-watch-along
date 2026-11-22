@@ -359,6 +359,10 @@ final class BackgroundAgentStore: ObservableObject {
     /// show the "!" badge and a notch in the ring.
     @Published var agentIDsWaitingForApproval: Set<UUID> = []
 
+    /// The capability of each waiting agent's oldest request, which the disc's peek card names. It never holds the request's
+    /// summary, since a page or a server may have written that.
+    @Published var approvalCapabilitiesByAgentID: [UUID: HarnessCapability] = [:]
+
     /// Read when an agent starts, to pick its color and face. Changing the theme later never changes a running agent.
     private let themeSettings: CompanionThemeSettings
 
