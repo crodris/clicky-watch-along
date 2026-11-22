@@ -430,14 +430,20 @@ headless_chrome_warning() {
   local process_line
   while IFS= read -r process_line; do
     [[ -z "$process_line" ]] && continue
-    local process_id parent_process_id profile_directory parent_note=""
+    local process_id parent_process_id profile_directory parent_note="" what_to_do="Find out what started it before you stop it."
     read -r process_id parent_process_id _ <<<"$process_line"
     profile_directory="$(sed -n 's/.*--user-data-dir=\([^ ]*\).*/\1/p' <<<"$process_line")"
-    [[ "$parent_process_id" == "1" ]] && parent_note=", orphaned (its parent is launchd, so nothing is waiting for it)"
+    [[ "$parent_process_id" == "1" ]] && parent_note=", its parent is launchd"
+    # Only the bench's scene screenshot Chrome is known to be a leftover when it has no parent. Another tool's headless
+    # Chrome, such as a Playwright one started as a service, can also have launchd as its parent while it is in use.
+    if [[ "$parent_process_id" == "1" && "$profile_directory" == */scene-shots-*/chrome-profile ]]; then
+      parent_note=", orphaned (a bench scene screenshot run died and left it)"
+      what_to_do="It is orphaned, so run: kill $process_id"
+    fi
     echo "WARNING: a headless Chrome is running (pid $process_id${parent_note}, profile ${profile_directory:-unknown})."
     echo "  Apple Events to Chrome go to it, not to Chris's Chrome, and fail with \"Executing JavaScript through AppleScript is turned off\"."
     echo "  That is not Chris's Chrome setting. Every video read fails: the quiz, the loop, and the pop-outs."
-    echo "  If a bench run or a render started it, wait for it to end. If it is orphaned, run: kill $process_id"
+    echo "  If a bench run or a render started it, wait for it to end. $what_to_do"
   done <<<"$(headless_chrome_processes "$1")"
 }
 
@@ -924,7 +930,12 @@ command_lock_take() {
   if [[ -z "$owner" || "$owner" == *$'\n'* ]]; then echo "lock-take needs your name on one line, such as your branch name" >&2; exit 1; fi
   lock_path="$(app_check_lock_path)"
   if /bin/mkdir "$lock_path" 2>/dev/null; then
-    printf '%s\n' "$owner" >"$lock_path/owner"
+    # The second line is when the lock was taken, so a refusal can say how long it has been held.
+    if ! printf '%s\n%s\n' "$owner" "$(date +%s)" >"$lock_path/owner"; then
+      rm -r -- "$lock_path"
+      echo "Could not write the owner into $lock_path, so the lock was not taken." >&2
+      exit 1
+    fi
     echo "app check lock taken by $owner"
     return 0
   fi
@@ -934,7 +945,10 @@ command_lock_take() {
     echo "app check lock already held by $owner"
     return 0
   fi
-  echo "The app check lock is held by ${held_owner:-an owner that did not write its name}, taken $(( ($(date +%s) - $(stat -f %m "$lock_path")) / 60 )) minutes ago. Wait 60 seconds and try again. Do not remove it." >&2
+  local held_since held_for="an unknown time"
+  held_since="$(sed -n 2p "$lock_path/owner" 2>/dev/null || true)"
+  if [[ "$held_since" =~ ^[0-9]+$ ]]; then held_for="$(( ($(date +%s) - held_since) / 60 )) minutes"; fi
+  echo "The app check lock is held by ${held_owner:-an owner that did not write its name} for $held_for. Wait 60 seconds and try again. Do not remove it. A lock held over 20 minutes has outlived the 20 minute rule: report the app surface as unverified instead of removing it." >&2
   exit 1
 }
 

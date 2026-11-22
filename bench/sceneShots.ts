@@ -46,17 +46,22 @@ const ownerPidFileName = "owner-pid";
 /** A folder with no owner file is left alone this long, since a run writes the file right after it makes the folder. */
 const unclaimedFolderGraceMs = 60_000;
 
+type SceneShotsChromeProcess = { pid: number; parentPid: number; scratchDirectory: string };
+
 /**
- * The headless Chrome processes in `ps -axo pid=,command=` output that run on a scene-shots scratch folder's profile,
- * with that folder. Helper processes carry the same flags, so one Chrome shows up several times, and killing every pid
- * is harmless. A Chrome with a window, such as Chris's own, has no --headless flag and never matches.
+ * The headless Chrome processes in `ps -axo pid=,ppid=,command=` output that run on a scene-shots scratch folder's
+ * profile, with that folder. Helper processes carry the same flags, so one Chrome shows up several times, and killing
+ * every pid is harmless. A Chrome with a window, such as Chris's own, has no --headless flag and never matches.
  */
-export function sceneShotsChromeProcesses(psOutput: string): { pid: number; scratchDirectory: string }[] {
+export function sceneShotsChromeProcesses(psOutput: string): SceneShotsChromeProcess[] {
   return psOutput.split("\n").flatMap((line) => {
-    const match = /^\s*(\d+)\s.*--headless.*--user-data-dir=(\S*\/scene-shots-[^/\s]+)\/chrome-profile/.exec(line);
-    return match === null ? [] : [{ pid: Number(match[1]), scratchDirectory: match[2] }];
+    const match = /^\s*(\d+)\s+(\d+)\s.*--headless.*--user-data-dir=(\S*\/scene-shots-[^/\s]+)\/chrome-profile/.exec(line);
+    return match === null ? [] : [{ pid: Number(match[1]), parentPid: Number(match[2]), scratchDirectory: match[3] }];
   });
 }
+
+/** launchd's pid. A process whose parent died is handed to it, so a Chrome with this parent has no run waiting for it. */
+const launchdPid = 1;
 
 function processIsAlive(pid: number): boolean {
   try {
@@ -64,15 +69,24 @@ function processIsAlive(pid: number): boolean {
     return true;
   } catch (error) {
     // EPERM means the process exists and belongs to someone else.
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+    return error instanceof Error && "code" in error && error.code === "EPERM";
   }
 }
 
-/** True when no live run owns the folder: its owner process is gone, or it has no owner file and is not brand new. */
-export function sceneShotsFolderIsStale(ownerPidText: string | undefined, folderAgeMs: number, ownerIsAlive: (pid: number) => boolean): boolean {
+/**
+ * True when no live run owns the folder. A folder with an owner file is stale when that process is gone. A run from
+ * before the owner file existed leaves none, so such a folder is stale only when it is not brand new and no Chrome on
+ * it has a live parent, since another checkout on older code may still be running its judge between shots.
+ */
+export function sceneShotsFolderIsStale(
+  ownerPidText: string | undefined,
+  folderAgeMs: number,
+  ownerIsAlive: (pid: number) => boolean,
+  aChromeOnItHasALiveParent: boolean,
+): boolean {
   const ownerPid = Number(ownerPidText?.trim());
   if (ownerPidText === undefined || !Number.isInteger(ownerPid) || ownerPid <= 0) {
-    return folderAgeMs > unclaimedFolderGraceMs;
+    return folderAgeMs > unclaimedFolderGraceMs && !aChromeOnItHasALiveParent;
   }
   return !ownerIsAlive(ownerPid);
 }
@@ -81,32 +95,37 @@ export function sceneShotsFolderIsStale(ownerPidText: string | undefined, folder
  * Kills the headless Chrome and deletes the scratch folder that an earlier run left behind when it was killed
  * with SIGKILL, which no handler can catch. A Chrome like that has launchd as its parent, answers Apple Events
  * sent to "Google Chrome" in place of the real Chrome, and fails them with "Executing JavaScript through AppleScript
- * is turned off". A folder that a live run still owns is left alone, so two judge runs can overlap.
+ * is turned off". A folder that a live run still owns is left alone, so two judge runs can overlap. A folder that
+ * another process removes or locks while this runs is skipped, since the run that called this still has to open.
  */
 export function removeStaleSceneShots() {
-  const staleFolders = readdirSync(tmpdir())
+  const scratchFolders = readdirSync(tmpdir())
     .filter((name) => name.startsWith(scratchDirectoryPrefix))
-    .map((name) => join(tmpdir(), name))
-    .filter((folder) => {
-      const ownerPidPath = join(folder, ownerPidFileName);
-      const ownerPidText = existsSync(ownerPidPath) ? readFileSync(ownerPidPath, "utf8") : undefined;
-      return sceneShotsFolderIsStale(ownerPidText, Date.now() - statSync(folder).mtimeMs, processIsAlive);
-    });
-  if (staleFolders.length === 0) {
+    .map((name) => join(tmpdir(), name));
+  if (scratchFolders.length === 0) {
     return;
   }
-  const processList = execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" });
-  for (const { pid, scratchDirectory } of sceneShotsChromeProcesses(processList)) {
-    if (staleFolders.some((folder) => folder === scratchDirectory)) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {
-        // It exited on its own since ps ran.
+  const chromeProcesses = sceneShotsChromeProcesses(execFileSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8" }));
+  for (const folder of scratchFolders) {
+    try {
+      const ownerPidPath = join(folder, ownerPidFileName);
+      const ownerPidText = existsSync(ownerPidPath) ? readFileSync(ownerPidPath, "utf8") : undefined;
+      const chromesOnFolder = chromeProcesses.filter((chromeProcess) => chromeProcess.scratchDirectory === folder);
+      const aChromeOnItHasALiveParent = chromesOnFolder.some((chromeProcess) => chromeProcess.parentPid !== launchdPid);
+      if (!sceneShotsFolderIsStale(ownerPidText, Date.now() - statSync(folder).mtimeMs, processIsAlive, aChromeOnItHasALiveParent)) {
+        continue;
       }
+      for (const { pid } of chromesOnFolder) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          // It exited on its own since ps ran.
+        }
+      }
+      rmSync(folder, { recursive: true, force: true });
+    } catch {
+      // Another run removed the folder first, or it belongs to another user. Leave it.
     }
-  }
-  for (const folder of staleFolders) {
-    rmSync(folder, { recursive: true, force: true });
   }
 }
 
@@ -204,13 +223,18 @@ function compositePage(firstShotPath: string, secondShotPath: string, firstCapti
 function killChromeWhenThisProcessEnds(chrome: ChildProcess, scratchDirectory: string): () => void {
   const killChromeAndForgetItsFolder = () => {
     chrome.kill("SIGKILL");
-    rmSync(scratchDirectory, { recursive: true, force: true });
+    // Chrome's helper processes can still be writing to the profile for a moment after the main process dies.
+    rmSync(scratchDirectory, { recursive: true, force: true, maxRetries: 5 });
   };
-  const exitSignals = { SIGINT: 2, SIGTERM: 15, SIGHUP: 1 } as const;
-  const signalHandlers = Object.entries(exitSignals).map(([signalName, signalNumber]) => {
+  const exitSignals = [
+    ["SIGINT", 2],
+    ["SIGTERM", 15],
+    ["SIGHUP", 1],
+  ] as const;
+  const signalHandlers = exitSignals.map(([signalName, signalNumber]) => {
     const handler = () => process.exit(128 + signalNumber);
-    process.once(signalName as keyof typeof exitSignals, handler);
-    return [signalName as keyof typeof exitSignals, handler] as const;
+    process.once(signalName, handler);
+    return [signalName, handler] as const;
   });
   process.once("exit", killChromeAndForgetItsFolder);
   return () => {
@@ -369,9 +393,12 @@ export class SceneCamera {
 
   async close() {
     // Chrome writes to its profile until it exits, so the folder is removed only after that.
-    const chromeExited = new Promise((resolve) => this.chrome.once("exit", resolve));
-    this.chrome.kill();
-    await chromeExited;
+    // A Chrome that already exited, such as one that crashed mid-run, never emits "exit" again.
+    if (this.chrome.exitCode === null && this.chrome.signalCode === null) {
+      const chromeExited = new Promise((resolve) => this.chrome.once("exit", resolve));
+      this.chrome.kill();
+      await chromeExited;
+    }
     this.stopWatchingForExit();
     await new Promise((resolve) => this.server.close(resolve));
     rmSync(this.scratchDirectory, { recursive: true, force: true });

@@ -75,7 +75,7 @@ Only one Clicky and one Worker on port 8787 can run at a time on this Mac, and o
 1. Take the lock with `.claude/skills/verify-clicky/verify-clicky.sh lock-take <your branch name>`.
    It names the owner in its error while another agent holds the lock: wait and retry every 60 seconds.
 2. Run `pgrep -fl "Clicky.app/Contents/MacOS/Clicky"`.
-   If any Clicky is running, run `lock-release <your branch name>`, wait 5 minutes, and start again.
+   If any Clicky is running, run `verify-clicky.sh lock-release <your branch name>`, wait 5 minutes, and start again.
 3. Build with `verify-clicky.sh build`.
 4. If Chris's Worker holds port 8787 (tmux session `clicky-worker-8787`, serving the main checkout's `worker/`), stop it with `tmux send-keys -t clicky-worker-8787 C-c` and wait for the port to free.
 5. Run `verify-clicky.sh worker-up 8787`, then `app-launch`, and take your evidence.
@@ -86,6 +86,7 @@ Only one Clicky and one Worker on port 8787 can run at a time on this Mac, and o
 8. Release the lock with `verify-clicky.sh lock-release <your branch name>`.
 
 Hold the lock for at most 20 minutes.
+When `lock-take` says another owner has held it longer than that, report the app surface as unverified.
 Never remove `/tmp/clicky-app-check.lock` by hand: `lock-release` refuses a lock that another owner holds and names that owner, and a lock you did not take is another agent's running check.
 Never change a system setting such as Reduce Motion; check Reduce Motion paths with renders and tests.
 

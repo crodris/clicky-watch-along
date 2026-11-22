@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -39,21 +39,21 @@ describe("sceneShotsChromeProcesses", () => {
 
   it("finds a headless Chrome and its helpers on a scene-shots profile, and nothing else", () => {
     const psOutput = [
-      `83128 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --remote-debugging-port=0 ${profile} --window-size=1280,800`,
-      `83177 /Applications/Google Chrome.app/Contents/Frameworks/Helpers/Google Chrome Helper --type=gpu-process --headless ${profile}`,
+      `83128     1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --remote-debugging-port=0 ${profile} --window-size=1280,800`,
+      `83177 83128 /Applications/Google Chrome.app/Contents/Frameworks/Helpers/Google Chrome Helper --type=gpu-process --headless ${profile}`,
       // A Chrome with a window, even one pointed at a scene-shots folder by hand, is not a leftover of the judge.
-      `90003 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome ${profile}`,
+      `90003  4000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome ${profile}`,
       // Chris's own Chrome has a window, so it has no --headless flag.
-      "35023 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "35023     1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
       // Other headless Chromes, such as the judge's screenshot runs and Remotion's, keep their own profiles.
-      "90001 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --user-data-dir=/Users/c/bench/out/chrome-profile",
+      "90001  4000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --user-data-dir=/Users/c/bench/out/chrome-profile",
       // A scene-shots path outside the profile flag, such as in an argument to another program, is not a Chrome profile.
-      "90002 grep --headless scene-shots-9XaGV9",
+      "90002  4000 grep --headless scene-shots-9XaGV9",
     ].join("\n");
 
     assert.deepEqual(sceneShotsChromeProcesses(psOutput), [
-      { pid: 83128, scratchDirectory: "/var/folders/ab/T/scene-shots-9XaGV9" },
-      { pid: 83177, scratchDirectory: "/var/folders/ab/T/scene-shots-9XaGV9" },
+      { pid: 83128, parentPid: 1, scratchDirectory: "/var/folders/ab/T/scene-shots-9XaGV9" },
+      { pid: 83177, parentPid: 83128, scratchDirectory: "/var/folders/ab/T/scene-shots-9XaGV9" },
     ]);
   });
 });
@@ -62,22 +62,24 @@ describe("sceneShotsFolderIsStale", () => {
   const alive = (pid: number) => pid === 100;
 
   it("is stale only when the owner process is gone", () => {
-    assert.equal(sceneShotsFolderIsStale("100", 10 * 60_000, alive), false);
-    assert.equal(sceneShotsFolderIsStale("200", 1_000, alive), true);
+    assert.equal(sceneShotsFolderIsStale("100", 10 * 60_000, alive, false), false);
+    assert.equal(sceneShotsFolderIsStale("200", 1_000, alive, false), true);
   });
 
   it("gives a folder with no usable owner file a minute before calling it stale", () => {
-    assert.equal(sceneShotsFolderIsStale(undefined, 1_000, alive), false);
-    assert.equal(sceneShotsFolderIsStale(undefined, 61_000, alive), true);
-    assert.equal(sceneShotsFolderIsStale("not a pid", 61_000, alive), true);
+    assert.equal(sceneShotsFolderIsStale(undefined, 1_000, alive, false), false);
+    assert.equal(sceneShotsFolderIsStale(undefined, 61_000, alive, false), true);
+    assert.equal(sceneShotsFolderIsStale("not a pid", 61_000, alive, false), true);
+  });
+
+  it("keeps a folder with no owner file while a Chrome on it has a live parent, such as a run on older code", () => {
+    assert.equal(sceneShotsFolderIsStale(undefined, 10 * 60_000, alive, true), false);
   });
 });
 
-/**
- * Runs fixtures/open-scene-camera.ts with fixtures/fake-chrome.ts as Chrome, in a temporary folder of its own, and
- * waits until it has opened the camera. The fake Chrome is a node process, so its flags show in `ps` like Chrome's.
- */
-// A process that ignores its signal would hang a test forever, so each test has a timeout that fails it instead.
+// Each test runs fixtures/open-scene-camera.ts with fixtures/fake-chrome.ts as Chrome, in a temporary TMPDIR of its own
+// (see openCamera). The fake Chrome is a node process, so its flags show in `ps` like Chrome's. A process that ignores
+// its signal would hang a test forever, so each test has a timeout that fails it instead.
 describe("SceneCamera ends its Chrome", { timeout: 30_000 }, () => {
   let sandbox = "";
   // Every process a test starts, so a failed assertion leaves nothing running to hold the test run open.
@@ -105,7 +107,7 @@ describe("SceneCamera ends its Chrome", { timeout: 30_000 }, () => {
     }
   };
 
-  async function openCamera(name: string, argument: "wait" | "throw") {
+  async function openCamera(name: string, argument: "wait" | "throw" | "close-on-stdin") {
     const pidFile = join(sandbox, `${name}.pid`);
     const fakeChromeLauncher = join(sandbox, `${name}-chrome`);
     // CHROME_PATH is one executable, so a small script starts the fake Chrome with the flags SceneCamera gives it.
@@ -114,14 +116,20 @@ describe("SceneCamera ends its Chrome", { timeout: 30_000 }, () => {
     const driver: ChildProcess = spawn("node", [join(import.meta.dirname, "fixtures", "open-scene-camera.ts"), argument], {
       env: { ...process.env, TMPDIR: sandbox, CHROME_PATH: fakeChromeLauncher, FAKE_CHROME_PID_FILE: pidFile },
       // The throw case prints its stack trace to stderr, which the test run does not need to show.
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["pipe", "pipe", "ignore"],
     });
     if (driver.pid !== undefined) {
       startedProcessIds.add(driver.pid);
     }
     const exited = new Promise<void>((resolve) => driver.once("exit", () => resolve()));
+    let output = "";
     await new Promise<void>((resolve, reject) => {
-      driver.stdout?.on("data", (chunk) => String(chunk).includes("opened") && resolve());
+      driver.stdout?.on("data", (chunk) => {
+        output += String(chunk);
+        if (output.includes("opened")) {
+          resolve();
+        }
+      });
       driver.once("exit", () => reject(new Error("the driver ended before it opened the camera")));
     }).catch((error) => {
       if (argument !== "throw") {
@@ -130,7 +138,7 @@ describe("SceneCamera ends its Chrome", { timeout: 30_000 }, () => {
     });
     const fakeChromePid = Number(readFileSync(pidFile, "utf8"));
     startedProcessIds.add(fakeChromePid);
-    return { driver, exited, fakeChromePid };
+    return { driver, exited, fakeChromePid, output: () => output };
   }
 
   const scratchFolders = () => readdirSync(sandbox).filter((name) => name.startsWith("scene-shots-"));
@@ -185,5 +193,52 @@ describe("SceneCamera ends its Chrome", { timeout: 30_000 }, () => {
     keeper.driver.kill("SIGTERM");
     next.driver.kill("SIGTERM");
     await Promise.all([keeper.exited, next.exited]);
+  });
+
+  it("closes without waiting forever when Chrome already exited, as after a crash mid-run", async () => {
+    const { driver, exited, fakeChromePid, output } = await openCamera("crashed-chrome", "close-on-stdin");
+    process.kill(fakeChromePid, "SIGKILL");
+    await waitUntil(() => !isAlive(fakeChromePid));
+
+    driver.stdin?.write("close\n");
+    await exited;
+
+    assert.match(output(), /closed/);
+    assert.deepEqual(scratchFolders(), []);
+  });
+
+  /** Makes a run's folder look like one from before the owner file existed, and old enough to be past the grace period. */
+  function makeItLookLikeOlderCode(scratchFolderName: string) {
+    rmSync(join(sandbox, scratchFolderName, "owner-pid"));
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60_000);
+    utimesSync(join(sandbox, scratchFolderName), tenMinutesAgo, tenMinutesAgo);
+  }
+
+  it("leaves the Chrome of a run on older code, which wrote no owner file, while its run is still going", async () => {
+    const olderCodeRun = await openCamera("older-code-live", "wait");
+    makeItLookLikeOlderCode(scratchFolders()[0] ?? "");
+
+    const next = await openCamera("older-code-next", "wait");
+
+    assert.equal(isAlive(olderCodeRun.fakeChromePid), true);
+    assert.equal(scratchFolders().length, 2);
+    olderCodeRun.driver.kill("SIGTERM");
+    next.driver.kill("SIGTERM");
+    await Promise.all([olderCodeRun.exited, next.exited]);
+  });
+
+  it("kills the Chrome that a SIGKILLed run on older code left, which is how the 3.5 hour leak happened", async () => {
+    const olderCodeRun = await openCamera("older-code-killed", "wait");
+    makeItLookLikeOlderCode(scratchFolders()[0] ?? "");
+    olderCodeRun.driver.kill("SIGKILL");
+    await olderCodeRun.exited;
+
+    const next = await openCamera("older-code-cleaner", "wait");
+    await waitUntil(() => !isAlive(olderCodeRun.fakeChromePid));
+
+    assert.equal(isAlive(olderCodeRun.fakeChromePid), false);
+    assert.equal(scratchFolders().length, 1);
+    next.driver.kill("SIGTERM");
+    await next.exited;
   });
 });
