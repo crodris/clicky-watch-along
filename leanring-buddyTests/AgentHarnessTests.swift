@@ -523,6 +523,22 @@ struct AgentHarnessTests {
         #expect(desk.waitingRequests.map(\.approvalID) == ["approval-2"], "the grace period of an answered request never touches a later one")
     }
 
+    /// A request that reuses the ID of an answered and settled one is waiting, not answering.
+    /// The settled request's grace period must not drop it.
+    @Test func theGracePeriodOfASettledRequestNeverDropsALaterRequestThatReusesItsID() {
+        let delays = ScheduledDelays()
+        let desk = HarnessApprovalDesk(answerSettleGraceSeconds: 2, secondsAnEndedCardStays: 60, scheduleAfter: delays.schedule) { _, _, _ in }
+        desk.receive(anApprovalRequest("approval-reused"))
+        #expect(desk.answer(approvalID: "approval-reused", approved: true, scope: .once))
+        desk.settle(approvalID: "approval-reused", approved: true, scope: .once)
+        desk.receive(anApprovalRequest("approval-reused"))
+        #expect(desk.waitingRequests.map(\.approvalID) == ["approval-reused"])
+        #expect(desk.answeringApprovalIDs.isEmpty, "the new request has not been answered")
+
+        #expect(delays.runTheNext(afterSeconds: 2), "the grace period of the first answer still ends")
+        #expect(desk.waitingRequests.map(\.approvalID) == ["approval-reused"], "a request nobody answered is not dropped for not being settled")
+    }
+
     @Test func aRequestForAnEndedTaskOrAnUnknownActionNeverWaitsForTheLearner() {
         var answers: [(approvalID: String, approved: Bool)] = []
         let desk = HarnessApprovalDesk { approvalID, approved, _ in answers.append((approvalID, approved)) }
