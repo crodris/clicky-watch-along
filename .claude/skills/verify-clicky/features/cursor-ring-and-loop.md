@@ -21,7 +21,7 @@ A background agent that works on the video in front laps its own spark around th
 - `loop-agent-reduce-motion` draws a still arc for each agent, as long as its progress, with no spark.
   Only tests and renders cover it, since this skill never flips Reduce Motion.
 - `loop-agent-rejoin` brings back the spark of an agent still working when the same video is in front again after a scroll cleared the line, at the next push-to-talk release.
-- `loop-agent-show-clicky-off` keeps no line for an agent while Show Clicky is off.
+- `loop-agent-held-back` keeps an agent's spark off the line while a scene is on screen, a quiz question is open, or Show Clicky is off, and joins it at the first release that allows it.
 
 ## How to get to it (user POV)
 
@@ -63,5 +63,6 @@ Preconditions:
 - Take screenshots with `$V shot`, and look at every display before one goes into a pull request.
   For a burst, `screencapture -x -D 2 <file>` captures one chosen display, and a plain `screencapture -x <file>` captures only the main display.
   The loop draws on the display that holds the video, and the ring and status label draw on the display under the mouse, so put the mouse on the video's display to see all three together.
-- Another session's automation can bring a different app to the front, which clears the loop as an app switch. The log says `Cursor loop: the front app became <bundle id>`.
+- Another session's automation can bring a different app to the front, which clears the loop as an app switch.
+  The log says `Cursor loop: the front app became <bundle id>`.
 - `verify-clicky.sh app-launch` finds a running Clicky with `pgrep -f`, so any shell command whose text contains the app's path makes it refuse to launch.

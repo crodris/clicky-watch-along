@@ -925,6 +925,7 @@ final class CompanionManager: ObservableObject {
             .sink { [weak self] in
                 self?.cursorLoopController.end(because: .scrolled)
             }
+        cursorLoopController.agentSparksMayDraw = { [weak self] in self?.agentSparksMayDraw ?? false }
         // A finished agent's spark completes its lap, and a failed or cancelled agent's goes at once.
         cursorLoopAgentSparksCancellable = backgroundAgentStore.$agents
             .receive(on: DispatchQueue.main)
@@ -933,16 +934,18 @@ final class CompanionManager: ObservableObject {
             }
     }
 
-    /// A background agent started from a tab. Its sparks lap the loop when its work is on the video in front, and never
-    /// while a scene covers the media or a quiz question is open, as a request's loop never draws then. With Show Clicky off
-    /// the overlay fades a second after the answer, so no line is kept for sparks that would not show.
-    private func theAgentStartedFromTheFrontTab(_ agentID: UUID, sourceTab: AgentSourceTab) {
-        guard isClickyCursorEnabled, requestMayDrawALoop(
+    /// An agent's spark may join the loop's line unless a scene covers the media or a quiz question is open, where a request's
+    /// loop never draws either, or Show Clicky is off, since the overlay then fades a second after the answer.
+    private var agentSparksMayDraw: Bool {
+        isClickyCursorEnabled && requestMayDrawALoop(
             aSceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             aQuizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer || videoQuizQuestionIsActive
-        ) else {
-            return
-        }
+        )
+    }
+
+    /// A background agent started from a tab. Its spark laps the loop when its work is on the video in front, and joins
+    /// at a later release when `agentSparksMayDraw` holds it back now.
+    private func theAgentStartedFromTheFrontTab(_ agentID: UUID, sourceTab: AgentSourceTab) {
         cursorLoopController.agentStarted(id: agentID, sourceTab: sourceTab)
     }
 

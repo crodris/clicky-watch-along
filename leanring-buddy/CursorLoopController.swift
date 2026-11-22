@@ -38,6 +38,10 @@ final class CursorLoopController: ObservableObject {
     private let waitBetweenFrontTabPolls: () async -> Void
     /// The wait for a finished agent's spark to complete its last lap. Tests pass one that returns at once.
     private let waitForAFinishingSparkLap: () async -> Void
+    /// Whether an agent's spark may join the line now: false while a scene covers the media, a quiz question is open, or Show
+    /// Clicky is off. `CompanionManager` sets it, since the controller does not know those states. It is read when an agent
+    /// starts and when a release reads the media, so an agent held back joins at the first release that allows it.
+    var agentSparksMayDraw: () -> Bool = { true }
 
     static let secondsBetweenFrontTabPolls: TimeInterval = 1
     /// The real wait between front tab polls. A cancelled poll ends its sleep early and then sees that it was cancelled.
@@ -114,7 +118,7 @@ final class CursorLoopController: ObservableObject {
             let media = readTheMediaInTheFrontTab(frontTabRead)
             print("Cursor loop: read the front tab's media in \(Int((Self.now - readStartedAt) * 1000)) ms, \(media == nil ? "none to frame" : "found")")
             guard !Task.isCancelled else { return }
-            change { $0.mediaRectArrived(media, at: Self.now) }
+            change { $0.mediaRectArrived(media, at: Self.now, agentsMayJoinTheLine: agentSparksMayDraw()) }
         }
     }
 
@@ -152,10 +156,10 @@ final class CursorLoopController: ObservableObject {
 
     // MARK: - Agent sparks
 
-    /// A background agent started. Its sparks lap the media in front when it works on that video (`agentWorksOnTheVideoInFront`).
-    /// The caller skips this while a scene covers the media or a quiz question is open, as it does for a request's loop.
+    /// A background agent started. Its spark laps the media in front when it works on that video (`agentWorksOnTheVideoInFront`)
+    /// and `agentSparksMayDraw` allows it, and otherwise waits to join at a later release.
     func agentStarted(id agentID: UUID, sourceTab: AgentSourceTab) {
-        change { $0.agentStarted(id: agentID, sourceTab: sourceTab) }
+        change { $0.agentStarted(id: agentID, sourceTab: sourceTab, mayJoinTheLine: agentSparksMayDraw()) }
     }
 
     /// The agents changed, as a snapshot of the whole store. Each agent the loop remembers is checked against its status: a
@@ -172,6 +176,7 @@ final class CursorLoopController: ObservableObject {
                 finishingLapTasks[agentID] = nil
                 change { $0.agentEnded(id: agentID) }
             case .finished:
+                change { $0.agentFinished(id: agentID) }
                 // A finished agent whose spark is off the line has no lap to run.
                 guard state.agentLineHolds(agentID: agentID) else {
                     change { $0.agentEnded(id: agentID) }

@@ -308,20 +308,51 @@ private func controllerWithTheMediaInHand(
     #expect(state.agentLine == .showing(AgentSparkLine(media: sparkMedia(), agentIDs: [agentID])))
 }
 
-@Test func aRunningAgentRejoinsWhenARequestDrawsALoopAroundItsVideo() {
+@Test func anAgentHeldBackAtItsStartJoinsAtTheFirstReleaseThatAllowsIt() {
+    var state = stateHoldingTheMediaInHand()
+    let agentID = UUID()
+    // A scene covers the media when the agent starts.
+    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: false)
+    #expect(state.agentLine == .hidden)
+    #expect(state.runningAgents.map(\.id) == [agentID])
+
+    state.pushToTalkWasPressed()
+    state.pushToTalkWasReleased()
+    state.mediaRectArrived(sparkMedia(), at: 30, agentsMayJoinTheLine: false)
+    #expect(state.agentLine == .hidden)
+
+    state.pushToTalkWasPressed()
+    state.pushToTalkWasReleased()
+    state.mediaRectArrived(sparkMedia(), at: 40)
+    #expect(state.agentLineOnTheMedia?.line.agentIDs == [agentID])
+}
+
+@Test func aReleaseThatDrawsARequestsLoopWhileAScenePlaysBringsBackNoAgentSpark() {
+    var state = stateHoldingTheMediaInHand()
+    state.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL))
+    state.end(because: .aSceneStartedToShow)
+    state.agentLineFadeOutFinished()
+
+    state.pushToTalkWasPressed()
+    state.pushToTalkWasReleased()
+    state.requestBecameALookAtTheMedia(at: 30)
+    state.mediaRectArrived(sparkMedia(), at: 30.2, agentsMayJoinTheLine: false)
+    #expect(state.loopIsShowing)
+    #expect(state.agentLine == .hidden)
+}
+
+@Test func aFinishedAgentNeverRejoinsTheLineItsSparkLeft() {
     var state = stateHoldingTheMediaInHand()
     let agentID = UUID()
     state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
-    state.end(because: .tabOrMediaChanged)
+    state.agentFinished(id: agentID)
+    state.end(because: .scrolled)
     state.agentLineFadeOutFinished()
 
+    state.pushToTalkWasPressed()
     state.pushToTalkWasReleased()
     state.mediaRectArrived(sparkMedia(), at: 30)
-    state.agentLineFadeOutFinished()
-    // The release put the rect in hand, which already rejoined the agent. A request then draws its loop on the same media.
-    state.requestBecameALookAtTheMedia(at: 30.1)
-    #expect(state.loopIsShowing)
-    #expect(state.agentLineOnTheMedia?.line.agentIDs == [agentID])
+    #expect(state.agentLine == .hidden)
 }
 
 @Test func anAgentDoesNotRejoinForAnotherVideoOrAfterItEnded() {
@@ -575,4 +606,40 @@ private struct RenderedAgentLine {
     let pixel = try #require(pixels.colorAt(x: Int(point.x * 2), y: Int(point.y * 2))?.usingColorSpace(.sRGB))
     let expected = try #require(NSColor(halfDoneColor).usingColorSpace(.sRGB))
     #expect(abs(pixel.redComponent - expected.redComponent) < 0.06 && abs(pixel.blueComponent - expected.blueComponent) < 0.06)
+}
+
+@Test(.timeLimit(.minutes(1))) @MainActor func theControllerHoldsAnAgentBackWhileSparksMayNotDrawAndJoinsItAtTheNextRelease() async {
+    var sparksMayDraw = false
+    let controller = CursorLoopController(
+        readTheMediaInTheFrontTab: { _ in sparkMedia() },
+        readTheFrontTabSample: { sparkSample() },
+        waitBetweenFrontTabPolls: { await Task.yield() },
+        waitForAFinishingSparkLap: {}
+    )
+    controller.agentSparksMayDraw = { sparksMayDraw }
+    controller.pushToTalkWasReleased()
+    await controller.waitForTheMediaReadToFinish()
+    let agentID = UUID()
+    controller.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
+    #expect(!controller.state.agentLineIsShowing)
+
+    // A release while sparks may not draw reads the media and still brings back nothing.
+    controller.pushToTalkWasPressed()
+    controller.pushToTalkWasReleased()
+    await controller.waitForTheMediaReadToFinish()
+    #expect(!controller.state.agentLineIsShowing)
+
+    sparksMayDraw = true
+    controller.pushToTalkWasPressed()
+    controller.pushToTalkWasReleased()
+    await controller.waitForTheMediaReadToFinish()
+    #expect(controller.state.agentLineOnTheMedia?.line.agentIDs == [agentID])
+}
+
+@Test(.timeLimit(.minutes(1))) @MainActor func theControllerMarksAFinishedAgentAtOnceSoItCannotRejoin() async {
+    let controller = await controllerWithTheMediaInHand()
+    let agentID = UUID()
+    controller.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
+    controller.agentStatusesChanged([agentID: .finished])
+    #expect(controller.state.runningAgents.first?.hasFinished == true)
 }

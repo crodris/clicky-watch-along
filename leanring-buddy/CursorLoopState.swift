@@ -3,9 +3,9 @@
 //  leanring-buddy
 //
 //  The pure part of the loop Clicky draws around the video or image it is looking at: what decides
-//  whether a request draws a loop and when it clears, the line that background agents lap their sparks around, the
-//  outline of the loop, and the timing of the spark that draws it. Nothing here reads Chrome, the clock, or the screen, so tests drive it with
-//  made-up times and rects. `CursorLoopController` does the reading, and `CursorLoopView` the drawing.
+//  whether a request draws a loop and when it clears, the line that background agents lap their sparks around,
+//  the outline of the loop, and the timing of the spark that draws it. Nothing here reads Chrome, the clock, or
+//  the screen, so tests drive it with made-up times and rects. `CursorLoopController` does the reading, and `CursorLoopView` the drawing.
 //
 
 import CoreGraphics
@@ -139,6 +139,8 @@ struct CursorLoopState: Equatable {
     struct RunningAgent: Equatable {
         let id: UUID
         let sourceTab: AgentSourceTab
+        /// A finished agent only runs its spark's last lap, so it never rejoins a line that cleared meanwhile.
+        var hasFinished = false
     }
     /// The agents that started from a tab and have not ended, in the order they started, whether or not their spark is on the
     /// line. A scroll or a tab switch clears the line while they work, and they rejoin it when the video is in front again.
@@ -198,16 +200,24 @@ struct CursorLoopState: Equatable {
     /// can rejoin when a later turn has that video's media in hand again. The line goes around the media it already has,
     /// or a loop's, or else the rect the push-to-talk release read for this turn, which a turn that handed off to nothing
     /// keeps. With no request loop, that rect in hand is what gives an agent a line of its own, and dropping it would
-    /// limit sparks to a loop a request already drew.
-    mutating func agentStarted(id agentID: UUID, sourceTab: AgentSourceTab) {
+    /// limit sparks to a loop a request already drew. `mayJoinTheLine` is false while a scene covers the media, a quiz question
+    /// is open, or Show Clicky is off, and the agent is then only remembered.
+    mutating func agentStarted(id agentID: UUID, sourceTab: AgentSourceTab, mayJoinTheLine: Bool = true) {
         guard !runningAgents.contains(where: { $0.id == agentID }) else { return }
-        runningAgents.append(RunningAgent(id: agentID, sourceTab: sourceTab))
-        joinTheLineIfTheAgentWorksOnTheVideoInFront(RunningAgent(id: agentID, sourceTab: sourceTab))
+        let runningAgent = RunningAgent(id: agentID, sourceTab: sourceTab)
+        runningAgents.append(runningAgent)
+        if mayJoinTheLine { joinTheLineIfTheAgentWorksOnTheVideoInFront(runningAgent) }
+    }
+
+    /// The agent finished. Its spark is still on the line for its last lap, if the line shows, and it never rejoins.
+    mutating func agentFinished(id agentID: UUID) {
+        guard let index = runningAgents.firstIndex(where: { $0.id == agentID }) else { return }
+        runningAgents[index].hasFinished = true
     }
 
     /// Every running agent whose spark is off the line and whose video is in front again joins it.
     private mutating func runningAgentsRejoinTheLine() {
-        for runningAgent in runningAgents {
+        for runningAgent in runningAgents where !runningAgent.hasFinished {
             joinTheLineIfTheAgentWorksOnTheVideoInFront(runningAgent)
         }
     }
@@ -259,7 +269,9 @@ struct CursorLoopState: Equatable {
     }
 
     /// The read finished. Nil means Chrome has no media in front worth framing, or the read failed.
-    mutating func mediaRectArrived(_ media: MediaOnTheFrontTab?, at now: TimeInterval) {
+    /// `agentsMayJoinTheLine` is false while a scene covers the media, a quiz question is open, or Show Clicky is off, so a release
+    /// then brings back no agent's spark.
+    mutating func mediaRectArrived(_ media: MediaOnTheFrontTab?, at now: TimeInterval, agentsMayJoinTheLine: Bool = true) {
         guard case .readingTheRect(let handedOffAt) = turn else { return }
         guard let media else {
             turn = .notWaitingForALoop
@@ -267,14 +279,14 @@ struct CursorLoopState: Equatable {
         }
         guard let handedOffAt else {
             turn = .rectIsInHand(media)
-            runningAgentsRejoinTheLine()
+            if agentsMayJoinTheLine { runningAgentsRejoinTheLine() }
             return
         }
         // The request already became a look at the media, so this is the last chance to draw the loop for it.
         turn = .notWaitingForALoop
         if now - handedOffAt <= Self.secondsTheRectMayArriveAfterTheHandOff {
             loop = .showing(media, since: now, sparkSlowsAt: nil)
-            runningAgentsRejoinTheLine()
+            if agentsMayJoinTheLine { runningAgentsRejoinTheLine() }
         }
     }
 
@@ -290,7 +302,6 @@ struct CursorLoopState: Equatable {
         case .rectIsInHand(let media):
             turn = .notWaitingForALoop
             loop = .showing(media, since: now, sparkSlowsAt: nil)
-            runningAgentsRejoinTheLine()
         }
     }
 
