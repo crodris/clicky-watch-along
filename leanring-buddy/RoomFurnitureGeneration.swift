@@ -130,7 +130,7 @@ nonisolated let furnitureCompositeToneMatchBandPixels: Double = 96
 // repainted room does not (`furniturePieceWeights`), and everywhere else it keeps the keyframe's own pixels.
 
 /// The piece's shape is worked out on cells of this many pixels on a side, since it is smooth (closed over 20 pixels and
-/// softened), and a full-size frame's worth of passes took seconds in a Debug build, which the app runs in while it is
+/// softened), and a full-size frame's worth of passes took tens of seconds in a Debug build, which the app runs in while it is
 /// developed. The weights are scaled back up with a bilinear read.
 nonisolated let furniturePieceCellPixels = 4
 /// A cell counts as changed when the reply, after the tone fit, differs from the keyframe by more than this many levels in
@@ -139,12 +139,15 @@ nonisolated let furniturePieceCellPixels = 4
 nonisolated let furniturePieceChangeThresholdLevels: Float = 14
 /// The changed cells are closed before they weigh the paste: grown by `furniturePieceClosingGrowCells`, then shrunk by
 /// `furniturePieceClosingShrinkCells`. The difference is the margin kept around the piece (so its anti-aliased edge and its
-/// soft shadow are not cut), and a gap in the piece narrower than twice the grow, such as a cushion seam or a part that
-/// matches the wall, closes, so the keyframe never shows through the piece.
+/// soft shadow are not cut, and the softening below leaves the piece's own edge whole), and a notch in the piece narrower
+/// than twice the grow, such as a cushion seam, closes. Any gap the changed cells enclose, such as a seat that matches the
+/// wall, is filled as well, so the keyframe's wall never shows inside the piece's outline.
 nonisolated let furniturePieceClosingGrowCells = 5
-nonisolated let furniturePieceClosingShrinkCells = 3
-/// The closed shape's edge is softened with this many cells of average on each side, three times over.
+nonisolated let furniturePieceClosingShrinkCells = 2
+/// The closed shape's edge is softened with this many cells of average on each side, `furniturePieceEdgeSofteningPasses`
+/// times over, which reaches about 3 cells.
 nonisolated let furniturePieceEdgeSoftnessCells = 1
+nonisolated let furniturePieceEdgeSofteningPasses = 3
 
 /// A gain and an offset for one color channel, in sRGB byte values: `corrected = gain * reply + offset`.
 nonisolated struct ChannelToneFit: Equatable {
@@ -271,6 +274,7 @@ private nonisolated func movingAverage(
 nonisolated func boxAveraged(_ values: [Float], width: Int, height: Int, radius: Int) -> [Float] {
     var acrossRows = [Float](repeating: 0, count: values.count)
     var output = [Float](repeating: 0, count: values.count)
+    // `baseAddress` is nil only for an empty array, and a frame has at least one pixel, so the unwraps below hold.
     values.withUnsafeBufferPointer { valuesPointer in
         acrossRows.withUnsafeMutableBufferPointer { acrossRowsPointer in
             movingAverage(valuesPointer.baseAddress!, into: acrossRowsPointer.baseAddress!, lineCount: height, lineLength: width, lineStride: width, stepStride: 1, radius: radius)
@@ -289,6 +293,7 @@ nonisolated func binaryWindowFiltered(_ pixels: [Float], width: Int, height: Int
     // A square window is a row window and then a column window, with the result of the first made binary again.
     func filteredAlong(_ input: [Float], lineCount: Int, lineLength: Int, lineStride: Int, stepStride: Int) -> [Float] {
         var averaged = [Float](repeating: 0, count: input.count)
+        // `baseAddress` is nil only for an empty array, and an image has at least one pixel.
         input.withUnsafeBufferPointer { inputPointer in
             averaged.withUnsafeMutableBufferPointer { averagedPointer in
                 movingAverage(inputPointer.baseAddress!, into: averagedPointer.baseAddress!, lineCount: lineCount, lineLength: lineLength, lineStride: lineStride, stepStride: stepStride, radius: radius)
@@ -301,10 +306,40 @@ nonisolated func binaryWindowFiltered(_ pixels: [Float], width: Int, height: Int
     return filteredAlong(acrossRows, lineCount: width, lineLength: height, lineStride: 1, stepStride: width)
 }
 
+/// `cells` (0 or 1 per cell) with every 0 that the 1s enclose set to 1. A 0 is enclosed when no path of 0 cells leads from it
+/// to the image's border, going up, down, left, or right.
+nonisolated func cellsWithEnclosedGapsFilled(_ cells: [Float], columns: Int, rows: Int) -> [Float] {
+    var reachedFromTheBorder = [Bool](repeating: false, count: cells.count)
+    var cellsToVisit: [Int] = []
+    func visitIfEmpty(column: Int, row: Int) {
+        let cellIndex = row * columns + column
+        guard cells[cellIndex] == 0, !reachedFromTheBorder[cellIndex] else { return }
+        reachedFromTheBorder[cellIndex] = true
+        cellsToVisit.append(cellIndex)
+    }
+    for column in 0..<columns {
+        visitIfEmpty(column: column, row: 0)
+        visitIfEmpty(column: column, row: rows - 1)
+    }
+    for row in 0..<rows {
+        visitIfEmpty(column: 0, row: row)
+        visitIfEmpty(column: columns - 1, row: row)
+    }
+    while let cellIndex = cellsToVisit.popLast() {
+        let column = cellIndex % columns
+        let row = cellIndex / columns
+        if column > 0 { visitIfEmpty(column: column - 1, row: row) }
+        if column < columns - 1 { visitIfEmpty(column: column + 1, row: row) }
+        if row > 0 { visitIfEmpty(column: column, row: row - 1) }
+        if row < rows - 1 { visitIfEmpty(column: column, row: row + 1) }
+    }
+    return cells.enumerated().map { cellIndex, cell in reachedFromTheBorder[cellIndex] ? 0 : 1 }
+}
+
 /// How much of the reply each pixel keeps, 0 to 1: 1 on and around the piece, 0 on the room the edit only repainted.
 /// A cell is part of the piece when the reply, after the tone fit, differs strongly from the keyframe in it
-/// (`furniturePieceChangeThresholdLevels`). That shape is closed and softened as the constants above describe, then read
-/// back at each pixel. Both pixel arrays are RGBA bytes of `width` by `height`.
+/// (`furniturePieceChangeThresholdLevels`). That shape is closed, filled where it encloses a gap, and softened as the
+/// constants above describe, then read back at each pixel. Both pixel arrays are RGBA bytes of `width` by `height`.
 nonisolated func furniturePieceWeights(keyframePixels: [UInt8], correctedReplyPixels: [UInt8], width: Int, height: Int) -> [Float] {
     let cellPixels = furniturePieceCellPixels
     let cellColumns = (width + cellPixels - 1) / cellPixels
@@ -338,8 +373,9 @@ nonisolated func furniturePieceWeights(keyframePixels: [UInt8], correctedReplyPi
     }
     let grownCells = binaryWindowFiltered(changedCells, width: cellColumns, height: cellRows, radius: furniturePieceClosingGrowCells, keepsAnyHit: true)
     let closedCells = binaryWindowFiltered(grownCells, width: cellColumns, height: cellRows, radius: furniturePieceClosingShrinkCells, keepsAnyHit: false)
-    var softenedCells = closedCells
-    for _ in 0..<3 { softenedCells = boxAveraged(softenedCells, width: cellColumns, height: cellRows, radius: furniturePieceEdgeSoftnessCells) }
+    let solidCells = cellsWithEnclosedGapsFilled(closedCells, columns: cellColumns, rows: cellRows)
+    var softenedCells = solidCells
+    for _ in 0..<furniturePieceEdgeSofteningPasses { softenedCells = boxAveraged(softenedCells, width: cellColumns, height: cellRows, radius: furniturePieceEdgeSoftnessCells) }
 
     // Each pixel reads the cells around it, with the cell centers at the middle of their cells.
     var pieceWeights = [Float](repeating: 0, count: width * height)

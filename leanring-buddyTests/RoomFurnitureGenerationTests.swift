@@ -386,12 +386,12 @@ struct RoomFurnitureMaskTests {
         let (pasted, reply, keyframe) = try repaintedRoomPaste(pieceRectangle: pieceRectangle)
 
         // Along a row through the piece, from the left edge of the pasted region (the mask grown by 24 pixels) outward,
-        // the room is the keyframe's from 20 pixels beside the piece (the piece's margin fades out over that), so the
+        // the room is the keyframe's from 24 pixels beside the piece (the piece's margin fades out over that), so the
         // reply's ramp, up to 7 levels off here, leaves no step where the pasted region ends.
-        for x in 100...130 {
+        for x in 100...126 {
             #expect(abs(pasted.rgb(x: x, y: 150).red - keyframe.rgb(x: x, y: 150).red) <= 1, "x \(x) beside the piece")
         }
-        for x in 270...300 {
+        for x in 274...300 {
             #expect(abs(pasted.rgb(x: x, y: 150).red - keyframe.rgb(x: x, y: 150).red) <= 1, "x \(x) beside the piece")
         }
         // And the reply's own ramp really differed there, so the check can fail.
@@ -418,6 +418,19 @@ struct RoomFurnitureMaskTests {
         // so it stays the reply's and the keyframe's wall does not show through the piece.
         #expect(pasted.rgb(x: 200, y: 150).red == reply.rgb(x: 200, y: 150).red)
         #expect(pasted.rgb(x: 200, y: 150).red != keyframe.rgb(x: 200, y: 150).red)
+    }
+
+    @Test func aWideGapTheChangedCellsEncloseIsStillThePiece() throws {
+        // A 70 by 50 part of the piece that nearly matches the room, wider than the closing's 40 pixels, such as a pale seat
+        // against a pale wall. The piece's dark frame around it encloses it, so the keyframe's wall must not show there.
+        let pieceRectangle = CGRect(x: 110, y: 80, width: 180, height: 140)
+        let paleHoleRectangle = CGRect(x: 165, y: 125, width: 70, height: 50)
+        let (pasted, reply, keyframe) = try repaintedRoomPaste(pieceRectangle: pieceRectangle, paleHoleRectangle: paleHoleRectangle)
+
+        for (x, y) in [(200, 150), (175, 135), (225, 165)] {
+            #expect(pasted.rgb(x: x, y: y).red == reply.rgb(x: x, y: y).red, "(\(x), \(y)) in the gap")
+            #expect(pasted.rgb(x: x, y: y).red != keyframe.rgb(x: x, y: y).red, "(\(x), \(y)) in the gap")
+        }
     }
 
     @Test func theCacheKeyChangesWithThePagePictureOrTheTitleAndNeverJoinsThem() {
