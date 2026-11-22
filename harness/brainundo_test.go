@@ -915,7 +915,7 @@ func TestAnAnsweredApprovalStandsBetweenUndoAndAnOlderChange(t *testing.T) {
 	driver.expectLine("voice_command_finished")
 
 	driver.send(seedApprovalRequestLine("approval-waiting", "sends"))
-	driver.send(approvalVoiceCommandLine("command-2", "yes", "approval-waiting"))
+	driver.send(approvalVoiceCommandLine("command-2", "yes", "approval-waiting", "approval-waiting"))
 	driver.expectLine("voice_command_finished")
 	driver.send(voiceCommandLine("command-3", "undo that"))
 	driver.expectLine("voice_command_finished")

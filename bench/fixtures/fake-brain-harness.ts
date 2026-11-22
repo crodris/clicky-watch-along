@@ -11,7 +11,7 @@
 //            at the first stray line lets the second one reach the next command.
 //   "approve" / "deny"
 //            call answer_approval, which the real harness handles itself, so no tool_call line follows. The fake writes the
-//            approval_settled line the harness would, for the request the command names in approvalIDSeenAtPress and the
+//            approval_settled line the harness would, for the request the command names in approvalIDWaitingAtPress and the
 //            bench seeded with seed_approval_request, and finishes with the confirmation. "approve" with no seeded request
 //            names the tool and settles nothing, as the real harness does when the gate does not hold the request.
 //   other    calls rotate_model once.
@@ -32,7 +32,7 @@ if (process.env.CLICKY_WORKER_BASE_URL === undefined || process.env.CLICKY_APP_S
 write({ type: "ready" });
 
 let commandID = "";
-let approvalIDSeenAtPress: string | null = null;
+let approvalIDWaitingAtPress: string | null = null;
 const seededApprovalIDs = new Set<string>();
 let lookupContent = "";
 let lateTurnTimer: ReturnType<typeof setTimeout> | undefined;
@@ -43,7 +43,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   }
   if (message.type === "voice_command" && typeof message.taskID === "string" && typeof message.transcript === "string") {
     const voiceCommand = { taskID: message.taskID, transcript: message.transcript };
-    approvalIDSeenAtPress = typeof message.approvalIDSeenAtPress === "string" ? message.approvalIDSeenAtPress : null;
+    // Like the real harness, a voice answer reaches the request the card showed at the press.
+    approvalIDWaitingAtPress = typeof message.approvalIDWaitingAtPress === "string" ? message.approvalIDWaitingAtPress : null;
     setTimeout(() => answerCommand(voiceCommand), voiceCommand.transcript.includes("hang") ? 0 : 30);
   } else if (message.type === "reset_session" || message.type === "seed_session") {
     const taken = process.env.CLICKY_BENCH === "1";
@@ -76,8 +77,8 @@ function answerCommand(message: { taskID: string; transcript: string }) {
     write({ type: "task_failed", taskID: commandID, reason: "the request to Claude failed" });
   } else if (message.transcript.includes("approve") || message.transcript.includes("deny")) {
     turnLine(1, 100, 50, "answer_approval");
-    if (approvalIDSeenAtPress !== null && seededApprovalIDs.has(approvalIDSeenAtPress)) {
-      write({ type: "approval_settled", approvalID: approvalIDSeenAtPress, approved: message.transcript.includes("approve"), scope: "once" });
+    if (approvalIDWaitingAtPress !== null && seededApprovalIDs.has(approvalIDWaitingAtPress)) {
+      write({ type: "approval_settled", approvalID: approvalIDWaitingAtPress, approved: message.transcript.includes("approve"), scope: "once" });
     }
     write({ type: "voice_command_finished", taskID: commandID, spokenLine: "answered it", gaveUp: false });
   } else if (message.transcript.includes("say")) {

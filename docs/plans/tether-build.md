@@ -99,12 +99,15 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 4 Callouts and speech | Merged: [#81](https://github.com/crodris/clicky-watch-along/pull/81) |
 | 6 Agent list, Theme Studio, dial | Merged: [#87](https://github.com/crodris/clicky-watch-along/pull/87) |
 | 7 Menu bar | Merged: [#86](https://github.com/crodris/clicky-watch-along/pull/86) |
-| 5, 9, 10, 11 | Building in parallel |
-| 8 Panel, onboarding, keyboard | Building |
-| 13 Theme Studio designs motion | Building |
+| 5 Approval card | Merged: [#84](https://github.com/crodris/clicky-watch-along/pull/84) |
+| 9 Cursor and ring | Open: [#83](https://github.com/crodris/clicky-watch-along/pull/83), paused by the weekly Claude limit |
+| 10 Quiz, scenes, edges | Open: [#85](https://github.com/crodris/clicky-watch-along/pull/85), paused by the weekly Claude limit |
+| 11 Instant replay | Open: [#88](https://github.com/crodris/clicky-watch-along/pull/88), paused by the weekly Claude limit |
+| 8 Panel, onboarding, keyboard | Branch `feature/tether-panel-onboarding`, no PR yet, paused by the weekly Claude limit |
+| 13 Theme Studio designs motion | Branch `feature/tether-theme-motion`, no PR yet, paused by the weekly Claude limit |
 | 14 The loop carries background work | Starts when PR 9 merges |
 | 15 End-of-video recap | Starts when PR 10 merges |
-| 16 Pause every agent by voice | Building |
+| 16 Pause every agent by voice | Branch `feature/tether-pause-agents`, no PR yet, paused by the weekly Claude limit |
 | 17 Scrub by voice | Starts when PRs 9 and 11 merge |
 | 18 Share themes as files | Starts when PR 8 merges, since it drags the panel's theme cards |
 | 19 Tether polish | After the build order: what earlier PRs left open that no later PR owns |
