@@ -124,3 +124,5 @@ PR 19 takes the rest, plus PR 7's leftovers: Bring back's drop to the cursor can
 Folded into PR 8 from PR 7: keyboard focus on the agent discs, and the status badge on a light menu bar.
 
 Left open by PR 6, for PR 19: the disc right-click menu has no "Try again" item, `AgentTriangleView` is now unused, and a click in the agent list's shadow margin hits faint shadow pixels. PR 8 makes the panel's theme cards match the studio tiles.
+
+Left open by PR 5, for PR 19: the approval card should glide back into its agent disc when answered, and the disc's "!" should turn into a check.
