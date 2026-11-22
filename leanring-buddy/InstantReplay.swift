@@ -357,7 +357,6 @@ final class InstantReplayController: ObservableObject {
         print("Instant replay: push-to-talk stopped the travel at stop \((phase.openStopIndex ?? 0) + 1)")
     }
 
-    /// The scene left the screen, so its stops mean nothing anymore.
     /// Stopping the quiz ends an open replay like Escape does, and also takes the control and the stops away, since the quiz
     /// summary Card shows over the same video.
     func endAndForget() {
@@ -365,6 +364,7 @@ final class InstantReplayController: ObservableObject {
         forget()
     }
 
+    /// The scene left the screen, so its stops mean nothing anymore.
     func forget() {
         if isOpen { stage.hideStopNumbers() }
         cancelTheTravel()
