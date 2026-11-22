@@ -121,6 +121,17 @@ const openAIResponseSchema = z.object({
 
 type SceneRequest = z.infer<typeof sceneRequestSchema>;
 
+/**
+ * Two rules the scene kernel bakeoff of 2026-11-21 showed the judges reward (bench/README.md, "Scene kernel bakeoff"):
+ * labels that never pile up, and a view that never crops the subject, such as a bicycle's saddle and front wheel.
+ */
+const labelCountAndPlacementRule =
+  "Label at most 10 parts. Place the labels so no two overlap and none crowds or runs past an edge of the window.";
+const modelFramingRule =
+  "Frame the whole subject so no part of it is cropped at any edge of the window, at the end of the tour and when the camera turns halfway around it, so the last move closer stops while the whole subject still fits. For an inside view, the parts around the answer part stay whole in view.";
+const experimentFramingRule =
+  "At the end of the tour and after a run, nothing the experiment needs is cropped at any edge of the window, and the equipment a readout depends on stays large in the frame.";
+
 const liveSceneInstructions = [
   "Reply with a ```html block and then a ```json block. Those two blocks are the entire reply.",
   "",
@@ -139,9 +150,11 @@ const liveSceneInstructions = [
   "",
   "Choose the answer part, the labels, and the question for this subject. The answer part is one a 10-year-old could name.",
   'Show HTML labels with leader lines. Every label element has class "scene-label".',
+  labelCountAndPlacementRule,
   'The answer part\'s label text is "?" from the start. The other labels use words a 10-year-old can read.',
   "",
   "Camera tour: hold outside the whole subject for 1 second, circle it over 3 seconds so every side shows, then over 2 seconds move closer to the answer part. For an inside view, that last move goes in beside the answer part while the outer shell fades. Keep neighboring parts in view at the end.",
+  modelFramingRule,
   "",
   "Follow this contract exactly, because the app depends on it:",
   "1. Define window.liveScene at the top of the module script, before any await.",
@@ -178,6 +191,7 @@ const simulationInstructions = [
   "When a run ends, keep the path it took as a thin, solid, faded line, so the learner can compare runs. Keep the last 3, fading the older ones more, and keep them through setControl and reset(). A setup with no path keeps nothing.",
   'Build the part labels as in rules 2 and 3, for up to 4 parts with their real names. No label is "?", so reveal() may do nothing, but it must exist. Keep every label and its leader line hidden at first, because they cover the setup, and show them only through setLabelsVisible in rule 13.',
   "Camera tour: hold 0.5 seconds, then over 2 seconds move to a three-quarter view a little above the equipment, with the equipment large, about a third of the view's width or more, and the whole motion path in view, and stay there. Choose that view so no part hides what a readout or a run depends on in any setup the controls can make. Do not move closer to one part. The camera moves only for the tour, focusPart, rotateBy, zoomBy, a drag, and setChallengeVisible, never for setControl or run. Rules 4 to 7 still apply.",
+  experimentFramingRule,
   "Besides rules 1 to 7, window.liveScene defines these before any await:",
   "8. controls is an array of 1 to 3 objects { name, label, min, max, step, value, unit }. name is a short lowercase word, label is words a 10-year-old can read, and value is the current number, which you keep up to date. Each control is one number the learner can change, such as the launch angle in degrees. Start each at a value that makes a clear first run.",
   "9. setControl(name, value) clamps value to min and max, snaps it to step, stores it in that control's value, updates the scene to show the new setup as it stands before a run, never the run's outcome (the dashed preview of rule 14 still shows where a run will end), such as a ball at rest at its start or a meter's needle at zero, puts the simulation back at its start, and returns true. It returns false for a name that is not in controls.",

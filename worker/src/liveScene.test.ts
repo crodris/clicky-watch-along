@@ -445,6 +445,23 @@ describe("handleLiveScene model setting", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("asks for at most 10 labels that never overlap, and a view that never crops the subject or an experiment's equipment", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ output_text: sceneModelReply, usage: {} })));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await handleLiveScene(requestWithBody(sceneRequest), sceneKeys);
+    await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "simulation" }), sceneKeys);
+
+    const [modelInstructions, simulationInstructions] = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1].body)).instructions as string);
+    for (const instructions of [modelInstructions, simulationInstructions]) {
+      expect(instructions).toContain("Label at most 10 parts. Place the labels so no two overlap and none crowds or runs past an edge of the window.");
+      expect(instructions).toContain("Frame the whole subject so no part of it is cropped at any edge of the window");
+    }
+    expect(modelInstructions).not.toContain("the equipment a readout depends on stays large in the frame");
+    expect(simulationInstructions).toContain("the equipment a readout depends on stays large in the frame");
+  });
+
   it("refuses an unknown LIVE_SCENE_MODEL without calling a model", async () => {
     const fetchMock = vi.fn(async () => new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
