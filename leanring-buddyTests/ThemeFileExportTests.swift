@@ -151,7 +151,8 @@ struct ThemeFileExportTests {
         // A dot after leading spaces still hides nothing, and an emoji with a zero-width joiner stays whole.
         #expect(CustomThemeStore.exportedPackageFileName(forThemeName: " .x") == "-x.clickytheme")
         #expect(CustomThemeStore.exportedPackageFileName(forThemeName: "Coder 👩‍💻") == "Coder 👩‍💻.clickytheme")
-        // A right-to-left override would make "Moon\u{202E}gpj.exe" read as "Moonexe.jpg" in Finder.
+        // A right-to-left override shows the characters after it backwards in Finder, so a received name could disguise the
+        // file's name.
         #expect(CustomThemeStore.exportedPackageFileName(forThemeName: "Moon\u{202E}gpj") == "Moon-gpj.clickytheme")
     }
 
