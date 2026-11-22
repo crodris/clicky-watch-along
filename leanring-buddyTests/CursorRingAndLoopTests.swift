@@ -380,17 +380,13 @@ func theLoopClosesWithAnOvershootThatPassesItsStartAndStaysInsideTheLine(mediaRe
 
 // MARK: - The ring
 
-@Test func theCueShowsTheRingOnlyWhileListeningOrThinkingWithNoLoopAndNoStatusLabel() {
-    #expect(cursorCue(voiceState: .idle, loopIsShowing: false, aStatusLabelIsShowing: false) == .idle)
-    #expect(cursorCue(voiceState: .listening, loopIsShowing: false, aStatusLabelIsShowing: false) == .listening)
-    #expect(cursorCue(voiceState: .processing, loopIsShowing: false, aStatusLabelIsShowing: false) == .thinkingWithDots)
-    #expect(cursorCue(voiceState: .responding, loopIsShowing: false, aStatusLabelIsShowing: false) == .speaking)
+@Test func theCueShowsTheRingOnlyWhileListeningOrThinkingWithNoLoop() {
+    #expect(cursorCue(voiceState: .idle, loopIsShowing: false) == .idle)
+    #expect(cursorCue(voiceState: .listening, loopIsShowing: false) == .listening)
+    #expect(cursorCue(voiceState: .processing, loopIsShowing: false) == .thinkingWithDots)
+    #expect(cursorCue(voiceState: .responding, loopIsShowing: false) == .speaking)
     // The loop's spark is the thinking light, so the dots stay away while it shows.
-    #expect(cursorCue(voiceState: .processing, loopIsShowing: true, aStatusLabelIsShowing: false) == .thinkingWithLoop)
-    #expect(cursorCue(voiceState: .processing, loopIsShowing: true, aStatusLabelIsShowing: true) == .thinkingWithLoop)
-    // The ring hides under a status label such as "Popping it out".
-    #expect(cursorCue(voiceState: .processing, loopIsShowing: false, aStatusLabelIsShowing: true) == .idle)
-    #expect(cursorCue(voiceState: .listening, loopIsShowing: false, aStatusLabelIsShowing: true) == .idle)
+    #expect(cursorCue(voiceState: .processing, loopIsShowing: true) == .thinkingWithLoop)
 }
 
 @Test func theTicksFollowTheVoiceBetween5And16Points() {
