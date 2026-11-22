@@ -6,8 +6,8 @@
 //  the notch: a progress ring (an opaque dark track, filled in the team's color or the agent's own color) around a face,
 //  which is a roster player's portrait, a theme's picture, or a triangle in the agent's color. The state shows by shape, so
 //  a theme may use any ring color: a finished agent gets a green check badge, a failed one a cross badge on a gray face in
-//  a red ring, and one that waits for the learner's OK a "!" face and a notch in its ring (`agentTokenBadge` names the
-//  badge the agent list's rows draw for it). The "+N" disc counts the agents with no position of their own, and the open
+//  a red ring, and one that waits for the learner's OK a "!" face and a notch in its ring (`agentTokenBadge` still names
+//  that badge, which no surface draws now). The "+N" disc counts the agents with no position of their own, and the open
 //  slot is the dashed outline a new agent's token flies to.
 //  Motion is one-shot, except two loops that run on Core Animation (`AgentTokenLoopView`), so the render server plays them
 //  and the main thread draws nothing per frame, since a SwiftUI loop pegs the GPU on high-refresh displays: a running agent's
