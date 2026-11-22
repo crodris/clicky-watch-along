@@ -76,21 +76,28 @@ Preconditions:
   The card closes, a "Theme saved" chip shows above the cursor for about 1.4 seconds, and `companionTheme` is `custom:<id>`.
   Run `chmod a-w ~/Library/Application\ Support/Clicky/Themes`, open the card, and click Save again: the card stays open and the chip says "Couldn't save the theme".
   Put it back with `chmod u+w` on the same folder.
-- **Rename and delete.** Start from a saved theme (the Save step) and the idle Debug app, then click the Clicky menu bar icon with the real mouse, reading the point from a `$V shot`.
-  The theme shows as a full-width row under the built-in themes.
-  Move the mouse over the row: a pencil and a trash can show at its right edge, the pointer is the pointing hand over each, and each lights up under the pointer.
-  Run `$V shot theme-row-hover` and zoom a crop at 2x: both tiles sit inside the row and the name stays inside it.
+- **Rename and delete.** Start from a saved theme (the Save step) and the idle Debug app, then click the Clicky menu bar icon with the real mouse, reading the point from a `$V shot`, or post `debug_click_menu_bar_icon`.
+  The saved theme shows as a card in the panel's theme grid, ahead of the built-in themes.
+  The panel can open on either display, and `$V shot` captures whole displays, so take the panel alone by its window ID.
+  List Clicky's windows with `swift -e 'import CoreGraphics; let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as! [[String: Any]]; for window in windows where window["kCGWindowOwnerName"] as? String == "Clicky" { print(window["kCGWindowNumber"]!, window["kCGWindowBounds"]!) }'`, where the panel is the window about 396 points wide at the top of a display, then run `screencapture -x -o -l <id> "$RUN/<name>.png"`.
+  Move the mouse over the card: a pencil and a trash can show at its top right corner, the pointer is the pointing hand over each, and each lights up under the pointer.
+  Capture the panel as `card-hover` and zoom a crop at 2x: both buttons sit inside the card and the name stays inside it.
   Click the pencil: the name becomes a text field with the keyboard focus.
   Select all with `osascript -e 'tell application "System Events" to keystroke "a" using command down'`, type with `keystroke "Night Owl"` in the same way, then press Return with `key code 36`.
-  The row shows the new name, `theme.json` has it, the folder keeps its name, and `companionTheme` is still `custom:<id>` when this was the theme in use.
-  Open the field again and press Return on an empty field, then on a name of 25 characters: the field stays open, its border turns red, and the row says "1 to 24 characters".
-  Press `$V key escape`: the field closes and the old name stays. Open it once more and click another theme in the panel: the field closes and that theme is picked.
-  With the studio card open (say "change my theme" first, or launch with that step), open the panel through the dial's More token, click a row's pencil, and press `$V key escape`: the rename field closes and the card is still open with its ideas.
-  Move the mouse over the row and click the trash can once: it turns into a red "Delete" button, which goes back to the trash can after 3 seconds with no second click.
-  Click the trash can and then "Delete": the row goes, the theme's folder is gone from `~/Library/Application Support/Clicky/Themes/`, and when it was the theme in use, `companionTheme` is `clickyBlue` and the cursor is the blue triangle.
+  The card shows the new name, `theme.json` has it, the folder keeps its name, and `companionTheme` is still `custom:<id>` when this was the theme in use.
+  Open the field again and press Return on an empty field, then on a name of 25 characters: the field stays open, its border turns red, and the card says "1 to 24 characters".
+  Press `$V key escape`: the field closes and the old name stays.
+  Open it once more and click another theme in the panel: the field closes and that theme is picked.
+  With the studio card open (say "change my theme" first, or launch with that step), open the panel through the dial's More token, click a card's pencil, and press `$V key escape`: the rename field closes and the studio card is still open with its ideas.
+  Rename a saved card to the 24 character name "Moonlit Harbor Night Owl", then press Tab with `osascript -e 'tell application "System Events" to key code 48'` until that card shows its focus ring.
+  Its full-name pill wraps inside the card and never reaches the next card or the panel's edge.
+  Move the mouse over the card and click the trash can once: it turns into a red "Delete" button, which goes back to the trash can after 3 seconds with no second click.
   Seed agents with `debug_seed_agents` before the delete: they keep their colors after it.
-  Click the trash can and "Delete" within 3 seconds, with both clicks in one command, since the armed Delete goes back after 3 seconds. Keep the pointer still and take a shot of the panel's window by its ID: only the card that slid under the pointer looks hovered, and the cards the delete moved elsewhere stay dim.
-  Tab to a card with a long name: its full-name pill wraps inside the card and never reaches the next card or the panel's edge.
+  Save a second theme first, so a card slides into the deleted one's place.
+  Compile the mouse tool once with `swiftc -O demo/scripts/mouse/mouse.swift -o "$RUN/mouse"`, since the interpreter's start-up eats most of the 3 seconds.
+  Hover the card, then run `"$RUN/mouse" click <trash x> <trash y>; sleep 0.5; "$RUN/mouse" click <Delete x> <Delete y>` as one command, with the points read from an earlier capture.
+  The card goes, the theme's folder is gone from `~/Library/Application Support/Clicky/Themes/`, and when it was the theme in use, `companionTheme` is `bundled:clicky-blue` and the cursor is the blue triangle.
+  Keep the pointer still and capture the panel as `after-delete`: only the card that slid under the pointer looks hovered, and the cards the delete moved elsewhere stay dim.
 - **Close and Escape.** Open the card again, then post `close_theme_studio`, or run `$V key escape`.
   The card closes, the cursor goes back to the saved theme, and the saved `companionTheme` is unchanged.
 - **Closing stops the studio's own line.** Open the card and, while Clicky is still saying the ideas' line (about 5 seconds after the tiles show), post `close_theme_studio`, or click Save.
