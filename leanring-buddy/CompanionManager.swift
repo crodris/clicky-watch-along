@@ -3409,9 +3409,10 @@ final class CompanionManager: ObservableObject {
             return
         case .couldNotGoBack:
             // A scene build this go-back cancelled, or a requested scene it cleared, still holds the video's pause, and nothing
-            // else will resume it now.
+            // else will resume it now. A scene or pop-out that started while the old one returned owns the pause instead.
             Task {
                 await LiveSceneOverlay.shared.waitForReturnToFinish()
+                guard case .idle = self.liveScenePhase else { return }
                 self.videoQuizSession.resumeVideoAfterRequestedScene()
             }
             currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
@@ -5671,15 +5672,12 @@ final class CompanionManager: ObservableObject {
 
     /// The replay points the buddy with its own hold. A point equal to the one the buddy already has would not reach the
     /// overlay's onChange, so it moves by a hundredth of a point, which a frozen buddy needs to fly again.
-    /// Returns how long the cursor's flight to the label takes: from the stop before when the cursor already points for the
-    /// replay, or else from the mouse, where the cursor follows it.
+    /// Returns how long the cursor's flight to the label takes: from the point the cursor points at, such as the stop before
+    /// or the narration's last part, or else from the mouse, where the cursor follows it.
     private func pointTheBuddyForTheReplay(at labelScreenPoint: LiveScenePartScreenPoint, sentence: String) -> TimeInterval {
         let mouseLocation = NSEvent.mouseLocation
-        let flightStart = cursorPointsForTheReplay(pointingHold: detectedElementPointingHold, replayPointingID: instantReplayPointingID)
-            ? detectedElementScreenLocation
-            : nil
         let flightSeconds = replayCursorFlightSeconds(
-            from: flightStart ?? CGPoint(x: mouseLocation.x + StatusLabelPlacement.trianglesSpotFromTheMouse.x, y: mouseLocation.y + StatusLabelPlacement.trianglesSpotFromTheMouse.y),
+            from: detectedElementScreenLocation ?? CGPoint(x: mouseLocation.x + StatusLabelPlacement.trianglesSpotFromTheMouse.x, y: mouseLocation.y + StatusLabelPlacement.trianglesSpotFromTheMouse.y),
             to: labelScreenPoint.globalPoint
         )
         showTheCursorOverlayForThisInteraction()

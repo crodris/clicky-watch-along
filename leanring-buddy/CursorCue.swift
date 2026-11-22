@@ -243,8 +243,9 @@ struct CursorRingView: View {
         }
         .frame(width: CursorRingGeometry.outerRadiusInPoints * 2, height: CursorRingGeometry.outerRadiusInPoints * 2)
         .animation(.easeOut(duration: DS.Move.fadeSeconds), value: cue)
-        // The orbit eases in and out as a status line comes and goes, and with Reduce Motion the dots stay still anyway.
-        .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: aStatusLineShows)
+        // The orbit eases in and out as a status line comes and goes. With Reduce Motion on the dots move to the new radius
+        // with no travel.
+        .animation(reduceMotion ? nil : DS.Move.snap.animation(reduceMotionIsOn: false), value: aStatusLineShows)
         .allowsHitTesting(false)
         .onAppear { lastSeenCue = cue }
         .onChange(of: cue) { previousCue, newCue in

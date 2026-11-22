@@ -85,6 +85,31 @@ struct VoiceToolCallChipStackTests {
         #expect(chipStack.upperChip?.identity.chipText == "Turning it left")
     }
 
+    @Test func aChipWaitingForAnAnswerAboveIsNeverSentAwayByANewChip() {
+        // The review of PR 112 found that one command's two chips sent an agent's waiting request away.
+        var chipStack = VoiceToolCallChipStack()
+        _ = chipStack.show(chip("Teal needs your OK", survivesARecall: true))
+        _ = chipStack.show(chip("Turning it left"))
+        let thirdStep = chipStack.show(chip("Zooming in"))
+        #expect(thirdStep.bottomChipStep == .popTheNewChip)
+        #expect(!thirdStep.visibleBottomChipRisesToTheUpperSlot)
+        #expect(!thirdStep.upperChipIsSentAway)
+        #expect(chipStack.upperChip?.identity.chipText == "Teal needs your OK")
+        #expect(chipStack.bottomChip?.identity.chipText == "Zooming in")
+    }
+
+    @Test func theSameWordsAsTheChipAboveShowOnceAtTheBottom() {
+        var chipStack = VoiceToolCallChipStack()
+        _ = chipStack.show(chip("Couldn't finish the task", sender: .failure))
+        _ = chipStack.show(chip("Turning it left"))
+        chipStack.leave(.bottom)
+        let repeatedStep = chipStack.show(chip("Couldn't finish the task", sender: .failure))
+        #expect(repeatedStep.upperChipIsSentAway)
+        #expect(!repeatedStep.visibleBottomChipRisesToTheUpperSlot)
+        #expect(chipStack.upperChip == nil)
+        #expect(chipStack.bottomChip?.identity.chipText == "Couldn't finish the task")
+    }
+
     @Test func theUpperChipLeavingLeavesTheBottomChipWhereItIs() {
         var chipStack = VoiceToolCallChipStack()
         _ = chipStack.show(chip("Turning it left"))

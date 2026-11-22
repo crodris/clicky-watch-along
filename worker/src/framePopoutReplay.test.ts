@@ -135,15 +135,17 @@ describe("frame-popout.html focus wiring", () => {
     return framePopoutSource.slice(bodyStart, framePopoutSource.indexOf("\n  },", bodyStart));
   };
 
-  it("moves the camera out for a narration focus through the pose move that endFocus stops", () => {
-    const focusPartBody = methodBody("  focusPart(labelText) {");
-    expect(focusPartBody).toContain("cameraDistanceThatFitsTheFocusedSubject(draggedYaw, draggedPitch, restingCameraDistance)");
-    expect(focusPartBody).toContain("toDistance: distanceThatFits");
-    expect(methodBody("  endFocus() {")).toContain("poseMove = null;");
+  it("keeps the camera's distance for a focus alone, since the zoom_to_part voice tool and the quiz hint call it too", () => {
+    // The review of PR 112 found that a move-out here shrank the model when the learner asked to zoom in on a part.
+    expect(methodBody("  focusPart(labelText) {")).not.toContain("cameraDistanceThatFitsTheFocusedSubject");
   });
 
-  it("moves a replay stop's recorded distance out when the subject would not fit at the recorded turn", () => {
-    expect(methodBody("  focusStop(labelText, pose) {")).toContain("const toDistance = cameraDistanceThatFitsTheFocusedSubject(toYaw, toPitch,");
+  it("moves a replay stop's recorded distance out when the subject would not fit, no farther than a zoom reaches", () => {
+    const focusStopBody = methodBody("  focusStop(labelText, pose) {");
+    expect(focusStopBody).toContain("const toDistance = Math.min(maximumDistance, cameraDistanceThatFitsTheFocusedSubject(toYaw, toPitch, recordedDistance));");
+    // The stop eases there through the pose move, which endFocus stops.
+    expect(focusStopBody).toContain("poseMove = { startedAt: performance.now(), fromYaw: yaw, fromPitch: pitch, fromDistance: cameraDistance, toYaw, toPitch, toDistance };");
+    expect(methodBody("  endFocus() {")).toContain("poseMove = null;");
   });
 
   it("starts the pan from the subject over the video and holds each side inside the room in the video", () => {
@@ -152,10 +154,6 @@ describe("frame-popout.html focus wiring", () => {
     expect(focusTargetSource).toContain("overflowOnEachSide(subjectBoxOnPage(candidate.lerpVectors(fromPoint, toPoint, share)), roomForTheFocusedSubject)");
   });
 
-  it("keeps a zoom out from past the zoom range where it is instead of jumping in", () => {
-    // A focus can move the camera out past maximumDistance, and clamping to that range would turn a zoom out into a zoom in.
-    expect(methodBody("  zoomBy(amount) {")).toContain("Math.min(Math.max(maximumDistance, restingCameraDistance),");
-  });
 });
 
 describe("frame-popout.html endFocus", () => {

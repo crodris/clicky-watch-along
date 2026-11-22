@@ -338,7 +338,11 @@ final class CarrierFlight {
     ///   0.05 seconds, for a surface closed during its move, whose real surface will not show.
     func landAtOnce(hidingTheCarriedView: Bool = false) {
         tetherLayer?.removeAllAnimations()
-        land(hidingTheCarriedView: hidingTheCarriedView)
+        // Before the landed guard, so a close in the 0.05 seconds after a move landed on its own hides the carried view too.
+        if carriedViewHidesOnLanding(endOpacity: plan.poses.last?.opacity, closedDuringTheMove: hidingTheCarriedView) {
+            carriedView?.isHidden = true
+        }
+        land()
     }
 
     /// Whether the tether line is still on the screen. False once it has ended with `endTheTetherNow`, or for a move with none.
@@ -358,12 +362,13 @@ final class CarrierFlight {
         DispatchQueue.main.async { [self] in landAtOnce() }
     }
 
-    private func land(hidingTheCarriedView: Bool = false) {
+    private func land() {
         guard !hasLanded else { return }
         hasLanded = true
         carriedView?.layer?.removeAllAnimations()
         // Without its animations the carried view rests in its frame at full size, which is the end of a Send or a Glide.
-        if carriedViewHidesOnLanding(endOpacity: plan.poses.last?.opacity, closedDuringTheMove: hidingTheCarriedView) {
+        // A Glide close ends hidden.
+        if carriedViewHidesOnLanding(endOpacity: plan.poses.last?.opacity, closedDuringTheMove: false) {
             carriedView?.isHidden = true
         }
         onLanded()

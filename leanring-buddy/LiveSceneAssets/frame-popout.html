@@ -204,15 +204,6 @@ window.liveScene = {
       other.element.style.opacity = other === entry ? "1" : "0.35";
     }
     focusMove = { startedAt: performance.now(), from: null };
-    // A subject larger than the video cannot stay inside it at any pan, so the camera moves out in step with the pan,
-    // through the same pose move a replay stop uses. The narration records that distance, so its replay stops fit too.
-    if (tourDone && returnStartedAt === null) {
-      const distanceThatFits = cameraDistanceThatFitsTheFocusedSubject(draggedYaw, draggedPitch, restingCameraDistance);
-      if (distanceThatFits > restingCameraDistance + 0.5) {
-        if (reducedMotionQuery.matches) cameraDistance = restingCameraDistance = distanceThatFits;
-        else poseMove = { startedAt: performance.now(), fromYaw: yaw, fromPitch: pitch, fromDistance: cameraDistance, toYaw: draggedYaw, toPitch: draggedPitch, toDistance: distanceThatFits };
-      }
-    }
     return true;
   },
   // One instant replay stop: the same focusPart the narration called, plus the yaw, pitch, and distance it recorded,
@@ -226,8 +217,11 @@ window.liveScene = {
     const shortestYawTurn = Math.atan2(Math.sin(pose.yaw - yaw), Math.cos(pose.yaw - yaw));
     const toYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, yaw + shortestYawTurn));
     const toPitch = Math.min(largestDraggedPitch, Math.max(-largestDraggedPitch, pose.pitch));
-    // The recorded distance moves out further when the subject would not fit inside the video at the recorded turn.
-    const toDistance = cameraDistanceThatFitsTheFocusedSubject(toYaw, toPitch, Math.min(maximumDistance, Math.max(minimumDistance, pose.distance)));
+    // A subject larger than the video cannot stay inside it at any pan, so the stop moves the camera out past the recorded
+    // distance until the subject fits, up to the farthest a zoom reaches. Only a replay stop does this: focusPart alone, as
+    // the narration, the quiz hint, and the zoom_to_part voice tool call it, keeps the distance.
+    const recordedDistance = Math.min(maximumDistance, Math.max(minimumDistance, pose.distance));
+    const toDistance = Math.min(maximumDistance, cameraDistanceThatFitsTheFocusedSubject(toYaw, toPitch, recordedDistance));
     if (reducedMotionQuery.matches) {
       yaw = draggedYaw = toYaw; pitch = draggedPitch = toPitch; cameraDistance = restingCameraDistance = toDistance;
       poseMove = null;
@@ -302,8 +296,7 @@ window.liveScene = {
     if (!tourDone || returnStartedAt !== null) return false;
     // A pinch or a voice zoom during a replay stop's turn takes the camera over from the turn.
     poseMove = null;
-    // A focus can move the camera out past the zoom range to fit the subject in the video, and a zoom out from there stays put.
-    restingCameraDistance = Math.min(Math.max(maximumDistance, restingCameraDistance), Math.max(minimumDistance, restingCameraDistance * (1 - amount)));
+    restingCameraDistance = Math.min(maximumDistance, Math.max(minimumDistance, restingCameraDistance * (1 - amount)));
     if (reducedMotionQuery.matches) cameraDistance = restingCameraDistance;
   },
   // Positive yaw moves the camera right around the subject, positive pitch moves it up, like a drag does.

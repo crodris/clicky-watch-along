@@ -34,25 +34,33 @@ struct VoiceToolCallChipStackingStep: Equatable {
     let bottomChipStep: BottomChipStep
     /// The chip that was in the bottom slot moves into the upper slot and keeps its own remaining time on screen.
     let visibleBottomChipRisesToTheUpperSlot: Bool
-    /// The chip that was in the upper slot goes away, since the bottom chip takes its slot.
+    /// The chip that was in the upper slot goes away: the bottom chip takes its slot, or the new chip says the same words.
     let upperChipIsSentAway: Bool
 }
 
-/// What showing `newChip` does, given the chip in the bottom slot (nil when that slot is empty) and whether the upper slot
-/// holds one. A bottom slot that is empty takes the new chip with no push, so the upper chip stays where it is until its own
-/// time ends.
+/// What showing `newChip` does, given the chip in the bottom slot (nil when that slot is empty) and the chip in the upper
+/// slot (nil when it is empty).
+/// - A bottom slot that is empty takes the new chip with no push. A chip above with the same words leaves, so the same
+///   words never show twice, and any other chip above stays until its own time ends.
+/// - The same chip as the bottom one updates it in place.
+/// - A chip above that waits for the learner's answer, such as an agent's request for the learner's OK, is never sent
+///   away: the new chip takes the bottom slot and the bottom chip goes, as a lone chip was replaced before chips stacked.
+/// - Otherwise the bottom chip rises to the upper slot, and a chip already there goes.
 func voiceToolCallChipStackingStep(
     visibleBottomChip: VoiceToolCallChipIdentity?,
-    upperChipIsVisible: Bool,
+    upperChip: VoiceToolCallChipStack.Chip?,
     newChip: VoiceToolCallChipIdentity
 ) -> VoiceToolCallChipStackingStep {
     guard let visibleBottomChip else {
-        return VoiceToolCallChipStackingStep(bottomChipStep: .popTheNewChip, visibleBottomChipRisesToTheUpperSlot: false, upperChipIsSentAway: false)
+        return VoiceToolCallChipStackingStep(bottomChipStep: .popTheNewChip, visibleBottomChipRisesToTheUpperSlot: false, upperChipIsSentAway: upperChip?.identity == newChip)
     }
     if visibleBottomChip == newChip {
         return VoiceToolCallChipStackingStep(bottomChipStep: .updateInPlace, visibleBottomChipRisesToTheUpperSlot: false, upperChipIsSentAway: false)
     }
-    return VoiceToolCallChipStackingStep(bottomChipStep: .popTheNewChip, visibleBottomChipRisesToTheUpperSlot: true, upperChipIsSentAway: upperChipIsVisible)
+    if upperChip?.survivesARecall == true {
+        return VoiceToolCallChipStackingStep(bottomChipStep: .popTheNewChip, visibleBottomChipRisesToTheUpperSlot: false, upperChipIsSentAway: false)
+    }
+    return VoiceToolCallChipStackingStep(bottomChipStep: .popTheNewChip, visibleBottomChipRisesToTheUpperSlot: true, upperChipIsSentAway: upperChip != nil)
 }
 
 /// The chips on screen. The slots hold what the learner sees, and each mutation returns what the panels must do.
@@ -79,9 +87,10 @@ struct VoiceToolCallChipStack: Equatable {
     mutating func show(_ newChip: Chip) -> VoiceToolCallChipStackingStep {
         let stackingStep = voiceToolCallChipStackingStep(
             visibleBottomChip: bottomChip?.identity,
-            upperChipIsVisible: upperChip != nil,
+            upperChip: upperChip,
             newChip: newChip.identity
         )
+        if stackingStep.upperChipIsSentAway { upperChip = nil }
         if stackingStep.visibleBottomChipRisesToTheUpperSlot { upperChip = bottomChip }
         bottomChip = newChip
         return stackingStep
