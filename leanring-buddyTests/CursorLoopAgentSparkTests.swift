@@ -518,14 +518,19 @@ private func controllerWithTheMediaInHand(
 }
 
 @Test(.timeLimit(.minutes(1))) @MainActor func aControllerNobodyKeepsEndsItsPollWhileTheLineShows() async {
-    // A poll that held its controller would keep it alive after the test. The poll here waits until it is cancelled, which
-    // nothing does, so the controller goes only if the poll holds it for the sample alone and never across the wait.
+    // A poll that held its controller would keep it alive after the test. The poll here takes one sample and then waits until
+    // it is cancelled, which nothing does, so the controller goes only if the poll holds it for the sample alone and never
+    // across the wait. The test drops the controller only once the poll is in its wait.
+    let pollIsWaiting = AsyncStream<Void>.makeStream()
     weak var droppedController: CursorLoopController?
     do {
         let controller = CursorLoopController(
             readTheMediaInTheFrontTab: { _ in sparkMedia() },
             readTheFrontTabSample: { sparkSample() },
-            waitBetweenFrontTabPolls: suspendUntilThePollIsCancelled,
+            waitBetweenFrontTabPolls: {
+                pollIsWaiting.continuation.yield()
+                await suspendUntilThePollIsCancelled()
+            },
             waitForAFinishingSparkLap: {},
             appActivationNotificationCenter: NotificationCenter()
         )
@@ -534,6 +539,7 @@ private func controllerWithTheMediaInHand(
         await controller.waitForTheMediaReadToFinish()
         controller.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL))
         #expect(controller.state.agentLineIsShowing)
+        for await _ in pollIsWaiting.stream { break }
         droppedController = controller
     }
     for _ in 0..<500 where droppedController != nil {
