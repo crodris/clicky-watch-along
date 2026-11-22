@@ -489,6 +489,18 @@ describe("decodeGrayMaskPNG", () => {
   it("refuses image data shorter than the size it states", async () => {
     await expect(decodeGrayMaskPNG(await pngWithFilteredData(4, 4, [0, 0, 0, 0, 0]))).rejects.toThrow("shorter");
   });
+
+  it("stops inflating image data that grows past the size it states, so a decompression bomb never fills memory", async () => {
+    // A 4x4 gray PNG needs 20 bytes once inflated, and these zeros compress to almost nothing.
+    const bombBytes = await pngWithFilteredData(4, 4, Array.from({ length: 200_000 }, () => 0));
+    await expect(decodeGrayMaskPNG(bombBytes)).rejects.toThrow("larger than its size");
+  });
+
+  it("refuses a header of another size than the keyframe before inflating anything", async () => {
+    const pngBytes = await pngWithFilteredData(4, 4, Array.from({ length: 20 }, () => 0));
+    await expect(decodeGrayMaskPNG(pngBytes, { width: 8, height: 8 })).rejects.toThrow("must be the keyframe's 8x8");
+    expect([...(await decodeGrayMaskPNG(pngBytes, { width: 4, height: 4 })).grayValues]).toEqual(Array.from({ length: 16 }, () => 0));
+  });
 });
 
 describe("maskBounds", () => {

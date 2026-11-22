@@ -99,9 +99,37 @@ const bytesPerPixelForColorType: Record<number, number> = { 0: 1, 2: 3, 4: 2, 6:
 
 export type GrayMask = { width: number; height: number; grayValues: Uint8Array };
 
-async function inflated(compressedBytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
-  const stream = new Blob([compressedBytes]).stream().pipeThrough(new DecompressionStream("deflate"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+/**
+ * Inflates `compressedBytes`, stopping as soon as the output passes `maximumLength`, since a few kilobytes of deflate
+ * can expand to gigabytes and the Worker would run out of memory before any later size check ran.
+ */
+async function inflatedAtMost(compressedBytes: Uint8Array<ArrayBuffer>, maximumLength: number): Promise<Uint8Array> {
+  const reader = new Blob([compressedBytes]).stream().pipeThrough(new DecompressionStream("deflate")).getReader();
+  const outputParts: Uint8Array[] = [];
+  let outputLength = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    outputLength += value.length;
+    if (outputLength > maximumLength) {
+      await reader.cancel();
+      throw new MaskLargerThanItsSizeError();
+    }
+    outputParts.push(value);
+  }
+  const output = new Uint8Array(outputLength);
+  let writeOffset = 0;
+  for (const part of outputParts) {
+    output.set(part, writeOffset);
+    writeOffset += part.length;
+  }
+  return output;
+}
+
+class MaskLargerThanItsSizeError extends Error {
+  constructor() {
+    super("maskPNGBase64's image data is larger than its size");
+  }
 }
 
 async function deflated(bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
@@ -122,9 +150,10 @@ function paethPredictor(left: number, above: number, upperLeft: number): number 
 /**
  * Reads the app's mask: an 8-bit, non-interlaced PNG in gray, RGB, gray with alpha, or RGBA, whose first channel says
  * where the piece may be drawn (white) and where not (black). The app writes 8-bit gray. Throws an Error that names the
- * problem for anything else, which the route answers with 400.
+ * problem for anything else, which the route answers with 400. With `requiredSize`, a header of any other size is refused
+ * before the image data is inflated, and the inflate never produces more than that size needs.
  */
-export async function decodeGrayMaskPNG(pngBytes: Uint8Array): Promise<GrayMask> {
+export async function decodeGrayMaskPNG(pngBytes: Uint8Array, requiredSize?: { width: number; height: number }): Promise<GrayMask> {
   if (pngBytes.length < pngSignature.length || pngSignature.some((byte, index) => pngBytes[index] !== byte)) {
     throw new Error("maskPNGBase64 is not a PNG");
   }
@@ -165,6 +194,11 @@ export async function decodeGrayMaskPNG(pngBytes: Uint8Array): Promise<GrayMask>
   if (header.width < 1 || header.height < 1 || header.width > maximumImageSide || header.height > maximumImageSide) {
     throw new Error(`maskPNGBase64 must be from 1 to ${maximumImageSide} pixels on each side`);
   }
+  if (requiredSize !== undefined && (header.width !== requiredSize.width || header.height !== requiredSize.height)) {
+    throw new Error(`The mask is ${header.width}x${header.height}, and it must be the keyframe's ${requiredSize.width}x${requiredSize.height}`);
+  }
+  const rowLength = header.width * bytesPerPixel;
+  const filteredLength = (rowLength + 1) * header.height;
   const compressedBytes = new Uint8Array(compressedParts.reduce((total, part) => total + part.length, 0));
   let writeOffset = 0;
   for (const part of compressedParts) {
@@ -173,12 +207,12 @@ export async function decodeGrayMaskPNG(pngBytes: Uint8Array): Promise<GrayMask>
   }
   let filteredBytes: Uint8Array;
   try {
-    filteredBytes = await inflated(compressedBytes);
-  } catch {
+    filteredBytes = await inflatedAtMost(compressedBytes, filteredLength);
+  } catch (error) {
+    if (error instanceof MaskLargerThanItsSizeError) throw error;
     throw new Error("maskPNGBase64's image data could not be read");
   }
-  const rowLength = header.width * bytesPerPixel;
-  if (filteredBytes.length < (rowLength + 1) * header.height) {
+  if (filteredBytes.length < filteredLength) {
     throw new Error("maskPNGBase64's image data is shorter than its size");
   }
 
@@ -397,16 +431,9 @@ export async function handleRoomFurnitureComposite(
   }
   let grayMask: GrayMask;
   try {
-    grayMask = await decodeGrayMaskPNG(maskBytes);
+    grayMask = await decodeGrayMaskPNG(maskBytes, { width: compositeRequest.keyframeWidth, height: compositeRequest.keyframeHeight });
   } catch (error) {
     return jsonResponse({ error: error instanceof Error ? error.message : "maskPNGBase64 could not be read" }, 400);
-  }
-  // OpenAI needs the mask the size of the image it edits, and the app's mask is drawn on the keyframe.
-  if (grayMask.width !== compositeRequest.keyframeWidth || grayMask.height !== compositeRequest.keyframeHeight) {
-    return jsonResponse(
-      { error: `The mask is ${grayMask.width}x${grayMask.height}, and it must be the keyframe's ${compositeRequest.keyframeWidth}x${compositeRequest.keyframeHeight}` },
-      400,
-    );
   }
   const bounds = maskBounds(grayMask);
   if (bounds === undefined) {
