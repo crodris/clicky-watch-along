@@ -35,6 +35,15 @@ func escapeHasAnAnswerToStop(
     return voiceState == .processing || voiceState == .responding || speechIsPlaying || cursorIsPointingForTheAnswer
 }
 
+/// The voice state after a panel closed and stopped its own spoken line, the Theme Studio card's or the room art panel's.
+/// The line's task never resets `.responding` once it is cancelled, so the close does it, but only when the stop reached
+/// that panel's own line, since audio still playing is another answer, such as one the router handed off with the panel
+/// open, and that answer keeps its state.
+func voiceStateAfterAPanelStoppedItsLine(_ voiceState: CompanionVoiceState, theStopReachedThePanelsLine: Bool) -> CompanionVoiceState {
+    guard theStopReachedThePanelsLine, voiceState == .responding else { return voiceState }
+    return .idle
+}
+
 #if DEBUG
 /// In a rehearsal "?" step, "{answer}" becomes the open question's answer label, since the plan picks a new
 /// question each run.
@@ -310,6 +319,26 @@ final class CompanionManager: ObservableObject {
         install: { [weak self] confirmedInstall in self?.installTheConfirmedThemePackage(confirmedInstall) }
     )
     private var themeStudioSpeechTask: Task<Void, Never>?
+    /// "Show me how this would look in my room": the live camera panel with the picture from Chrome's front tab on the wall.
+    private lazy var roomArtPreviewController = RoomArtPreviewController(environment: .live(
+        workerBaseURL: Self.workerBaseURL,
+        capturePicture: { [weak self] in
+            await self?.captureThePictureForTheThemeStudio().map { picture in
+                RoomArtPicture(jpegData: picture.jpegData, width: picture.width, height: picture.height)
+            }
+        },
+        clearTheLiveScene: { [weak self] in self?.clearTheLiveSceneForTheRoomArtPanel() },
+        speak: { [weak self] line in self?.speakARoomArtLine(line) },
+        endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() }
+    ))
+    /// The room art line waiting for its turn or playing. A new line replaces it, and every close of the panel ends it.
+    private var roomArtSpeechTask: Task<Void, Never>?
+    /// The playback token of the room art's own spoken line, so a close stops that exact line and never a newer answer.
+    private var roomArtLineToken: SpokenLineToken?
+    /// The press count when the learner asked to see the art, so a line that lands after a newer press is dropped.
+    private var pushToTalkPressCountWhenTheRoomArtStarted = 0
+    /// The room art request holds the thinking state while it reads the page and its picture, until the panel opens.
+    private var roomArtIsOpeningThePanel = false
     /// The playback token of the studio's own spoken line, so closing the card stops that exact line and never an unrelated
     /// answer that is playing when the card closes. Once the line has ended, the token matches nothing and stops nothing.
     private var themeStudioLineToken: SpokenLineToken?
@@ -1306,6 +1335,10 @@ final class CompanionManager: ObservableObject {
             return
         case .designATheme(let themeStudioRequest):
             startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
+            return
+        case .showArtInMyRoom:
+            theRequestBecameALookAtTheMedia()
+            startShowingTheArtInMyRoom()
             return
         case nil:
             break
@@ -2656,6 +2689,11 @@ final class CompanionManager: ObservableObject {
         if themeInstallConfirmation.cancelOnEscape() {
             return
         }
+        // With the room art panel open, or its page still being read, Escape closes it, stops the camera, and ends its
+        // spoken line (`stopTheRoomArtSpeech`, which every close runs), ahead of any scene behavior.
+        if roomArtPreviewController.closeOnEscape() {
+            return
+        }
         // With the quiz summary open, Escape closes it.
         if videoQuizSummaryPanelController.isShowing {
             videoQuizSummaryPanelController.close(animated: true)
@@ -3167,6 +3205,9 @@ final class CompanionManager: ObservableObject {
             startTheExperimentInTheBackground(transcript: transcript)
         case .designATheme(let themeStudioRequest):
             startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
+        case .showArtInMyRoom:
+            theRequestBecameALookAtTheMedia()
+            startShowingTheArtInMyRoom()
         case .keywordPath:
             respondByTheKeywordPath(transcript: transcript)
         }
@@ -3246,6 +3287,9 @@ final class CompanionManager: ObservableObject {
         case .animatePicture:
             theRequestBecameALookAtTheMedia()
             return .handOff { self.respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout) }
+        case .showArtInMyRoom:
+            theRequestBecameALookAtTheMedia()
+            return .handOff { self.startShowingTheArtInMyRoom() }
         case .closeScene:
             return .handOff { self.closeTheSceneByVoice() }
         case .explainPart:
@@ -3392,21 +3436,8 @@ final class CompanionManager: ObservableObject {
         // The request that started this design already pressed push-to-talk, so only a later press is the learner's next request.
         pushToTalkPressCountWhenTheThemeDesignStarted = pushToTalkPressCount
         currentResponseTask?.cancel()
-        liveSceneRequestTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
-        // A scene still building is cancelled whole, the way "let me try it" cancels it. Left in the building phase, the
-        // router would stay off for the studio's next command, and a video Clicky paused for the scene would stay paused.
-        if case .buildingScene = liveScenePhase {
-            liveSceneRequestGeneration += 1
-            let cancelledBuildGeneration = liveSceneRequestGeneration
-            liveScenePhase = .idle
-            Task {
-                await LiveSceneOverlay.shared.waitForReturnToFinish()
-                // A newer scene request holds the pause for its own scene, so only the latest cancel resumes the video.
-                guard cancelledBuildGeneration == self.liveSceneRequestGeneration else { return }
-                self.videoQuizSession.resumeVideoAfterRequestedScene()
-            }
-        }
+        cancelTheSceneStillBuilding()
         if pictureChoice == .captureAgain {
             theRequestBecameALookAtTheMedia()
         }
@@ -3455,20 +3486,119 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Ends the studio's spoken line when the card closes or saves. Cancelling the speech task also drops a line still waiting
-    /// for its turn, which a bare `stopPlayback` would let start after the card is gone. The task's own reset to idle never
-    /// runs once it is cancelled, so this does it, but only when the stop reached the studio's own line, since the audio may
-    /// be an answer the router handed off with the card open. A line still loading never started playing, so cancelling the
-    /// task is what ends it, and the token ends a line that is already playing.
+    /// Ends the studio's spoken line when the card closes or saves.
     private func stopTheThemeStudioSpeech() {
-        themeStudioSpeechTask?.cancel()
-        themeStudioSpeechTask = nil
-        let studioLineToken = themeStudioLineToken
-        themeStudioLineToken = nil
-        guard let studioLineToken, elevenLabsTTSClient.stopPlayback(ifTheCurrentLineIs: studioLineToken) else { return }
-        if voiceState == .responding {
-            voiceState = .idle
-            scheduleTransientHideIfNeeded()
+        endAPanelsSpokenLine(speechTask: &themeStudioSpeechTask, lineToken: &themeStudioLineToken)
+    }
+
+    /// Ends the room art's spoken line on every close of the panel: Escape, the Close button, and a new request.
+    private func stopTheRoomArtSpeech() {
+        endAPanelsSpokenLine(speechTask: &roomArtSpeechTask, lineToken: &roomArtLineToken)
+    }
+
+    /// Ends a panel's spoken line when the panel closes. Cancelling the speech task also drops a line still waiting for its
+    /// turn, which a bare `stopPlayback` would let start after the panel is gone. A line still loading never started
+    /// playing, so cancelling the task is what ends it, and the token ends a line that is already playing. The task's own
+    /// reset to idle never runs once it is cancelled, so this does it (`voiceStateAfterAPanelStoppedItsLine`).
+    private func endAPanelsSpokenLine(speechTask: inout Task<Void, Never>?, lineToken: inout SpokenLineToken?) {
+        speechTask?.cancel()
+        speechTask = nil
+        let panelLineToken = lineToken
+        lineToken = nil
+        let theStopReachedThePanelsLine = panelLineToken.map { elevenLabsTTSClient.stopPlayback(ifTheCurrentLineIs: $0) } ?? false
+        let voiceStateAfterTheStop = voiceStateAfterAPanelStoppedItsLine(voiceState, theStopReachedThePanelsLine: theStopReachedThePanelsLine)
+        guard voiceStateAfterTheStop != voiceState else { return }
+        voiceState = voiceStateAfterTheStop
+        scheduleTransientHideIfNeeded()
+    }
+
+    /// Cancels a scene still building, the way "let me try it" cancels it, for a request that takes over the screen
+    /// instead: an experiment, the Theme Studio, or the room art panel. Left in the building phase, the router would stay
+    /// off for the next command, the finished scene would play over what replaced it, and a video Clicky paused for the
+    /// scene would stay paused.
+    private func cancelTheSceneStillBuilding() {
+        liveSceneRequestTask?.cancel()
+        guard case .buildingScene = liveScenePhase else { return }
+        liveSceneRequestGeneration += 1
+        let cancelledBuildGeneration = liveSceneRequestGeneration
+        liveScenePhase = .idle
+        Task {
+            await LiveSceneOverlay.shared.waitForReturnToFinish()
+            // A newer scene request, or a ready experiment rising now, holds the pause for its own scene, so only the
+            // latest cancel resumes the video.
+            guard cancelledBuildGeneration == self.liveSceneRequestGeneration else { return }
+            self.videoQuizSession.resumeVideoAfterRequestedScene()
+        }
+    }
+
+    /// Reads the picture and the page and opens the room art panel. The thinking state shows while the page is read, and
+    /// the panel and its spoken line say the rest. Like any hand-off, it takes over the reply.
+    private func startShowingTheArtInMyRoom() {
+        // The request that asked already pressed push-to-talk, so only a later press is the learner's next request.
+        pushToTalkPressCountWhenTheRoomArtStarted = pushToTalkPressCount
+        roomArtSpeechTask?.cancel()
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        // A scene that finished building would play over the panel, so it is cancelled first.
+        cancelTheSceneStillBuilding()
+        voiceState = .processing
+        roomArtIsOpeningThePanel = true
+        currentResponseTask = Task {
+            await self.roomArtPreviewController.showTheArtInTheRoom()
+            // A push-to-talk press cancelled this task, and the newer request owns the voice state and, when it is another
+            // room art request, the opening flag too.
+            guard !Task.isCancelled else { return }
+            self.roomArtIsOpeningThePanel = false
+            if self.voiceState == .processing { self.voiceState = .idle }
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// Says a room art line once nothing else is happening (`roomArtLineStep`). "Here it is" lands about 14 seconds after
+    /// the request, so it waits for a newer answer to finish instead of cutting it off, and it is dropped when the learner
+    /// pressed push-to-talk since asking. It has its own task, since a press cancels the reply task.
+    private func speakARoomArtLine(_ line: String) {
+        roomArtSpeechTask?.cancel()
+        roomArtSpeechTask = Task {
+            while !Task.isCancelled {
+                let lineStep = roomArtLineStep(
+                    dictationIsInProgress: self.buddyDictationManager.isDictationInProgress,
+                    clickyIsThinking: self.voiceState == .processing,
+                    audioIsPlaying: self.elevenLabsTTSClient.isPlaying,
+                    roomArtIsOpeningThePanel: self.roomArtIsOpeningThePanel,
+                    pushToTalkPressCount: self.pushToTalkPressCount,
+                    pushToTalkPressCountWhenTheRoomArtStarted: self.pushToTalkPressCountWhenTheRoomArtStarted
+                )
+                switch lineStep {
+                case .drop:
+                    print("Room art: dropped the line \"\(line)\", since the learner pressed push-to-talk after asking")
+                    return
+                case .waitForQuiet:
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                case .speakNow:
+                    // The token lets a close of the panel stop this line once it plays (`stopTheRoomArtSpeech`).
+                    guard let lineToken = await self.speakLiveSceneLineAndReturnItsToken(line) else { return }
+                    self.roomArtLineToken = lineToken
+                    await self.waitForClickyToFinishSpeaking()
+                    guard !Task.isCancelled else { return }
+                    if self.voiceState == .responding { self.voiceState = .idle }
+                    self.scheduleTransientHideIfNeeded()
+                    return
+                }
+            }
+        }
+    }
+
+    /// The room art panel floats under the live scene's window, so a scene or pop-out on screen is cleared before it opens.
+    /// The clear does nothing when no scene is up, and a video paused for the scene stays paused under the panel.
+    private func clearTheLiveSceneForTheRoomArtPanel() {
+        clearTheLiveSceneAndReleaseTheBuddy()
+        switch liveScenePhase {
+        case .touring, .allLabelsShowing:
+            liveSceneTourFinishedTask?.cancel()
+            liveScenePhase = .idle
+        default:
+            break
         }
     }
 
@@ -3828,19 +3958,8 @@ final class CompanionManager: ObservableObject {
     /// the video's pause do not stay behind.
     private func startTheExperimentInTheBackground(transcript: String) {
         currentResponseTask?.cancel()
-        liveSceneRequestTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
-        if case .buildingScene = liveScenePhase {
-            liveSceneRequestGeneration += 1
-            let cancelledBuildGeneration = liveSceneRequestGeneration
-            liveScenePhase = .idle
-            Task {
-                await LiveSceneOverlay.shared.waitForReturnToFinish()
-                // A ready experiment rising now takes over the pause, so the video stays paused for it.
-                guard cancelledBuildGeneration == self.liveSceneRequestGeneration else { return }
-                self.videoQuizSession.resumeVideoAfterRequestedScene()
-            }
-        }
+        cancelTheSceneStillBuilding()
         let spokenLine: String
         switch currentExperimentRequestStep {
         case .showTheReadyExperiment:
@@ -3979,6 +4098,8 @@ final class CompanionManager: ObservableObject {
             clickyIsIdleAndDoneSpeaking: voiceState == .idle && !elevenLabsTTSClient.isPlaying,
             aSceneOrPopOutIsBuildingOrShowing: !liveScenePhaseIsIdle || LiveSceneOverlay.shared.isShowingAScene,
             aVideoQuizQuestionIsOpen: videoQuizQuestionIsActive,
+            // The panel floats under the live scene's window, so a scene rising now would cover the learner's room.
+            theRoomArtPanelIsOpen: roomArtPreviewController.isOpen,
             readFrontTabURL: { self.videoQuizSession.frontTabURLOfTheFrontWindow() }
         )
     }

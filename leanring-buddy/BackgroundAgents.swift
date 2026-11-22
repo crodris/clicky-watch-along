@@ -700,17 +700,18 @@ func aReadyBackgroundSceneMayRiseOverTheFrontTab(
 }
 
 /// A scene rises at once only onto a free screen: Clicky is not listening, thinking, or talking, no scene or pop-out
-/// is building or showing, no video quiz question is open, and the tab rule above allows it. Otherwise it would cover
-/// something the learner is looking at, so it waits for "show the model" or "show the experiment". The front tab is
-/// read last, since reading it is an Apple Event a busy screen does not need.
+/// is building or showing, no video quiz question is open, the room art panel is closed, and the tab rule above allows
+/// it. Otherwise it would cover something the learner is looking at, so it waits for "show the model" or "show the
+/// experiment". The front tab is read last, since reading it is an Apple Event a busy screen does not need.
 func backgroundSceneMayRiseNow(
     _ readyBackgroundScene: ReadyBackgroundScene,
     clickyIsIdleAndDoneSpeaking: Bool,
     aSceneOrPopOutIsBuildingOrShowing: Bool,
     aVideoQuizQuestionIsOpen: Bool,
+    theRoomArtPanelIsOpen: Bool,
     readFrontTabURL: () -> String?
 ) -> Bool {
-    guard clickyIsIdleAndDoneSpeaking, !aSceneOrPopOutIsBuildingOrShowing, !aVideoQuizQuestionIsOpen else { return false }
+    guard clickyIsIdleAndDoneSpeaking, !aSceneOrPopOutIsBuildingOrShowing, !aVideoQuizQuestionIsOpen, !theRoomArtPanelIsOpen else { return false }
     return aReadyBackgroundSceneMayRiseOverTheFrontTab(
         agentKind: readyBackgroundScene.agentKind,
         sourceTabURL: readyBackgroundScene.sourceTabURL,

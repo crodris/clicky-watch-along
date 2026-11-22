@@ -89,8 +89,9 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
 
 @Test func onlyTheRoutersLookAtTheMediaToolsHandOff() {
     let toolsThatHandOff = AppVoiceTool.allCases.filter(\.handsOffToALookAtTheMedia)
-    // animate_picture pops the picture out like pop_out, so it looks at the media too.
-    #expect(Set(toolsThatHandOff) == [.answerWithScreen, .buildNewScene, .popOut, .animatePicture])
+    // animate_picture pops the picture out like pop_out, so it looks at the media too, and show_art_in_my_room reads the
+    // picture it hangs on the learner's wall.
+    #expect(Set(toolsThatHandOff) == [.answerWithScreen, .buildNewScene, .popOut, .animatePicture, .showArtInMyRoom])
 }
 
 @Test func aMissingMediaRectDrawsNothing() {
