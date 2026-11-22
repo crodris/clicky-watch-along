@@ -279,6 +279,7 @@ final class CompanionManager: ObservableObject {
                 guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
                 self.startSpeakingTheTaskAnswer()
             },
+            tryAgain: { [weak self] agentID in self?.tryTheBackgroundAgentAgain(agentID) },
             answerApproval: { [weak self] approvalID, approved, scope in
                 self?.agentHarness.approvalDesk.answerByClick(approvalID: approvalID, approved: approved, scope: scope)
             }
@@ -312,8 +313,9 @@ final class CompanionManager: ObservableObject {
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
                 speak: { [weak self] line in
-                    // A failed design is also a red Callout, so the failure never rests on the voice alone.
-                    if line == ThemeStudioController.couldNotDesignLine {
+                    // A failed design is also a red Callout, so the failure never rests on the voice alone. While the card stays
+                    // open with its old ideas, the card's own red Callout says it, so the chip would say it twice.
+                    if line == ThemeStudioController.couldNotDesignLine, self?.themeStudioController.showsTheDesignFailedNotice != true {
                         VoiceToolCallChip.shared.show("Couldn't design that one", sender: .failure)
                     }
                     self?.speakAThemeStudioLine(line)
@@ -332,6 +334,11 @@ final class CompanionManager: ObservableObject {
             })
         )
     }()
+    /// The "Add theme?" card shown before a theme file the learner opened is installed.
+    private lazy var themeInstallConfirmation = ThemeInstallConfirmation(
+        cardPresenter: ThemeInstallCardPanelController(),
+        install: { [weak self] confirmedInstall in self?.installTheConfirmedThemePackage(confirmedInstall) }
+    )
     private var themeStudioSpeechTask: Task<Void, Never>?
     /// The playback token of the studio's own spoken line, so closing the card stops that exact line and never an unrelated
     /// answer that is playing when the card closes. Once the line has ended, the token matches nothing and stops nothing.
@@ -678,7 +685,7 @@ final class CompanionManager: ObservableObject {
         pinchCancellable?.cancel()
         escapeKeyCancellable?.cancel()
         settingsDialCancellable?.cancel()
-        settingsDialController.close()
+        settingsDialController.closeAtOnce()
         agentListPanelController.close()
         agentTokenDockController.stop()
         voiceStateCancellable?.cancel()
@@ -2680,13 +2687,17 @@ final class CompanionManager: ObservableObject {
         if settingsDialController.isOpen {
             return
         }
-        // With the agent list open, Escape only closes it.
+        // With the agent list open, Escape only closes it, back into the disc it opened from.
         if agentListPanelController.isOpen {
-            agentListPanelController.close()
+            agentListPanelController.closeWithGlide()
             return
         }
         // With the Theme Studio card open, Escape closes it and keeps the old theme, ahead of any scene behavior.
         if themeStudioController.closeOnEscape() {
+            return
+        }
+        // An "Add theme?" card is answered with a no.
+        if themeInstallConfirmation.cancelOnEscape() {
             return
         }
         // An open instant replay ends first, with the camera and the cursor stopped where they are and the pop-out
@@ -3466,6 +3477,11 @@ final class CompanionManager: ObservableObject {
         runInTheBackground(agentID) {
             await self.runTheTaskAgent(goal: goal, skillName: skillName, agentID: agentID)
         }
+        allowTryingAgain(agentID) { [weak self] in
+            guard let self, self.agentMayBeTriedAgainNow(agentKind: .task) else { return false }
+            _ = self.startTheTaskAgent(goal: goal, skillName: skillName)
+            return true
+        }
         return .changed(state: .object(["task": .string("started")]))
     }
 
@@ -3539,6 +3555,7 @@ final class CompanionManager: ObservableObject {
                     .map { transcriptLine in "[\(backgroundAgentElapsedTimeText(seconds: transcriptLine.seconds))] \(transcriptLine.text)" }
                     .joined(separator: "\n")
                 let captionsResult = "Title: \(video.title)\nLink: \(video.url)\nCaptions:\n\(captionText)"
+                backgroundAgentStore.setReadingHost(agentListHost(ofLink: video.url), for: agentID)
                 return (.string(String(captionsResult.prefix(longestTaskAgentCaptionText))), false, nil, video.url)
             } catch {
                 return errorResult((error as? LocalizedError)?.errorDescription ?? "No YouTube video with captions is in Chrome's front tab")
@@ -3571,6 +3588,9 @@ final class CompanionManager: ObservableObject {
                 return errorResult("The page could not be written: \(error)")
             }
         case .takeScreenshot, .readClipboard, .writeClipboard, .openURL:
+            if TaskAgentTool(rawValue: toolCall.toolName) == .openURL {
+                backgroundAgentStore.setReadingHost(toolCall.input["url"]?.stringValue.flatMap(agentListHost(ofLink:)), for: agentID)
+            }
             let generalToolRun = await runTaskAgentGeneralTool(named: toolCall.toolName, input: toolCall.input, taskID: agentID)
             return (generalToolRun.content, generalToolRun.isError, nil, nil)
         case nil:
@@ -3615,19 +3635,38 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Installing a theme file
 
-    /// Installs a `.clickytheme` package the learner opened and puts it on, with a chip that says how it went. A package
-    /// that does not parse is refused with a log line naming the rule it broke, and nothing changes.
+    /// A `.clickytheme` package the learner opened: reads and checks it, and asks "Add theme?" before installing anything. A
+    /// package that does not parse is refused with a log line naming the rule it broke and a chip, with no card, and nothing
+    /// changes.
     func installTheThemePackage(at themePackageURL: URL) {
         do {
-            let installedTheme = try themeSettings.installAndApply(packageAt: themePackageURL)
-            print("Themes: installed \(themePackageURL.lastPathComponent) as \(installedTheme.id)")
-            VoiceToolCallChip.shared.show(themeAddedChipPhrase, secondaryChipText: installedTheme.name)
-            installedTheme.sounds.done.play()
+            let packagePreview = try themeSettings.previewPackage(at: themePackageURL)
+            themeInstallConfirmation.ask(about: PendingThemeInstall(packageURL: themePackageURL, theme: packagePreview.theme, pictureJPEG: packagePreview.pictureJPEG))
         } catch let parseError as CustomThemeParseError {
             print("Themes: refused \(themePackageURL.lastPathComponent): \(parseError.reason)")
             VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         } catch {
             print("Themes: refused \(themePackageURL.lastPathComponent): \(error)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
+        }
+    }
+
+    /// The learner added the theme on the card: installs it, puts it on, plays its done sound, and says so. The package is
+    /// read and checked again, since it may have changed while the card showed.
+    private func installTheConfirmedThemePackage(_ confirmedInstall: PendingThemeInstall) {
+        do {
+            let installedTheme = try themeSettings.installAndApply(
+                packageAt: confirmedInstall.packageURL,
+                expectedPreview: CustomThemeStore.ThemePackagePreview(theme: confirmedInstall.theme, pictureJPEG: confirmedInstall.pictureJPEG)
+            )
+            print("Themes: installed \(confirmedInstall.packageURL.lastPathComponent) as \(installedTheme.id)")
+            VoiceToolCallChip.shared.show(themeAddedChipPhrase, secondaryChipText: installedTheme.name)
+            installedTheme.sounds.done.play()
+        } catch let parseError as CustomThemeParseError {
+            print("Themes: refused \(confirmedInstall.packageURL.lastPathComponent): \(parseError.reason)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
+        } catch {
+            print("Themes: refused \(confirmedInstall.packageURL.lastPathComponent): \(error)")
             VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         }
     }
@@ -3741,6 +3780,13 @@ final class CompanionManager: ObservableObject {
         agentTokenDockController.startServingTheToken(of: agentID)
         runInTheBackground(agentID) {
             await self.buildTheBackgroundScene(whatToBuild: whatToBuild, agentID: agentID, agentKind: agentKind)
+        }
+        allowTryingAgain(agentID) { [weak self] in
+            // The same rules the voice tools keep: one experiment builds at a time, a question owns the scene while it is
+            // open, and a 3D model is built from a video in front.
+            guard let self, self.agentMayBeTriedAgainNow(agentKind: agentKind) else { return false }
+            _ = self.startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: agentKind)
+            return true
         }
         return .changed(state: .object(["backgroundScene": .string("started")]))
     }
@@ -3985,6 +4031,15 @@ final class CompanionManager: ObservableObject {
                 }
             }
         }
+        allowTryingAgain(agentID) { [weak self] in
+            // A guide is written from the video in front, so a retry waits for the video the first one was for.
+            guard let self,
+                  self.agentMayBeTriedAgainNow(agentKind: studyGuideJob.agentKind),
+                  let frontVideoURL = self.videoQuizSession.frontTabURLOfTheFrontWindow(),
+                  studyGuideVideoKey(forVideoURL: frontVideoURL) == videoKey else { return false }
+            if case .failed = self.startWritingTheStudyGuide(studyGuideJob) { return false }
+            return true
+        }
         return .changed(state: .object(["studyGuide": .string("started")]))
     }
 
@@ -4196,6 +4251,43 @@ final class CompanionManager: ObservableObject {
     /// Who an ending chip speaks for: the agent's kind, and its player while a team theme is on.
     private func chipSender(forAgent agentID: UUID, kind: BackgroundAgentKind) -> VoiceToolCallChipSender {
         .backgroundAgent(color: backgroundAgentStore.displayColor(for: agentID) ?? kind.preferredPaletteColor, face: backgroundAgentStore.face(for: agentID))
+    }
+
+    /// What starts a failed agent's work again, by agent, for the agent list's "Try again". Each returns whether the work
+    /// started.
+    private var tryAgainActionsByAgentID: [UUID: @MainActor () -> Bool] = [:]
+
+    /// Lets the agent list offer "Try again" if this agent fails. `start` begins the same work as a new agent.
+    private func allowTryingAgain(_ agentID: UUID, start: @escaping @MainActor () -> Bool) {
+        // An agent the store dropped can never be tried again, so its action goes with it.
+        let agentIDsInTheStore = Set(backgroundAgentStore.agents.map(\.id))
+        tryAgainActionsByAgentID = tryAgainActionsByAgentID.filter { agentIDsInTheStore.contains($0.key) }
+        tryAgainActionsByAgentID[agentID] = start
+        backgroundAgentStore.allowTryingAgain(agentID)
+    }
+
+    /// Whether a failed agent's work may start again now, by the rules the voice tools that start it keep.
+    private func agentMayBeTriedAgainNow(agentKind: BackgroundAgentKind) -> Bool {
+        backgroundAgentMayBeTriedAgain(
+            agentKind: agentKind,
+            aQuizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer || videoQuizQuestionIsActive,
+            experimentRequestStep: currentExperimentRequestStep,
+            anExperimentIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
+            aVideoIsInFront: agentKind == .threeDModel ? videoQuizSession.frontVideoStateForVoiceCommands() != nil : false
+        )
+    }
+
+    /// "Try again" on a failed agent's row. It starts the same work once, as a new agent with its own row, and the failed
+    /// row stops offering it only when the work started.
+    private func tryTheBackgroundAgentAgain(_ agentID: UUID) {
+        guard let startTheWorkAgain = tryAgainActionsByAgentID[agentID] else { return }
+        guard startTheWorkAgain() else {
+            print("Agent list: could not try \(agentID) again, so its row keeps the button")
+            VoiceToolCallChip.shared.show("Couldn't try that again", sender: .failure)
+            return
+        }
+        tryAgainActionsByAgentID[agentID] = nil
+        backgroundAgentStore.markTriedAgain(agentID)
     }
 
     /// Cancels a running agent from the agent list. A cancelled agent shows no chip, and a cancelled new guide keeps no
