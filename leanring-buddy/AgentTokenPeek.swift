@@ -76,11 +76,14 @@ func agentTokenPeekContent(for agent: BackgroundAgent, approvalCapability: Harne
         // A task agent is on its latest reported step, and every other kind is on the step after the ones it completed.
         let currentStepIndex = agent.kind == .task ? max(0, stepNames.count - 1) : min(completedStepCount, max(0, stepNames.count - 1))
         let currentStepName = stepNames.indices.contains(currentStepIndex) ? stepNames[currentStepIndex] : "Working"
+        let stepAndTime = "\(currentStepName) · \(backgroundAgentElapsedTimeText(seconds: agent.elapsedSeconds(at: now)))"
+        // A paused agent says so, which the panel's chip shows and VoiceOver reads, since its disc folded into the paused disc.
+        let agentIsPaused = agent.pausedAt != nil
         return AgentTokenPeekContent(
             title: title,
-            caption: "\(currentStepName) · \(backgroundAgentElapsedTimeText(seconds: agent.elapsedSeconds(at: now)))",
+            caption: agentIsPaused ? "Paused · \(stepAndTime)" : stepAndTime,
             captionStyle: .plain,
-            hint: nil,
+            hint: agentIsPaused ? "Say go ahead to let it go on" : nil,
             meter: AgentTokenPeekMeter(stepCount: stepNames.count, litStepCount: currentStepIndex + 1)
         )
     case .finished(let result):

@@ -29,6 +29,8 @@ struct AgentTokenDiscView: View {
     var isWaitingForApproval = false
     /// Set by the dock while the mouse is over the disc.
     var isHovered = false
+    /// The mark the "!" turns into once the agent's request is settled, for a moment (`agentTokenApprovalSettledMarkSeconds`).
+    var approvalSettledMark: AgentTokenApprovalSettledMark?
     @Environment(\.accessibilityReduceMotion) private var reduceMotionIsOn
 
     /// The gap the "!" badge's notch cuts in the ring at 12 o'clock, as a share of the ring.
@@ -62,6 +64,9 @@ struct AgentTokenDiscView: View {
                         .font(.system(size: 12, weight: .heavy, design: .rounded))
                         .foregroundColor(DS.Colors.warning)
                 )
+        } else if let approvalSettledMark {
+            AgentTokenApprovalSettledFace(mark: approvalSettledMark, diameter: faceDiameter)
+                .transition(.scale(scale: DS.Move.popStartScale).combined(with: .opacity))
         } else if case .rosterFace(let rosterFace) = agent.face {
             RosterFaceView(rosterFace: rosterFace, size: faceDiameter, isGrayscale: agent.phase.isFailed)
         } else if case .themePicture(let themeID) = agent.face, let themePicture = CustomThemePictureCache.image(forThemeID: themeID) {
@@ -122,6 +127,8 @@ struct AgentTokenDiscView: View {
         // The badge pops in and the ring settles, as the moves say a disc's phase and check do.
         .animation(DS.Move.pop.animation(reduceMotionIsOn: reduceMotionIsOn), value: agent.phase)
         .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotionIsOn), value: isWaitingForApproval)
+        // The "!" turns into the settled mark on the Pop move, and the face returns the same way.
+        .animation(DS.Move.pop.animation(reduceMotionIsOn: reduceMotionIsOn), value: approvalSettledMark)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
     }
@@ -129,6 +136,11 @@ struct AgentTokenDiscView: View {
     private var accessibilityDescription: String {
         let kindName = agent.kind.displayName
         if isWaitingForApproval { return "\(kindName) agent needs your OK" }
+        switch approvalSettledMark {
+        case .allowed: return "\(kindName) agent allowed"
+        case .notAllowed: return "\(kindName) agent not allowed"
+        case nil: break
+        }
         switch agent.phase {
         case .running: return "\(kindName) agent running"
         case .finished: return agent.resultIsWaitingToBeDelivered ? "\(kindName) agent done, result ready" : "\(kindName) agent done"
@@ -360,49 +372,6 @@ final class AgentTokenLoopHostView: NSView {
     }
 }
 
-// MARK: - Agent triangle
-
-/// One agent's triangle. No surface draws it now, since the agent list's rows draw the agent's disc.
-struct AgentTriangleView: View {
-    let agent: BackgroundAgent
-    var size: CGFloat = 11
-
-    /// The same tilt as the blue cursor triangle's resting pose.
-    private static let rotationDegrees = -35.0
-
-    /// A finished agent keeps its color and gets a green check mark, so the learner still sees which agent it was.
-    /// A failed one is a red outline, and a cancelled one is a gray outline.
-    private var color: Color {
-        switch agent.phase {
-        case .running, .finished: return agent.displayColor.color
-        case .failed: return DS.Colors.destructive
-        case .cancelled: return DS.Colors.textTertiary
-        }
-    }
-
-    var body: some View {
-        ZStack {
-            // The fill is drawn before the rotation, so it rises along the triangle's own axis from tail to tip.
-            AgentProgressView(agent: agent) { shownProgress in
-                AgentTriangleFill(progress: shownProgress)
-                    .fill(color)
-            }
-            Triangle()
-                .stroke(color, lineWidth: 1.4)
-        }
-        .frame(width: size, height: size)
-        .rotationEffect(.degrees(Self.rotationDegrees))
-        .overlay(alignment: .bottomTrailing) {
-            if agent.finishedResult != nil {
-                FinishedCheckMark(size: size * 0.8)
-                    .offset(x: size * 0.45, y: size * 0.35)
-                    .transition(.scale.combined(with: .opacity))
-            }
-        }
-        .animation(.easeOut(duration: 0.25), value: agent.phase)
-    }
-}
-
 /// Shows an agent's progress as it moves. It starts at progress(at:) and runs one straight-line animation to where the
 /// current step heads, timed by the clock, so the token and the agent list show the same progress at the same moment,
 /// with no looping animation.
@@ -436,40 +405,24 @@ struct AgentProgressView<Content: View>: View {
     }
 }
 
-/// How high the fill rises, as a share of the triangle's height, so the filled area is the progress. The triangle is
-/// widest at its tail, where the fill starts, so filling half its height would cover three quarters of it.
-nonisolated func agentTriangleFillHeightShare(forProgress progress: Double) -> Double {
-    1 - (1 - min(1, max(0, progress))).squareRoot()
+/// What a disc's "!" turns into once its approval request is settled: a check for an answer that allowed it, and a gray dash
+/// for every other ending (a no, the desk's timeout, or an answer the agent never confirmed). It shows while the ended card
+/// says how it ended and Glides back into the disc, then the disc's own face returns.
+enum AgentTokenApprovalSettledMark: Equatable {
+    case allowed
+    case notAllowed
 }
 
-/// The filled part of the agent's triangle, from the base up. Animatable, so the area follows the progress in every
-/// frame of an animation, not just at its ends.
-struct AgentTriangleFill: Shape {
-    var progress: Double
-
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    func path(in rect: CGRect) -> Path {
-        // The same points as Triangle(): tip above the center, base below it.
-        let size = min(rect.width, rect.height)
-        let triangleHeight = size * sqrt(3.0) / 2.0
-        let tipY = rect.midY - triangleHeight / 1.5
-        let baseY = rect.midY + triangleHeight / 3
-        let fillTopY = baseY - triangleHeight * agentTriangleFillHeightShare(forProgress: progress)
-        let halfWidthAtFillTop = (size / 2) * (fillTopY - tipY) / triangleHeight
-        var path = Path()
-        guard fillTopY < baseY else { return path }
-        path.move(to: CGPoint(x: rect.midX - size / 2, y: baseY))
-        path.addLine(to: CGPoint(x: rect.midX + size / 2, y: baseY))
-        path.addLine(to: CGPoint(x: rect.midX + halfWidthAtFillTop, y: fillTopY))
-        path.addLine(to: CGPoint(x: rect.midX - halfWidthAtFillTop, y: fillTopY))
-        path.closeSubpath()
-        return path
+func agentTokenApprovalSettledMark(for ending: ApprovalCardEnding) -> AgentTokenApprovalSettledMark {
+    switch ending {
+    case .allowed: return .allowed
+    case .declined, .timedOut, .noReply: return .notAllowed
     }
 }
+
+/// How long the settled mark stays on the disc: the ended card's time in the list, then the Glide back into the disc, and a
+/// moment for the learner to see it land.
+let agentTokenApprovalSettledMarkSeconds: TimeInterval = HarnessApprovalDesk.defaultSecondsAnEndedCardStays + 1
 
 /// The badge at a token's lower right, which says the agent's state by its shape, so no ring color has to.
 enum AgentTokenBadge: Equatable {
@@ -520,7 +473,31 @@ struct AgentTokenBadgeView: View {
     }
 }
 
-/// A white check on a green dot, at the base of a finished agent's token or triangle.
+/// The face a disc shows for a moment after its approval request is settled: a white check on green, or a gray dash.
+struct AgentTokenApprovalSettledFace: View {
+    let mark: AgentTokenApprovalSettledMark
+    let diameter: CGFloat
+
+    var body: some View {
+        Circle()
+            .fill(mark == .allowed ? DS.Colors.success : DS.Colors.agentTokenFace)
+            .frame(width: diameter, height: diameter)
+            .overlay {
+                switch mark {
+                case .allowed:
+                    Image(systemName: "checkmark")
+                        .font(.system(size: diameter * 0.5, weight: .heavy))
+                        .foregroundColor(.white)
+                case .notAllowed:
+                    Capsule()
+                        .fill(DS.Colors.textTertiary)
+                        .frame(width: diameter * 0.5, height: 2.5)
+                }
+            }
+    }
+}
+
+/// A white check on a green dot, at the base of a finished agent's token.
 struct FinishedCheckMark: View {
     let size: CGFloat
 

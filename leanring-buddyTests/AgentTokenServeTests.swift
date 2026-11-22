@@ -178,13 +178,66 @@ struct AgentTokenServeTests {
 
 @MainActor
 struct AgentTokenDiscWaitsForItsFlightTests {
+    private typealias Flights = AgentTokenServeFlights<NSObject, Int>
+
     @Test func theDiscATokenFliesToWaitsAndSoDoesTheDiscItsLandedPanelStillCovers() async throws {
-        #expect(agentTokenDiscMustWaitForItsFlight(3, flightLandsOn: 3, lingeringFlightSitsOn: nil))
-        #expect(agentTokenDiscMustWaitForItsFlight(3, flightLandsOn: nil, lingeringFlightSitsOn: 3))
+        var flights = Flights()
+        flights.flightStarted(NSObject(), landingOn: 3)
+        let waitsWhileTheTokenFlies = flights.discMustWaitBeforeSliding(3)
+        #expect(waitsWhileTheTokenFlies)
+        flights.flightLanded()
+        #expect(flights.discIDTheFlightLandsOn == nil)
+        let waitsWhileTheLandedTokenCoversIt = flights.discMustWaitBeforeSliding(3)
+        #expect(waitsWhileTheLandedTokenCoversIt)
     }
 
     @Test func everyOtherDiscSlidesAsUsual() async throws {
-        #expect(!agentTokenDiscMustWaitForItsFlight(1, flightLandsOn: 3, lingeringFlightSitsOn: 2))
-        #expect(!agentTokenDiscMustWaitForItsFlight(1, flightLandsOn: nil, lingeringFlightSitsOn: nil))
+        var flights = Flights()
+        let waitsWithNoFlight = flights.discMustWaitBeforeSliding(1)
+        #expect(!waitsWithNoFlight)
+        flights.flightStarted(NSObject(), landingOn: 3)
+        let waitsForAnotherDiscsFlight = flights.discMustWaitBeforeSliding(1)
+        #expect(!waitsForAnotherDiscsFlight)
+    }
+
+    @Test func aDiscThatWaitedSlidesAndEndsTheTetherWhenItsFlightGoes() async throws {
+        var flights = Flights()
+        let flight = NSObject()
+        flights.flightStarted(flight, landingOn: 3)
+        flights.flightLanded()
+        // A disc ahead left, so the layout slides disc 3, which waits under the landed token.
+        let discWaited = flights.discMustWaitBeforeSliding(3)
+        #expect(discWaited)
+        let whenTheFlightIsGone = flights.flightIsGone(flight)
+        #expect(whenTheFlightIsGone == .init(endsTheTether: true, refreshesTheDock: true))
+        let discStillWaits = flights.discMustWaitBeforeSliding(3)
+        #expect(!discStillWaits)
+    }
+
+    @Test func aFlightNoDiscWaitedUnderKeepsItsTetherFading() async throws {
+        var flights = Flights()
+        let flight = NSObject()
+        flights.flightStarted(flight, landingOn: 3)
+        flights.flightLanded()
+        let whenTheFlightIsGone = flights.flightIsGone(flight)
+        #expect(whenTheFlightIsGone == .init(endsTheTether: false, refreshesTheDock: true))
+    }
+
+    @Test func aDiscThatWaitedUnderAnOlderFlightSlidesWhenThatOneGoesThoughANewerOneLanded() async throws {
+        var flights = Flights()
+        let olderFlight = NSObject()
+        let newerFlight = NSObject()
+        flights.flightStarted(olderFlight, landingOn: 3)
+        flights.flightLanded()
+        let discWaitedUnderTheOlderFlight = flights.discMustWaitBeforeSliding(3)
+        #expect(discWaitedUnderTheOlderFlight)
+        flights.flightStarted(newerFlight, landingOn: 4)
+        flights.flightLanded()
+        // The newer flight lingers on disc 4, but disc 3 waited under the older one, so its tether ends and the dock refreshes.
+        let whenTheOlderFlightIsGone = flights.flightIsGone(olderFlight)
+        #expect(whenTheOlderFlightIsGone == .init(endsTheTether: true, refreshesTheDock: true))
+        #expect(flights.lingeringFlight === newerFlight)
+        let whenTheNewerFlightIsGone = flights.flightIsGone(newerFlight)
+        #expect(whenTheNewerFlightIsGone == .init(endsTheTether: false, refreshesTheDock: true))
     }
 }
