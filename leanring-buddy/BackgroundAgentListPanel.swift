@@ -585,11 +585,20 @@ final class AgentListPanelController {
 
     /// Closes the list back into its origin: the Card shrinks into the disc or cursor it opened from at 0.7x of the Glide,
     /// with the tether line, or, with Reduce Motion on, crossfades out in place.
-    func closeWithGlide() {
+    /// Returns the close's flight, or nil when none plays. A list closed during its glide-in never showed, so its glide-in
+    /// copy goes at once with the teardown and no close plays from the whole Card.
+    @discardableResult
+    func closeWithGlide() -> CarrierFlight? {
         let origin = glideOrigin
         let closingFrame = panel?.frame
         let closingUIState = uiState
-        guard let closingPanel = tearDownTheOpenList(), let closingFrame else { return }
+        let theGlideInWasStillPlaying = openingFlight != nil
+        guard let closingPanel = tearDownTheOpenList(), let closingFrame else { return nil }
+        guard !theGlideInWasStillPlaying else {
+            closingPanel.orderOut(nil)
+            closingPanel.contentView = nil
+            return nil
+        }
         let reduceMotionIsOn = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         guard let origin, !reduceMotionIsOn else {
             NSAnimationContext.runAnimationGroup({ animationContext in
@@ -599,12 +608,12 @@ final class AgentListPanelController {
                 closingPanel.orderOut(nil)
                 closingPanel.contentView = nil
             })
-            return
+            return nil
         }
         // The carrier draws the Card for the move, so the real panel goes at once.
         closingPanel.orderOut(nil)
         closingPanel.contentView = nil
-        TetherCarrier.shared.play(
+        return TetherCarrier.shared.play(
             .glideClose(from: closingFrame, into: origin.point),
             carrying: AgentListView(
                 store: store,

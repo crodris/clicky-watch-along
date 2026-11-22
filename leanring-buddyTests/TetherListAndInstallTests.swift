@@ -173,20 +173,36 @@ struct AgentListHoverViewTests {
 struct AgentListGlideInCloseTests {
     @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && !NSScreen.screens.isEmpty, "the list Glides only with Reduce Motion off and a screen"))
     func aListClosedDuringItsGlideInShowsNothingWhole() throws {
+        let controller = makeController()
+        controller.toggle()
+        let glideIn = try #require(controller.openingFlight, "the list should Glide out of the mouse")
+        #expect(!glideIn.carriedViewIsHidden)
+        // Another surface opens over the list before the Glide lands.
+        controller.close()
+        #expect(glideIn.carriedViewIsHidden)
+        #expect(!controller.isOpen)
+    }
+
+    @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && !NSScreen.screens.isEmpty, "the list Glides only with Reduce Motion off and a screen"))
+    func escapeOrAClickOutsideDuringTheGlideInPlaysNoCloseFromTheWholeCard() throws {
+        let controller = makeController()
+        controller.toggle()
+        let glideIn = try #require(controller.openingFlight, "the list should Glide out of the mouse")
+        // Escape, a click outside, or a second click on the disc before the Glide lands.
+        let closeFlight = controller.closeWithGlide()
+        #expect(glideIn.carriedViewIsHidden)
+        #expect(closeFlight == nil)
+        #expect(!controller.isOpen)
+    }
+
+    private func makeController() -> AgentListPanelController {
         let themeSettings = makeThemeSettings()
-        let controller = AgentListPanelController(
+        return AgentListPanelController(
             store: BackgroundAgentStore(themeSettings: themeSettings),
             themeSettings: themeSettings,
             approvalDesk: HarnessApprovalDesk { _, _, _ in },
             actions: AgentListActions(cancelAgent: { _ in }, showReadyScene: {}, hearTaskAnswer: {}, tryAgain: { _ in }, answerApproval: { _, _, _ in })
         )
-        controller.toggle()
-        let glideIn = try #require(controller.openingFlight, "the list should Glide out of the mouse")
-        #expect(!glideIn.carriedViewIsHidden)
-        // Escape or a click outside before the Glide lands.
-        controller.close()
-        #expect(glideIn.carriedViewIsHidden)
-        #expect(!controller.isOpen)
     }
 }
 
