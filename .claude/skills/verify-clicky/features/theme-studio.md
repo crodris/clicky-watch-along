@@ -14,6 +14,7 @@ The learner picks or refines by voice or click, the real cursor previews the hig
 - `studio-refine` sends the ideas on the card and `basedOnIdea` back to the route (`design_theme`), dims the old ideas while it runs, and returns to them with "Sorry, I couldn't design that one." when it fails.
 - `studio-picture` captures the largest picture in Chrome's front tab for "make my theme from this picture", draws the loop, and lets an idea use it as the cursor (whole or round, with an outline and a tint) or as the agent tokens' faces.
 - `studio-save` writes `theme.json` and `picture.jpg`, sets `companionTheme` to `custom:<id>`, closes the card, stops the line Clicky is saying about the ideas, and plays the theme's done sound.
+  The saved tile shows a check stamp, that idea's cursor flies from the tile into the real cursor on the carrier, and then the card closes into the cursor.
   A click on Save shows a chip above the cursor, "Theme saved", or "Couldn't save the theme" when the write fails, and the card stays open on a failure. The voice tool's chip comes from the router instead.
 - `studio-close` closes the card and keeps the old theme, from `close_theme_studio`, the Close button, or Escape, and stops the line Clicky is saying about the ideas, or a line still waiting to be said.
   It stops only the studio's own line, so an answer Clicky is giving for a request the router handed off keeps playing.
