@@ -105,7 +105,7 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 11 Instant replay | Open: [#88](https://github.com/crodris/clicky-watch-along/pull/88) |
 | 8 Panel, onboarding, keyboard | Building |
 | 13 Theme Studio designs motion | Merged: [#92](https://github.com/crodris/clicky-watch-along/pull/92). The Debug app check and the motion recording are still owed, since Xcode would not load the project |
-| 14 The loop carries background work | Open: [#97](https://github.com/crodris/clicky-watch-along/pull/97). CI and review pass, and the Debug app check waits for Xcode to load the project |
+| 14 The loop carries background work | Open: [#97](https://github.com/crodris/clicky-watch-along/pull/97). CI and review pass. The Debug app built and ran, but the media read needs Chrome's "Allow JavaScript from Apple Events", which was off, so the sparks are not yet seen in the app |
 | 15 End-of-video recap | Building |
 | 16 Pause every agent by voice | Open: [#94](https://github.com/crodris/clicky-watch-along/pull/94). CI and review pass, and the Debug app check waits for Xcode to load the project |
 | 17 Scrub by voice | Starts when PR 11 merges |
