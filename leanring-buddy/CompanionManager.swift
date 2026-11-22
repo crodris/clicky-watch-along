@@ -5235,7 +5235,13 @@ final class CompanionManager: ObservableObject {
     /// where the spark lands. An agent with no disc to leave from shows the chip at once.
     private func bringBackTheEndingChip(ofAgent agentID: UUID, showTheChip: @escaping () -> Void) {
         let agentColor = backgroundAgentStore.agents.first { $0.id == agentID }?.displayColor.color ?? DS.Colors.textSecondary
-        agentTokenDockController.bringBack(agentID: agentID, in: agentColor, showTheChip: showTheChip)
+        // The video the loop or an agent's spark is around, read with no new Apple Event, so the drop comes down beside it.
+        agentTokenDockController.bringBack(
+            agentID: agentID,
+            in: agentColor,
+            keepingClearOf: cursorLoopController.mediaScreenRectInAppKitCoordinates,
+            showTheChip: showTheChip
+        )
     }
 
     /// Who an ending chip speaks for: the agent's kind, and its player while a team theme is on.

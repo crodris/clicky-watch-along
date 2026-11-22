@@ -890,7 +890,8 @@ final class AgentTokenDockController {
     /// Reduce Motion on, a still ring fades in at the cursor instead. An agent with no disc on the mouse's display, a display
     /// with no discs, or a display that is gone gets no spark, and the chip shows at once. A push-to-talk press lands the
     /// spark at once (`finishTheServeAtOnce`).
-    func bringBack(agentID: UUID, in agentColor: Color, showTheChip: @escaping () -> Void) {
+    /// - `mediaRect`: the video the cursor loop is around, in AppKit screen coordinates, which the drop keeps clear of.
+    func bringBack(agentID: UUID, in agentColor: Color, keepingClearOf mediaRect: CGRect? = nil, showTheChip: @escaping () -> Void) {
         // An ending held through a pause comes right after "go ahead", while the disc may still fly back to its place, so
         // the disc lands first and the spark leaves from it.
         for sendBackFlight in sendBackFlights { sendBackFlight.landAtOnce() }
@@ -919,7 +920,7 @@ final class AgentTokenDockController {
                 onGone: onGone
             )
         } else {
-            let route = agentTokenBringBackPath(from: CGPoint(x: disc.panel.frame.midX, y: disc.panel.frame.midY), to: cursorPoint, onScreenWithFrame: screen.frame)
+            let route = agentTokenBringBackPath(from: CGPoint(x: disc.panel.frame.midX, y: disc.panel.frame.midY), to: cursorPoint, onScreenWithFrame: screen.frame, keepingClearOf: mediaRect)
             print("Agent token bring back: the spark runs from its disc to the cursor in \(AgentTokenBringBackPath.flightSeconds) s")
             let sparkSide = AgentBringBackSparkView.diameter + 6
             carrierFlight = TetherCarrier.shared.play(

@@ -420,6 +420,29 @@ struct MenuBarAndDiscTests {
         #expect(nearTheLeftEdge.elbow.x == 1400 + AgentTokenBringBackPath.sideMargin)
     }
 
+    @Test func theDropComesDownBesideTheVideoAndTurnsInToTheCursorOnlyAtItsEnd() {
+        // A video under the menu bar with the cursor on it, whose default elbow 100 points right would drop through it.
+        let videoRect = CGRect(x: 300, y: 300, width: 640, height: 360)
+        let cursorPoint = CGPoint(x: 700, y: 420)
+        let path = agentTokenBringBackPath(from: discCenter, to: cursorPoint, onScreenWithFrame: screenFrame, keepingClearOf: videoRect)
+        // The nearer side is the right one, 240 points away against 400.
+        #expect(path.elbow.x == videoRect.maxX + AgentTokenBringBackPath.sideMargin)
+        // Until it is halfway down from the video's top to the cursor, the spark stays outside the video, and only then turns in.
+        for sampleIndex in 0...60 {
+            let point = path.point(atFlightProgress: Double(sampleIndex) / 60)
+            if point.y > cursorPoint.y + (videoRect.maxY - cursorPoint.y) / 2 { #expect(!videoRect.contains(point)) }
+        }
+    }
+
+    @Test func theElbowStaysWhereItWasWhenTheVideoIsNotInTheWayOrFillsTheScreensWidth() {
+        let cursorPoint = CGPoint(x: 500, y: 420)
+        // A video below the cursor, or off to the side, is not in the drop's way.
+        #expect(agentTokenBringBackPath(from: discCenter, to: cursorPoint, onScreenWithFrame: screenFrame, keepingClearOf: CGRect(x: 400, y: 0, width: 400, height: 300)).elbow.x == 600)
+        #expect(agentTokenBringBackPath(from: discCenter, to: cursorPoint, onScreenWithFrame: screenFrame, keepingClearOf: CGRect(x: 800, y: 300, width: 400, height: 400)).elbow.x == 600)
+        // A video as wide as the screen has no side to come down beside.
+        #expect(agentTokenBringBackPath(from: discCenter, to: cursorPoint, onScreenWithFrame: screenFrame, keepingClearOf: CGRect(x: 0, y: 300, width: 1512, height: 400)).elbow.x == 600)
+    }
+
     @Test func aBringBackPlanMovesInHalfASecondAndAHalfWithATetherThatTracesTheRoute() {
         let path = agentTokenBringBackPath(from: discCenter, to: CGPoint(x: 500, y: 420), onScreenWithFrame: screenFrame)
         let plan = CarrierFlightPlan.bringBack(along: path, sparkSize: CGSize(width: 16, height: 16))
