@@ -7,15 +7,16 @@ learner talks, on a deep blue rounded square.
 Run from anywhere:  python3 -I tools/app-icon/render-app-icon.py
 
 It writes two things from one set of shapes, so their shapes cannot differ:
-  - leanring-buddy/AppIcon.icon   the Icon Composer file, which gives the icon its dark,
-                                  tinted, and clear modes: the field as the icon's gradient
-                                  fill, and the ticks and the cursor as layers on a full 1024
-                                  point canvas. The tile shadow and the cursor's shadow are
-                                  left out, since Icon Composer draws its own. Icon Composer's
-                                  canvas is the tile itself, where the PNG's tile is 824 points of
-                                  1024, so on macOS 26 the ticks and the cursor draw at about 80
-                                  percent of their PNG size, which leaves the glass tile a wider margin.
-                                  The file is generated: change the shapes here, never in Icon Composer.
+  - leanring-buddy/AppIcon.icon   the Icon Composer file, which gives the icon its dark and
+                                  tinted modes. The field is its gradient fill, and the ticks
+                                  and the cursor are 1024 point SVG layers.
+                                  The tile shadow and the cursor's shadow are left out, since
+                                  Icon Composer draws its own.
+                                  Icon Composer maps the layers onto a canvas the size of the tile.
+                                  The PNG's tile is only 824 points of 1024, so on macOS 26 the
+                                  artwork draws at about 80 percent of its PNG size.
+                                  That leaves the glass tile a wider margin.
+                                  The file is generated, so change the shapes here and never in Icon Composer.
   - leanring-buddy/Assets.xcassets/AppIcon.appiconset/*-mac.png   the sizes macOS before 26 uses
 
 Rasterizing uses headless Google Chrome, since it draws SVG gradients and filters
@@ -23,8 +24,8 @@ exactly and needs no Python packages. Pass --icon-file-only to skip the PNGs.
 """
 
 import json
-import shutil
 import math
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -140,7 +141,7 @@ CURSOR_LAYER = f"""\
 </g>"""
 
 # The cursor's own shadow stays out of the Icon Composer layers: Icon Composer adds its own shadow, and in its
-# tinted and clear modes a drawn one would show as a second cursor. It is drawn into the PNGs only.
+# tinted mode a drawn one would show as a second cursor. It is drawn into the PNGs only.
 # Its offset sits outside the turn, so the shadow falls down and to the right whatever way the cursor points.
 CURSOR_SHADOW = f"""\
 <g transform="translate({CURSOR_CENTER_X + 13} {CURSOR_CENTER_Y + 23}) rotate({CURSOR_ROTATION_DEGREES}) scale({CURSOR_SCALE})">
