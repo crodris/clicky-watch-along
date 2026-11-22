@@ -6,7 +6,9 @@
 # accessibility_grant_warning, which tells app-launch to name the grant command, apply_app_secret_mode and
 # report_app_secret_state, which the --no-app-secret and --wrong-app-secret flags and doctor use (the flags pass the app
 # --app-secret-mode and never write the defaults the everyday Clicky shares), and the scroll
-# command's usage line and refusal of a value that is not a whole number of at most 6 digits.
+# command's usage line and refusal of a value that is not a whole number of at most 6 digits, headless_chrome_warning,
+# which doctor and app-launch use to name a headless Chrome that takes Chrome's Apple Events, and the lock-take and
+# lock-release commands of the app check lock, which refuse to release a lock another owner holds.
 # Usage: bash .claude/skills/verify-clicky/verify-clicky.test.sh
 set -euo pipefail
 source "$(dirname "$0")/verify-clicky.sh"
@@ -204,4 +206,72 @@ echo "fifth steps" >"$steps_run_directory/rehearsal-steps.txt"
 move_the_previous_launch_files_aside "$steps_run_directory"
 check "a number with only a steps file is taken" "$(cat "$steps_run_directory/app-2.log")" "fifth launch"
 check "the earlier steps file is left alone" "$(cat "$steps_run_directory/rehearsal-steps-1.txt")" "earlier steps"
-echo "ok: verify-clicky build freshness, running-app detection, app-launch flags and secret modes, the doctor secret report, app log rotation, the Accessibility warning and the permissions panel check, and scroll usage and argument checks"
+# A headless Chrome answers the Apple Events meant for Chris's Chrome and fails them as "turned off", which agents misread
+# as his setting. Doctor and app-launch name it. A Chrome with a window and a headless Chrome's helpers are not named.
+orphan_headless_line="83128     1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --remote-debugging-port=0 --user-data-dir=/var/folders/ab/T/scene-shots-9XaGV9/chrome-profile about:blank"
+helper_line="83177 83128 /Applications/Google Chrome.app/Contents/Frameworks/Helpers/Google Chrome Helper --type=gpu-process --headless --user-data-dir=/var/folders/ab/T/scene-shots-9XaGV9/chrome-profile"
+chris_chrome_line="35023     1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+headless_warning="$(headless_chrome_warning "$chris_chrome_line"$'\n'"$orphan_headless_line"$'\n'"$helper_line")"
+check "a headless Chrome is named with its pid and profile" \
+  "$(grep -c 'pid 83128, orphaned.*profile /var/folders/ab/T/scene-shots-9XaGV9/chrome-profile' <<<"$headless_warning")" "1"
+check "the warning says Apple Events go to it and that the error is not Chris's setting" \
+  "$(grep -c 'Apple Events to Chrome go to it.*turned off' <<<"$headless_warning")" "1"
+check "the warning says how to stop a scene screenshot orphan" "$(grep -c 'kill 83128' <<<"$headless_warning")" "1"
+# Another tool's headless Chrome can also have launchd as its parent while it is in use, so it gets no kill command.
+other_tool_headless_line="90001     1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --user-data-dir=/Users/c/playwright/profile"
+other_tool_warning="$(headless_chrome_warning "$other_tool_headless_line")"
+check "a headless Chrome of another tool is named" "$(grep -c 'pid 90001' <<<"$other_tool_warning")" "1"
+check "a headless Chrome of another tool gets no kill command" "$(grep -c 'kill 90001' <<<"$other_tool_warning" || true)" "0"
+check "a headless Chrome's helper processes are not named again" "$(grep -c 'pid 83177' <<<"$headless_warning")" "0"
+check "Chris's own Chrome with a window gets no warning" "$(headless_chrome_warning "$chris_chrome_line")" ""
+check "a headless Chrome with a live parent is not called an orphan" \
+  "$(headless_chrome_warning "${orphan_headless_line/    1 /5000 }" | grep -c 'pid 83128, orphaned' || true)" "0"
+for command_with_the_warning in command_doctor command_app_launch; do
+  check "$command_with_the_warning reports a headless Chrome" "$(declare -f "$command_with_the_warning" | grep -c report_headless_chrome)" "1"
+done
+check "app-launch warns before it opens the app" \
+  "$(declare -f command_app_launch | grep -n 'report_headless_chrome\|open -n' | cut -d: -f2 | grep -o 'report_headless_chrome\|open -n' | head -1)" "report_headless_chrome"
+
+# The app check lock: one owner at a time, and only that owner releases it.
+export CLICKY_APP_CHECK_LOCK="$test_directory/app-check.lock"
+check "usage lists the lock commands" "$(usage | grep -c 'lock-take <owner>\|lock-release <owner>')" "2"
+lock_output="$(command_lock_take "feature/first" 2>&1)"
+check "lock-take takes a free lock for its owner" "$lock_output" "app check lock taken by feature/first"
+check "lock-take writes the owner on the first line and the time on the second" \
+  "$(sed -n 1p "$CLICKY_APP_CHECK_LOCK/owner") $(sed -n 2p "$CLICKY_APP_CHECK_LOCK/owner" | grep -c "^[0-9]*$")" "feature/first 1"
+lock_status=0
+lock_output="$(command_lock_take "feature/second" 2>&1)" || lock_status=$?
+check "lock-take fails while another owner holds the lock" "$lock_status" "1"
+check "lock-take names the real owner and says not to remove it" "$(grep -c 'held by feature/first for [0-9]* minutes.*Do not remove it' <<<"$lock_output")" "1"
+check "lock-take says how long the lock has been held, from the time it recorded" \
+  "$(printf 'feature/first\n%s\n' "$(( $(date +%s) - 1500 ))" >"$CLICKY_APP_CHECK_LOCK/owner"; (command_lock_take "feature/second" 2>&1 || true) | grep -c 'for 25 minutes')" "1"
+printf 'feature/first\n' >"$CLICKY_APP_CHECK_LOCK/owner"
+check "a failed lock-take leaves the owner alone" "$(sed -n 1p "$CLICKY_APP_CHECK_LOCK/owner")" "feature/first"
+check "lock-take by the owner again succeeds" "$(command_lock_take "feature/first" 2>&1)" "app check lock already held by feature/first"
+lock_status=0
+lock_output="$(command_lock_release "feature/second" 2>&1)" || lock_status=$?
+check "lock-release refuses another owner's lock" "$lock_status" "1"
+check "lock-release names the real owner" "$(grep -c 'held by feature/first, not by feature/second' <<<"$lock_output")" "1"
+check "a refused lock-release leaves the lock in place" "$([[ -d "$CLICKY_APP_CHECK_LOCK" ]] && echo held || echo gone)" "held"
+check "lock-release by the owner removes the lock" "$(command_lock_release "feature/first" 2>&1)" "app check lock released by feature/first"
+check "the released lock is gone" "$([[ -d "$CLICKY_APP_CHECK_LOCK" ]] && echo held || echo gone)" "gone"
+check "lock-release with no lock held is not an error" "$(command_lock_release "feature/first" 2>&1)" "no app check lock is held"
+check "the next owner can take the released lock" "$(command_lock_take "feature/second" 2>&1)" "app check lock taken by feature/second"
+# A lock directory with no owner file belongs to nobody who can be named, so no one's release removes it.
+rm "$CLICKY_APP_CHECK_LOCK/owner"
+lock_status=0
+lock_output="$(command_lock_release "feature/second" 2>&1)" || lock_status=$?
+check "lock-release refuses a lock with no owner file" "$lock_status" "1"
+check "that refusal says the owner did not write its name" "$(grep -c 'an owner that did not write its name' <<<"$lock_output")" "1"
+rm -r "$CLICKY_APP_CHECK_LOCK"
+lock_status=0
+(command_lock_take "") >/dev/null 2>&1 || lock_status=$?
+check "lock-take needs an owner name" "$lock_status" "1"
+check "the missing-name refusal takes no lock" "$([[ -d "$CLICKY_APP_CHECK_LOCK" ]] && echo held || echo gone)" "gone"
+# A lock whose owner could not be written would belong to no one and could never be released, so it is not left behind.
+lock_status=0
+lock_output="$(printf() { return 1; }; command_lock_take "feature/third" 2>&1)" || lock_status=$?
+check "lock-take fails when it cannot write the owner" "$lock_status" "1"
+check "lock-take leaves no lock behind when it cannot write the owner" "$([[ -d "$CLICKY_APP_CHECK_LOCK" ]] && echo held || echo gone)" "gone"
+unset CLICKY_APP_CHECK_LOCK
+echo "ok: verify-clicky build freshness, running-app detection, app-launch flags and secret modes, the doctor secret report, app log rotation, the Accessibility warning and the permissions panel check, scroll usage and argument checks, the headless Chrome warning, and the app check lock"
