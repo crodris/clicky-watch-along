@@ -20,6 +20,10 @@ import {
   validateSessionFixture,
   appToolDescriptionsIn,
   appToolStepKindsIn,
+  allAppToolNamesIn,
+  appToolBranchesIn,
+  appToolsListedAsMayHandOffIn,
+  appToolsWhoseStepMayHandOffIn,
   costOfUsageLines,
   descriptionsInAppSource,
   exitCodeOfGate,
@@ -585,6 +589,41 @@ describe("standInToolResult", () => {
 
     assert.deepEqual([...handOffToolNames].sort(), stepKinds.handOffToolNames.sort());
     assert.deepEqual([...lookupToolNames].sort(), stepKinds.lookupToolNames.sort());
+  });
+
+  it("lists in AppVoiceTool.mayHandOff exactly the tools whose appVoiceToolStep branch can hand off, so a new hand-off tool without it fails here", () => {
+    const appCheckout = join(benchDirectory, "..");
+    const managerSource = readFileSync(join(appCheckout, "leanring-buddy/CompanionManager.swift"), "utf8");
+    const toolsSource = readFileSync(join(appCheckout, "leanring-buddy/VoiceCommandTools.swift"), "utf8");
+
+    const listedAsMayHandOff = appToolsListedAsMayHandOffIn(toolsSource).sort();
+    assert.ok(listedAsMayHandOff.length > 0);
+    assert.deepEqual(listedAsMayHandOff, appToolsWhoseStepMayHandOffIn(managerSource, toolsSource).sort());
+  });
+
+  it("finds a branch of appVoiceToolStep for every AppVoiceTool case, so a tool the reader skips fails here", () => {
+    const appCheckout = join(benchDirectory, "..");
+    const managerSource = readFileSync(join(appCheckout, "leanring-buddy/CompanionManager.swift"), "utf8");
+    const toolsSource = readFileSync(join(appCheckout, "leanring-buddy/VoiceCommandTools.swift"), "utf8");
+
+    const toolNamesWithABranch = appToolBranchesIn(managerSource, toolsSource).map(({ toolName }) => toolName);
+    assert.ok(toolNamesWithABranch.length > 0);
+    assert.deepEqual([...toolNamesWithABranch].sort(), allAppToolNamesIn(toolsSource).sort());
+  });
+
+  it("refuses a branch it cannot read: a case with two tools, a case with a where clause, an unknown case, and a branch with no return", () => {
+    const toolsSource = 'enum AppVoiceTool { case popOut = "pop_out"\n case findMoment = "find_moment"\n struct Context {}';
+    const stepSource = (...branchLines: string[]) => ["private func appVoiceToolStep(", ...branchLines, "    // MARK: - Next"].join("\n");
+    const handOffReturn = "            return .handOff { self.go() }";
+
+    assert.deepEqual(
+      appToolBranchesIn(stepSource("        case .popOut:", handOffReturn), toolsSource).map(({ toolName }) => toolName),
+      ["pop_out"],
+    );
+    assert.throws(() => appToolBranchesIn(stepSource("        case .popOut, .findMoment:", handOffReturn), toolsSource), /not exactly one AppVoiceTool case/);
+    assert.throws(() => appToolBranchesIn(stepSource("        case .popOut where ok:", handOffReturn), toolsSource), /not exactly one AppVoiceTool case/);
+    assert.throws(() => appToolBranchesIn(stepSource("        case .notATool:", handOffReturn), toolsSource), /not exactly one AppVoiceTool case/);
+    assert.throws(() => appToolBranchesIn(stepSource("        case .popOut:", "            self.go()"), toolsSource), /no "return .handOff" or "return .outcome"/);
   });
 
   it("reads a branch's kind from the Swift step: a hand-off, a hand-off behind a failing guard, a lookup, and a tool that ends in an outcome after a hand-off as neither", () => {

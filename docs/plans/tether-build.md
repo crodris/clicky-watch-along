@@ -109,7 +109,7 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 11 Instant replay | Open: [#88](https://github.com/crodris/clicky-watch-along/pull/88) |
 | 8 Panel, onboarding, keyboard | Merged: [#95](https://github.com/crodris/clicky-watch-along/pull/95). The approval banner and the quiz line are not yet seen live |
 | 13 Theme Studio designs motion | Merged: [#92](https://github.com/crodris/clicky-watch-along/pull/92). The Debug app check and the motion recording are still owed, since Xcode would not load the project |
-| 14 The loop carries background work | Open: [#97](https://github.com/crodris/clicky-watch-along/pull/97) |
+| 14 The loop carries background work | Merged: [#97](https://github.com/crodris/clicky-watch-along/pull/97). Seen in the app with an experiment and a task agent on one volcano video. The Reduce Motion arcs are checked by renders only |
 | 15 End-of-video recap | Merged: [#93](https://github.com/crodris/clicky-watch-along/pull/93) |
 | 16 Pause every agent by voice | Merged: [#94](https://github.com/crodris/clicky-watch-along/pull/94) |
 | 17 Scrub by voice | Starts when PR 11 merges |
@@ -139,3 +139,7 @@ Left open by PR 16, for PR 19: a push-to-talk press during the recap's disc gath
 Left open by PR 18, for PR 19: a theme card keeps its hover look when the panel re-lays out under a still pointer, such as after a delete, which comes from the shared `HoverAndPointerNSView`.
 Finder also has no Quick Look thumbnail for a `.clickytheme` file yet (`qlmanage -t`), so its icon is still the app's document icon.
 The Quick Look extension draws its own still cursor, a small copy of the triangle shape and the Clicky blue palette order, because the app's cursor view depends on app-only state.
+
+Left open by PR 14, for PR 19: no test covers the loop view passing the paused flag to an agent's spark.
+The recap watcher reads the front tab every 3 seconds on the main actor, so a spark may jump while an agent works on that video; this is not measured.
+"Let me try it" timed out at 60 seconds on the local Worker in both of PR 14's app runs, which no one has looked into yet.

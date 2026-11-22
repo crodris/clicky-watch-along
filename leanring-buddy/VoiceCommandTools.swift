@@ -87,12 +87,13 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
 
     /// Whether a call to the tool can hand the request to a slow path, which then owns what Clicky says, so the turn's
     /// confirmation is never spoken. These are the tools whose branch in CompanionManager's `appVoiceToolStep` returns
-    /// `.handOff`, which `bench/brainEvals.ts` (`appToolStepKindsIn`) also reads, and a tool that hands off only some of
-    /// the time, such as `build_simulation`, counts.
+    /// `.handOff`, and a tool that hands off only some of the time, such as `build_simulation`, counts. The bench test
+    /// "lists in AppVoiceTool.mayHandOff exactly the tools whose appVoiceToolStep branch can hand off"
+    /// (`bench/brainEvals.test.ts`, which reads this list and the branches from the Swift source) fails when they differ.
     var mayHandOff: Bool {
         switch self {
         case .answerWithScreen, .buildNewScene, .buildSimulation, .popOut, .animatePicture, .showArtInMyRoom, .closeScene, .explainPart,
-             .endQuiz, .showReadyModel, .hearTaskAnswer, .designTheme:
+             .endQuiz, .showReadyModel, .hearTaskAnswer, .designTheme, .replayExplanation, .replayStep:
             return true
         default:
             return false
@@ -810,6 +811,21 @@ nonisolated func backgroundAgentsStateText(runningAgentCount: Int, agentsArePaus
     guard runningAgentCount > 0 else { return nil }
     guard agentsArePaused else { return "\(runningAgentCount) running" }
     return "\(runningAgentCount) paused, and a new agent waits for go ahead too"
+}
+
+/// The router's scene state fields with the `backgroundAgents` field added when an agent runs. `voiceCommandSceneState` and the
+/// speculation tests both build the field here, so a held command's discard rule is tested against the field production sends.
+nonisolated func sceneStateFieldsAddingBackgroundAgents(
+    to existingSceneStateFields: [String: JSONValue],
+    runningAgentCount: Int,
+    agentsArePaused: Bool
+) -> [String: JSONValue] {
+    guard let backgroundAgentsState = backgroundAgentsStateText(runningAgentCount: runningAgentCount, agentsArePaused: agentsArePaused) else {
+        return existingSceneStateFields
+    }
+    var fieldsWithBackgroundAgents = existingSceneStateFields
+    fieldsWithBackgroundAgents["backgroundAgents"] = .string(backgroundAgentsState)
+    return fieldsWithBackgroundAgents
 }
 
 /// Page text and captions sit inside tags the model is told never to obey, so a "<" in them could close the tag early.

@@ -23,7 +23,7 @@ type approvalVoiceAnswerFixture struct {
 		// SeenAtPress is false for a request whose whole summary no card had shown for a second at the press. It is
 		// true when the case leaves it out.
 		SeenAtPress *bool `json:"seenAtPress"`
-		Expected   *struct {
+		Expected    *struct {
 			Approved bool   `json:"approved"`
 			Scope    string `json:"scope"`
 		} `json:"expected"`

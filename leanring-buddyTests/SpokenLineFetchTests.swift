@@ -24,7 +24,8 @@ private final class StubbedTTSURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     static let replies = OSAllocatedUnfairLock<[String: Reply]>(initialState: [:])
-    static let startedPaths = OSAllocatedUnfairLock<Set<String>>(initialState: [])
+    /// How many downloads of each path started. Two fetches of one client share its path, so a test counts them.
+    static let startCounts = OSAllocatedUnfairLock<[String: Int]>(initialState: [:])
     /// How many of each path's downloads a cancel stopped.
     static let stopCounts = OSAllocatedUnfairLock<[String: Int]>(initialState: [:])
 
@@ -36,7 +37,7 @@ private final class StubbedTTSURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
-        Self.startedPaths.withLock { startedPaths in _ = startedPaths.insert(url.path) }
+        Self.startCounts.withLock { startCounts in startCounts[url.path, default: 0] += 1 }
         switch reply {
         case .status(let statusCode):
             let response = HTTPURLResponse(url: url, statusCode: statusCode, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
@@ -79,7 +80,8 @@ struct SpokenLineFetchTests {
         return condition()
     }
 
-    private func downloadStarted(_ path: String) -> Bool { StubbedTTSURLProtocol.startedPaths.withLock { $0.contains(path) } }
+    private func downloadsStarted(_ path: String) -> Int { StubbedTTSURLProtocol.startCounts.withLock { $0[path, default: 0] } }
+    private func downloadStarted(_ path: String) -> Bool { downloadsStarted(path) > 0 }
     private func downloadsStopped(_ path: String) -> Int { StubbedTTSURLProtocol.stopCounts.withLock { $0[path, default: 0] } }
     private func downloadStopped(_ path: String) -> Bool { downloadsStopped(path) > 0 }
 
@@ -138,6 +140,9 @@ struct SpokenLineFetchTests {
         #expect(client.isPlaying == playingStateBefore.1)
         #expect(downloadsStopped(path) == 0)
 
+        // A download cancelled before URLSession starts it never reaches stopLoading, so on a busy machine the stop count
+        // stayed at 1 and the wait ran out. Both downloads have started before either is cancelled.
+        #expect(await eventually { downloadsStarted(path) == 2 })
         earlyFetch.cancel()
         loading.cancel()
         #expect(await eventually { downloadsStopped(path) == 2 })
