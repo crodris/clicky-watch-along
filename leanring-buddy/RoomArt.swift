@@ -5,10 +5,11 @@
 //  "Show me how this would look in my room": Clicky reads the wall art on Chrome's front tab and its size from the page,
 //  opens a live camera panel, and hangs the art on the learner's wall at its real size.
 //
-//  This file holds the pure parts: the Worker replies parsed into Swift types (`POST /room-art` reads the page, `POST
-//  /room-wall` measures the wall with Depth Pro), the art's corners projected from the wall plane, the bare wall spot the
-//  art goes to first, the wall's light, the phase state machine behind the panel, the clients, and the phrase that asks for
-//  it. `RoomTracker` keeps the art on the wall, `RoomCamera` supplies the frames, and `RoomArtPreview` runs and draws it.
+//  This file holds the pure parts: the Worker replies parsed into Swift types (`POST /try-it-item` reads the page and says
+//  what kind of item it shows, `POST /room-wall` measures the wall with Depth Pro), the art's corners projected from the wall
+//  plane, the bare wall spot the art goes to first, the wall's light, the phase state machine behind the panel, the clients,
+//  and the phrase that asks for it. `RoomTracker` keeps the art on the wall, `RoomCamera` supplies the frames, `RoomArtLoop`
+//  draws Clicky's loop around the spot while it is measured, and `RoomArtPreview` runs and draws the panel.
 //
 
 import CoreGraphics
@@ -26,26 +27,31 @@ nonisolated struct RoomArtPicture: Equatable, Sendable {
     let height: Int
 }
 
-/// What Clicky sends `POST /room-art`: the page and its picture.
+/// What Clicky sends `POST /try-it-item`: the page, its picture, and the learner's words.
 nonisolated struct RoomArtPageRequest: Equatable, Sendable {
-    /// The Worker refuses a page title and page text over these many UTF-16 code units, so the app cuts them first.
+    /// The Worker refuses a page title, page text, and learner request over these many UTF-16 code units, so the app cuts
+    /// them first.
     static let longestPageTitle = 500
     static let longestPageText = 30_000
+    static let longestLearnerRequest = 500
 
     let pageURL: String
     let pageTitle: String
     let pageText: String
+    /// What the learner said, which tells the Worker which item they mean when the page shows several. Empty says nothing.
+    let learnerRequest: String
     let picture: RoomArtPicture
 
-    init(pageURL: String, pageTitle: String, pageText: String, picture: RoomArtPicture) {
+    init(pageURL: String, pageTitle: String, pageText: String, learnerRequest: String, picture: RoomArtPicture) {
         self.pageURL = pageURL
         self.pageTitle = textCutToUTF16Count(pageTitle, longestUTF16Count: Self.longestPageTitle)
         self.pageText = textCutToUTF16Count(pageText, longestUTF16Count: Self.longestPageText)
+        self.learnerRequest = textCutToUTF16Count(learnerRequest, longestUTF16Count: Self.longestLearnerRequest)
         self.picture = picture
     }
 
     var json: JSONValue {
-        .object([
+        var fields: [String: JSONValue] = [
             "pageURL": .string(pageURL),
             "pageTitle": .string(pageTitle),
             "pageText": .string(pageText),
@@ -54,7 +60,11 @@ nonisolated struct RoomArtPageRequest: Equatable, Sendable {
                 "width": .number(Double(picture.width)),
                 "height": .number(Double(picture.height)),
             ]),
-        ])
+        ]
+        if !learnerRequest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            fields["learnerRequest"] = .string(learnerRequest)
+        }
+        return .object(fields)
     }
 }
 
@@ -100,12 +110,17 @@ nonisolated struct RoomArtSize: Equatable, Sendable {
     let heightCentimeters: Double
 }
 
-/// What `POST /room-art` read from the page and its picture.
+/// What `POST /try-it-item` read from the page and its picture, by the kind of item the learner wants to try. Only wall art
+/// is placed so far. Furniture and clothing keep what the Worker read for the PRs that place them, and the app says they
+/// are coming.
 nonisolated enum RoomArtPageReading: Equatable, Sendable {
-    case notWallArt(title: String)
+    case wallArt(RoomArtWallArtReading)
     /// Wall art whose page text states no size, so Clicky says so instead of hanging a size the model guessed.
     case sizeNotOnThePage(title: String)
-    case wallArt(RoomArtWallArtReading)
+    case furniture(RoomArtFurnitureReading)
+    case clothing(RoomArtClothingReading)
+    /// Anything else, such as a lamp or a rug.
+    case other(title: String)
 }
 
 nonisolated struct RoomArtWallArtReading: Equatable, Sendable {
@@ -116,6 +131,50 @@ nonisolated struct RoomArtWallArtReading: Equatable, Sendable {
     let otherSizes: [RoomArtSize]
     /// Where the art itself sits in the picture, so a photo of it in a room can be flattened to the art alone.
     let artworkCorners: RoomArtCorners
+}
+
+/// A size a store sells furniture in: across the front, floor to top, and front to back.
+nonisolated struct RoomArtFurnitureSize: Equatable, Sendable {
+    let label: String
+    let widthCentimeters: Double
+    let heightCentimeters: Double
+    let depthCentimeters: Double
+}
+
+nonisolated struct RoomArtFurnitureReading: Equatable, Sendable {
+    let title: String
+    /// Nil when the page text states no size.
+    let chosenSize: RoomArtFurnitureSize?
+    let whyThisSize: String
+    /// Where the furniture sits in the picture, clamped into it.
+    let itemCorners: RoomArtCorners
+}
+
+nonisolated enum RoomArtGarment: String, Decodable, Equatable, Sendable {
+    case tshirt, shirt, sweater, hoodie, jacket, dress, other
+}
+
+nonisolated enum RoomArtSleeves: String, Decodable, Equatable, Sendable {
+    case none, short, long
+}
+
+/// How the product photo shows the garment.
+nonisolated enum RoomArtGarmentPhoto: String, Decodable, Equatable, Sendable {
+    case flatLay, onModel, onHanger, other
+}
+
+nonisolated struct RoomArtClothingReading: Equatable, Sendable {
+    let title: String
+    let garment: RoomArtGarment
+    let sleeves: RoomArtSleeves
+    /// The size the page shows as selected, as the page writes it, such as "M". Page text, so it is only logged.
+    let chosenSizeLabel: String
+    let photoShows: RoomArtGarmentPhoto
+    /// What the print on the garment looks like, empty for a plain garment. Page-derived text, so it is only logged.
+    let printDescription: String
+    let whyThisSize: String
+    /// Where the garment sits in the picture, clamped into it.
+    let itemCorners: RoomArtCorners
 }
 
 nonisolated struct RoomArtReplyError: Error, Equatable {
@@ -138,6 +197,13 @@ nonisolated private struct RoomArtChosenSizeReply: Decodable {
     let includesFrame: Bool
 }
 
+nonisolated private struct RoomArtFurnitureSizeReply: Decodable {
+    let label: String
+    let widthCentimeters: Double
+    let heightCentimeters: Double
+    let depthCentimeters: Double
+}
+
 nonisolated private struct RoomArtPointReply: Decodable {
     let x: Double
     let y: Double
@@ -150,71 +216,140 @@ nonisolated private struct RoomArtCornersReply: Decodable {
     let bottomLeft: RoomArtPointReply
 }
 
-nonisolated private struct RoomArtReply: Decodable {
+nonisolated private struct RoomArtWallArtReply: Decodable {
+    let sizeFoundOnPage: Bool
+    let size: RoomArtChosenSizeReply
+    let otherSizes: [RoomArtSizeReply]
+}
+
+nonisolated private struct RoomArtFurnitureReply: Decodable {
+    let sizeFoundOnPage: Bool
+    let size: RoomArtFurnitureSizeReply
+}
+
+nonisolated private struct RoomArtClothingReply: Decodable {
+    let garment: RoomArtGarment
+    let sleeves: RoomArtSleeves
+    let chosenSizeLabel: String
+    let photoShows: RoomArtGarmentPhoto
+    let printDescription: String
+}
+
+/// The reply's `item`: its kind and the one object that kind names. A kind this app does not know fails to decode.
+nonisolated private enum RoomArtItemReply: Decodable {
+    case wallArt(RoomArtWallArtReply)
+    case furniture(RoomArtFurnitureReply)
+    case clothing(RoomArtClothingReply)
+    case other
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, wallArt, furniture, clothing
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(String.self, forKey: .kind) {
+        case "wallArt": self = .wallArt(try container.decode(RoomArtWallArtReply.self, forKey: .wallArt))
+        case "furniture": self = .furniture(try container.decode(RoomArtFurnitureReply.self, forKey: .furniture))
+        case "clothing": self = .clothing(try container.decode(RoomArtClothingReply.self, forKey: .clothing))
+        case "other": self = .other
+        default: throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "an item kind this app does not know")
+        }
+    }
+}
+
+nonisolated private struct RoomArtTryItReply: Decodable {
     let title: String
-    let isWallArt: Bool
-    let sizeFoundOnPage: Bool?
-    let chosenSize: RoomArtChosenSizeReply?
-    let whyThisSize: String?
-    let otherSizes: [RoomArtSizeReply]?
-    let artworkCorners: RoomArtCornersReply?
+    let whyThisSize: String
+    let itemCorners: RoomArtCornersReply
+    let item: RoomArtItemReply
 }
 
 extension RoomArtPageReading {
-    /// Parses the Worker's reply. A reply for wall art says whether the page states its size, and when it does, it needs a
-    /// sensible size and corners that enclose part of the picture, which are clamped into it, since a model's corner can
-    /// land a pixel or two outside. Sizes that are not sensible are dropped from the other sizes.
+    /// Parses the Worker's reply, whose `item` names a kind and holds that kind's own object. Wall art whose page states its
+    /// size needs a sensible size and corners that enclose part of the picture, which are clamped into it, since a model's
+    /// corner can land a pixel or two outside. Sizes that are not sensible are dropped from the other sizes. Wall art whose
+    /// page states no size needs neither, since nothing is hung. Furniture and clothing keep what was read, with their
+    /// corners clamped into the picture, since a later PR places them.
     nonisolated init(responseData: Data, pictureWidth: Int, pictureHeight: Int) throws {
-        let reply: RoomArtReply
+        let reply: RoomArtTryItReply
         do {
-            reply = try JSONDecoder().decode(RoomArtReply.self, from: responseData)
+            reply = try JSONDecoder().decode(RoomArtTryItReply.self, from: responseData)
         } catch {
-            throw RoomArtReplyError(reason: "the reply is not the room-art shape")
-        }
-        guard reply.isWallArt else {
-            self = .notWallArt(title: reply.title)
-            return
-        }
-        guard let sizeFoundOnPage = reply.sizeFoundOnPage else {
-            throw RoomArtReplyError(reason: "sizeFoundOnPage is missing")
-        }
-        guard sizeFoundOnPage else {
-            self = .sizeNotOnThePage(title: reply.title)
-            return
-        }
-        guard let chosenSize = reply.chosenSize,
-              sensibleArtCentimeters.contains(chosenSize.widthCentimeters),
-              sensibleArtCentimeters.contains(chosenSize.heightCentimeters),
-              !chosenSize.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw RoomArtReplyError(reason: "chosenSize needs a label and a width and height from 1 to 1000 cm")
-        }
-        guard let cornersReply = reply.artworkCorners else {
-            throw RoomArtReplyError(reason: "artworkCorners is missing")
+            throw RoomArtReplyError(reason: "the reply is not the try-it-item shape")
         }
         func pointInThePicture(_ pointReply: RoomArtPointReply) throws -> CGPoint {
             guard pointReply.x.isFinite, pointReply.y.isFinite else { throw RoomArtReplyError(reason: "a corner is not a number") }
             return CGPoint(x: min(max(pointReply.x, 0), Double(pictureWidth)), y: min(max(pointReply.y, 0), Double(pictureHeight)))
         }
-        let corners = RoomArtCorners(
-            topLeft: try pointInThePicture(cornersReply.topLeft),
-            topRight: try pointInThePicture(cornersReply.topRight),
-            bottomRight: try pointInThePicture(cornersReply.bottomRight),
-            bottomLeft: try pointInThePicture(cornersReply.bottomLeft)
-        )
-        // A sliver is a misread: real art covers at least a hundredth of its own product photo.
-        guard corners.area >= Double(pictureWidth * pictureHeight) / 100 else {
-            throw RoomArtReplyError(reason: "artworkCorners enclose almost none of the picture")
+        func itemCornersInThePicture() throws -> RoomArtCorners {
+            RoomArtCorners(
+                topLeft: try pointInThePicture(reply.itemCorners.topLeft),
+                topRight: try pointInThePicture(reply.itemCorners.topRight),
+                bottomRight: try pointInThePicture(reply.itemCorners.bottomRight),
+                bottomLeft: try pointInThePicture(reply.itemCorners.bottomLeft)
+            )
         }
-        self = .wallArt(RoomArtWallArtReading(
-            title: reply.title,
-            chosenSize: RoomArtSize(label: chosenSize.label, widthCentimeters: chosenSize.widthCentimeters, heightCentimeters: chosenSize.heightCentimeters),
-            chosenSizeIncludesFrame: chosenSize.includesFrame,
-            whyThisSize: reply.whyThisSize ?? "",
-            otherSizes: (reply.otherSizes ?? [])
-                .filter { sensibleArtCentimeters.contains($0.widthCentimeters) && sensibleArtCentimeters.contains($0.heightCentimeters) }
-                .map { RoomArtSize(label: $0.label, widthCentimeters: $0.widthCentimeters, heightCentimeters: $0.heightCentimeters) },
-            artworkCorners: corners
-        ))
+
+        switch reply.item {
+        case .other:
+            self = .other(title: reply.title)
+        case .clothing(let clothingReply):
+            self = .clothing(RoomArtClothingReading(
+                title: reply.title,
+                garment: clothingReply.garment,
+                sleeves: clothingReply.sleeves,
+                chosenSizeLabel: clothingReply.chosenSizeLabel,
+                photoShows: clothingReply.photoShows,
+                printDescription: clothingReply.printDescription,
+                whyThisSize: reply.whyThisSize,
+                itemCorners: try itemCornersInThePicture()
+            ))
+        case .furniture(let furnitureReply):
+            let sizeReply = furnitureReply.size
+            let chosenSize: RoomArtFurnitureSize?
+            if furnitureReply.sizeFoundOnPage {
+                guard [sizeReply.widthCentimeters, sizeReply.heightCentimeters, sizeReply.depthCentimeters].allSatisfy({ sensibleArtCentimeters.contains($0) }),
+                      !sizeReply.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw RoomArtReplyError(reason: "furniture.size needs a label and a width, height, and depth from 1 to 1000 cm")
+                }
+                chosenSize = RoomArtFurnitureSize(
+                    label: sizeReply.label,
+                    widthCentimeters: sizeReply.widthCentimeters,
+                    heightCentimeters: sizeReply.heightCentimeters,
+                    depthCentimeters: sizeReply.depthCentimeters
+                )
+            } else {
+                chosenSize = nil
+            }
+            self = .furniture(RoomArtFurnitureReading(title: reply.title, chosenSize: chosenSize, whyThisSize: reply.whyThisSize, itemCorners: try itemCornersInThePicture()))
+        case .wallArt(let wallArtReply):
+            guard wallArtReply.sizeFoundOnPage else {
+                self = .sizeNotOnThePage(title: reply.title)
+                return
+            }
+            let chosenSize = wallArtReply.size
+            guard sensibleArtCentimeters.contains(chosenSize.widthCentimeters),
+                  sensibleArtCentimeters.contains(chosenSize.heightCentimeters),
+                  !chosenSize.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw RoomArtReplyError(reason: "wallArt.size needs a label and a width and height from 1 to 1000 cm")
+            }
+            let corners = try itemCornersInThePicture()
+            // A sliver is a misread: real art covers at least a hundredth of its own product photo.
+            guard corners.area >= Double(pictureWidth * pictureHeight) / 100 else {
+                throw RoomArtReplyError(reason: "itemCorners enclose almost none of the picture")
+            }
+            self = .wallArt(RoomArtWallArtReading(
+                title: reply.title,
+                chosenSize: RoomArtSize(label: chosenSize.label, widthCentimeters: chosenSize.widthCentimeters, heightCentimeters: chosenSize.heightCentimeters),
+                chosenSizeIncludesFrame: chosenSize.includesFrame,
+                whyThisSize: reply.whyThisSize,
+                otherSizes: wallArtReply.otherSizes
+                    .filter { sensibleArtCentimeters.contains($0.widthCentimeters) && sensibleArtCentimeters.contains($0.heightCentimeters) }
+                    .map { RoomArtSize(label: $0.label, widthCentimeters: $0.widthCentimeters, heightCentimeters: $0.heightCentimeters) },
+                artworkCorners: corners
+            ))
+        }
     }
 }
 
@@ -367,6 +502,13 @@ nonisolated struct RoomWallRequest: Equatable, Sendable {
 
 // MARK: - Where the art goes first
 
+/// The window `bareWallSpot` scores around each candidate spot, as shares of the frame. The loop drawn while the wall is
+/// measured is sized to the same window, so it outlines the wall the spot was chosen for.
+nonisolated enum RoomArtBareWallWindow {
+    static let widthShareOfTheFrame = 0.24
+    static let heightShareOfTheFrame = 0.3
+}
+
 /// The spot of the frame with the least texture, away from the person, in the upper part of the frame where art hangs, and
 /// far enough from the edges for the art to fit, in the image's pixels. `grayscale` is the frame at the track size and
 /// `roomMask` is 0 on the person and 1 on the room, at the same size.
@@ -408,7 +550,8 @@ nonisolated func bareWallSpot(grayscale: RoomGrayscaleImage, roomMask: [Float]) 
             - summed[bottom * (width + 1) + left] + summed[top * (width + 1) + left]
     }
 
-    let windowWidth = Int((Double(width) * 0.24).rounded()), windowHeight = Int((Double(height) * 0.3).rounded())
+    let windowWidth = Int((Double(width) * RoomArtBareWallWindow.widthShareOfTheFrame).rounded())
+    let windowHeight = Int((Double(height) * RoomArtBareWallWindow.heightShareOfTheFrame).rounded())
     var bestSpot = CGPoint(x: Double(width) / 2, y: Double(height) / 3)
     var bestScore = Double.infinity
     let firstRow = Int((Double(height) * 0.25).rounded()), lastRow = Int((Double(height) * 0.55).rounded())
@@ -538,8 +681,11 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
     case pageNotHTTPS
     case cameraAccessDenied
     case noCamera
+    /// The item is neither wall art, furniture, nor clothing, such as a lamp.
     case notWallArt
-    /// The page text could not be read or was empty, or `POST /room-art` failed.
+    /// The item is furniture or clothing, which Clicky reads but does not place yet.
+    case onlyWallArtSoFar
+    /// The page text could not be read or was empty, or `POST /try-it-item` failed.
     case pageNotRead
     /// The page is wall art, but its text states no size.
     case sizeNotOnThePage
@@ -559,6 +705,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .cameraAccessDenied: return "I need camera access for that. You can turn it on in System Settings."
         case .noCamera: return "I couldn't find a camera to show your room."
         case .notWallArt: return "That doesn't look like something that hangs on a wall."
+        case .onlyWallArtSoFar: return "I can hang wall art so far. Furniture and clothes are coming next."
         case .pageNotRead: return "I couldn't read the size from that page."
         case .sizeNotOnThePage: return "I couldn't find the size on that page."
         case .depthServiceUnavailable: return "I couldn't measure your wall. Is the depth service running?"
@@ -575,6 +722,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .cameraAccessDenied: return "Camera access is off. Turn it on in System Settings, Privacy & Security, Camera."
         case .noCamera: return "No camera found"
         case .notWallArt: return "That doesn't look like wall art"
+        case .onlyWallArtSoFar: return "Only wall art so far. Furniture and clothes are coming next"
         case .pageNotRead: return "Couldn't read the size from the page"
         case .sizeNotOnThePage: return "Couldn't find the size on the page"
         case .depthServiceUnavailable: return "Couldn't measure the wall. Is the depth service running?"
@@ -829,7 +977,7 @@ nonisolated enum RoomArtWorkerError: Error, Equatable {
 /// The two Worker routes behind the panel.
 @MainActor
 final class RoomArtClient {
-    private let roomArtURL: URL
+    private let tryItItemURL: URL
     private let roomWallURL: URL
     private let session: URLSession
 
@@ -837,10 +985,10 @@ final class RoomArtClient {
     private static let timeoutSeconds: TimeInterval = 90
 
     init(workerBaseURL: String) {
-        guard let roomArtURL = URL(string: "\(workerBaseURL)/room-art"), let roomWallURL = URL(string: "\(workerBaseURL)/room-wall") else {
+        guard let tryItItemURL = URL(string: "\(workerBaseURL)/try-it-item"), let roomWallURL = URL(string: "\(workerBaseURL)/room-wall") else {
             preconditionFailure("Worker base URL did not form the room art URLs: \(workerBaseURL)")
         }
-        self.roomArtURL = roomArtURL
+        self.tryItItemURL = tryItItemURL
         self.roomWallURL = roomWallURL
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = Self.timeoutSeconds
@@ -851,7 +999,7 @@ final class RoomArtClient {
     func readThePage(_ pageRequest: RoomArtPageRequest) async throws -> RoomArtPageReading {
         let (responseData, statusCode) = try await WorkerJSONPost.send(
             try JSONEncoder().encode(pageRequest.json),
-            to: roomArtURL,
+            to: tryItItemURL,
             using: session,
             sendsAppSecret: true
         )

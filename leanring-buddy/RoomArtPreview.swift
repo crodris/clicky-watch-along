@@ -3,8 +3,9 @@
 //  leanring-buddy
 //
 //  Runs and draws "show me how this would look in my room". `RoomArtPreviewController` reads the page and its picture, opens
-//  the panel, starts the camera, takes a keyframe on the first frame with a person mask, and asks the Worker for the art's
-//  size (`POST /room-art`) and the wall (`POST /room-wall`) at once. `RoomArtFrameProcessor` handles every camera frame on its
+//  the panel, starts the camera, takes a keyframe on the first frame with a person mask, and asks the Worker what the page
+//  shows (`POST /try-it-item`) and where the wall is (`POST /room-wall`) at once, with Clicky's loop around the wall spot
+//  while it waits. `RoomArtFrameProcessor` handles every camera frame on its
 //  own queue: it finds the person, tracks the room against the keyframe, and draws the frame with the art on the wall and the
 //  learner in front of it.
 //
@@ -17,6 +18,7 @@ import AppKit
 import AVFoundation
 import Combine
 import CoreImage
+import os
 import CoreVideo
 import Metal
 import QuartzCore
@@ -57,6 +59,9 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     func takeAKeyframe(anchorInCameraPixels: CGPoint?) async -> RoomArtKeyframe?
     func showTheArt(_ flattenedArt: CGImage, keyframeCorners: RoomArtCorners)
     func putBackTheArtFromBeforeTheMove()
+    /// The loop's window in the newest keyframe and where it is in the newest frame, or nil before the first keyframe of a
+    /// session. Safe to call from any thread, since the panel reads it every frame on the main thread.
+    func currentLoop() -> RoomArtLoopSnapshot?
 }
 
 /// Handles every camera frame on `processingQueue`, which owns all of its state.
@@ -92,6 +97,11 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     private var trackerBeforeTheMove: RoomTracker?
     private var placedArtBeforeTheMove: PlacedArt?
     private var smoothedArtCorners: [CGPoint]?
+    /// The window Clicky's loop outlines in the newest keyframe, tracked with the keyframe's own warp each frame.
+    private var loopKeyframeCorners: RoomArtCorners?
+    private var smoothedLoopCorners: [CGPoint]?
+    /// The newest loop snapshot, written on `processingQueue` and read from the main thread.
+    private let latestLoop = OSAllocatedUnfairLock<RoomArtLoopSnapshot?>(initialState: nil)
     private var statistics = FrameStatistics()
     private var lastFrameRateReport: RoomArtFrameRateReport?
     #if DEBUG
@@ -149,6 +159,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             tracker = nil
             placedArt = nil
             smoothedArtCorners = nil
+            loopKeyframeCorners = nil
+            smoothedLoopCorners = nil
+            latestLoop.withLock { $0 = nil }
             statistics = FrameStatistics()
         }
     }
@@ -194,11 +207,21 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
         let trackMilliseconds = Date().timeIntervalSince(trackStartedAt) * 1000
 
+        // The tracker's turn in camera pixels, which moves both the art's corners and the loop's.
+        let cameraWarp = trackStep.map { $0.warp.scaled(by: Double(frameWidth) / Double(trackWidth)) }
+        if let loopKeyframeCorners, let trackStep, let cameraWarp, !trackStep.theArtIsHidden {
+            let currentLoopCorners = RoomArtLoopGeometry.corners(of: loopKeyframeCorners, after: cameraWarp)
+            let smoothedLoopCornerPoints = smoothedCorners(previous: smoothedLoopCorners, current: currentLoopCorners.clockwiseFromTopLeft)
+            smoothedLoopCorners = smoothedLoopCornerPoints
+            latestLoop.withLock {
+                $0 = RoomArtLoopSnapshot(keyframeCorners: loopKeyframeCorners, currentCorners: RoomArtCorners(clockwiseFromTopLeft: smoothedLoopCornerPoints))
+            }
+        }
+
         var artCorners: [CGPoint]?
         if let placedArt, let trackStep {
             reportWhetherTheWallIsLost(trackStep.theArtIsHidden)
-            if !trackStep.theArtIsHidden {
-                let cameraWarp = trackStep.warp.scaled(by: Double(frameWidth) / Double(trackWidth))
+            if !trackStep.theArtIsHidden, let cameraWarp {
                 let currentCorners = placedArt.keyframeCorners.map(cameraWarp.apply)
                 artCorners = smoothedCorners(previous: smoothedArtCorners, current: currentCorners)
                 smoothedArtCorners = artCorners
@@ -382,6 +405,11 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         placedArt = nil
         smoothedArtCorners = nil
         theWallIsLostAsLastReported = false
+        // The loop outlines the window around the spot until the art shows, and starts on the keyframe where it was drawn.
+        let keyframeLoopCorners = RoomArtLoopGeometry.keyframeCorners(around: anchor, frameSize: CGSize(width: frameWidth, height: frameHeight))
+        loopKeyframeCorners = keyframeLoopCorners
+        smoothedLoopCorners = nil
+        latestLoop.withLock { $0 = RoomArtLoopSnapshot(keyframeCorners: keyframeLoopCorners, currentCorners: keyframeLoopCorners) }
 
         let frameImage = CIImage(cvPixelBuffer: latestFrame)
         guard let keyframeJPEGData = ciContext.jpegRepresentation(
@@ -449,10 +477,17 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
     }
 
+    /// The loop where the wall last was, for the panel to draw or fade out.
+    func currentLoop() -> RoomArtLoopSnapshot? {
+        latestLoop.withLock { $0 }
+    }
+
     /// A click's measurement failed, so the art goes back where it hung, tracked against the keyframe it hung on. That
-    /// tracker aligns each frame to its own keyframe, so it finds the room again after the frames it missed.
+    /// tracker aligns each frame to its own keyframe, so it finds the room again after the frames it missed. The loop
+    /// outlined the failed keyframe, so it stops following the room and fades out where it was.
     func putBackTheArtFromBeforeTheMove() {
         processingQueue.async {
+            self.loopKeyframeCorners = nil
             guard let placedArtBeforeTheMove = self.placedArtBeforeTheMove else { return }
             self.tracker = self.trackerBeforeTheMove
             self.placedArt = placedArtBeforeTheMove
@@ -466,7 +501,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
 // MARK: - Reading the page
 
-/// The page in Chrome's front tab, as `POST /room-art` reads it.
+/// The page in Chrome's front tab, as `POST /try-it-item` reads it.
 nonisolated struct RoomArtFrontTab: Equatable, Sendable {
     let url: String
     let title: String
@@ -474,7 +509,7 @@ nonisolated struct RoomArtFrontTab: Equatable, Sendable {
     let text: String?
 }
 
-/// The front tab's address, title, and text, the text cut to what `POST /room-art` takes. Nil when Chrome has no window.
+/// The front tab's address, title, and text, the text cut to what `POST /try-it-item` takes. Nil when Chrome has no window.
 /// The script has no double quotes or backslashes, since it runs inside an AppleScript string.
 @MainActor
 func readTheFrontTabForRoomArt() -> RoomArtFrontTab? {
@@ -512,7 +547,10 @@ final class RoomArtPreviewController: ObservableObject {
         var makeFrameSource: () -> RoomFrameSource
         /// Clears a scene or pop-out on screen, whose window sits above the panel's and would hide it.
         var clearTheLiveScene: () -> Void
-        var speak: (String) -> Void
+        /// Says a line. `isAFailure` says the line reports something that went wrong, so the cursor shakes as Clicky says it.
+        var speak: (_ line: String, _ isAFailure: Bool) -> Void
+        /// The theme's accent, which Clicky's loop is drawn in. Read each time the panel draws it.
+        var loopAccentColor: () -> Color
         /// Runs on every close, from Escape, the Close button, or a new request, so a line about this panel that is
         /// still waiting or playing ends with it.
         var endTheSpokenLine: () -> Void
@@ -523,7 +561,8 @@ final class RoomArtPreviewController: ObservableObject {
             workerBaseURL: String,
             capturePicture: @escaping () async -> RoomArtPicture?,
             clearTheLiveScene: @escaping () -> Void,
-            speak: @escaping (String) -> Void,
+            speak: @escaping (String, Bool) -> Void,
+            loopAccentColor: @escaping () -> Color,
             endTheSpokenLine: @escaping () -> Void
         ) -> Environment {
             let roomArtClient = RoomArtClient(workerBaseURL: workerBaseURL)
@@ -536,12 +575,17 @@ final class RoomArtPreviewController: ObservableObject {
                 makeFrameSource: { makeRoomFrameSource() },
                 clearTheLiveScene: clearTheLiveScene,
                 speak: speak,
+                loopAccentColor: loopAccentColor,
                 endTheSpokenLine: endTheSpokenLine
             )
         }
     }
 
-    @Published private(set) var phase = RoomArtPhase.closed
+    @Published private(set) var phase = RoomArtPhase.closed {
+        didSet { loopState = loopState.after(phaseChangedTo: phase, at: ProcessInfo.processInfo.systemUptime) }
+    }
+    /// Clicky's loop around the wall spot: drawn from the keyframe until the art shows or the measurement fails.
+    @Published private(set) var loopState = RoomArtLoopState.hidden
     /// The tracker lost the room long enough to hide the art, so the status line says so.
     @Published private(set) var theWallIsLost = false
 
@@ -572,11 +616,26 @@ final class RoomArtPreviewController: ObservableObject {
 
     var isOpen: Bool { phase.isOpen }
 
-    /// Reads the page and its picture, opens the panel, and starts the camera. The measurement starts on the first frame
+    /// The theme's accent, which the panel draws the loop in.
+    var loopAccentColor: Color { environment.loopAccentColor() }
+
+    /// The loop's line as the panel draws it this moment, in panel points, or nil before there is a keyframe or a camera frame.
+    func currentLoopOutline(cameraSize: CGSize, panelSize: CGSize) -> Path? {
+        guard let snapshot = frameProcessor.currentLoop() else { return nil }
+        return RoomArtLoopOutline.path(for: snapshot, fit: RoomArtVideoFit(cameraSize: cameraSize, viewSize: panelSize))
+    }
+
+    /// The loop's fade-out has run.
+    func theLoopFadeFinished() {
+        loopState = loopState.afterTheFadeFinished()
+    }
+
+    /// Reads the page and its picture, opens the panel, and starts the camera. `learnerRequest` is what the learner said, which
+    /// tells the Worker which item they mean when the page shows several. The measurement starts on the first frame
     /// with a person mask. Returns once the camera runs or failed. Everything that can fail before the camera does, a
     /// missing app secret, a page that is not https, and page text that cannot be read, is checked first, so the camera
     /// never opens for a request the Worker would refuse.
-    func showTheArtInTheRoom() async {
+    func showTheArtInTheRoom(learnerRequest: String) async {
         if isOpen { close() }
         openingNumber += 1
         let thisOpening = openingNumber
@@ -584,19 +643,19 @@ final class RoomArtPreviewController: ObservableObject {
         defer { if thisOpening == openingNumber { anOpeningIsUnderway = false } }
 
         guard environment.appSecretIsSet() else {
-            environment.speak(RoomArtFailure.appSecretMissing.spokenLine)
+            environment.speak(RoomArtFailure.appSecretMissing.spokenLine, true)
             return
         }
         guard let frontTab = environment.readTheFrontTab() else {
-            environment.speak(roomArtNoPictureLine)
+            environment.speak(roomArtNoPictureLine, true)
             return
         }
         guard frontTab.url.lowercased().hasPrefix("https://") else {
-            environment.speak(RoomArtFailure.pageNotHTTPS.spokenLine)
+            environment.speak(RoomArtFailure.pageNotHTTPS.spokenLine, true)
             return
         }
         guard let pageText = frontTab.text, !pageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            environment.speak(RoomArtFailure.pageNotRead.spokenLine)
+            environment.speak(RoomArtFailure.pageNotRead.spokenLine, true)
             return
         }
         // The picture is captured before the panel opens, since the panel covers the screen.
@@ -607,11 +666,11 @@ final class RoomArtPreviewController: ObservableObject {
         guard let picture,
               let pictureSource = CGImageSourceCreateWithData(picture.jpegData as CFData, nil),
               let pictureImage = CGImageSourceCreateImageAtIndex(pictureSource, 0, nil) else {
-            environment.speak(roomArtNoPictureLine)
+            environment.speak(roomArtNoPictureLine, true)
             return
         }
         self.pictureImage = pictureImage
-        pageRequest = RoomArtPageRequest(pageURL: frontTab.url, pageTitle: frontTab.title, pageText: pageText, picture: picture)
+        pageRequest = RoomArtPageRequest(pageURL: frontTab.url, pageTitle: frontTab.title, pageText: pageText, learnerRequest: learnerRequest, picture: picture)
         hereItIsWasSaid = false
         theWallIsLost = false
         environment.clearTheLiveScene()
@@ -739,9 +798,15 @@ final class RoomArtPreviewController: ObservableObject {
             let pageReading = try await environment.readThePage(pageRequest)
             guard !Task.isCancelled else { return }
             switch pageReading {
-            case .notWallArt(let title):
-                print("Room art: \"\(title)\" is not wall art")
+            case .other(let title):
+                print("Room art: \"\(title)\" is not wall art, furniture, or clothing")
                 apply(phase.afterTheMeasurementFailed(.notWallArt, measurementID: measurementID))
+            case .furniture(let furnitureReading):
+                print("Room art: \"\(furnitureReading.title)\" is furniture, which is not placed yet")
+                apply(phase.afterTheMeasurementFailed(.onlyWallArtSoFar, measurementID: measurementID))
+            case .clothing(let clothingReading):
+                print("Room art: \"\(clothingReading.title)\" is clothing, which is not placed yet")
+                apply(phase.afterTheMeasurementFailed(.onlyWallArtSoFar, measurementID: measurementID))
             case .sizeNotOnThePage(let title):
                 print("Room art: the page for \"\(title)\" states no size")
                 apply(phase.afterTheMeasurementFailed(.sizeNotOnThePage, measurementID: measurementID))
@@ -791,14 +856,14 @@ final class RoomArtPreviewController: ObservableObject {
             frameProcessor.showTheArt(artwork.flattenedImage, keyframeCorners: keyframeCorners)
             if !hereItIsWasSaid {
                 hereItIsWasSaid = true
-                environment.speak("Here it is at \(artwork.sizeInWords).")
+                environment.speak("Here it is at \(artwork.sizeInWords).", false)
             }
         case .failed(let failure):
             // The panel keeps its last frame and says what went wrong until the learner closes it.
             frameSource?.stop()
             frameSource = nil
             frameProcessor.endTheSession()
-            environment.speak(failure.spokenLine)
+            environment.speak(failure.spokenLine, true)
         case .closed, .startingCamera, .measuring, .moving:
             break
         }
@@ -873,6 +938,16 @@ private struct RoomArtPanelView: View {
             DS.Colors.background
             RoomArtVideoView(metalLayer: metalLayer) { cameraPixel in
                 previewController.moveTheArt(toCameraPixel: cameraPixel)
+            }
+            if !previewController.loopState.isHidden {
+                RoomArtLoopView(
+                    state: previewController.loopState,
+                    color: previewController.loopAccentColor,
+                    outlineProvider: {
+                        previewController.currentLoopOutline(cameraSize: metalLayer.drawableSize, panelSize: RoomArtPanelController.panelSize)
+                    },
+                    onFadeFinished: { previewController.theLoopFadeFinished() }
+                )
             }
             // The layer still holds the last session's frame until the camera's first one, so it stays covered until then.
             if previewController.phase == .startingCamera {
