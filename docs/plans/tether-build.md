@@ -112,7 +112,7 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 14 The loop carries background work | Merged: [#97](https://github.com/crodris/clicky-watch-along/pull/97). Seen in the app with an experiment and a task agent on one volcano video. The Reduce Motion arcs are checked by renders only |
 | 15 End-of-video recap | Merged: [#93](https://github.com/crodris/clicky-watch-along/pull/93) |
 | 16 Pause every agent by voice | Merged: [#94](https://github.com/crodris/clicky-watch-along/pull/94) |
-| 17 Scrub by voice | Building |
+| 17 Scrub by voice | Built in feat/scrub-by-voice. Seen in the app on the volcano video: a long slide, a short one from a spoken request, and a press mid-scrub. Reduce Motion is covered by a unit test only |
 | 18 Share themes as files | Merged: [#102](https://github.com/crodris/clicky-watch-along/pull/102) |
 | 19 Tether polish | After the build order: what earlier PRs left open that no later PR owns |
 
@@ -146,3 +146,7 @@ Left open by PR 14, for PR 19: no test covers the loop view passing the paused f
 The recap watcher reads the front tab every 3 seconds on the main actor, so a spark may jump while an agent works on that video; this is not measured.
 "Let me try it" timed out at 60 seconds on the local Worker in both of PR 14's app runs, because Sonnet sometimes thinks for 3,000 to 7,000 tokens first; [#108](https://github.com/crodris/clicky-watch-along/pull/108) closed it, so PR 19 does not take it.
 Sonnet had thought for 3,000 to 7,000 tokens first, and the experiment build timeout PR gave background builds 240 seconds.
+
+Left open by PR 17, for PR 19: the scrub's Reduce Motion fade is checked only by a unit test of `cursorScrubMotion`, not in the app.
+The scrub was not seen on a non-YouTube player (the video's bottom edge line), or with the mouse on another display than the video, where the cursor flies from wherever the video's screen last saw the mouse.
+One of four app runs read no line while the volcano video had about 14 seconds left, and the app sought with no slide, as designed; the full reply is now logged, so the next case shows why.
