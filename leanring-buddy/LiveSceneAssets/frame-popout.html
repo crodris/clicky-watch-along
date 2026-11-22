@@ -204,6 +204,15 @@ window.liveScene = {
       other.element.style.opacity = other === entry ? "1" : "0.35";
     }
     focusMove = { startedAt: performance.now(), from: null };
+    // A subject larger than the video cannot stay inside it at any pan, so the camera moves out in step with the pan,
+    // through the same pose move a replay stop uses. The narration records that distance, so its replay stops fit too.
+    if (tourDone && returnStartedAt === null) {
+      const distanceThatFits = cameraDistanceThatFitsTheFocusedSubject(draggedYaw, draggedPitch, restingCameraDistance);
+      if (distanceThatFits > restingCameraDistance + 0.5) {
+        if (reducedMotionQuery.matches) cameraDistance = restingCameraDistance = distanceThatFits;
+        else poseMove = { startedAt: performance.now(), fromYaw: yaw, fromPitch: pitch, fromDistance: cameraDistance, toYaw: draggedYaw, toPitch: draggedPitch, toDistance: distanceThatFits };
+      }
+    }
     return true;
   },
   // One instant replay stop: the same focusPart the narration called, plus the yaw, pitch, and distance it recorded,
@@ -217,7 +226,8 @@ window.liveScene = {
     const shortestYawTurn = Math.atan2(Math.sin(pose.yaw - yaw), Math.cos(pose.yaw - yaw));
     const toYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, yaw + shortestYawTurn));
     const toPitch = Math.min(largestDraggedPitch, Math.max(-largestDraggedPitch, pose.pitch));
-    const toDistance = Math.min(maximumDistance, Math.max(minimumDistance, pose.distance));
+    // The recorded distance moves out further when the subject would not fit inside the video at the recorded turn.
+    const toDistance = cameraDistanceThatFitsTheFocusedSubject(toYaw, toPitch, Math.min(maximumDistance, Math.max(minimumDistance, pose.distance)));
     if (reducedMotionQuery.matches) {
       yaw = draggedYaw = toYaw; pitch = draggedPitch = toPitch; cameraDistance = restingCameraDistance = toDistance;
       poseMove = null;
@@ -292,7 +302,8 @@ window.liveScene = {
     if (!tourDone || returnStartedAt !== null) return false;
     // A pinch or a voice zoom during a replay stop's turn takes the camera over from the turn.
     poseMove = null;
-    restingCameraDistance = Math.min(maximumDistance, Math.max(minimumDistance, restingCameraDistance * (1 - amount)));
+    // A focus can move the camera out past the zoom range to fit the subject in the video, and a zoom out from there stays put.
+    restingCameraDistance = Math.min(Math.max(maximumDistance, restingCameraDistance), Math.max(minimumDistance, restingCameraDistance * (1 - amount)));
     if (reducedMotionQuery.matches) cameraDistance = restingCameraDistance;
   },
   // Positive yaw moves the camera right around the subject, positive pitch moves it up, like a drag does.
@@ -797,12 +808,12 @@ addEventListener("pointermove", (event) => {
   lastX = event.clientX; lastY = event.clientY;
 });
 
-// The camera orbits the point it looks at, at the current yaw, pitch, and distance.
-const placeCamera = (lookAtPoint) => {
+// The camera orbits the point it looks at, at the current yaw, pitch, and distance unless a pose to measure is given.
+const placeCamera = (lookAtPoint, cameraYaw = yaw, cameraPitch = pitch, distanceToLookAtPoint = cameraDistance) => {
   camera.position.set(
-    lookAtPoint.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch),
-    lookAtPoint.y + cameraDistance * Math.sin(pitch),
-    lookAtPoint.z + cameraDistance * Math.cos(yaw) * Math.cos(pitch),
+    lookAtPoint.x + distanceToLookAtPoint * Math.sin(cameraYaw) * Math.cos(cameraPitch),
+    lookAtPoint.y + distanceToLookAtPoint * Math.sin(cameraPitch),
+    lookAtPoint.z + distanceToLookAtPoint * Math.cos(cameraYaw) * Math.cos(cameraPitch),
   );
   camera.lookAt(lookAtPoint);
   // lookAt leaves the world matrix with the new position and the old rotation, and the labels
@@ -811,46 +822,99 @@ const placeCamera = (lookAtPoint) => {
 };
 
 // BEGIN pan clamp math (worker/src/framePopoutReplay.test.ts runs this block)
-// How far outside the media box a box on the page reaches, summed over its four sides, in page points.
-function overflowOutsideTheMedia(box, mediaRect) {
-  return Math.max(0, mediaRect.left - box.left) + Math.max(0, box.right - (mediaRect.left + mediaRect.width))
-    + Math.max(0, mediaRect.top - box.top) + Math.max(0, box.bottom - (mediaRect.top + mediaRect.height));
+// How far outside the media box a box on the page reaches on each of its four sides, in page points.
+function overflowOnEachSide(box, mediaRect) {
+  return {
+    left: Math.max(0, mediaRect.left - box.left), right: Math.max(0, box.right - (mediaRect.left + mediaRect.width)),
+    top: Math.max(0, mediaRect.top - box.top), bottom: Math.max(0, box.bottom - (mediaRect.top + mediaRect.height)),
+  };
 }
-// The largest share of the pan from the subject's center (0) to the focused part (1) that pushes the subject no further
-// outside the media than the subject's center does. The overflow grows steadily with the pan, so a search finds it.
-function largestPanShareThatKeepsTheSubjectInside(overflowAtShare) {
-  const allowedOverflow = overflowAtShare(0) + 0.5;
-  if (overflowAtShare(1) <= allowedOverflow) return 1;
+// The largest share of the pan from the subject over the media's center (0) to the focused part (1) at which no side of the
+// subject reaches further outside the media than it does at 0. Each side is held on its own: a sum let a subject wider than
+// the media trade its overflow on one side for more on the other, so the pan leaned the model onto the page beside the video.
+// Each side's overflow grows steadily along the pan once it starts, so the shares that pass run from 0 and a search finds the end.
+function largestPanShareThatKeepsTheSubjectInside(overflowOnEachSideAtShare) {
+  const overflowAtTheStart = overflowOnEachSideAtShare(0);
+  const noSideReachesFurtherOut = (share) => {
+    const overflow = overflowOnEachSideAtShare(share);
+    return ["left", "right", "top", "bottom"].every((side) => overflow[side] <= overflowAtTheStart[side] + 0.5);
+  };
+  if (noSideReachesFurtherOut(1)) return 1;
   let shareInside = 0, shareOutside = 1;
   for (let step = 0; step < 8; step++) {
     const middleShare = (shareInside + shareOutside) / 2;
-    if (overflowAtShare(middleShare) <= allowedOverflow) shareInside = middleShare;
+    if (noSideReachesFurtherOut(middleShare)) shareInside = middleShare;
     else shareOutside = middleShare;
   }
   return shareInside;
 }
+// The camera distance, never nearer than the chosen one, at which the subject's box on the page fits inside the room.
+// The pop-out frames the subject at about 62 percent of the window's height, which on a video page with a sidebar is often
+// larger than the video, and no pan keeps a box larger than the video inside it. A box on the page shrinks about in
+// proportion to the distance, so each round moves out by how much too big the box still is, and the rounds absorb perspective.
+function cameraDistanceThatFitsTheSubject(chosenDistance, subjectBoxAtDistance, roomRect) {
+  let distance = chosenDistance;
+  for (let round = 0; round < 4; round++) {
+    const box = subjectBoxAtDistance(distance);
+    const tooBigBy = Math.max((box.right - box.left) / roomRect.width, (box.bottom - box.top) / roomRect.height);
+    if (tooBigBy <= 1) break;
+    distance *= tooBigBy;
+  }
+  return distance;
+}
+// How far a box on the page slides, right and down in page points, to sit centered on the media.
+function slideThatCentersTheBoxOnTheMedia(box, mediaRect) {
+  return {
+    right: mediaRect.left + mediaRect.width / 2 - (box.left + box.right) / 2,
+    down: mediaRect.top + mediaRect.height / 2 - (box.top + box.bottom) / 2,
+  };
+}
 // END pan clamp math
 
-// Centering a part near the subject's edge would slide the rest of the lifted model out of the paused video and under the
-// replay control, so the pan toward a focused part stops where the subject would reach further outside the media.
-const focusTargetThatKeepsTheSubjectOverTheMedia = (entry) => {
-  const fromPoint = subjectCenter(), toPoint = partPoint(entry);
-  const mediaRect = { left: shownLeft, top: shownTop, width: shownWidth, height: shownHeight };
-  const subjectCorners = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([frameX, frameY]) => framePointToWorld(frameX, frameY, maximumLift * liftNow));
-  const candidate = new THREE.Vector3();
-  const overflowAtShare = (share) => {
-    placeCamera(candidate.lerpVectors(fromPoint, toPoint, share));
-    const pagePoints = subjectCorners.map((corner) => {
-      const projected = corner.clone().project(camera);
-      return [(projected.x + 1) / 2 * pageWidth, (1 - projected.y) / 2 * pageHeight];
-    });
-    const box = {
-      left: Math.min(...pagePoints.map((point) => point[0])), right: Math.max(...pagePoints.map((point) => point[0])),
-      top: Math.min(...pagePoints.map((point) => point[1])), bottom: Math.max(...pagePoints.map((point) => point[1])),
-    };
-    return overflowOutsideTheMedia(box, mediaRect);
+// While a part is focused the lifted subject stays inside the paused video with this margin, so the replay control under the
+// video and the page beside it, such as a video site's sidebar, never sit under the model.
+const subjectMarginInsideTheMedia = 10;
+const roomForTheFocusedSubject = {
+  left: shownLeft + subjectMarginInsideTheMedia, top: shownTop + subjectMarginInsideTheMedia,
+  width: Math.max(1, shownWidth - 2 * subjectMarginInsideTheMedia), height: Math.max(1, shownHeight - 2 * subjectMarginInsideTheMedia),
+};
+// The subject's box on the page with the camera looking at this point from this pose. It moves the camera, which the
+// render loop places again before it draws.
+const subjectBoxOnPage = (lookAtPoint, cameraYaw = yaw, cameraPitch = pitch, distanceToLookAtPoint = cameraDistance) => {
+  placeCamera(lookAtPoint, cameraYaw, cameraPitch, distanceToLookAtPoint);
+  const pagePoints = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([frameX, frameY]) => {
+    const projected = framePointToWorld(frameX, frameY, maximumLift * liftNow).project(camera);
+    return [(projected.x + 1) / 2 * pageWidth, (1 - projected.y) / 2 * pageHeight];
+  });
+  return {
+    left: Math.min(...pagePoints.map((point) => point[0])), right: Math.max(...pagePoints.map((point) => point[0])),
+    top: Math.min(...pagePoints.map((point) => point[1])), bottom: Math.max(...pagePoints.map((point) => point[1])),
   };
-  return new THREE.Vector3().lerpVectors(fromPoint, toPoint, largestPanShareThatKeepsTheSubjectInside(overflowAtShare));
+};
+// The distance a focus or a replay stop moves the camera out to at this yaw and pitch, so the subject fits inside the video.
+const cameraDistanceThatFitsTheFocusedSubject = (cameraYaw, cameraPitch, chosenDistance) =>
+  cameraDistanceThatFitsTheSubject(chosenDistance, (distance) => subjectBoxOnPage(subjectCenter(), cameraYaw, cameraPitch, distance), roomForTheFocusedSubject);
+// The point to look at that puts the subject's box over the video's center. The camera keeps the point it looks at in the
+// middle of the window, and a video page puts the video left of the middle, beside its sidebar, so looking at the subject's
+// own center leaves the model over the sidebar. The box is centered, not the subject's center, since a turned camera draws
+// the near side of the box larger. Moving the point right slides the subject left on the page, and up slides it down.
+const targetThatCentersTheSubjectOnTheMedia = () => {
+  const center = subjectCenter();
+  const slide = slideThatCentersTheBoxOnTheMedia(subjectBoxOnPage(center), roomForTheFocusedSubject);
+  const worldUnitsPerPagePoint = 2 * cameraDistance * halfFieldTangent / pageHeight;
+  const cameraRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+  const cameraUp = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+  return center.addScaledVector(cameraRight, -slide.right * worldUnitsPerPagePoint).addScaledVector(cameraUp, slide.down * worldUnitsPerPagePoint);
+};
+
+// Centering a part near the subject's edge would slide the rest of the lifted model out of the paused video and under the
+// replay control, so the pan from the subject over the video toward a focused part stops where any side would leave the video.
+const focusTargetThatKeepsTheSubjectOverTheMedia = (entry) => {
+  const fromPoint = targetThatCentersTheSubjectOnTheMedia(), toPoint = partPoint(entry);
+  const candidate = new THREE.Vector3();
+  const overflowOnEachSideAtShare = (share) =>
+    overflowOnEachSide(subjectBoxOnPage(candidate.lerpVectors(fromPoint, toPoint, share)), roomForTheFocusedSubject);
+  return new THREE.Vector3().lerpVectors(fromPoint, toPoint, largestPanShareThatKeepsTheSubjectInside(overflowOnEachSideAtShare));
 };
 
 let lastFrameTime;
