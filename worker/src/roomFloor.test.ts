@@ -97,6 +97,30 @@ describe("handleRoomFloor", () => {
     expect(String(logSpy.mock.calls[0][0])).toMatch(/^\[\/room-floor\] distance 3\.6 m, tilt 15 deg, depth 3\.2 s, total \d+\.\d s$/);
   });
 
+  it("accepts the reply recorded from a live Depth Pro run on 2026-11-21, which the plausibility checks pass", async () => {
+    // The depth service's real answer for a frame of a person standing in a room, anchor (1000, 930).
+    const recordedReply = {
+      center: [0.2559, 0.4113, 1.198],
+      right: [0.99762, 0.06617, -0.0194],
+      up: [0.06896, -0.95732, 0.28069],
+      forward: [0.0, 0.28136, 0.9596],
+      focalPx: 1310.69,
+      principal: [720.0, 480.0],
+      distanceMeters: 1.292,
+      floorTiltDegrees: 16.8,
+      planeInlierShare: 0.467,
+      inferenceSeconds: 12.86,
+      seconds: 12.93,
+    };
+    stubServiceReply(new Response(JSON.stringify(recordedReply)));
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const response = await handleRoomFloor(requestWithBody(goodRequest), depthServiceURL);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(recordedReply);
+  });
+
   const badServiceReplies: [string, unknown][] = [
     ["a missing forward vector", { ...goodServiceReply, forward: undefined }],
     ["a missing tilt", { ...goodServiceReply, floorTiltDegrees: undefined }],
