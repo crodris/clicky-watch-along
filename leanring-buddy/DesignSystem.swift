@@ -305,6 +305,9 @@ enum DS {
     /// never writes its own duration or spring. Each move has a `curve` and a Reduce Motion form (`reduceMotionForm`), which
     /// keeps the change of state and drops the travel.
     ///
+    /// A theme may restyle three moves (`ThemeMoveSprings`): Pop and Glide as springs and Point as a speed, all inside safe
+    /// limits. The other seven are the same under every theme.
+    ///
     /// A move that crosses windows (Send, and a Card's Glide out of a disc and its Glide close back into it) runs on the shared
     /// carrier panel (`TetherCarrier`), which samples the same curve for Core Animation.
     ///
@@ -347,15 +350,26 @@ enum DS {
         /// the cross badge carry the failure.
         case shake
 
-        var curve: MoveCurve {
+        /// The springs of the theme on screen for Pop, Glide, and Point, which the app sets whenever the shown theme changes
+        /// (`CompanionManager`, from the theme's `motion.springs`). A theme that sets none, as every bundled theme does,
+        /// leaves Clicky's own here. Reduce Motion ignores them, since a move's Reduce Motion form is a fade.
+        static var themeSprings = ThemeMoveSprings.standard
+
+        /// This move's curve under the shown theme's springs.
+        var curve: MoveCurve { curve(using: Self.themeSprings) }
+
+        /// This move's curve under the given springs. Only Pop, Glide, and Point read them.
+        func curve(using springs: ThemeMoveSprings) -> MoveCurve {
             switch self {
             case .send: return .timed(seconds: 0.5, bezier: .smoothstep)
             case .bringBack: return .timed(seconds: 0.6, bezier: .smoothstep)
-            case .point: return .pacedByDistance(pointsPerSecond: 800, shortestSeconds: 0.6, longestSeconds: 1.4, bezier: .smoothstep)
+            case .point:
+                return MoveCurve.pacedByDistance(pointsPerSecond: 800, shortestSeconds: 0.6, longestSeconds: 1.4, bezier: .smoothstep)
+                    .timeScaled(by: springs.pointFlightTimeFactor)
             case .rise: return .timed(seconds: 1.6, bezier: .cubicEaseInOut)
             case .returnToSource: return .timed(seconds: 0.8, bezier: .cubicEaseInOut)
-            case .pop: return .spring(response: 0.32, dampingFraction: 0.68)
-            case .glide: return .spring(response: 0.42, dampingFraction: 0.9)
+            case .pop: return .spring(response: springs.pop.response, dampingFraction: springs.pop.dampingFraction)
+            case .glide: return .spring(response: springs.glide.response, dampingFraction: springs.glide.dampingFraction)
             case .snap: return .spring(response: 0.18, dampingFraction: 0.86)
             case .recall: return .timed(seconds: 0.18, bezier: .quadraticEaseIn)
             case .shake: return .decayingShake(seconds: 0.45, amplitudePoints: Double(Self.shakeAmplitudePoints), cyclesPerSecond: 3.5, decayPerSecond: 7)
@@ -375,14 +389,16 @@ enum DS {
         /// The SwiftUI animation for this move. Nil when the change should apply with no animation: the shake, which moves
         /// an offset (`curve.progress`) instead of easing a value, and any move whose Reduce Motion form is none.
         /// - `travelingPoints`: how far the thing moves, which only the Point move's duration depends on.
-        func animation(reduceMotionIsOn: Bool, travelingPoints: Double = 0) -> SwiftUI.Animation? {
+        /// - `springs`: the springs to play Pop, Glide, and Point with, for a surface that shows a theme other than the one on
+        ///   screen, such as a Theme Studio tile. Nil uses the shown theme's.
+        func animation(reduceMotionIsOn: Bool, travelingPoints: Double = 0, springs: ThemeMoveSprings? = nil) -> SwiftUI.Animation? {
             if reduceMotionIsOn {
                 switch reduceMotionForm {
                 case .crossfade(let seconds), .fadeAtTheTargetLeavingAStillRing(let seconds): return .easeOut(duration: seconds)
                 case .none: return nil
                 }
             }
-            return curve.animation(travelingPoints: travelingPoints)
+            return curve(using: springs ?? Self.themeSprings).animation(travelingPoints: travelingPoints)
         }
 
         // The shapes the moves take, shared by every surface that plays them.
