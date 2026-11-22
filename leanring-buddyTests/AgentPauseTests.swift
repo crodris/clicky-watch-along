@@ -137,9 +137,20 @@ struct AgentPauseTests {
     }
 
     @Test func thePausedDiscsPeekSaysHowManyAndHowToGoOn() {
-        #expect(agentTokenPausedPeekContent(pausedAgentCount: 1).title == "1 agent paused")
-        #expect(agentTokenPausedPeekContent(pausedAgentCount: 3).title == "3 agents paused")
-        #expect(agentTokenPausedPeekContent(pausedAgentCount: 3).caption == "Say go ahead to let them go on")
+        #expect(agentTokenPausedPeekContent(pausedAgentCount: 1, anApprovalWaits: false).title == "1 agent paused")
+        #expect(agentTokenPausedPeekContent(pausedAgentCount: 3, anApprovalWaits: false).title == "3 agents paused")
+        #expect(agentTokenPausedPeekContent(pausedAgentCount: 3, anApprovalWaits: false).caption == "Say go ahead to let them go on")
+        // "Go ahead" answers a waiting request, so the card never tells the learner to say it before they answer.
+        #expect(agentTokenPausedPeekContent(pausedAgentCount: 3, anApprovalWaits: true).caption == "Answer the request first, then say go ahead")
+    }
+
+    @Test func thePausedDiscCountsOnlyTheRunningAgentsItHolds() {
+        let store = makeBackgroundAgentStore()
+        store.start(kind: .task)
+        let finishedAgentID = store.start(kind: .threeDModel)
+        store.finish(finishedAgentID, with: .readyScene)
+        store.pauseEveryAgent()
+        #expect(pausedAgentCount(of: store.agents) == 1)
     }
 
     private func renderedPixels(of view: some View) throws -> NSBitmapImageRep {
@@ -185,6 +196,12 @@ struct AgentPauseTests {
 
         let paused = AppVoiceTool.available(in: voiceContext(agentIsRunning: true, agentsArePaused: true))
         #expect(!paused.contains(.pauseAgents) && paused.contains(.resumeAgents))
+
+        // "Go ahead" is a yes to a request the learner can answer by voice, so a resume waits until it is answered.
+        var pausedWithARequestWaiting = voiceContext(agentIsRunning: true, agentsArePaused: true)
+        pausedWithARequestWaiting.approvalIsWaiting = true
+        let offeredWhileARequestWaits = AppVoiceTool.available(in: pausedWithARequestWaiting)
+        #expect(!offeredWhileARequestWaits.contains(.resumeAgents) && offeredWhileARequestWaits.contains(.answerApproval))
     }
 
     @Test func theRouterTakesEveryCommandWhileAnAgentRunsOrIsPaused() {
@@ -200,6 +217,6 @@ struct AgentPauseTests {
         #expect(VoiceToolCall(id: "2", name: "resume_agents", input: [:]).chipPhrase == "Back to work")
         #expect(backgroundAgentsStateText(runningAgentCount: 0, agentsArePaused: false) == nil)
         #expect(backgroundAgentsStateText(runningAgentCount: 2, agentsArePaused: false) == "2 running")
-        #expect(backgroundAgentsStateText(runningAgentCount: 1, agentsArePaused: true) == "1 paused")
+        #expect(backgroundAgentsStateText(runningAgentCount: 1, agentsArePaused: true) == "1 paused, and a new agent waits for go ahead too")
     }
 }

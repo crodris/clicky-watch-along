@@ -59,11 +59,18 @@ enum AgentTokenGather {
     }
 }
 
-/// What a paused disc's peek card says.
-func agentTokenPausedPeekContent(pausedAgentCount: Int) -> AgentTokenPeekContent {
+/// The running agents a pause holds, which the paused disc's badge and peek count. A finished agent whose result waits
+/// folds into the disc too, but nothing of it is held.
+func pausedAgentCount(of agents: [BackgroundAgent]) -> Int {
+    agents.filter(\.isRunning).count
+}
+
+/// What a paused disc's peek card says. While one of the agents waits for the learner's OK, "go ahead" answers that
+/// request (`resume_agents` is not offered then), so the card asks for the answer first.
+func agentTokenPausedPeekContent(pausedAgentCount: Int, anApprovalWaits: Bool) -> AgentTokenPeekContent {
     AgentTokenPeekContent(
         title: "\(pausedAgentCount) \(pausedAgentCount == 1 ? "agent" : "agents") paused",
-        caption: "Say go ahead to let them go on",
+        caption: anApprovalWaits ? "Answer the request first, then say go ahead" : "Say go ahead to let them go on",
         captionStyle: .plain,
         hint: nil,
         meter: nil

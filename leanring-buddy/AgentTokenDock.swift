@@ -190,7 +190,7 @@ struct AgentTokenDiscContent: View {
         case .overflow:
             AgentOverflowDiscView(overflowCount: overflowCount, isHovered: discModel.isHovered)
         case .paused:
-            AgentPausedDiscView(pausedAgentCount: agentsWithTokens(from: store.agents, at: Date()).count, isHovered: discModel.isHovered)
+            AgentPausedDiscView(pausedAgentCount: pausedAgentCount(of: store.agents), isHovered: discModel.isHovered)
         }
     }
 }
@@ -353,6 +353,10 @@ final class AgentTokenDockController {
             reduceMotionIsOn: reduceMotionIsOn
         )
         agentsWerePausedAtTheLastRefresh = agentsArePaused
+        // A disc still flying back from the last resume lands first, so a new pause gathers it from its place.
+        if pauseMove != nil {
+            for sendBackFlight in sendBackFlights { sendBackFlight.landAtOnce() }
+        }
         guard !rankedAgents.isEmpty else {
             removeEveryDisc()
             stopPolling()
@@ -721,6 +725,9 @@ final class AgentTokenDockController {
     /// with no discs, or a display that is gone gets no spark, and the chip shows at once. A push-to-talk press lands the
     /// spark at once (`finishTheServeAtOnce`).
     func bringBack(agentID: UUID, in agentColor: Color, showTheChip: @escaping () -> Void) {
+        // An ending held through a pause comes right after "go ahead", while the disc may still fly back to its place, so
+        // the disc lands first and the spark leaves from it.
+        for sendBackFlight in sendBackFlights { sendBackFlight.landAtOnce() }
         let mouseLocation = NSEvent.mouseLocation
         let displayFramesByID = Dictionary(uniqueKeysWithValues: NSScreen.screens.map { ($0.displayID, $0.frame) })
         guard let cursorDisplayID = agentTokenServeDisplayID(containing: mouseLocation, displayFrames: displayFramesByID),
@@ -809,7 +816,9 @@ final class AgentTokenDockController {
             contentAt = { _ in agentTokenOverflowPeekContent(overflowCount: overflowCount) }
         case .paused:
             accentColor = DS.Colors.textSecondary
-            contentAt = { now in agentTokenPausedPeekContent(pausedAgentCount: agentsWithTokens(from: store.agents, at: now).count) }
+            contentAt = { _ in
+                agentTokenPausedPeekContent(pausedAgentCount: pausedAgentCount(of: store.agents), anApprovalWaits: !store.agentIDsWaitingForApproval.isEmpty)
+            }
         }
         discIDOfThePeek = discID
         peekController.show(contentAt: contentAt, accentColor: accentColor, discPanelFrame: disc.panel.frame, on: screen)

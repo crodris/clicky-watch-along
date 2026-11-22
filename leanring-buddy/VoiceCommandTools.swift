@@ -293,8 +293,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             // Pausing holds the agents and never the learner, so it works whatever is on screen.
             case .pauseAgents:
                 return context.backgroundAgentIsRunning && !context.backgroundAgentsArePaused
+            // While a request the learner can answer by voice waits, "go ahead" is its yes, so the agents go on only after
+            // the learner answers it, and a resume never doubles as an approval.
             case .resumeAgents:
-                return context.backgroundAgentsArePaused
+                return context.backgroundAgentsArePaused && !context.approvalIsWaiting
             case .recordGuess:
                 return context.simulationIsWaitingForAGuess && !context.quizQuestionIsOpen
             // Offered only while a request waits, so a "yes" with nothing to allow never reaches it. A quiz question
@@ -873,11 +875,13 @@ nonisolated func readyToShowStateText(isExperiment: Bool, whatToBuild: String) -
     return trimmedRequest.isEmpty ? "\(kindText), built and waiting" : "\(kindText) of \"\(trimmedRequest)\", built and waiting"
 }
 
-/// What the router's scene state says about the background agents, such as "2 running" or "1 paused", so "hold on" and
-/// "go ahead" read as being about them. Nil when no agent runs, which leaves the field out.
+/// What the router's scene state says about the background agents, such as "2 running", so "hold on" and "go ahead" read as
+/// being about them. During a pause it also says a new agent waits, so a confirmation for one started then says when it
+/// starts. Nil when no agent runs, which leaves the field out.
 nonisolated func backgroundAgentsStateText(runningAgentCount: Int, agentsArePaused: Bool) -> String? {
     guard runningAgentCount > 0 else { return nil }
-    return "\(runningAgentCount) \(agentsArePaused ? "paused" : "running")"
+    guard agentsArePaused else { return "\(runningAgentCount) running" }
+    return "\(runningAgentCount) paused, and a new agent waits for go ahead too"
 }
 
 /// Page text and captions sit inside tags the model is told never to obey, so a "<" in them could close the tag early.

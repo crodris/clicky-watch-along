@@ -457,7 +457,7 @@
           "title": "How sharks float"
         },
         "videoQuizIsRunning": false,
-        "backgroundAgents": "2 paused"
+        "backgroundAgents": "2 paused, and a new agent waits for go ahead too"
       },
       "tools": [
         "answer_with_screen",
@@ -476,6 +476,42 @@
         "build_model_in_background",
         "start_background_task",
         "resume_agents"
+      ]
+    },
+    "agentsPausedApprovalWaiting": {
+      "description": "The learner paused two background agents while one of them waits for the learner to allow an action, with a YouTube video playing in Chrome. resume_agents is left out, since go ahead answers the waiting request, so the offered tools are the approvalWaiting context's.",
+      "sceneState": {
+        "page": "none",
+        "video": {
+          "durationSeconds": 612,
+          "onYouTube": true,
+          "paused": false,
+          "playbackRate": 1,
+          "playing": true,
+          "seconds": 124,
+          "title": "How sharks float"
+        },
+        "videoQuizIsRunning": false,
+        "approvalWaiting": "sends",
+        "backgroundAgents": "2 paused, and a new agent waits for go ahead too"
+      },
+      "tools": [
+        "answer_with_screen",
+        "build_new_scene",
+        "build_simulation",
+        "pop_out",
+        "animate_picture",
+        "pause_video",
+        "play_video",
+        "seek_relative",
+        "seek_to_time",
+        "set_speed",
+        "find_moment",
+        "seek_to_moment",
+        "make_study_guide",
+        "build_model_in_background",
+        "start_background_task",
+        "answer_approval"
       ]
     }
   },
@@ -1432,6 +1468,35 @@
         "answer_with_screen"
       ],
       "why": "Paused agents must not capture an unrelated question."
+    },
+    {
+      "id": "agents-paused-go-ahead-answers-the-request",
+      "context": "agentsPausedApprovalWaiting",
+      "say": "go ahead",
+      "accept": [
+        "answer_approval"
+      ],
+      "input": {
+        "answer_approval": {
+          "approved": true,
+          "always": false
+        }
+      },
+      "why": "With a request waiting, go ahead is its yes, and the agents go on only after it is answered, so a resume never doubles as an approval."
+    },
+    {
+      "id": "agents-paused-no-declines-the-request",
+      "context": "agentsPausedApprovalWaiting",
+      "say": "no, don't do that",
+      "accept": [
+        "answer_approval"
+      ],
+      "input": {
+        "answer_approval": {
+          "approved": false
+        }
+      },
+      "why": "A pause leaves the request waiting, and a no still declines it."
     }
   ]
 }

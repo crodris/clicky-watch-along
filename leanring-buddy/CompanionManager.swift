@@ -3432,6 +3432,9 @@ final class CompanionManager: ObservableObject {
                 try Task.checkCancellation()
                 switch taskEvent {
                 case .toolCall(let toolCall):
+                    // A call the harness sent just before its pause_task arrived still waits for "go ahead", since an
+                    // app tool such as open_url changes the Mac.
+                    try await holdWhileEveryAgentIsPaused("the task agent's \(toolCall.toolName) call")
                     let toolRun = await runTaskAgentTool(toolCall, agentID: agentID, pageAlreadyWritten: writtenPageURL != nil)
                     writtenPageURL = toolRun.writtenPageURL ?? writtenPageURL
                     try Task.checkCancellation()
@@ -3737,7 +3740,10 @@ final class CompanionManager: ObservableObject {
             spokenLine = "Your experiment is still building."
         case .startBuilding:
             _ = startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment)
-            spokenLine = "Sure, I'll build that while you watch."
+            // During a pause the new experiment waits too, so the line says when it starts.
+            spokenLine = backgroundAgentStore.agentsArePaused
+                ? "Sure, I'll build that once you say go ahead."
+                : "Sure, I'll build that while you watch."
         }
         currentResponseTask = Task {
             // The experiment agent serves its token from the cursor first, and the line plays after it lands.
@@ -3782,8 +3788,6 @@ final class CompanionManager: ObservableObject {
         let startedAt = Date()
         let sceneKind = agentKind.liveSceneKindToBuild ?? .explore
         do {
-            // An agent started during a pause grabs no frame until the learner says go ahead.
-            try await holdWhileEveryAgentIsPaused("the \(agentKind.builtThingName)'s frame grab")
             // An experiment over a page with no video is tied to no tab, so it may rise once the screen is free.
             let buildsOverAVideo = agentKind == .threeDModel || videoQuizSession.frontVideoStateForVoiceCommands() != nil
             let sourceTabURL = buildsOverAVideo ? videoQuizSession.frontTabURLOfTheFrontWindow() : nil
@@ -3796,6 +3800,8 @@ final class CompanionManager: ObservableObject {
             try Task.checkCancellation()
             backgroundAgentStore.setSubject(whatToBuild, for: agentID)
             backgroundAgentStore.completeStep(for: agentID)
+            // The frame, tab, and words above are read at once, even during a pause, so the build is of what the learner
+            // asked about. Only the Worker call waits for "go ahead".
             try await holdWhileEveryAgentIsPaused("the \(agentKind.builtThingName)'s build")
             let sceneQuestion = heardText.isEmpty ? whatToBuild : "\(whatToBuild) The video just said: \(heardText)"
             let liveScene = try await liveSceneClient.requestLiveScene(question: sceneQuestion, cursorScreenJPEGData: videoScreenJPEGData, sceneKind: sceneKind)
@@ -4087,7 +4093,8 @@ final class CompanionManager: ObservableObject {
         let startedAt = Date()
         let agentKind = studyGuideJob.agentKind
         do {
-            try await holdWhileEveryAgentIsPaused("the study guide's caption read")
+            // The captions are read at once, even during a pause, so the guide is written for the video the learner
+            // asked about. Only the Worker call below waits for "go ahead".
             let video = try await videoQuizSession.frontVideoForStudyGuide()
             backgroundAgentStore.setSubject(video.title, for: agentID)
             backgroundAgentStore.completeStep(for: agentID)
