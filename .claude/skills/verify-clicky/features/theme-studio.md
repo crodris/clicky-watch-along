@@ -91,11 +91,13 @@ Preconditions:
   With the studio card open (say "change my theme" first, or launch with that step), open the panel through the dial's More token, click a card's pencil, and press `$V key escape`: the rename field closes and the studio card is still open with its ideas.
   Rename a saved card to the 24 character name "Moonlit Harbor Night Owl", then press Tab with `osascript -e 'tell application "System Events" to key code 48'` until that card shows its focus ring.
   Its full-name pill wraps inside the card and never reaches the next card or the panel's edge.
-  Move the mouse over the card and click the trash can once: it turns into a red "Delete" button, which goes back to the trash can after 3 seconds with no second click.
+  Move the mouse over the card and click the trash can once: a red "Delete" button shows across the bottom of the card, and it goes away after 3 seconds with no second click.
+  Capture the panel as `delete-armed` within those 3 seconds, to read the Delete button's point.
   Seed agents with `debug_seed_agents` before the delete: they keep their colors after it.
   Save a second theme first, so a card slides into the deleted one's place.
-  Compile the mouse tool once with `swiftc -O demo/scripts/mouse/mouse.swift -o "$RUN/mouse"`, since the interpreter's start-up eats most of the 3 seconds.
-  Hover the card, then run `"$RUN/mouse" click <trash x> <trash y>; sleep 0.5; "$RUN/mouse" click <Delete x> <Delete y>` as one command, with the points read from an earlier capture.
+  Compile the mouse tool once with `swiftc -O demo/scripts/mouse/mouse.swift -o "$RUN/mouse"`, since the interpreter's start-up takes most of the 3 seconds.
+  The mouse tool takes global points with a top-left origin, and a window capture is in pixels from the window's corner, so convert a point as `x = X + pixelX / scale` and `y = Y + pixelY / scale`, with `X` and `Y` from the window list's bounds and a scale of 2 on a Retina display.
+  Hover the card, then run `"$RUN/mouse" click <trash x> <trash y>; sleep 0.5; "$RUN/mouse" click <Delete x> <Delete y>` as one command.
   The card goes, the theme's folder is gone from `~/Library/Application Support/Clicky/Themes/`, and when it was the theme in use, `companionTheme` is `bundled:clicky-blue` and the cursor is the blue triangle.
   Keep the pointer still and capture the panel as `after-delete`: only the card that slid under the pointer looks hovered, and the cards the delete moved elsewhere stay dim.
 - **Close and Escape.** Open the card again, then post `close_theme_studio`, or run `$V key escape`.
