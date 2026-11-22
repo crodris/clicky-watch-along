@@ -196,6 +196,7 @@ A record whose PID now belongs to another process is removed, and that process i
 - Push-to-talk itself.
   It needs the microphone and real speech; `$V key push-to-talk-tap` sends only a press with no words.
   Rehearsal steps enter the pipeline right after transcription, so the transcription providers (AssemblyAI, OpenAI, Apple Speech) stay unverified.
+  Never drive real push-to-talk presses by playing `say` through the speakers into the microphone: the microphone also records people in the room, and their words go to the brain model and to ElevenLabs. A live microphone check is Chris's own press.
 - The menu bar panel's contents, the model picker, and the permission prompts.
   `$V menu-icon click` opens the panel itself, and `$V menu-icon status` says where the icon is, since a status item beside the notch may be missing from the window list.
 - Mouse drag orbit and trackpad pinch.
