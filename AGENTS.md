@@ -68,10 +68,10 @@ Benchmark-only Worker vars, set with `--var` on a local `wrangler dev` and never
 While the learner talks, 24 ticks start 20 points from the cursor's center and grow outward with the microphone level, 5 to 16 points long and 2.5 points wide (`CursorRingGeometry.tickLengths`).
 While Clicky thinks, three dots orbit the cursor once every 1.2 seconds.
 Speaking hides the ring, since the speech Callout already brightens its words with the voice.
-A status line such as "Popping it out" is a Callout above the cursor and leaves the ring alone, so the ticks and dots keep showing under it.
+A status line such as "Popping it out" is a Callout above the cursor and does not hide the ring, so the ticks and dots keep showing, and a dot crosses the Callout's tail once a lap (the ring's orbit passes the tail's tip 12 points above the cursor).
 The ring and the loop use the theme's accent color (Inarizaki's is `#F4F4F5`).
 Reduce Motion holds the ticks still and turns the dots' orbit into a slow opacity change.
-The cues hand off instead of cutting (`CursorRingHandoff`): on release the ticks shrink into the dots over 0.3 seconds (the ticks at 0, 120, and 240 degrees become the dots, and each other tick slides to its nearest dot and fades, so the last frame is the dots' first frame), and when speech starts the dots fly from their orbit into the speech bubble's tail over 0.38 seconds, shrinking to half and fading there (`CursorRingView.speechTailOffset`, which defaults to the speech Callout's tail tip, `tetherCalloutTipRiseAboveTheCursor` above the cursor).
+The cues hand off instead of cutting (`CursorRingHandoff`): on release the ticks shrink into the dots over 0.3 seconds (the ticks at 0, 120, and 240 degrees become the dots, and each other tick slides to its nearest dot and fades, so the last frame is the dots' first frame), and when speech starts the dots fly from their orbit into the speech Callout's tail over 0.38 seconds, shrinking to half and fading there (`CursorRingView.speechTailOffset`, which defaults to the speech Callout's tail tip, `tetherCalloutTipRiseAboveTheCursor` above the cursor).
 Every other change of cue, and every change with Reduce Motion on, crossfades over `DS.Move.fadeSeconds`.
 
 **Cursor body language** (`CursorBodyLanguage.swift`, the Tether Point move and emotes, for every cursor kind: the triangle, a theme's shapes, a picture, the volleyball): every rule is a pure function of time.

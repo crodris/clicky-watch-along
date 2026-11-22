@@ -399,7 +399,7 @@ struct BlueCursorView: View {
                 )
 
             // The ring around the cursor: ticks that follow the voice while listening, and three orbiting dots
-            // while thinking. It follows the cursor like the triangle, and a status label's Callout above the cursor leaves it alone.
+            // while thinking. It follows the cursor like the triangle, and a status label's Callout above the cursor does not hide it.
             CursorRingView(
                 cue: cursorCue(
                     voiceState: companionManager.voiceState,

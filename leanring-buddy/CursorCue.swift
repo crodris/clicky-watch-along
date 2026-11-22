@@ -5,18 +5,18 @@
 //  The ring around the cursor, which gives Clicky's voice states one home: a ring of ticks that follows
 //  your voice while you speak, and three dots orbiting the cursor while Clicky thinks. Speaking hides the
 //  ring, because the speech Callout brightens its words with the voice. A status line's Callout sits above the cursor and
-//  leaves the ring alone, so the ring keeps showing under it. While a loop shows around the media Clicky is
+//  does not hide the ring, so the ring keeps showing, and a dot crosses the Callout's tail once a lap. While a loop shows around the media Clicky is
 //  looking at, the loop's spark is the thinking light instead, and the dots stay away.
 //
 //  The cues hand off to one another instead of cutting: on release the ticks shrink into the dots (0.3 s), and when speech
-//  starts the dots fly into the speech bubble's tail (0.38 s). Reduce Motion crossfades every cue change.
+//  starts the dots fly into the speech Callout's tail (0.38 s). Reduce Motion crossfades every cue change.
 //
 
 import CoreGraphics
 import SwiftUI
 
 /// What is moving at the cursor. One cue at a time: ticks while listening, the dots or the loop's spark
-/// while thinking, and the response bubble while speaking.
+/// while thinking, and the speech Callout while speaking.
 enum CursorCue: Equatable {
     /// Nothing moves at the cursor.
     case idle
@@ -116,7 +116,7 @@ struct CursorRingMark: Equatable {
 enum CursorRingHandoff: Equatable {
     /// On release: the ticks shrink into the three dots.
     case ticksIntoDots
-    /// When speech starts: the dots fly into the speech bubble's tail.
+    /// When speech starts: the dots fly into the speech Callout's tail.
     case dotsIntoSpeech
 
     static let ticksIntoDotsSeconds: TimeInterval = 0.3
@@ -170,9 +170,9 @@ extension CursorRingGeometry {
         }
     }
 
-    /// Where the dots are while they fly from their orbit into the speech bubble's tail, `progress` of the way from 0 to 1.
+    /// Where the dots are while they fly from their orbit into the speech Callout's tail, `progress` of the way from 0 to 1.
     /// They start where the orbit had them (`secondsSinceTheOrbitBegan`), shrink to half their size, and fade out at the tail,
-    /// where the bubble pops in.
+    /// where the Callout pops in.
     static func dotsFlyingIntoTheSpeechTail(
         secondsSinceTheOrbitBegan: TimeInterval,
         speechTailOffset: CGPoint,
