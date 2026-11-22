@@ -8,14 +8,18 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: transparent;
 #stage { position: absolute; inset: 0; }
 #stage canvas { display: block; position: absolute; inset: 0; transition: opacity 1s; }
 #frame { position: absolute; object-fit: cover; transition: opacity 1.2s; pointer-events: none; }
-.scene-label { position: absolute; transform: translate(-50%, -100%); padding: 6px 12px; border-radius: 8px; background: rgba(250, 246, 240, 0.96); color: #222; font-size: 15px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); pointer-events: none; opacity: 0; transition: opacity 0.6s; }
+/* The place name takes its look from scene-style.css, which the overlay adds to every page. */
+.scene-label { position: absolute; transform: translate(-50%, -100%); pointer-events: none; opacity: 0; }
+/* The id outranks the stylesheet's label rule, so the place name keeps its slower fade. */
+#placeName { transition: opacity 0.6s; }
+#loadingShimmer { opacity: 0.7; }
 #attribution { position: absolute; right: 10px; bottom: 8px; font-size: 11px; color: rgba(255, 255, 255, 0.9); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); pointer-events: none; }
 </style>
 <script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js", "three-tiles": "clicky-asset://three/three-tiles.js" } }</script>
 </head>
 <body>
 <div id="backdrop"></div>
-<div id="stage"><img id="frame" alt=""><div class="scene-label" id="placeName"></div><div id="attribution"></div></div>
+<div id="stage"><img id="frame" alt=""><div class="clicky-loading-shimmer" id="loadingShimmer"></div><div class="scene-label" id="placeName"></div><div id="attribution"></div></div>
 <script>/*CLICKY_LANDMARK_DATA*/</script>
 <script type="module">
 const landmark = window.__landmark;
@@ -91,6 +95,9 @@ if (!rectIsOnThisPage) {
   videoRect = { x: (pageWidth - width) / 2, y: (pageHeight - width * 9 / 16) / 2, width, height: width * 9 / 16 };
 }
 Object.assign(frameImage.style, { left: `${videoRect.x}px`, top: `${videoRect.y}px`, width: `${videoRect.width}px`, height: `${videoRect.height}px` });
+// The paused frame shimmers while the tiles load, so the wait reads as loading, and the shimmer fades as the scan rises.
+const loadingShimmer = document.getElementById("loadingShimmer");
+Object.assign(loadingShimmer.style, { left: `${videoRect.x}px`, top: `${videoRect.y}px`, width: `${videoRect.width}px`, height: `${videoRect.height}px` });
 const videoCenterShift = { x: videoRect.x + videoRect.width / 2 - pageWidth / 2, y: videoRect.y + videoRect.height / 2 - pageHeight / 2 };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -262,6 +269,7 @@ const render = (now) => {
   if (revealedAt === null && ((locateCount >= 2 && tiles.visibleTiles.size > 20) || secondsSinceStart > 7)) {
     revealedAt = now;
     frameImage.style.opacity = "0";
+    loadingShimmer.style.opacity = "0";
     document.getElementById("backdrop").style.opacity = "0.6";
   }
   // Before the reveal the clip planes are not placed yet, so nothing is drawn.

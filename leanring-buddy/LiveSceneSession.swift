@@ -84,6 +84,20 @@ enum LiveSceneRevealOutcome: String, Equatable {
     }
 }
 
+/// What Clicky says after a first wrong answer: the judge's sentence, which explains the mistake without the answer,
+/// then the offer of a hint. The offer names the word to say, since "give me a hint" reaches the judge as a hint request,
+/// while a bare "yes" to "Want a hint?" would be graded as a second answer and reveal the name.
+nonisolated func firstWrongAnswerSpokenLine(judgeSpokenReply: String) -> String {
+    let hintOffer = "Say hint if you want a clue."
+    let trimmedReply = judgeSpokenReply.trimmingCharacters(in: .whitespacesAndNewlines)
+    // A sentence that already offers a hint or a clue needs no second offer.
+    if trimmedReply.range(of: "hint", options: .caseInsensitive) != nil || trimmedReply.range(of: "clue", options: .caseInsensitive) != nil {
+        return trimmedReply
+    }
+    if trimmedReply.isEmpty { return hintOffer }
+    return "\(trimmedReply) \(hintOffer)"
+}
+
 struct LiveSceneQuiz: Decodable {
     let answerLabel: String
     let question: String
