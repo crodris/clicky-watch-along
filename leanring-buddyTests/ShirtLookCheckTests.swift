@@ -13,10 +13,16 @@
 //  - exposure: the garment is lit like the product photo instead of like the room;
 //  - white balance: a neutral part of the garment is not the color of a neutral surface in the room;
 //  - shading: the folds and light across the learner's body do not carry onto the garment;
-//  - halo outside: the garment draws past the person onto the room;
-//  - halo inside: the garment's edge is a light rim, from the product photo's background or from a soft mask;
+//  - halo outside: the band just outside the person looks less like the room than it did, from the garment spilling onto it;
+//  - halo inside: the edge of the cloth (the garment and its fill) is a light rim, from the product photo's background or
+//    from a soft mask;
 //  - old shirt: the learner's own shirt still shows inside the new one;
-//  - sleeves: a drawn sleeve does not follow the upper arm.
+//  - sleeves: a sleeve drawn along its arm does not follow it, or an arm rises past a sleeve drawn at the garment's angle;
+//  - a ragged sleeve hem: the cloth on an arm is not a clean shape, such as a tab of fill hanging under the sleeve;
+//  - old shirt at the sleeves: the learner's own sleeve shows past the new one, or is only painted over by the fill;
+//  - stretched fill: the fill beside the garment is its rows smeared sideways, which reads as a glitch;
+//  - a dark outline: the old shirt is left as a dark line between the cloth's edge and the person's, such as a sliver
+//    along the top of a shoulder or specks down a side.
 //  Two measures were tried and dropped as not measuring the garment: a sleeve's pixels on the person (the person mask clips
 //  its top at the shoulder's outline) and the old shirt's unchanged pixels (a navy stripe over a navy shirt barely changes).
 //  The room and the albedo are measured here at full size, apart from the renderer's own small copy, so a check does not
@@ -53,8 +59,10 @@ struct ShirtLookMetrics: Codable {
     var neutralGarmentPixelCount = 0
     /// The correlation of the garment's low-pass log shading with the original torso's.
     var shadingCorrelation = 0.0
-    /// The mean change, in 8-bit levels, in the 6 pixel band just outside the person matte.
-    var haloOutsideMeanChange = 0.0
+    /// How much further from the room behind the person, in 8-bit levels, the 6 pixel band just outside the person matte is
+    /// in the composite than in the original: the garment spilling onto the wall raises it, and taking the old shirt's dark
+    /// blend with the wall out of that band lowers it.
+    var haloOutsideExcessOverTheOriginal = 0.0
     /// The brightest ratio, over 16 sectors around the garment, of the 4 pixel band inside its edge to the band behind it,
     /// each band's light being the sum of the composite's luminance over the sum of the drawn cloth's own (`warpedGarmentColor`),
     /// so a print or a stripe that happens to run along the edge is not a rim, and extra light or the room's color at the edge
@@ -66,8 +74,28 @@ struct ShirtLookMetrics: Codable {
     /// drawn coverage is under one half) and they are as they were. A navy stripe drawn over a navy shirt changes a pixel
     /// little but covers it.
     var oldShirtStillShowingShare = 0.0
-    /// Each drawn sleeve's angle away from its shoulder-to-elbow line, in degrees, measured where the sleeve shows.
+    /// For each sleeve, image left first, in degrees: a sleeve drawn apart, how far its axis (from the middle of its seam
+    /// to the middle of its opening) turns from its shoulder-to-elbow line; a sleeve of the whole garment, how far the arm
+    /// turns out from the body past it (0 when the arm is below it, since a short sleeve stands off a hanging arm).
     var sleeveAxisErrorsDegrees: [Double] = []
+    /// For each arm, image left first, how far the sleeve's hem strays from a smooth curve, in shoulder widths: down the arm at
+    /// each step across it, the point where the cloth (the sleeve and any fill) ends against the arm's skin, and the root mean
+    /// square of those points' distance from the quadratic that fits them best. A clean hem is a smooth curve; a tab of fill
+    /// hanging under the sleeve, or a torn edge, jumps away from it.
+    var sleeveHemRaggedness: [Double] = []
+    /// The share of the old shirt's pixels on the upper arms (outside the torso, near the line from each shoulder to its elbow,
+    /// where the person mask is confident) that no drawn sleeve covers. Fill does not count as cover, since fill there is the
+    /// tab a viewer sees.
+    var oldShirtAtTheSleevesShare = 0.0
+    /// The pixels of a dark line along the cloth's outline, from just above the shoulders down to the garment's hem, outside
+    /// the neck, per pixel of shoulder width: the old shirt left as a sliver along the top of a shoulder or specks down a
+    /// side. See the measurement for what counts as dark.
+    var darkOutlinePixelsPerShoulderWidth = 0.0
+    /// Over the fill (cloth drawn where the garment is not), the mean luminance step between a pixel and the one below it, in
+    /// 8-bit levels. A fill of one color with the shading changes slowly; the garment's rows smeared sideways into it change
+    /// at every stripe.
+    var fillRowStep = 0.0
+    var fillPixelCount = 0
 }
 
 /// The limits each composite must meet.
@@ -76,10 +104,14 @@ enum ShirtLookLimits {
     static let exposureRatioRange = 0.7...1.15
     static let whiteBalanceDeltaE = 8.0
     static let shadingCorrelation = 0.6
-    static let haloOutsideMeanChange = 2.0
+    static let haloOutsideExcessOverTheOriginal = 2.0
     static let haloInsideRimRatio = 1.10
     static let oldShirtStillShowingShare = 0.01
     static let sleeveAxisErrorDegrees = 12.0
+    static let sleeveHemRaggedness = 0.02
+    static let oldShirtAtTheSleevesShare = 0.03
+    static let fillRowStep = 6.0
+    static let darkOutlinePixelsPerShoulderWidth = 3.0
 }
 
 // MARK: - Pixels
@@ -263,8 +295,9 @@ private struct LookInputs {
     let garmentAlpha: LookPixels
     let totalAlpha: LookPixels
     let warpedGarment: LookPixels
-    let sleeves: [(axis: CGVector, shoulder: CGPoint, elbow: CGPoint)]
+    let sleeves: [(side: ShirtSleeveSide, axis: CGVector, liesAlongTheArm: Bool, shoulder: CGPoint, elbow: CGPoint)]
     let landedTorsoCorners: [CGPoint]
+    let torso: BodyTorso
     let oldShirtColor: SIMD3<Float>
     let photoWhite: SIMD3<Double>
 }
@@ -349,28 +382,36 @@ private func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetric
     }
     metrics.shadingCorrelation = covariance / max((drawnVariance * originalVariance).squareRoot(), 1e-12)
 
-    // Halo outside: the change just outside the person matte.
+    // Halo outside: how much further from the room the band just outside the person matte is than it was. The room behind a
+    // pixel is the mean of the original's pixels well clear of the person within 10 pixels.
+    let isClearRoom = (0..<pixelCount).map { inputs.person.channel(0, at: $0) < 26 }
+    let roomChannels = (0..<3).map { channel in
+        includedBoxMean((0..<pixelCount).map { Double(inputs.original.channel(channel, at: $0)) }, included: isClearRoom, width: width, height: height, radius: 10)
+    }
     let personGrown = squareMorphology(isPerson, width: width, height: height, radius: 6, grow: true)
-    var outsideChangeSum = 0.0, outsideCount = 0
-    for pixel in 0..<pixelCount where personGrown[pixel] && !isPerson[pixel] {
-        var change = 0.0
-        for channel in 0..<3 { change += abs(Double(inputs.composite.channel(channel, at: pixel)) - Double(inputs.original.channel(channel, at: pixel))) }
-        outsideChangeSum += change / 3
+    var compositeDistanceSum = 0.0, originalDistanceSum = 0.0, outsideCount = 0
+    for pixel in 0..<pixelCount where personGrown[pixel] && !isPerson[pixel] && !roomChannels[0][pixel].isNaN {
+        for channel in 0..<3 {
+            compositeDistanceSum += abs(Double(inputs.composite.channel(channel, at: pixel)) - roomChannels[channel][pixel]) / 3
+            originalDistanceSum += abs(Double(inputs.original.channel(channel, at: pixel)) - roomChannels[channel][pixel]) / 3
+        }
         outsideCount += 1
     }
-    metrics.haloOutsideMeanChange = outsideChangeSum / Double(max(outsideCount, 1))
+    metrics.haloOutsideExcessOverTheOriginal = (compositeDistanceSum - originalDistanceSum) / Double(max(outsideCount, 1))
 
-    // Halo inside: the rim against the band just behind it, in sectors around the garment's center.
-    let shrunkBy4 = squareMorphology(isGarment, width: width, height: height, radius: 4, grow: false)
-    let shrunkBy6 = squareMorphology(isGarment, width: width, height: height, radius: 6, grow: false)
-    let shrunkBy16 = squareMorphology(isGarment, width: width, height: height, radius: 16, grow: false)
+    // Halo inside: the rim against the band just behind it, in sectors around the garment's center. The rim is the edge of
+    // all the cloth, the garment and its fill together, since the garment's edge against its own fill is no outline.
+    let isCloth = (0..<pixelCount).map { inputs.totalAlpha.channel(0, at: $0) >= 128 }
+    let shrunkBy4 = squareMorphology(isCloth, width: width, height: height, radius: 4, grow: false)
+    let shrunkBy6 = squareMorphology(isCloth, width: width, height: height, radius: 6, grow: false)
+    let shrunkBy16 = squareMorphology(isCloth, width: width, height: height, radius: 16, grow: false)
     var centerSum = SIMD2<Double>(0, 0)
     for pixel in 0..<pixelCount where isGarment[pixel] { centerSum += SIMD2(Double(pixel % width), Double(pixel / width)) }
     let center = centerSum / Double(max(garmentCount, 1))
     let sectorCount = 16
     var rimSums = [Double](repeating: 0, count: sectorCount), rimClothSums = [Double](repeating: 0, count: sectorCount), rimCounts = [Int](repeating: 0, count: sectorCount)
     var interiorSums = [Double](repeating: 0, count: sectorCount), interiorClothSums = [Double](repeating: 0, count: sectorCount), interiorCounts = [Int](repeating: 0, count: sectorCount)
-    for pixel in 0..<pixelCount where isGarment[pixel] {
+    for pixel in 0..<pixelCount where isCloth[pixel] {
         let isRim = !shrunkBy4[pixel], isInterior = shrunkBy6[pixel] && !shrunkBy16[pixel]
         guard isRim || isInterior else { continue }
         let angle = atan2(Double(pixel / width) - center.y, Double(pixel % width) - center.x)
@@ -404,12 +445,142 @@ private func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetric
 
     // Each sleeve's drawn axis, from the middle of its seam to the middle of its opening, against its upper arm.
     for sleeve in inputs.sleeves {
-        let drawnAxis = simd_normalize(SIMD2(Double(sleeve.axis.dx), Double(sleeve.axis.dy)))
-        let armAxis = simd_normalize(SIMD2(sleeve.elbow.x - sleeve.shoulder.x, sleeve.elbow.y - sleeve.shoulder.y))
-        metrics.sleeveAxisErrorsDegrees.append(acos(max(-1, min(1, simd_dot(drawnAxis, armAxis)))) * 180 / .pi)
+        let armVector = CGVector(dx: sleeve.elbow.x - sleeve.shoulder.x, dy: sleeve.elbow.y - sleeve.shoulder.y)
+        if sleeve.liesAlongTheArm {
+            let drawnAxis = simd_normalize(SIMD2(Double(sleeve.axis.dx), Double(sleeve.axis.dy)))
+            let armAxis = simd_normalize(SIMD2(Double(armVector.dx), Double(armVector.dy)))
+            metrics.sleeveAxisErrorsDegrees.append(acos(max(-1, min(1, simd_dot(drawnAxis, armAxis)))) * 180 / .pi)
+        } else {
+            let armPastTheSleeve = ShirtTryOnRenderer.outwardAngleFromTheBodysDown(of: armVector, side: sleeve.side, torso: inputs.torso)
+                - ShirtTryOnRenderer.outwardAngleFromTheBodysDown(of: sleeve.axis, side: sleeve.side, torso: inputs.torso)
+            metrics.sleeveAxisErrorsDegrees.append(max(0, armPastTheSleeve))
+        }
     }
+    // The arms: the person outside the torso the garment landed on, within a third of a shoulder width of the line from a
+    // shoulder to its elbow, from the shoulder down to the elbow. Above the shoulder joint is the top of the shoulder, which
+    // the fill may cover.
+    let shoulderWidth = inputs.torso.shoulderWidth
+    let arms: [(shoulder: SIMD2<Double>, elbow: SIMD2<Double>)] = [
+        (inputs.torso.imageLeftShoulder, inputs.torso.imageLeftElbow), (inputs.torso.imageRightShoulder, inputs.torso.imageRightElbow),
+    ].compactMap { shoulder, elbow in elbow.map { (SIMD2(Double(shoulder.x), Double(shoulder.y)), SIMD2(Double($0.x), Double($0.y))) } }
+    func armSide(of pixel: Int) -> Int? {
+        guard isPerson[pixel], arms.count == 2 else { return nil }
+        let point = SIMD2(Double(pixel % width) + 0.5, Double(pixel / width) + 0.5)
+        for (side, arm) in arms.enumerated() {
+            let armVector = arm.elbow - arm.shoulder, armLength = simd_length(armVector)
+            let along = simd_dot(point - arm.shoulder, armVector / armLength)
+            let across = abs(simd_cross(SIMD3(armVector / armLength, 0), SIMD3(point - arm.shoulder, 0)).z)
+            guard along > 0, along < armLength, across < shoulderWidth / 3 else { continue }
+            return isInside(CGPoint(x: point.x, y: point.y), polygon: inputs.landedTorsoCorners) ? nil : side
+        }
+        return nil
+    }
+    let armSideOfEachPixel = (0..<pixelCount).map(armSide(of:))
+
+    // Each sleeve's hem: down each arm, at each step across it, where the cloth ends with the arm's skin just past it.
+    for arm in arms {
+        let armVector = arm.elbow - arm.shoulder, armLength = simd_length(armVector)
+        let down = armVector / armLength, across = SIMD2(-down.y, down.x)
+        func isCloth(_ point: SIMD2<Double>) -> Bool {
+            let column = Int(point.x), row = Int(point.y)
+            guard column >= 0, column < width, row >= 0, row < height else { return false }
+            return isPerson[row * width + column] && inputs.totalAlpha.channel(0, at: row * width + column) >= 128
+        }
+        func isBareArm(_ point: SIMD2<Double>) -> Bool {
+            let column = Int(point.x), row = Int(point.y)
+            guard column >= 0, column < width, row >= 0, row < height else { return false }
+            return inputs.person.channel(0, at: row * width + column) >= 230 && inputs.totalAlpha.channel(0, at: row * width + column) < 64
+        }
+        var hemPoints: [(across: Double, down: Double)] = []
+        var acrossOffset = -0.3 * shoulderWidth
+        while acrossOffset <= 0.3 * shoulderWidth {
+            var downOffset = 0.0, sawCloth = false, hemEnd: Double?
+            while downOffset < armLength {
+                let point = arm.shoulder + down * downOffset + across * acrossOffset
+                if isCloth(point) { sawCloth = true } else if sawCloth, !isCloth(point + down), !isCloth(point + down * 2) { hemEnd = downOffset; break }
+                downOffset += 1
+            }
+            if let hemEnd, isBareArm(arm.shoulder + down * (hemEnd + 4) + across * acrossOffset) { hemPoints.append((acrossOffset, hemEnd)) }
+            acrossOffset += 1
+        }
+        guard hemPoints.count >= 10 else { metrics.sleeveHemRaggedness.append(0); continue }
+        metrics.sleeveHemRaggedness.append(quadraticFitResidual(hemPoints) / shoulderWidth)
+    }
+
+    // The old shirt on the arms that no sleeve covers. Its color rule alone also takes the arm's skin in deep shadow, so a
+    // pixel must share the old shirt's hue too, its share of each linear channel within 0.1 of the old shirt's.
+    let oldShirtChromaticity = ShirtColorMath.chromaticity(
+        red: ShirtColorMath.byte(inputs.oldShirtColor.x), green: ShirtColorMath.byte(inputs.oldShirtColor.y), blue: ShirtColorMath.byte(inputs.oldShirtColor.z)
+    )
+    func hasTheOldShirtsHue(_ pixel: Int) -> Bool {
+        let chromaticity = ShirtColorMath.chromaticity(red: inputs.original.channel(0, at: pixel), green: inputs.original.channel(1, at: pixel), blue: inputs.original.channel(2, at: pixel))
+        return chromaticity.map { pixelChromaticity in oldShirtChromaticity.map { simd_distance(pixelChromaticity, $0) < 0.1 } ?? true } ?? false
+    }
+    var armOldShirtCount = 0, armOldShirtUncovered = 0
+    for pixel in 0..<pixelCount where armSideOfEachPixel[pixel] != nil && originalIsOldShirt[pixel] && inputs.person.channel(0, at: pixel) >= 230 && hasTheOldShirtsHue(pixel) {
+        armOldShirtCount += 1
+        if inputs.garmentAlpha.channel(0, at: pixel) < 128 { armOldShirtUncovered += 1 }
+    }
+    metrics.oldShirtAtTheSleevesShare = Double(armOldShirtUncovered) / Double(max(armOldShirtCount, 1))
+
+    // A dark line along the cloth's outline, from a quarter of a shoulder width above the shoulders down to the hem, within
+    // 0.9 shoulder widths of the middle and outside the neck: the old shirt left between the cloth's edge and the person's,
+    // a sliver on top of a shoulder or specks down a side. A pixel within 6 pixels outside the cloth's edge is part of it
+    // when it is darker than 0.7 times both the room behind it and the cloth beside it. Inside the cloth a dark stripe is
+    // the garment's own.
+    func encodedLuminance(_ image: LookPixels, at pixel: Int) -> Double {
+        0.2126 * Double(image.channel(0, at: pixel)) + 0.7152 * Double(image.channel(1, at: pixel)) + 0.0722 * Double(image.channel(2, at: pixel))
+    }
+    let compositeLuminances = (0..<pixelCount).map { encodedLuminance(inputs.composite, at: $0) }
+    let clothBeside = includedBoxMean(compositeLuminances, included: isCloth, width: width, height: height, radius: 10)
+    let justOutsideTheCloth = zip(squareMorphology(isCloth, width: width, height: height, radius: 6, grow: true), isCloth).map { $0 && !$1 }
+    let shoulderMiddle = inputs.torso.shoulderMidpoint
+    let topRow = Double(shoulderMiddle.y) - 0.25 * shoulderWidth
+    let hemRow = Double(min(inputs.landedTorsoCorners[2].y, inputs.landedTorsoCorners[3].y)) - 0.05 * shoulderWidth
+    var darkOutlineCount = 0
+    for pixel in 0..<pixelCount where justOutsideTheCloth[pixel] && !roomChannels[0][pixel].isNaN && !clothBeside[pixel].isNaN {
+        let row = Double(pixel / width), acrossFromTheMiddle = abs(Double(pixel % width) - Double(shoulderMiddle.x))
+        let isTheNeck = acrossFromTheMiddle < 0.3 * shoulderWidth && row < Double(shoulderMiddle.y)
+        guard row > topRow, row < hemRow, acrossFromTheMiddle < 0.9 * shoulderWidth, !isTheNeck else { continue }
+        let roomLuminance = 0.2126 * roomChannels[0][pixel] + 0.7152 * roomChannels[1][pixel] + 0.0722 * roomChannels[2][pixel]
+        if compositeLuminances[pixel] < 0.7 * min(roomLuminance, clothBeside[pixel]) { darkOutlineCount += 1 }
+    }
+    metrics.darkOutlinePixelsPerShoulderWidth = Double(darkOutlineCount) / shoulderWidth
+
+    // The fill's steps between rows, in 8-bit levels of the encoded luminance.
+    let isFill = (0..<pixelCount).map { isPerson[$0] && inputs.totalAlpha.channel(0, at: $0) >= 128 && inputs.garmentAlpha.channel(0, at: $0) < 64 }
+    func encodedLuminance(at pixel: Int) -> Double {
+        0.2126 * Double(inputs.composite.channel(0, at: pixel)) + 0.7152 * Double(inputs.composite.channel(1, at: pixel)) + 0.0722 * Double(inputs.composite.channel(2, at: pixel))
+    }
+    var rowStepSum = 0.0, rowStepCount = 0
+    for pixel in 0..<pixelCount where isFill[pixel] {
+        metrics.fillPixelCount += 1
+        guard pixel / width + 1 < height, isFill[pixel + width] else { continue }
+        rowStepSum += abs(encodedLuminance(at: pixel + width) - encodedLuminance(at: pixel))
+        rowStepCount += 1
+    }
+    metrics.fillRowStep = rowStepSum / Double(max(rowStepCount, 1))
     return metrics
 }
+
+/// The root mean square distance of `points` from the quadratic `down = a + b across + c across²` that fits them best.
+private func quadraticFitResidual(_ points: [(across: Double, down: Double)]) -> Double {
+    // The normal equations of the least squares fit, solved by Cramer's rule on the 3 by 3 system.
+    var sums = [Double](repeating: 0, count: 5), rightSides = [0.0, 0.0, 0.0]
+    for point in points {
+        var power = 1.0
+        for index in 0..<5 { sums[index] += power; if index < 3 { rightSides[index] += power * point.down }; power *= point.across }
+    }
+    let system = simd_double3x3(rows: [SIMD3(sums[0], sums[1], sums[2]), SIMD3(sums[1], sums[2], sums[3]), SIMD3(sums[2], sums[3], sums[4])])
+    guard abs(system.determinant) > 1e-9 else { return 0 }
+    let coefficients = system.inverse * SIMD3(rightSides[0], rightSides[1], rightSides[2])
+    let squaredResidualSum = points.reduce(0.0) { sum, point in
+        let fitted = coefficients.x + coefficients.y * point.across + coefficients.z * point.across * point.across
+        return sum + (point.down - fitted) * (point.down - fitted)
+    }
+    return (squaredResidualSum / Double(points.count)).squareRoot()
+}
+
 
 // MARK: - The check
 
@@ -478,7 +649,7 @@ struct ShirtLookCheckTests {
                 garmentAlpha: LookPixels(composition.garmentAlpha, extent: frameExtent, context: context, colorSpace: nil),
                 totalAlpha: LookPixels(composition.totalAlpha, extent: frameExtent, context: context, colorSpace: nil),
                 warpedGarment: LookPixels(composition.warpedGarmentColor, extent: frameExtent, context: context, colorSpace: sRGB),
-                sleeves: sleeves, landedTorsoCorners: composition.landedTorsoCorners, oldShirtColor: oldShirtColor,
+                sleeves: sleeves, landedTorsoCorners: composition.landedTorsoCorners, torso: torso, oldShirtColor: oldShirtColor,
                 photoWhite: productPhotoWhite(productPhoto: productPhoto, garment: garment, context: context)
             )
             let metrics = measure(inputs, shirtName: shirtName)
@@ -497,13 +668,20 @@ struct ShirtLookCheckTests {
                 #expect(whiteBalanceDeltaE <= ShirtLookLimits.whiteBalanceDeltaE, "\(shirtName): white balance")
             }
             #expect(metrics.shadingCorrelation >= ShirtLookLimits.shadingCorrelation, "\(shirtName): shading")
-            #expect(metrics.haloOutsideMeanChange < ShirtLookLimits.haloOutsideMeanChange, "\(shirtName): halo outside")
+            #expect(metrics.haloOutsideExcessOverTheOriginal < ShirtLookLimits.haloOutsideExcessOverTheOriginal, "\(shirtName): halo outside")
             #expect(metrics.haloInsideWorstRimRatio <= ShirtLookLimits.haloInsideRimRatio, "\(shirtName): halo inside")
             #expect(metrics.oldShirtStillShowingShare < ShirtLookLimits.oldShirtStillShowingShare, "\(shirtName): old shirt")
-            #expect(metrics.sleeveAxisErrorsDegrees.count == 2, "\(shirtName): both sleeves drawn along the arms")
+            #expect(metrics.sleeveAxisErrorsDegrees.count == 2, "\(shirtName): both sleeves measured against their arms")
             for sleeveAxisError in metrics.sleeveAxisErrorsDegrees {
                 #expect(sleeveAxisError <= ShirtLookLimits.sleeveAxisErrorDegrees, "\(shirtName): sleeve axis")
             }
+            #expect(metrics.sleeveHemRaggedness.count == 2, "\(shirtName): both sleeve hems measured")
+            for raggedness in metrics.sleeveHemRaggedness {
+                #expect(raggedness <= ShirtLookLimits.sleeveHemRaggedness, "\(shirtName): ragged sleeve hem")
+            }
+            #expect(metrics.oldShirtAtTheSleevesShare < ShirtLookLimits.oldShirtAtTheSleevesShare, "\(shirtName): old shirt at the sleeves")
+            #expect(metrics.fillRowStep <= ShirtLookLimits.fillRowStep, "\(shirtName): stretched fill")
+            #expect(metrics.darkOutlinePixelsPerShoulderWidth < ShirtLookLimits.darkOutlinePixelsPerShoulderWidth, "\(shirtName): dark line along the outline")
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -511,11 +689,11 @@ struct ShirtLookCheckTests {
     }
 }
 
-/// Each sleeve drawn on its own, with the shoulder and elbow it should follow.
-private func sleeveLayers(of composition: ShirtTryOnComposition, torso: BodyTorso) -> [(axis: CGVector, shoulder: CGPoint, elbow: CGPoint)] {
+/// Each drawn sleeve, with the shoulder and elbow it should hold.
+private func sleeveLayers(of composition: ShirtTryOnComposition, torso: BodyTorso) -> [(side: ShirtSleeveSide, axis: CGVector, liesAlongTheArm: Bool, shoulder: CGPoint, elbow: CGPoint)] {
     composition.sleeves.compactMap { sleeve in
         let isImageLeft = sleeve.side == .imageLeft
         guard let elbow = isImageLeft ? torso.imageLeftElbow : torso.imageRightElbow else { return nil }
-        return (sleeve.axis, isImageLeft ? torso.imageLeftShoulder : torso.imageRightShoulder, elbow)
+        return (sleeve.side, sleeve.axis, sleeve.liesAlongTheArm, isImageLeft ? torso.imageLeftShoulder : torso.imageRightShoulder, elbow)
     }
 }
