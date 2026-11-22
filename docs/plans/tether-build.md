@@ -113,7 +113,7 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 15 End-of-video recap | Merged: [#93](https://github.com/crodris/clicky-watch-along/pull/93) |
 | 16 Pause every agent by voice | Merged: [#94](https://github.com/crodris/clicky-watch-along/pull/94) |
 | 17 Scrub by voice | Starts when PR 11 merges |
-| 18 Share themes as files | Open: [#102](https://github.com/crodris/clicky-watch-along/pull/102) |
+| 18 Share themes as files | Merged: [#102](https://github.com/crodris/clicky-watch-along/pull/102) |
 | 19 Tether polish | After the build order: what earlier PRs left open that no later PR owns |
 
 Deferred from PR 1, to fold into later PRs: the Chrome control row hides after onboarding (PR 8), a hover that shows only after the next mouse move on a still pointer (PR 8), the dimmed No button's low contrast (PR 5), a pop-out label's leader line that can point off screen after a resize (PR 10), and the menu bar icon not found beside the notch (PR 7).
