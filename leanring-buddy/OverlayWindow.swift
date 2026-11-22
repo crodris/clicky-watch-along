@@ -859,7 +859,6 @@ struct BlueCursorView: View {
         navigationAnimationTimer = nil
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0
-        navigationBubbleScale = 1.0
         buddyFlightSpeedShare = 0
         flightFadeOpacity = 1.0
         finishNavigationAndResumeFollowing()

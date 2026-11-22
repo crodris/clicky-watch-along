@@ -322,6 +322,16 @@ struct CursorRingHandoffTests {
         }
     }
 
+    @Test func theDotsFlyToWhereTheSpeechCalloutsTailTipIs() {
+        let cursorPosition = CGPoint(x: 400, y: 300)
+        let calloutSize = CGSize(width: 200, height: 52)
+        let calloutCenter = speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: calloutSize, screenSize: CGSize(width: 1200, height: 800))
+        let tailTip = TetherCalloutShape.tailTip(inCalloutOfSize: calloutSize)
+        let tailTipOnScreen = CGPoint(x: calloutCenter.x - calloutSize.width / 2 + tailTip.x, y: calloutCenter.y - calloutSize.height / 2 + tailTip.y)
+        #expect(abs(tailTipOnScreen.x - (cursorPosition.x + CursorRingHandoff.defaultSpeechTailOffset.x)) < 1e-9)
+        #expect(abs(tailTipOnScreen.y - (cursorPosition.y + CursorRingHandoff.defaultSpeechTailOffset.y)) < 1e-9)
+    }
+
     @Test func everyDotStaysInsideTheRingsFrameWhileItFlies() {
         let limit = CursorRingGeometry.outerRadiusInPoints
         for step in 0...20 {
