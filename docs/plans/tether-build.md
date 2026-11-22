@@ -42,7 +42,7 @@ A PR in a later wave starts once every PR it depends on has merged.
 | 9 Cursor and ring | B | 2 | Glyph, stretch and landing ring, nod, shake, hop, ticks to dots to the speech Callout. |
 | 10 Quiz, scenes, edges | B | 2 | Quiz states and summary, scene stylesheet with dark glass labels, lesson stages, error and full-screen states. |
 | 11 Instant replay | B | 2 | Record each stop's label, sentence, and camera pose; voice and click controls; cancelation; the Reduce Motion list. |
-| 8 Panel, onboarding, keyboard | Building |
+| 8 Panel, onboarding, keyboard | C | 2, 3, 7 | Home panel, banner slot, theme cards, all-themes grid, six-step setup, keyboard and VoiceOver paths. |
 
 The 6 bigger ideas follow the build order as PRs 13 to 18: Theme Studio designs motion, the loop carries background work, the end-of-video recap, pausing every agent by voice, scrubbing by voice, and sharing themes as files.
 
@@ -103,7 +103,7 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 9 Cursor and ring | Merged: [#83](https://github.com/crodris/clicky-watch-along/pull/83) |
 | 10 Quiz, scenes, edges | Open: [#85](https://github.com/crodris/clicky-watch-along/pull/85) |
 | 11 Instant replay | Open: [#88](https://github.com/crodris/clicky-watch-along/pull/88) |
-| 8 Panel, onboarding, keyboard | Branch `feature/tether-panel-onboarding`, no PR yet, paused by the weekly Claude limit |
+| 8 Panel, onboarding, keyboard | Building |
 | 13 Theme Studio designs motion | Building |
 | 14 The loop carries background work | Building |
 | 15 End-of-video recap | Starts when PR 10 merges |
