@@ -1513,8 +1513,9 @@ extension RoomArtPreviewController {
                 )
                 guard !Task.isCancelled, thisOpening == openingNumber else { return }
                 #if DEBUG
-                // Verification reads the painting the height check judged, kept or refused. Debug builds only.
-                writeThePaintingForVerification(painted)
+                // Verification reads the painting the height check judged, kept or refused, with what it was judged
+                // against. Debug builds only.
+                writeThePaintingForVerification(painted, keyframeJPEG: keyframe.measurementRequest.keyframeJPEGData, maskPNG: maskPNG, projectedBox: projectedBox)
                 #endif
                 if let layers = await environment.paintedItemLayers(painted, keyframeImage, maskPNG, projectedBox) {
                     guard !Task.isCancelled, thisOpening == openingNumber else { return }
@@ -1536,11 +1537,18 @@ extension RoomArtPreviewController {
     }
 
     #if DEBUG
-    private func writeThePaintingForVerification(_ painted: CGImage) {
-        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-room-furniture-painting-\(Int(Date().timeIntervalSince1970)).png")
+    private func writeThePaintingForVerification(_ painted: CGImage, keyframeJPEG: Data, maskPNG: Data, projectedBox: [CGPoint]) {
+        let stem = "clicky-room-furniture-painting-\(Int(Date().timeIntervalSince1970 * 1000))"
+        let folder = FileManager.default.temporaryDirectory
+        let fileURL = folder.appendingPathComponent("\(stem).png")
         guard let destination = CGImageDestinationCreateWithURL(fileURL as CFURL, "public.png" as CFString, 1, nil) else { return }
         CGImageDestinationAddImage(destination, painted, nil)
-        if CGImageDestinationFinalize(destination) { print("Room furniture: wrote the painting to \(fileURL.path)") }
+        guard CGImageDestinationFinalize(destination) else { return }
+        try? keyframeJPEG.write(to: folder.appendingPathComponent("\(stem)-keyframe.jpg"))
+        try? maskPNG.write(to: folder.appendingPathComponent("\(stem)-mask.png"))
+        let boxNumbers = projectedBox.flatMap { [Double($0.x), Double($0.y)] }
+        try? JSONSerialization.data(withJSONObject: boxNumbers).write(to: folder.appendingPathComponent("\(stem)-box.json"))
+        print("Room furniture: wrote the painting to \(fileURL.path), with its keyframe, mask, and box beside it")
     }
     #endif
 
