@@ -156,6 +156,10 @@ export function startScene({ kind, answerLabel, build }) {
   // The lab room, the field, and scenery the model adds through kit.scenery, which the camera never frames.
   const worldBackdrop = markAsKernelObject(new THREE.Group());
   scene.add(worldBackdrop);
+  // The part of the backdrop the camera frames with the subject, which is the lab bench's top when there is one.
+  let framedBackdrop = null;
+  // A field's view stays low enough that the horizon and the sky show above the equipment.
+  let worldIsAField = false;
 
   const kit = {
     THREE,
@@ -193,8 +197,12 @@ export function startScene({ kind, answerLabel, build }) {
       worldBackdrop.add(object);
       return object;
     },
+    // A standard material, or a physical one only when the options ask for a physical property, since the physical
+    // shader costs several times as much a pixel and a slow computer drops frames on it.
     material(color, options = {}) {
-      return new THREE.MeshPhysicalMaterial({ color, roughness: 0.6, metalness: 0, ...options });
+      const asksForAPhysicalProperty = ["clearcoat", "transmission", "sheen", "iridescence", "ior", "thickness", "specularIntensity"].some((property) => property in options);
+      const Material = asksForAPhysicalProperty ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
+      return new Material({ color, roughness: 0.6, metalness: 0, ...options });
     },
     mesh(geometry, material, parent, position, rotation, scale) {
       const mesh = new THREE.Mesh(geometry, material);
@@ -242,8 +250,8 @@ export function startScene({ kind, answerLabel, build }) {
     lab({ width = 1.6, depth = 0.8 } = {}) {
       const wallColor = 0xdde3e6;
       scene.background = new THREE.Color(wallColor);
-      const benchWidth = width + 0.6;
-      const benchDepth = depth + 0.4;
+      const benchWidth = width + 0.2;
+      const benchDepth = depth + 0.2;
       // A wooden top on dark steel legs, over a tiled floor, so the room reads as a school lab.
       const benchTop = new THREE.Mesh(new THREE.BoxGeometry(benchWidth, 0.05, benchDepth), new THREE.MeshPhysicalMaterial({ color: 0xc8975c, roughness: 0.5, clearcoat: 0.4 }));
       benchTop.position.y = -0.025;
@@ -286,6 +294,8 @@ export function startScene({ kind, answerLabel, build }) {
       rightWall.rotation.y = -Math.PI / 2;
       rightWall.position.x = benchWidth / 2 + 2.5;
       worldBackdrop.add(benchTop, legs, floor, backWall, leftWall, rightWall);
+      // The camera frames the bench top with the equipment, so the setting never runs off the edge of the view.
+      framedBackdrop = benchTop;
       return { top: 0 };
     },
     field({ size = 120 } = {}) {
@@ -300,6 +310,7 @@ export function startScene({ kind, answerLabel, build }) {
       worldBackdrop.add(ground);
       hemisphereLight.color.set(0xdcefff);
       hemisphereLight.groundColor.set(0x56703c);
+      worldIsAField = true;
       return { top: 0 };
     },
   };
@@ -490,6 +501,7 @@ export function startScene({ kind, answerLabel, build }) {
   // What the camera frames: the subject, and for a simulation the path of a run from the starting controls.
   const startingBox = () => {
     const box = subjectBox();
+    if (framedBackdrop) box.union(boxOf(framedBackdrop));
     if (isSimulation) {
       for (const point of runResultFor(controlValues()).path) box.expandByPoint(point);
     }
@@ -498,6 +510,13 @@ export function startScene({ kind, answerLabel, build }) {
   const wholeBox = startingBox();
   const wholeCenter = wholeBox.getCenter(new THREE.Vector3());
   const wholeSize = Math.max(0.05, wholeBox.getSize(new THREE.Vector3()).length());
+
+  // A mesh under 1% of the subject's size, such as a tick on a scale, casts no shadow anyone could see, and each one
+  // would cost a second draw call every frame.
+  scene.traverse((child) => {
+    if (!child.isMesh || !child.castShadow) return;
+    if (boxOf(child).getSize(new THREE.Vector3()).length() < wholeSize * 0.01) child.castShadow = false;
+  });
 
   // A part with no anchor gets one on its own surface: the first point a ray from outside hits on the way to its center.
   const raycaster = new THREE.Raycaster();
@@ -513,19 +532,24 @@ export function startScene({ kind, answerLabel, build }) {
   }
 
   // ---- Camera ----
-  // A path much longer than the equipment, such as a launched ball's, is seen from behind its start and to one side, so the
-  // equipment stands large in front and the path runs away across the view. Otherwise the model's view, or a front
+  // A path much longer than the equipment, such as a launched ball's, is seen from its side, turned up to 20 degrees toward
+  // its start, low enough that the horizon shows, so the whole arc spans the view. Otherwise the model's view, or a front
   // three-quarter view, frames the setup.
   const startingPath = isSimulation ? runResultFor(controlValues()).path : [];
   const equipmentSize = subjectBox().getSize(new THREE.Vector3()).length();
-  const pathRunsAway = startingPath.length >= 2
-    && Math.hypot(startingPath[startingPath.length - 1].x - startingPath[0].x, startingPath[startingPath.length - 1].z - startingPath[0].z) > equipmentSize * 3;
-  const viewYaw = pathRunsAway
-    ? Math.atan2(startingPath[0].x - startingPath[startingPath.length - 1].x, startingPath[0].z - startingPath[startingPath.length - 1].z) + degreesToRadians(50)
-    : degreesToRadians(Number(built.view?.yawDegrees ?? 32));
-  const viewPitch = degreesToRadians(pathRunsAway ? 16 : Math.min(70, Math.max(5, Number(built.view?.pitchDegrees ?? 20))));
-  // The aim sits near the equipment when the path runs away, so the camera stands close behind it and the path recedes.
-  const simulationAim = pathRunsAway ? subjectBox().getCenter(new THREE.Vector3()).lerp(wholeBox.getCenter(new THREE.Vector3()), 0.3) : wholeBox.getCenter(new THREE.Vector3());
+  const pathStart = startingPath[0];
+  const pathEnd = startingPath[startingPath.length - 1];
+  const pathRunsAway = startingPath.length >= 2 && Math.hypot(pathEnd.x - pathStart.x, pathEnd.z - pathStart.z) > equipmentSize * 3;
+  const sideViewYaw = () => {
+    const pathYaw = Math.atan2(pathEnd.x - pathStart.x, pathEnd.z - pathStart.z);
+    // Of the two sides, the one nearer +z, where a model's front usually faces.
+    const sideYaw = Math.cos(pathYaw + Math.PI / 2) >= Math.cos(pathYaw - Math.PI / 2) ? pathYaw + Math.PI / 2 : pathYaw - Math.PI / 2;
+    const towardTheStart = nearestYaw(sideYaw, pathYaw + Math.PI) - sideYaw;
+    return sideYaw + Math.sign(towardTheStart) * degreesToRadians(20);
+  };
+  const viewYaw = pathRunsAway ? sideViewYaw() : degreesToRadians(Number(built.view?.yawDegrees ?? 32));
+  const viewPitch = degreesToRadians(pathRunsAway ? 10 : Math.min(worldIsAField ? 14 : 70, Math.max(5, Number(built.view?.pitchDegrees ?? 20))));
+  const simulationAim = wholeBox.getCenter(new THREE.Vector3());
   // A model is seen from its broad side, a little turned, so a long subject such as a bicycle never faces the camera end-on.
   const wholeSizeVector = wholeBox.getSize(new THREE.Vector3());
   const broadSideYaw = (wholeSizeVector.z > wholeSizeVector.x * 1.15 ? Math.PI / 2 : 0) + degreesToRadians(25);
