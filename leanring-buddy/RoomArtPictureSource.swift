@@ -35,6 +35,7 @@ enum RoomArtPictureSource {
         imageFileURL: URL?,
         session: URLSession = PageImageAnimation.downloadSession,
         downloadDeadlineSeconds: TimeInterval = RoomArtPictureSource.downloadDeadlineSeconds,
+        downloadTimeoutSeconds: TimeInterval = RoomArtPictureSource.downloadTimeoutSeconds,
         captureTheScreen: () async -> RoomArtPicture?
     ) async -> RoomArtPicture? {
         var pictureFromTheImageFile: RoomArtPicture?
@@ -42,7 +43,8 @@ enum RoomArtPictureSource {
             pictureFromTheImageFile = await downloadedPicture(
                 atImageURL: imageFileURL,
                 session: session,
-                deadlineSeconds: downloadDeadlineSeconds
+                deadlineSeconds: downloadDeadlineSeconds,
+                requestTimeoutSeconds: downloadTimeoutSeconds
             )
         }
         if let pictureFromTheImageFile {
@@ -66,7 +68,8 @@ enum RoomArtPictureSource {
     @concurrent nonisolated static func downloadedPicture(
         atImageURL imageURL: URL,
         session: URLSession,
-        deadlineSeconds: TimeInterval = downloadDeadlineSeconds
+        deadlineSeconds: TimeInterval = downloadDeadlineSeconds,
+        requestTimeoutSeconds: TimeInterval = downloadTimeoutSeconds
     ) async -> RoomArtPicture? {
         // The request's own timeout only trips on silence, so a server that trickles bytes is stopped by this race. The
         // race returns at the first result and never waits for the losing download to wind down, since a cancelled
@@ -75,7 +78,7 @@ enum RoomArtPictureSource {
         let downloadTask = Task {
             resultsContinuation.yield(await PageImageAnimation.downloadedImageData(
                 atImageURL: imageURL,
-                timeoutSeconds: downloadTimeoutSeconds,
+                timeoutSeconds: requestTimeoutSeconds,
                 session: session
             ))
         }

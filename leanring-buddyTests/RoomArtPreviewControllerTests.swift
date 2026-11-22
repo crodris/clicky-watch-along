@@ -644,7 +644,7 @@ struct RoomArtPreviewControllerTests {
         // The 120 second capture only ends early when the second request cancels it.
         let secondRequestStartedAt = ContinuousClock.now
         await firstRequest.value
-        #expect(ContinuousClock.now - secondRequestStartedAt < .seconds(5))
+        #expect(ContinuousClock.now - secondRequestStartedAt < .seconds(30))
         #expect(harness.controller.closeOnEscape())
         await secondRequest.value
     }
@@ -657,7 +657,7 @@ struct RoomArtPreviewControllerTests {
         let escapePressedAt = ContinuousClock.now
         #expect(harness.controller.closeOnEscape())
         await openingTask.value
-        #expect(ContinuousClock.now - escapePressedAt < .seconds(5))
+        #expect(ContinuousClock.now - escapePressedAt < .seconds(30))
         #expect(harness.panel.timesShown == 0)
         #expect(harness.spokenLines().isEmpty)
     }

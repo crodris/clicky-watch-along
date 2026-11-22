@@ -245,36 +245,44 @@ struct RoomArtPictureSourceTests {
         #expect(RoomArtPictureSource.picture(ofImageData: pngData(width: 160, height: 10)) != nil)
     }
 
-    @Test func aDownloadThatStallsPastTheDeadlineFallsBackToTheScreenCapture() async {
+    @Test(.timeLimit(.minutes(1)))
+    func aDownloadThatStallsPastTheDeadlineFallsBackToTheScreenCapture() async {
         var screenWasCaptured = false
-        let startedAt = ContinuousClock.now
+        // The request's own idle timeout is 600 seconds here, so only the 0.3 second deadline can end this one, and a
+        // deadline that fails to end it holds the test until its time limit.
         let picture = await RoomArtPictureSource.picture(
             imageFileURL: stubbedImageURL(answeringWith: .stalls),
             session: stubbedSession(),
-            downloadDeadlineSeconds: 0.3
+            downloadDeadlineSeconds: 0.3,
+            downloadTimeoutSeconds: 600
         ) {
             screenWasCaptured = true
             return screenCapture
         }
-        // The request's own idle timeout is 5 seconds, so only the deadline can end this one in under 3.
-        #expect(ContinuousClock.now - startedAt < .seconds(3))
         #expect(picture == screenCapture)
         #expect(screenWasCaptured)
     }
 
-    @Test func aCancelledRequestCapturesNothingAndStopsTheDownload() async {
+    @Test(.timeLimit(.minutes(1)))
+    func aCancelledRequestCapturesNothingAndStopsTheDownload() async {
         let stalledImageURL = stubbedImageURL(answeringWith: .stalls)
         let session = stubbedSession()
         let screenCaptureCount = OSAllocatedUnfairLock(initialState: 0)
         let roomArtRequest = Task {
-            await RoomArtPictureSource.picture(imageFileURL: stalledImageURL, session: session, downloadDeadlineSeconds: 60) {
+            await RoomArtPictureSource.picture(
+                imageFileURL: stalledImageURL,
+                session: session,
+                downloadDeadlineSeconds: 600,
+                downloadTimeoutSeconds: 600
+            ) {
                 screenCaptureCount.withLock { $0 += 1 }
                 return RoomArtPicture(jpegData: Data("screen capture".utf8), width: 640, height: 360)
             }
         }
         try? await Task.sleep(for: .milliseconds(300))
         roomArtRequest.cancel()
-        // The 60 second deadline never passes, so the request can only end because the cancel stopped the download.
+        // Neither the deadline nor the idle timeout passes in 600 seconds, so the request can only end because the cancel
+        // stopped the download.
         #expect(await roomArtRequest.value == nil)
         #expect(screenCaptureCount.withLock { $0 } == 0)
     }
