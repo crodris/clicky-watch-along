@@ -443,10 +443,17 @@ final class AgentListPanelController {
             let passesTheMouseThrough = AgentListWindowMargins.windowPassesTheMouseThrough(at: NSEvent.mouseLocation, windowFrame: agentListPanel.frame)
             if agentListPanel.ignoresMouseEvents != passesTheMouseThrough {
                 agentListPanel.ignoresMouseEvents = passesTheMouseThrough
-                // The pointer entered the Card while the window ignored the mouse, so no row saw it enter: each one reads where
-                // the mouse is now, and a row under it shows its hover and the pointing hand.
-                if !passesTheMouseThrough, let contentView = agentListPanel.contentView {
-                    for hoverView in hoverAndPointerViews(in: contentView) { hoverView.reportTheHoverWhereTheMouseAlreadyIs() }
+                // A row's tracking area missed every move while the window ignored the mouse. On the way in, each row adds its
+                // area again, so AppKit reads its inside state from where the pointer is now and a later exit still arrives, and
+                // reports the hover there. On the way out, each row reports again, so no hover stays behind in the margin.
+                if let contentView = agentListPanel.contentView {
+                    for hoverView in hoverAndPointerViews(in: contentView) {
+                        if passesTheMouseThrough {
+                            hoverView.reportTheHoverWhereTheMouseAlreadyIs()
+                        } else {
+                            hoverView.updateTrackingAreas()
+                        }
+                    }
                 }
             }
         }

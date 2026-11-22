@@ -242,8 +242,9 @@ func agentDiscAccessibilityLabel(agentName: String, peekContent: AgentTokenPeekC
 /// disc on any display. While every agent is paused the paused disc stands for each of them, so the focus goes there, and
 /// after "go ahead" it comes back to the agent's own disc. A disc the end-of-video recap hid (`hiddenDiscIDs`) never takes
 /// it, since its ring and peek card would show under a disc that is not there. None is left for an agent counted in "+N".
-/// A menu item run for the agent passes `thePausedDiscMayStandForTheAgent` false, since the paused disc's list opens with no
-/// row expanded, and an agent with no disc of its own gets the list next to the mouse with its row expanded.
+/// A menu item run for the agent passes `thePausedDiscMayStandForTheAgent` false, since the paused disc's list opens under
+/// the menu bar with no row expanded: an agent with no disc of its own gets Review request next to the mouse with its row
+/// expanded, and Open agent list next to the mouse with no row expanded, as for an agent counted in "+N".
 func agentDiscIDTakingTheKeyboardFocus(
     among discIDs: [AgentTokenDiscID],
     agentID: UUID,
