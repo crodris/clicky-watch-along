@@ -215,6 +215,27 @@ export function startScene({ kind, answerLabel, build }) {
       const lathePoints = profile.map(([radius, height]) => new THREE.Vector2(radius, height));
       return kit.mesh(new THREE.LatheGeometry(lathePoints, 64), material, parent);
     },
+    // Flat text drawn on a canvas, for the numbers on a scale or a dial, since the page draws no HTML text of its own.
+    // The plane faces +z and is height meters tall.
+    text(text, height, color = "#1c1f22") {
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      const fontPixels = 96;
+      context.font = `600 ${fontPixels}px -apple-system, "Helvetica Neue", Arial, sans-serif`;
+      canvas.width = Math.max(1, Math.ceil(context.measureText(String(text)).width) + 16);
+      canvas.height = Math.ceil(fontPixels * 1.25);
+      context.font = `600 ${fontPixels}px -apple-system, "Helvetica Neue", Arial, sans-serif`;
+      context.fillStyle = color;
+      context.textBaseline = "middle";
+      context.fillText(String(text), 8, canvas.height / 2);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const plane = new THREE.Mesh(
+        new THREE.PlaneGeometry((height * canvas.width) / canvas.height, height),
+        new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false }),
+      );
+      return plane;
+    },
     onFrame(callback) {
       frameCallbacks.push(callback);
     },
@@ -223,12 +244,34 @@ export function startScene({ kind, answerLabel, build }) {
       scene.background = new THREE.Color(wallColor);
       const benchWidth = width + 0.6;
       const benchDepth = depth + 0.4;
-      const benchTop = new THREE.Mesh(new THREE.BoxGeometry(benchWidth, 0.05, benchDepth), new THREE.MeshPhysicalMaterial({ color: 0x3b4246, roughness: 0.55, clearcoat: 0.3 }));
+      // A wooden top on dark steel legs, over a tiled floor, so the room reads as a school lab.
+      const benchTop = new THREE.Mesh(new THREE.BoxGeometry(benchWidth, 0.05, benchDepth), new THREE.MeshPhysicalMaterial({ color: 0xc8975c, roughness: 0.5, clearcoat: 0.4 }));
       benchTop.position.y = -0.025;
       benchTop.receiveShadow = true;
-      const cabinet = new THREE.Mesh(new THREE.BoxGeometry(benchWidth - 0.04, 0.85, benchDepth - 0.06), new THREE.MeshStandardMaterial({ color: 0xc9cfd2, roughness: 0.7 }));
-      cabinet.position.y = -0.475;
-      const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0x9aa3a8, roughness: 0.9 }));
+      benchTop.castShadow = true;
+      const legMaterial = new THREE.MeshStandardMaterial({ color: 0x2b3034, roughness: 0.4, metalness: 0.6 });
+      const legs = new THREE.Group();
+      for (const legX of [-1, 1]) {
+        for (const legZ of [-1, 1]) {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.85, 0.05), legMaterial);
+          leg.position.set(legX * (benchWidth / 2 - 0.08), -0.475, legZ * (benchDepth / 2 - 0.08));
+          leg.castShadow = true;
+          legs.add(leg);
+        }
+      }
+      const floorTiles = document.createElement("canvas");
+      floorTiles.width = floorTiles.height = 128;
+      const tileContext = floorTiles.getContext("2d");
+      tileContext.fillStyle = "#b9c0c4";
+      tileContext.fillRect(0, 0, 128, 128);
+      tileContext.strokeStyle = "#a3abb0";
+      tileContext.lineWidth = 2;
+      tileContext.strokeRect(1, 1, 126, 126);
+      const floorTexture = new THREE.CanvasTexture(floorTiles);
+      floorTexture.wrapS = floorTexture.wrapT = THREE.RepeatWrapping;
+      floorTexture.repeat.set(80, 80);
+      floorTexture.colorSpace = THREE.SRGBColorSpace;
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 0.8 }));
       floor.rotation.x = -Math.PI / 2;
       floor.position.y = -0.9;
       floor.receiveShadow = true;
@@ -242,7 +285,7 @@ export function startScene({ kind, answerLabel, build }) {
       const rightWall = leftWall.clone();
       rightWall.rotation.y = -Math.PI / 2;
       rightWall.position.x = benchWidth / 2 + 2.5;
-      worldBackdrop.add(benchTop, cabinet, floor, backWall, leftWall, rightWall);
+      worldBackdrop.add(benchTop, legs, floor, backWall, leftWall, rightWall);
       return { top: 0 };
     },
     field({ size = 120 } = {}) {
@@ -346,12 +389,13 @@ export function startScene({ kind, answerLabel, build }) {
   };
 
   // The distance at which every corner of the box fits in the view from this direction, with fill the share of the view it may use.
-  const fittedDistance = (box, aim, yaw, pitch, fill) => {
+  // widthFill, when given, is the share of the view's width the box may use, so a model leaves room for its label columns.
+  const fittedDistance = (box, aim, yaw, pitch, fill, widthFill = fill) => {
     const towardCamera = cameraPosition({ aim, yaw, pitch, distance: 1 }).sub(aim).normalize();
     const right = new THREE.Vector3(0, 1, 0).cross(towardCamera).normalize();
     const up = towardCamera.clone().cross(right).normalize();
     const halfHeightTangent = Math.tan(degreesToRadians(camera.fov / 2)) * fill;
-    const halfWidthTangent = halfHeightTangent * camera.aspect;
+    const halfWidthTangent = Math.tan(degreesToRadians(camera.fov / 2)) * camera.aspect * widthFill;
     let distance = 0;
     for (let cornerIndex = 0; cornerIndex < 8; cornerIndex += 1) {
       const corner = new THREE.Vector3(
@@ -368,11 +412,11 @@ export function startScene({ kind, answerLabel, build }) {
     }
     return Math.max(distance, box.getSize(new THREE.Vector3()).length() * 0.3, 0.05);
   };
-  const framingPose = (box, yaw, pitch, fill, aim = box.getCenter(new THREE.Vector3())) => ({
+  const framingPose = (box, yaw, pitch, fill, aim = box.getCenter(new THREE.Vector3()), widthFill = fill) => ({
     aim,
     yaw,
     pitch,
-    distance: fittedDistance(box, aim, yaw, pitch, fill),
+    distance: fittedDistance(box, aim, yaw, pitch, fill, widthFill),
   });
 
   // ---- Simulation state ----
@@ -482,9 +526,12 @@ export function startScene({ kind, answerLabel, build }) {
   const viewPitch = degreesToRadians(pathRunsAway ? 16 : Math.min(70, Math.max(5, Number(built.view?.pitchDegrees ?? 20))));
   // The aim sits near the equipment when the path runs away, so the camera stands close behind it and the path recedes.
   const simulationAim = pathRunsAway ? subjectBox().getCenter(new THREE.Vector3()).lerp(wholeBox.getCenter(new THREE.Vector3()), 0.3) : wholeBox.getCenter(new THREE.Vector3());
+  // A model is seen from its broad side, a little turned, so a long subject such as a bicycle never faces the camera end-on.
+  const wholeSizeVector = wholeBox.getSize(new THREE.Vector3());
+  const broadSideYaw = (wholeSizeVector.z > wholeSizeVector.x * 1.15 ? Math.PI / 2 : 0) + degreesToRadians(25);
   const homePose = isSimulation
     ? framingPose(wholeBox, viewYaw, viewPitch, 0.92, simulationAim)
-    : framingPose(wholeBox, degreesToRadians(25), degreesToRadians(14), 0.78);
+    : framingPose(wholeBox, broadSideYaw, degreesToRadians(14), 0.8, wholeBox.getCenter(new THREE.Vector3()), 0.6);
   const closestDistance = homePose.distance * 0.25;
   const farthestDistance = homePose.distance * 2.4;
 
@@ -524,14 +571,18 @@ export function startScene({ kind, answerLabel, build }) {
       const answerBox = boxOf(answerPart.object);
       const outward = answerCenter.clone().sub(wholeCenter);
       const answerYaw = outward.x * outward.x + outward.z * outward.z > 1e-8 ? Math.atan2(outward.x, outward.z) : homePose.yaw;
-      const yaw = nearestYaw(circledPose.yaw, answerYaw);
+      // The last move turns toward the answer part's side by at most 35 degrees, so the subject stays broadside.
+      const turnTowardTheAnswer = Math.min(degreesToRadians(35), Math.max(degreesToRadians(-35), nearestYaw(circledPose.yaw, answerYaw) - circledPose.yaw));
+      const yaw = circledPose.yaw + turnTowardTheAnswer;
       const pitch = degreesToRadians(12);
       if (insideView) {
         // Beside the answer part, with the faded shell and the neighboring parts still in view.
-        answerPose = { aim: answerCenter.clone(), yaw, pitch, distance: Math.min(homePose.distance * 0.6, Math.max(homePose.distance * 0.4, fittedDistance(answerBox, answerCenter, yaw, pitch, 0.25))) };
+        const aim = wholeCenter.clone().lerp(answerCenter, 0.5);
+        answerPose = { aim, yaw, pitch, distance: Math.min(homePose.distance * 0.75, Math.max(homePose.distance * 0.6, fittedDistance(answerBox, aim, yaw, pitch, 0.25))) };
       } else {
-        const aim = wholeCenter.clone().lerp(answerCenter, 0.75);
-        const distance = Math.min(homePose.distance * 0.8, Math.max(homePose.distance * 0.4, fittedDistance(answerBox, aim, yaw, pitch, 0.3)));
+        // Closer to the answer part, with its neighbors still in view.
+        const aim = wholeCenter.clone().lerp(answerCenter, 0.4);
+        const distance = Math.min(homePose.distance * 0.9, Math.max(homePose.distance * 0.7, fittedDistance(answerBox, aim, yaw, pitch, 0.3)));
         answerPose = { aim, yaw, pitch, distance };
       }
     }
@@ -838,57 +889,97 @@ export function startScene({ kind, answerLabel, build }) {
     const projected = worldPoint.clone().project(camera);
     return { x: ((projected.x + 1) / 2) * window.innerWidth, y: ((1 - projected.y) / 2) * window.innerHeight, isInFront: projected.z < 1 };
   };
+  // A label whose point is hidden behind another part would name the wrong thing, so it hides until the point shows again.
+  // A see-through material, such as a faded shell, does not hide a point. The answer's "?" always shows.
+  const occlusionRaycaster = new THREE.Raycaster();
+  const anchorIsHidden = (part, anchorWorldPoint) => {
+    const towardTheAnchor = anchorWorldPoint.clone().sub(camera.position);
+    const anchorDistance = towardTheAnchor.length();
+    occlusionRaycaster.set(camera.position, towardTheAnchor.normalize());
+    occlusionRaycaster.far = anchorDistance * 0.98;
+    const subjectObjects = scene.children.filter((child) => !isAKernelObject(child) && !child.isLight);
+    return occlusionRaycaster.intersectObjects(subjectObjects, true).some((hit) => {
+      const materials = [hit.object.material].flat();
+      const material = materials[hit.face?.materialIndex ?? 0] ?? materials[0];
+      const seeThrough = material === undefined || !material.visible || (material.transparent && material.opacity < 0.5);
+      let belongsToThePart = false;
+      part.object.traverse((child) => {
+        if (child === hit.object) belongsToThePart = true;
+      });
+      return !seeThrough && !belongsToThePart;
+    });
+  };
+  let framesSinceTheHiddenCheck = Infinity;
+
+  // Labels sit in two columns, one each side of the subject, ordered top to bottom by the points they name, so no two
+  // overlap and every leader line runs out sideways.
   const placeLabels = () => {
     if (!labelsAreVisible || registeredParts.length === 0) return;
-    const subjectCenter = screenPointOf(isSimulation ? subjectBox().getCenter(new THREE.Vector3()) : wholeCenter);
-    const placements = registeredParts.map((part, index) => {
-      const anchor = screenPointOf(part.object.localToWorld(part.anchor.clone()));
-      let directionX = anchor.x - subjectCenter.x;
-      let directionY = anchor.y - subjectCenter.y;
-      const length = Math.hypot(directionX, directionY);
-      if (length < 24) {
-        const fallbackAngle = -Math.PI / 2 + index * 2.1;
-        directionX = Math.cos(fallbackAngle);
-        directionY = Math.sin(fallbackAngle);
-      } else {
-        directionX /= length;
-        directionY /= length;
-      }
-      const width = part.labelElement.offsetWidth;
-      const height = part.labelElement.offsetHeight;
-      return { part, anchor, width, height, centerX: anchor.x + directionX * (64 + width / 2), centerY: anchor.y + directionY * 52 };
-    });
-    // Labels that would overlap are pushed apart up and down for a few passes, then kept inside the window.
-    for (let pass = 0; pass < 4; pass += 1) {
-      for (const first of placements) {
-        for (const second of placements) {
-          if (first === second) continue;
-          const overlapX = (first.width + second.width) / 2 + 8 - Math.abs(first.centerX - second.centerX);
-          const overlapY = (first.height + second.height) / 2 + 6 - Math.abs(first.centerY - second.centerY);
-          if (overlapX <= 0 || overlapY <= 0) continue;
-          const push = overlapY / 2 + 1;
-          const firstIsHigher = first.centerY <= second.centerY;
-          first.centerY += firstIsHigher ? -push : push;
-          second.centerY += firstIsHigher ? push : -push;
-        }
-      }
+    framesSinceTheHiddenCheck += 1;
+    const checkWhatIsHidden = framesSinceTheHiddenCheck >= 8;
+    if (checkWhatIsHidden) framesSinceTheHiddenCheck = 0;
+    const currentSubjectBox = subjectBox();
+    let subjectScreenMinX = Infinity;
+    let subjectScreenMaxX = -Infinity;
+    for (let cornerIndex = 0; cornerIndex < 8; cornerIndex += 1) {
+      const corner = screenPointOf(new THREE.Vector3(
+        cornerIndex & 1 ? currentSubjectBox.max.x : currentSubjectBox.min.x,
+        cornerIndex & 2 ? currentSubjectBox.max.y : currentSubjectBox.min.y,
+        cornerIndex & 4 ? currentSubjectBox.max.z : currentSubjectBox.min.z,
+      ));
+      subjectScreenMinX = Math.min(subjectScreenMinX, corner.x);
+      subjectScreenMaxX = Math.max(subjectScreenMaxX, corner.x);
     }
-    const margin = 10;
+    const subjectCenterX = (subjectScreenMinX + subjectScreenMaxX) / 2;
+    const placements = registeredParts.map((part) => {
+      const anchorWorldPoint = part.object.localToWorld(part.anchor.clone());
+      if (checkWhatIsHidden) part.anchorIsHidden = !part.isAnswer && anchorIsHidden(part, anchorWorldPoint);
+      return { part, anchor: screenPointOf(anchorWorldPoint), width: part.labelElement.offsetWidth, height: part.labelElement.offsetHeight };
+    });
+    const shown = placements.filter((placement) => placement.anchor.isInFront && placement.part.anchorIsHidden !== true);
+    const left = shown.filter((placement) => placement.anchor.x < subjectCenterX).sort((first, second) => first.anchor.x - second.anchor.x);
+    const right = shown.filter((placement) => placement.anchor.x >= subjectCenterX).sort((first, second) => second.anchor.x - first.anchor.x);
+    // The columns stay balanced: the point nearest the middle moves to the shorter column.
+    while (left.length > right.length + 1) right.push(left.pop());
+    while (right.length > left.length + 1) left.push(right.pop());
+    const margin = 12;
+    const gap = 6;
+    const layColumn = (column, isLeft) => {
+      column.sort((first, second) => first.anchor.y - second.anchor.y);
+      let nextFreeTop = margin;
+      for (const placement of column) {
+        placement.top = Math.max(nextFreeTop, placement.anchor.y - placement.height / 2);
+        nextFreeTop = placement.top + placement.height + gap;
+      }
+      // A column that runs off the bottom moves up as a whole, and never above the top margin.
+      const overflow = nextFreeTop - gap - (window.innerHeight - margin);
+      if (overflow > 0) {
+        for (const placement of column) placement.top = Math.max(margin, placement.top - overflow);
+      }
+      for (const placement of column) {
+        placement.left = isLeft
+          ? Math.max(margin, Math.min(subjectScreenMinX - 28, window.innerWidth / 2) - placement.width)
+          : Math.min(window.innerWidth - margin - placement.width, Math.max(subjectScreenMaxX + 28, window.innerWidth / 2));
+        placement.lineEndX = isLeft ? placement.left + placement.width : placement.left;
+      }
+    };
+    layColumn(left, true);
+    layColumn(right, false);
     for (const placement of placements) {
-      const { part, anchor, width, height } = placement;
-      const centerX = Math.min(window.innerWidth - margin - width / 2, Math.max(margin + width / 2, placement.centerX));
-      const centerY = Math.min(window.innerHeight - margin - height / 2, Math.max(margin + height / 2, placement.centerY));
-      const opacity = anchor.isInFront ? "1" : "0";
+      const { part, anchor } = placement;
+      const isShown = shown.includes(placement);
+      const opacity = isShown ? "1" : "0";
       part.labelElement.style.opacity = opacity;
-      part.labelElement.style.transform = `translate(${centerX - width / 2}px, ${centerY - height / 2}px)`;
+      part.leaderLine.style.opacity = opacity;
+      part.leaderDot.style.opacity = opacity;
+      if (!isShown) continue;
+      part.labelElement.style.transform = `translate(${placement.left}px, ${placement.top}px)`;
       part.leaderLine.setAttribute("x1", String(anchor.x));
       part.leaderLine.setAttribute("y1", String(anchor.y));
-      part.leaderLine.setAttribute("x2", String(Math.min(centerX + width / 2, Math.max(centerX - width / 2, anchor.x))));
-      part.leaderLine.setAttribute("y2", String(Math.min(centerY + height / 2, Math.max(centerY - height / 2, anchor.y))));
-      part.leaderLine.style.opacity = opacity;
+      part.leaderLine.setAttribute("x2", String(placement.lineEndX));
+      part.leaderLine.setAttribute("y2", String(placement.top + placement.height / 2));
       part.leaderDot.setAttribute("cx", String(anchor.x));
       part.leaderDot.setAttribute("cy", String(anchor.y));
-      part.leaderDot.style.opacity = opacity;
     }
   };
 

@@ -95,9 +95,20 @@ class PageConnection {
     return (result.result as { value?: unknown } | undefined)?.value;
   }
 
+  /**
+   * Chrome sometimes answers "Unable to capture screenshot" for a page that captures fine a moment later, after it has
+   * drawn many heavy pages in one session, so a capture is tried three times before the error stops the run.
+   */
   async screenshot(format: "jpeg" | "png"): Promise<Buffer> {
-    const result = await this.send("Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality: 85 } : {}) });
-    return Buffer.from(String(result.data), "base64");
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const result = await this.send("Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality: 85 } : {}) });
+        return Buffer.from(String(result.data), "base64");
+      } catch (captureError) {
+        if (attempt >= 3) throw captureError;
+        await sleep(1_000);
+      }
+    }
   }
 
   close() {
