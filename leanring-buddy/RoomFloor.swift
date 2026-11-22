@@ -1,0 +1,236 @@
+//
+//  RoomFloor.swift
+//  leanring-buddy
+//
+//  The furniture half of "try it in my room": furniture stands on the learner's floor at its real size, as a flat cutout
+//  of the product photo facing the camera.
+//
+//  This file holds the pure parts: the Worker's `POST /room-floor` reply parsed at the boundary (`FloorPlane`), the
+//  furniture's corners in camera pixels from that plane and the item's size (`FloorPlane.keyframeCorners`), the client that
+//  asks the Worker (`RoomFloorClient`), and the cutout of the product from its photo (`furnitureCutout`). The panel that
+//  draws it and the tracker that keeps it still live in `RoomArtPreview.swift` and `RoomTracker.swift`.
+//
+
+import CoreGraphics
+import CoreImage
+import CoreVideo
+import Foundation
+import simd
+import Vision
+
+// MARK: - The floor
+
+/// The floor under the spot where the furniture stands, in meters in the camera's frame (x right, y down, z forward), as the
+/// depth service measures it. `center` is the floor point under the anchor pixel, `right` lies on the floor and is level with
+/// the camera, `up` is the floor's normal pointing up, and `forward` (`up` x `right`) lies on the floor pointing away from the
+/// camera.
+nonisolated struct FloorPlane: Equatable, Sendable {
+    let center: SIMD3<Double>
+    let right: SIMD3<Double>
+    let up: SIMD3<Double>
+    let forward: SIMD3<Double>
+    let focalLengthPixels: Double
+    let principalPoint: SIMD2<Double>
+    let distanceMeters: Double
+    let floorTiltDegrees: Double
+    let planeInlierShare: Double
+
+    /// A corner closer to the camera plane than this is behind the camera, as `WallPlane.keyframeCorners` counts it.
+    private static let nearestCornerDepthMeters = 0.01
+
+    /// The furniture's corners in the keyframe, in camera pixels: an upright rectangle `widthMeters` wide and `heightMeters`
+    /// tall, with its bottom edge on the floor and centered on `center`, facing the camera, projected through the pinhole.
+    ///
+    /// It faces the camera by taking the horizontal direction from `center` toward the camera as its normal (the camera is
+    /// the origin, so that is `-center` with its part along `up` removed). Its width runs along `up` x that normal, which is
+    /// `right` when the anchor is straight ahead and turns with the anchor when it is off to the side, so a piece to the side
+    /// is not seen at a slant the product photo never had. `up` x `-center` is the same direction as `up` x that normal,
+    /// since the cross product drops the part of `-center` along `up`, so the code takes it directly. `up` x (the direction
+    /// toward the camera) is image-right for any floor the camera sees from the front (`forward` points away from the camera,
+    /// so the direction toward it is -`forward`, and `up` x -`forward` is `right`), so the cutout is never mirrored.
+    ///
+    /// Nil when a corner is not in front of the camera, when the camera is straight above `center` so no horizontal direction
+    /// toward it exists, or when the size is not a positive number.
+    func keyframeCorners(widthMeters: Double, heightMeters: Double) -> RoomArtCorners? {
+        guard widthMeters.isFinite, heightMeters.isFinite, widthMeters > 0, heightMeters > 0 else { return nil }
+        let widthDirectionBeforeNormalizing = simd_cross(up, -center)
+        guard simd_length(widthDirectionBeforeNormalizing) > 1e-6 else { return nil }
+        let widthDirection = simd_normalize(widthDirectionBeforeNormalizing)
+
+        let halfWidth = widthMeters / 2
+        let cornerOffsets: [(alongWidth: Double, alongUp: Double)] = [(-1, 1), (1, 1), (1, 0), (-1, 0)]
+        var projectedCorners: [CGPoint] = []
+        for offset in cornerOffsets {
+            let point = center + widthDirection * (halfWidth * offset.alongWidth) + up * (heightMeters * offset.alongUp)
+            guard point.z > Self.nearestCornerDepthMeters else { return nil }
+            projectedCorners.append(CGPoint(
+                x: point.x * focalLengthPixels / point.z + principalPoint.x,
+                y: point.y * focalLengthPixels / point.z + principalPoint.y
+            ))
+        }
+        return RoomArtCorners(clockwiseFromTopLeft: projectedCorners)
+    }
+}
+
+nonisolated private struct RoomFloorReply: Decodable {
+    let center: [Double]
+    let right: [Double]
+    let up: [Double]
+    let forward: [Double]
+    let focalPx: Double
+    let principal: [Double]
+    let distanceMeters: Double
+    let floorTiltDegrees: Double
+    let planeInlierShare: Double
+}
+
+extension FloorPlane {
+    /// Parses the Worker's reply. The floor must be in front of the camera, its normal must point up in the image, the focal
+    /// length must be positive, and the three directions must be real directions, which are made unit length.
+    nonisolated init(responseData: Data) throws {
+        let reply: RoomFloorReply
+        do {
+            reply = try JSONDecoder().decode(RoomFloorReply.self, from: responseData)
+        } catch {
+            throw RoomArtReplyError(reason: "the reply is not the room-floor shape")
+        }
+        func vector3(_ values: [Double], named name: String) throws -> SIMD3<Double> {
+            guard values.count == 3, values.allSatisfy(\.isFinite) else { throw RoomArtReplyError(reason: "\(name) must be 3 numbers") }
+            return SIMD3(values[0], values[1], values[2])
+        }
+        let center = try vector3(reply.center, named: "center")
+        let right = try vector3(reply.right, named: "right")
+        let up = try vector3(reply.up, named: "up")
+        let forward = try vector3(reply.forward, named: "forward")
+        guard center.z > 0 else { throw RoomArtReplyError(reason: "the floor must be in front of the camera") }
+        guard simd_length(right) > 1e-6, simd_length(up) > 1e-6, simd_length(forward) > 1e-6 else {
+            throw RoomArtReplyError(reason: "right, up, and forward must be directions")
+        }
+        // The camera's y axis points down the image, so a floor's normal pointing up has a negative y. A positive y is a ceiling.
+        guard up.y < 0 else { throw RoomArtReplyError(reason: "the floor's up must point up in the image") }
+        guard reply.focalPx.isFinite, reply.focalPx > 0 else { throw RoomArtReplyError(reason: "focalPx must be positive") }
+        guard reply.principal.count == 2, reply.principal.allSatisfy(\.isFinite) else { throw RoomArtReplyError(reason: "principal must be 2 numbers") }
+        self.init(
+            center: center,
+            right: simd_normalize(right),
+            up: simd_normalize(up),
+            forward: simd_normalize(forward),
+            focalLengthPixels: reply.focalPx,
+            principalPoint: SIMD2(reply.principal[0], reply.principal[1]),
+            distanceMeters: reply.distanceMeters,
+            floorTiltDegrees: reply.floorTiltDegrees,
+            planeInlierShare: reply.planeInlierShare
+        )
+    }
+}
+
+// MARK: - Client
+
+/// The Worker's `POST /room-floor`, with the request and the failure shape `RoomArtClient.measureTheWall` has: a non-200
+/// reply throws `RoomArtWorkerError.workerReturned`, a reply that is not a usable floor throws `RoomArtReplyError`, and a
+/// transport failure throws the `URLError`.
+///
+/// This is its own client and not an extension of `RoomArtClient`, whose Worker URLs and session are private to
+/// `RoomArt.swift`. The integration pass can fold it into `RoomArtClient` and map a failed floor measurement to a
+/// `RoomArtFailure` of its own (a 401 is the app secret, a 502 or 503 the depth service, anything else, a 422 included, a floor
+/// that could not be measured).
+@MainActor
+final class RoomFloorClient {
+    private let roomFloorURL: URL
+    private let session: URLSession
+
+    /// The same wait as `RoomArtClient`: Depth Pro takes about 14 seconds on a frame.
+    private static let timeoutSeconds: TimeInterval = 90
+
+    init(workerBaseURL: String) {
+        guard let roomFloorURL = URL(string: "\(workerBaseURL)/room-floor") else {
+            preconditionFailure("Worker base URL did not form the room-floor URL: \(workerBaseURL)")
+        }
+        self.roomFloorURL = roomFloorURL
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = Self.timeoutSeconds
+        configuration.timeoutIntervalForResource = Self.timeoutSeconds
+        session = URLSession(configuration: configuration)
+    }
+
+    /// `request.anchor` is the keyframe pixel the furniture's front-bottom center stands on.
+    func measureTheFloor(_ request: RoomWallRequest) async throws -> FloorPlane {
+        let (responseData, statusCode) = try await WorkerJSONPost.send(
+            try JSONEncoder().encode(request.json),
+            to: roomFloorURL,
+            using: session,
+            sendsAppSecret: true
+        )
+        guard statusCode == 200 else {
+            throw RoomArtWorkerError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
+        }
+        return try FloorPlane(responseData: responseData)
+    }
+}
+
+// MARK: - The cutout
+
+/// The product cut out of its photo: the photo cropped to the bounding box of `itemCorners` (clamped into the photo), with
+/// everything but the product transparent. Vision's foreground instance mask finds the product, the way the pop-out lifts a
+/// subject. When it finds several instances, such as a chair and its cushion, the one under the crop's center is kept, and
+/// when the center is on the background, such as the hole of a ring-shaped stool, the largest instance is. Nil when the
+/// corners leave under 8 pixels of the photo (`furnitureCropRectangle`), when Vision finds no subject, or when it fails.
+nonisolated func furnitureCutout(picture: CGImage, itemCorners: RoomArtCorners, context: CIContext) -> CGImage? {
+    guard let cropRectangle = furnitureCropRectangle(for: itemCorners, inPictureOfWidth: picture.width, height: picture.height),
+          let croppedPicture = picture.cropping(to: cropRectangle) else { return nil }
+
+    let maskRequest = VNGenerateForegroundInstanceMaskRequest()
+    let requestHandler = VNImageRequestHandler(cgImage: croppedPicture)
+    do {
+        try requestHandler.perform([maskRequest])
+        guard let maskObservation = maskRequest.results?.first,
+              let instanceToKeep = instanceIndexToKeep(in: maskObservation.instanceMask) else { return nil }
+        let maskedPixelBuffer = try maskObservation.generateMaskedImage(
+            ofInstances: IndexSet(integer: instanceToKeep),
+            from: requestHandler,
+            croppedToInstancesExtent: false
+        )
+        let maskedImage = CIImage(cvPixelBuffer: maskedPixelBuffer)
+        return context.createCGImage(maskedImage, from: maskedImage.extent)
+    } catch {
+        print("Room floor: the furniture cutout failed: \(error)")
+        return nil
+    }
+}
+
+/// The part of the photo the cutout works on: the bounding box of the corners rounded out to whole pixels and clamped into the
+/// photo. Nil when under 8 pixels of the photo are left on a side, since the product is then not in the photo.
+nonisolated func furnitureCropRectangle(for itemCorners: RoomArtCorners, inPictureOfWidth pictureWidth: Int, height pictureHeight: Int) -> CGRect? {
+    let corners = itemCorners.clockwiseFromTopLeft
+    guard let left = corners.map(\.x).min(), let right = corners.map(\.x).max(),
+          let top = corners.map(\.y).min(), let bottom = corners.map(\.y).max() else { return nil }
+    let boundingBox = CGRect(x: left, y: top, width: right - left, height: bottom - top).integral
+    let cropRectangle = boundingBox.intersection(CGRect(x: 0, y: 0, width: pictureWidth, height: pictureHeight))
+    guard !cropRectangle.isNull, cropRectangle.width >= 8, cropRectangle.height >= 8 else { return nil }
+    return cropRectangle
+}
+
+/// The instance label (1 or more) the cutout keeps, from Vision's label buffer, where each pixel holds its instance's index
+/// and 0 is the background: the label at the buffer's center, else the label with the most pixels. Nil when every pixel is
+/// background.
+nonisolated func instanceIndexToKeep(in instanceLabels: CVPixelBuffer) -> Int? {
+    CVPixelBufferLockBaseAddress(instanceLabels, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(instanceLabels, .readOnly) }
+    guard CVPixelBufferGetPixelFormatType(instanceLabels) == kCVPixelFormatType_OneComponent8,
+          let baseAddress = CVPixelBufferGetBaseAddress(instanceLabels) else { return nil }
+    let width = CVPixelBufferGetWidth(instanceLabels), height = CVPixelBufferGetHeight(instanceLabels)
+    let bytesPerRow = CVPixelBufferGetBytesPerRow(instanceLabels)
+    guard width > 0, height > 0 else { return nil }
+    let labels = baseAddress.assumingMemoryBound(to: UInt8.self)
+
+    var pixelCountByLabel: [UInt8: Int] = [:]
+    for row in 0..<height {
+        for column in 0..<width where labels[row * bytesPerRow + column] != 0 {
+            pixelCountByLabel[labels[row * bytesPerRow + column], default: 0] += 1
+        }
+    }
+    let labelAtTheCenter = labels[(height / 2) * bytesPerRow + width / 2]
+    if labelAtTheCenter != 0 { return Int(labelAtTheCenter) }
+    // A tie goes to the lower label, so the choice never depends on dictionary order.
+    return pixelCountByLabel.max { ($0.value, -Int($0.key)) < ($1.value, -Int($1.key)) }.map { Int($0.key) }
+}
