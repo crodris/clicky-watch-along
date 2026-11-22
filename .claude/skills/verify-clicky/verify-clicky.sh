@@ -668,8 +668,10 @@ parse_app_launch_arguments() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --worker-port)
-        if [[ ! "${2:-}" =~ ^[0-9]{4,5}$ ]]; then
-          echo "--worker-port takes a port number, as in: --worker-port 8796" >&2
+        # The app's debugWorkerPort takes 1024 to 65535 and falls back to 8787 for anything else, so the script refuses
+        # what the app would ignore instead of checking a Worker the app never calls.
+        if [[ ! "${2:-}" =~ ^[0-9]{4,5}$ ]] || (( 10#$2 < 1024 || 10#$2 > 65535 )); then
+          echo "--worker-port takes a port number from 1024 to 65535, as in: --worker-port 8796" >&2
           exit 1
         fi
         app_launch_worker_port="$2"
@@ -711,7 +713,7 @@ command_app_launch() {
     exit 1
   fi
   if ! worker_was_started_here "$app_launch_worker_port"; then
-    echo "No Worker this script started is listening on 127.0.0.1:$app_launch_worker_port, which the app calls. Run worker-up $app_launch_worker_port when the port is free, or worker-up on a free port and pass --worker-port with it. When another process holds it, report the app surface as unverified." >&2
+    echo "No Worker this script started is listening on 127.0.0.1:$app_launch_worker_port, which the app calls. Run worker-up $app_launch_worker_port when that port is free. When another process holds it, run worker-up on a free port, such as 8796, and pass --worker-port with it." >&2
     exit 1
   fi
   local run_dir

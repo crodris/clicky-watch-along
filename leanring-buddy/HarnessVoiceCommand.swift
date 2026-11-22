@@ -174,6 +174,15 @@ nonisolated func voiceCommandLineAudio(lineToSpeak: String, earlyLineFetched: St
     earlyLineFetched == lineToSpeak ? .theAudioFetchedEarly : .aFetchStartedNow
 }
 
+/// Whether the early line of a turn with these calls can become its finished line. A hand-off finishes the command with no
+/// line, and a lookup sends the model back for another turn, so the early line of a turn with either never plays, and
+/// fetching it would only bill an ElevenLabs request. A turn that undoes or changes the screen can play it.
+nonisolated func earlyLineIsWorthFetching(turnToolNames: [String], lookupToolNames: Set<String>) -> Bool {
+    !turnToolNames.contains { toolName in
+        AppVoiceTool(rawValue: toolName)?.mayHandOff == true || lookupToolNames.contains(toolName)
+    }
+}
+
 /// How long the app waits for the harness's next event of a command before it fails the command, so a hung harness
 /// falls back too. It is above the harness's own 8 second turn timeout, which ends a hung turn with task_failed first.
 nonisolated let secondsToWaitForTheNextHarnessVoiceCommandEvent: Double = 10
@@ -205,7 +214,7 @@ func runTheVoiceCommandEvents(
     secondsToWaitForAnEvent: Double = secondsToWaitForTheNextHarnessVoiceCommandEvent,
     secondsToWaitAfterAPlanningLine: Double = secondsToWaitForAPlanningTurn,
     whenNoEventArrivesInTime: @escaping @MainActor () -> Void,
-    whenTheLineIfEveryCallChangesArrives: (_ spokenLine: String) -> Void = { _ in },
+    whenTheLineIfEveryCallChangesArrives: (_ spokenLine: String, _ toolNames: [String]) -> Void = { _, _ in },
     runTool: (_ toolCall: VoiceToolCall, _ approvalIDTheLearnerIsAnswering: String?) async -> VoiceToolOutcome
 ) async -> HarnessVoiceCommandEnding {
     let eventDeadlineRecord = HarnessVoiceCommandDeadlineRecord()
@@ -244,9 +253,9 @@ func runTheVoiceCommandEvents(
             case .planningTurnStarted:
                 // The larger model's turn is under way, and the harness ends it itself within 30 seconds.
                 startTheEventDeadline(secondsToWait: secondsToWaitAfterAPlanningLine)
-            case .spokenLineIfEveryCallChanges(let spokenLine):
+            case .spokenLineIfEveryCallChanges(let spokenLine, let toolNames):
                 // The turn's reply is in and its calls follow at once, so the audio is fetched while they run.
-                whenTheLineIfEveryCallChangesArrives(spokenLine)
+                whenTheLineIfEveryCallChangesArrives(spokenLine, toolNames)
                 startTheEventDeadline(secondsToWait: secondsToWaitForAnEvent)
             case .voiceCommandFinished(let spokenLine, let gaveUp):
                 return .finished(spokenLine: spokenLine, gaveUp: gaveUp)

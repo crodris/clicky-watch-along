@@ -1336,7 +1336,9 @@ final class CompanionManager: ObservableObject {
                 finalRoute: route,
                 voiceCommandsRunInTheHarness: voiceCommandBackend.runsInTheHarness,
                 finalUsesTheSameScreenRead: finalUsesTheSameScreenRead,
-                commandInputsAreUnchanged: commandInputsAreUnchanged
+                commandInputsAreUnchanged: commandInputsAreUnchanged,
+                // The router stops tracking a command once its task_failed arrives or its harness exits.
+                heldCommandIsStillRunning: agentHarness.taskRouter.isTracking(taskID: speculativeCommand.command.commandID)
             ) {
             case .confirm:
                 agentHarness.confirmVoiceCommand(taskID: speculativeCommand.command.commandID)
@@ -3050,6 +3052,7 @@ final class CompanionManager: ObservableObject {
                 startedCommand,
                 transcript: transcript,
                 offeredToolNames: inputs.offeredToolNames,
+                lookupToolNames: inputs.lookupToolNames,
                 approvalIDWaitingWhenTheCommandStarted: inputs.approvalIDWaitingWhenTheCommandStarted,
                 commandStartedAt: commandStartedAt,
                 timing: timing
@@ -3145,6 +3148,7 @@ final class CompanionManager: ObservableObject {
         _ startedCommand: StartedHarnessVoiceCommand,
         transcript: String,
         offeredToolNames: Set<String>,
+        lookupToolNames: Set<String>,
         approvalIDWaitingWhenTheCommandStarted: String?,
         commandStartedAt: Date,
         timing: VoiceCommandTimingRecorder
@@ -3168,11 +3172,13 @@ final class CompanionManager: ObservableObject {
                     lastEvent: .failed(reason: "the agent harness sent nothing in time")
                 )
             },
-            whenTheLineIfEveryCallChangesArrives: { spokenLine in
+            whenTheLineIfEveryCallChangesArrives: { spokenLine, turnToolNames in
                 // A later turn's line replaces an earlier one, which a lookup or a failure made wrong.
                 earlyLineFetch?.cancel()
+                earlyLineFetch = nil
                 let lineToSpeak = voiceCommandLineToSpeak(spokenLine)
-                earlyLineFetch = lineToSpeak.isEmpty ? nil : self.elevenLabsTTSClient.startFetching(lineToSpeak)
+                guard !lineToSpeak.isEmpty, earlyLineIsWorthFetching(turnToolNames: turnToolNames, lookupToolNames: lookupToolNames) else { return }
+                earlyLineFetch = self.elevenLabsTTSClient.startFetching(lineToSpeak)
             },
             runTool: { toolCall, approvalIDTheLearnerIsAnswering in
                 aToolOfTheCommandRan = true
@@ -3223,6 +3229,9 @@ final class CompanionManager: ObservableObject {
                 if lineAudio == .theAudioFetchedEarly, let earlyLineFetch {
                     lineFetch = earlyLineFetch
                 } else {
+                    // The early audio has other words, so it stops downloading before the finished line's fetch starts.
+                    earlyLineFetch?.cancel()
+                    earlyLineFetch = nil
                     lineFetch = elevenLabsTTSClient.startFetching(lineToSpeak)
                 }
                 // The player owns the fetch from here, so the cancel on the way out must not cut the line off.

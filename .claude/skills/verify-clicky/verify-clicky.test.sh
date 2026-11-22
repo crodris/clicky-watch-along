@@ -97,7 +97,16 @@ check "--worker-port and --no-speculation pass their launch arguments" "${app_la
 check "--worker-port sets the port app-launch checks" "$app_launch_worker_port" "8796"
 check "the steps follow the port" "$app_launch_rehearsal_steps" "%turn it left"
 port_error="$( (parse_app_launch_arguments --worker-port eighty "x") 2>&1)" || true
-check "--worker-port refuses a value that is not a port" "$port_error" "--worker-port takes a port number, as in: --worker-port 8796"
+check "--worker-port refuses a value that is not a port" "$port_error" "--worker-port takes a port number from 1024 to 65535, as in: --worker-port 8796"
+# The app falls back to 8787 below 1024 and above 65535, so the script refuses those too.
+for out_of_range_port in 1023 65536 99999; do
+  range_error="$( (parse_app_launch_arguments --worker-port "$out_of_range_port" "x") 2>&1)" || true
+  check "--worker-port refuses $out_of_range_port" "$range_error" "--worker-port takes a port number from 1024 to 65535, as in: --worker-port 8796"
+done
+parse_app_launch_arguments --worker-port 65535 "x"
+check "--worker-port takes the highest port" "$app_launch_worker_port" "65535"
+parse_app_launch_arguments --worker-port 1024 "x"
+check "--worker-port takes the lowest port" "$app_launch_worker_port" "1024"
 # --no-app-secret and --wrong-app-secret pass the app's own --app-secret-mode argument, so the upgrade paths of the harness
 # brain work on the first try without touching the defaults. The default copies the real secret and passes nothing.
 parse_app_launch_arguments "turn it to the left"

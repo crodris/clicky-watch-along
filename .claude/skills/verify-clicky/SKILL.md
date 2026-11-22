@@ -84,7 +84,7 @@ $V worker-up 8789 -- --var LIVE_SCENE_MODEL:sonnet  # Sonnet builds them (about 
 ```
 
 **App.**
-The app calls `http://127.0.0.1:8787` in every build (`CompanionManager.swift`), so it needs a Worker on 8787 that this script started:
+The Debug app calls `http://127.0.0.1:8787` (`CompanionManager.swift`), or the port that `app-launch --worker-port` passes, so it needs a Worker on that port that this script started:
 
 ```bash
 $V worker-up 8787 -- --var LIVE_SCENE_MODEL:sonnet
@@ -93,7 +93,7 @@ $V worker-up 8787 -- --var LIVE_SCENE_MODEL:sonnet
 When another process holds 8787, do not stop it.
 Start a Worker on a free port instead, such as `$V worker-up 8796`, and pass `--worker-port 8796` to `app-launch`, which makes the Debug app call that Worker (`debugWorkerPort`).
 `app-launch --no-speculation` passes `--no-voice-command-speculation`, so no voice command starts on the partial transcript and a run can time the same commands both ways.
-`app-launch` refuses to run without a Worker this script started on 8787, so the run always serves this checkout's Worker code and captures its usage lines.
+`app-launch` refuses to run without a Worker this script started on 8787, or on its `--worker-port`, so the run always serves this checkout's Worker code and captures its usage lines.
 
 Then launch the app with rehearsal steps.
 It refuses when any Clicky is already running, because two instances fight over the event tap and the overlay.
@@ -131,7 +131,7 @@ It needs `--harness-brain`.
 A step that starts with `+N ` waits N more seconds first, such as `+12 build me a 3D model`, so a recorded take can land a request on a chosen moment of a playing video.
 It goes before any other prefix, and N is a number of seconds up to 600.
 `app-wait` returns when the app logs `Live scene rehearsal: done`.
-It prints the relevant log lines and saves the usage lines the 8787 Worker logged during the run.
+It prints the relevant log lines and saves the usage lines the app's Worker (8787, or the launch's `--worker-port`) logged during the run.
 
 ## Drive
 

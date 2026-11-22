@@ -79,9 +79,10 @@ func (outcome voiceToolOutcome) isKnown() bool {
 // waiting, and it names the request's kind of action in the scene state itself, so the app sends no approvalWaiting.
 //
 // WaitsForTheFinalTranscript is true for a command the app started on the partial transcript at push-to-talk release,
-// before the final transcript arrived. The brain runs its first turn at once, but sends no tool_call and keeps nothing in
-// the session until confirm_voice_command says the final transcript matched, and a cancel_task before that leaves no
-// trace (brainloop.go). Such a command never names an approval, since a partial "yes" could answer one.
+// before the final transcript arrived. The brain runs its first turn at once, but sends no tool_call and commits nothing
+// to the session until confirm_voice_command says the final transcript matched. A cancel_task before that keeps no message,
+// no action line, and no new change, though the fold and the drop of stale changes that every command's begin does still
+// happen (brainloop.go, brainsession.go). Such a command never names an approval, since a partial "yes" could answer one.
 type voiceCommandMessage struct {
 	TaskID                     string           `json:"taskID"`
 	Transcript                 string           `json:"transcript"`
@@ -334,11 +335,14 @@ type voiceCommandFinishedMessage struct {
 // voiceLineIfEveryCallChangesMessage is the line a voice command will speak if every call of the turn that follows
 // changes the screen (spokenLineIfEveryCallChanges in brain.go). It goes out before the turn's first tool_call, so the app
 // can fetch the line's audio while the calls run. The app plays that audio only when voice_command_finished carries the
-// same spokenLine, and drops it otherwise, such as after a lookup, a failure, or a hand-off.
+// same spokenLine, and drops it otherwise, such as after a lookup, a failure, or a hand-off. ToolNames are the turn's calls
+// as the model named them, in order, so the app can skip the fetch for a turn that hands off or looks something up, whose
+// line never plays.
 type voiceLineIfEveryCallChangesMessage struct {
-	Type       string `json:"type"`
-	TaskID     string `json:"taskID"`
-	SpokenLine string `json:"spokenLine"`
+	Type       string     `json:"type"`
+	TaskID     string     `json:"taskID"`
+	SpokenLine string     `json:"spokenLine"`
+	ToolNames  []toolName `json:"toolNames"`
 }
 
 // approvalSettledMessage tells the app which answer the gate took for a request, whoever gave it: a click's
@@ -389,8 +393,12 @@ func newVoiceCommandFinishedMessage(taskID string, spokenLine string, gaveUp boo
 	return voiceCommandFinishedMessage{Type: "voice_command_finished", TaskID: taskID, SpokenLine: spokenLine, GaveUp: gaveUp}
 }
 
-func newVoiceLineIfEveryCallChangesMessage(taskID string, spokenLine string) voiceLineIfEveryCallChangesMessage {
-	return voiceLineIfEveryCallChangesMessage{Type: "voice_line_if_every_call_changes", TaskID: taskID, SpokenLine: spokenLine}
+func newVoiceLineIfEveryCallChangesMessage(taskID string, spokenLine string, calls []toolCall) voiceLineIfEveryCallChangesMessage {
+	toolNames := make([]toolName, len(calls))
+	for callIndex, call := range calls {
+		toolNames[callIndex] = call.Name
+	}
+	return voiceLineIfEveryCallChangesMessage{Type: "voice_line_if_every_call_changes", TaskID: taskID, SpokenLine: spokenLine, ToolNames: toolNames}
 }
 
 func newApprovalSettledMessage(approvalID string, approved bool, scope string) approvalSettledMessage {

@@ -175,8 +175,9 @@ final class ElevenLabsTTSClient {
 
     /// Reads the rest of the audio after playback has started.
     private var streamingTask: Task<Void, Never>?
-    /// Bumped by every stopPlayback, so a buffer or stream from an earlier line cannot change the current one.
-    private var playbackGeneration = 0
+    /// Bumped by every stopPlayback, so a buffer or stream from an earlier line cannot change the current one. A test reads it
+    /// to see that starting a fetch stops nothing.
+    private(set) var playbackGeneration = 0
     private var isReceivingStream = false
     private var buffersWaitingToFinishPlaying = 0
     private var spokenLineTokenLedger = SpokenLineTokenLedger()
@@ -185,12 +186,13 @@ final class ElevenLabsTTSClient {
     private var currentLineScheduledSampleCount = 0
     private var engineConfigurationObserver: NSObjectProtocol?
 
-    init(proxyURL: String) {
+    /// `sessionConfiguration` is the app's default, and a test passes one whose protocol classes answer the Worker's `/tts`.
+    init(proxyURL: String, sessionConfiguration: URLSessionConfiguration = .default) {
         var proxyURLComponents = URLComponents(string: proxyURL)!
         proxyURLComponents.queryItems = [URLQueryItem(name: "output_format", value: "pcm_24000")]
         self.proxyURL = proxyURLComponents.url!
 
-        let configuration = URLSessionConfiguration.default
+        let configuration = sessionConfiguration
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 60
         self.session = URLSession(configuration: configuration)

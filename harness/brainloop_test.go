@@ -217,7 +217,7 @@ func TestATurnSendsTheLineItWouldSpeakBeforeItsFirstCall(t *testing.T) {
 
 	driver.send(voiceCommandLine("command-1", "turn it left and zoom in"))
 	// expectLine fails on a tool_call that comes first, so this also pins the order.
-	if got, want := driver.expectLine("voice_line_if_every_call_changes"), `{"type":"voice_line_if_every_call_changes","taskID":"command-1","spokenLine":"turned it left zoomed in"}`; got != want {
+	if got, want := driver.expectLine("voice_line_if_every_call_changes"), `{"type":"voice_line_if_every_call_changes","taskID":"command-1","spokenLine":"turned it left zoomed in","toolNames":["rotate_model","zoom"]}`; got != want {
 		t.Fatalf("the line before the first call:\n got %s\nwant %s", got, want)
 	}
 	driver.expectLine("tool_call")
@@ -236,7 +236,7 @@ func TestATurnSendsTheLineItWouldSpeakBeforeItsFirstCall(t *testing.T) {
 	driver.expectLine("tool_call")
 	driver.send(voiceToolResultLine("command-2", "toolu_seek", voiceToolChanged, `{"ok":true,"state":null}`))
 	driver.expectLine("voice_command_finished")
-	if want := []string{`{"type":"voice_line_if_every_call_changes","taskID":"command-2","spokenLine":"jumped there"}`}; !reflect.DeepEqual(driver.voiceLines, want) {
+	if want := []string{`{"type":"voice_line_if_every_call_changes","taskID":"command-2","spokenLine":"jumped there","toolNames":["seek_to_time"]}`}; !reflect.DeepEqual(driver.voiceLines, want) {
 		t.Errorf("the early lines of a lookup and its action were %v, want %v", driver.voiceLines, want)
 	}
 
@@ -247,6 +247,24 @@ func TestATurnSendsTheLineItWouldSpeakBeforeItsFirstCall(t *testing.T) {
 	if len(driver.voiceLines) != 0 {
 		t.Errorf("a reply with no call sent early lines %v", driver.voiceLines)
 	}
+}
+
+// The early line names the turn's calls in order, so the app can skip the fetch for a turn that hands off or looks
+// something up, whose line never plays.
+func TestTheEarlyLineNamesTheTurnsCallsSoTheAppCanSkipAHandOff(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, _ int) {
+		writeBrainReply(writer, "tool_use",
+			brainToolUse("toolu_find", "find_moment", `{"query":"engine","confirmation":"found it"}`),
+			brainToolUse("toolu_pop", "pop_out", `{"confirmation":"popping it out"}`),
+		)
+	})
+	driver := startHarness(t, worker.server.URL)
+
+	driver.send(voiceCommandLine("command-1", "find the engine and pop it out"))
+	if got, want := driver.expectLine("voice_line_if_every_call_changes"), `{"type":"voice_line_if_every_call_changes","taskID":"command-1","spokenLine":"found it popping it out","toolNames":["find_moment","pop_out"]}`; got != want {
+		t.Fatalf("the early line:\n got %s\nwant %s", got, want)
+	}
+	driver.expectLine("tool_call")
 }
 
 func TestACallToAToolTheCommandDidNotOfferNeverReachesTheApp(t *testing.T) {

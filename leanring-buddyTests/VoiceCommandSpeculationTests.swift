@@ -4,7 +4,7 @@
 //
 //  A voice command started on the partial transcript at push-to-talk release: where a transcript goes, when a partial
 //  may start a command, when the final transcript keeps it, what a new press or the final transcript does to a command
-//  waiting for it, and that the events the harness sends while it waits run once it is kept, with no deadline passing.
+//  waiting for it.
 //  The harness's half, which holds the command's calls until it is confirmed, is tested in harness/brainspeculation_test.go.
 //
 
@@ -61,9 +61,32 @@ struct VoiceCommandSpeculationTests {
 
     @Test func theFinalTranscriptsCapitalsAndPunctuationStillMatchThePartialsWords() {
         #expect(transcriptWordsForComparison("Turn it left.") == transcriptWordsForComparison("turn it   left"))
-        #expect(transcriptWordsForComparison("What's that part?") == ["whats", "that", "part"])
+        #expect(transcriptWordsForComparison("What's that part?") == ["what's", "that", "part"])
         #expect(transcriptWordsForComparison("turn it") != transcriptWordsForComparison("turn it left"))
         #expect(transcriptWordsForComparison("  ,. ").isEmpty)
+    }
+
+    @Test func numbersWhosePunctuationDiffersAreOtherWordsSoTheCommandIsDiscarded() {
+        func step(partial: String, final: String) -> SpeculationStep {
+            speculationStep(
+                partialTranscript: partial,
+                finalTranscript: final,
+                finalRoute: .voiceCommandRouter,
+                voiceCommandsRunInTheHarness: true,
+                finalUsesTheSameScreenRead: true,
+                commandInputsAreUnchanged: true,
+                heldCommandIsStillRunning: true
+            )
+        }
+        // The partial caught the digits before Apple Speech wrote the final's punctuation, so the command built from the
+        // partial would seek, turn, or set the speed to the wrong value.
+        #expect(step(partial: "seek to 130", final: "Seek to 1:30") == .discard(reason: "the final transcript has other words"))
+        #expect(step(partial: "turn it 45 degrees", final: "Turn it -45 degrees") == .discard(reason: "the final transcript has other words"))
+        #expect(step(partial: "play it at 15 speed", final: "Play it at 1.5 speed") == .discard(reason: "the final transcript has other words"))
+        // A closing period or comma, and capitals, are still the same words.
+        #expect(step(partial: "turn it left", final: "Turn it left.") == .confirm)
+        #expect(step(partial: "seek to 1:30", final: "Seek to 1:30.") == .confirm)
+        #expect(transcriptWordsForComparison("Go back, -10 seconds.") == ["go", "back", "-10", "seconds"])
     }
 
     @Test func eachRouteIsDecidedInTheOrderTheAppHasAlwaysUsed() {
@@ -114,14 +137,15 @@ struct VoiceCommandSpeculationTests {
     }
 
     @Test func theFinalTranscriptKeepsTheCommandOnlyWhenEverythingItWasStartedFromStillHolds() {
-        func step(final: String = "Turn it left.", route: TranscriptRoute = .voiceCommandRouter, harness: Bool = true, sameRead: Bool = true, sameInputs: Bool = true) -> SpeculationStep {
+        func step(final: String = "Turn it left.", route: TranscriptRoute = .voiceCommandRouter, harness: Bool = true, sameRead: Bool = true, sameInputs: Bool = true, stillRunning: Bool = true) -> SpeculationStep {
             speculationStep(
                 partialTranscript: "turn it left",
                 finalTranscript: final,
                 finalRoute: route,
                 voiceCommandsRunInTheHarness: harness,
                 finalUsesTheSameScreenRead: sameRead,
-                commandInputsAreUnchanged: sameInputs
+                commandInputsAreUnchanged: sameInputs,
+                heldCommandIsStillRunning: stillRunning
             )
         }
         #expect(step() == .confirm)
@@ -134,6 +158,22 @@ struct VoiceCommandSpeculationTests {
         #expect(step(sameRead: false) == .discard(reason: "the page the command read is gone"))
         // A quiz question opened, or the Theme Studio closed, while the final transcript was on its way.
         #expect(step(sameInputs: false) == .discard(reason: "what the command offers changed"))
+        // The held command's first turn failed, or its harness exited, while it waited, so a confirm would only reach the
+        // failure's fallback, and the final transcript starts a fresh command instead.
+        #expect(step(stillRunning: false) == .discard(reason: "the held command already ended in the harness"))
+    }
+
+    @Test func aHeldCommandWhoseTurnFailedOrWhoseHarnessExitedCountsAsEnded() throws {
+        // The final transcript reads `isTracking` to tell a held command that still runs from one that already ended.
+        let taskRouter = HarnessTaskRouter()
+        _ = taskRouter.register(taskID: commandID)
+        #expect(taskRouter.isTracking(taskID: commandID))
+        taskRouter.route(try HarnessMessage(line: #"{"type":"task_failed","taskID":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","reason":"turn 1 got no reply from Claude within 8s"}"#))
+        #expect(!taskRouter.isTracking(taskID: commandID))
+
+        _ = taskRouter.register(taskID: commandID)
+        taskRouter.failEveryTask(reason: "the agent harness exited")
+        #expect(!taskRouter.isTracking(taskID: commandID))
     }
 
     @Test func aNewPressDiscardsTheCommandWaitingForItsFinalTranscriptAndTheCancelNamesNoCall() {
@@ -219,34 +259,6 @@ struct VoiceCommandSpeculationTests {
         if case .waitingForWords = speculation {} else { Issue.record("another press's transcript ended this press's wait") }
         #expect(speculation.takeForTheFinalTranscript(ofPress: 6) == nil)
         if case .none = speculation {} else { Issue.record("the final transcript left the press waiting for words") }
-    }
-
-    @Test func eventsThatWaitedForTheFinalTranscriptRunOnceItIsKeptWithNoDeadlinePassing() async {
-        // The harness sent the early line, and then the call and the finish once the command was confirmed, while the app
-        // had not started reading the stream. The deadline starts with the loop, so a wait longer than it before the loop
-        // never fails the command.
-        let (commandEvents, eventContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
-        eventContinuation.yield(.spokenLineIfEveryCallChanges("turned it left"))
-        eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_rotate", toolName: "rotate_model", input: [:], turnIndex: 0)))
-        eventContinuation.yield(.voiceCommandFinished(spokenLine: "turned it left", gaveUp: false))
-        try? await Task.sleep(for: .milliseconds(150))
-
-        var deadlinePassed = false
-        var ranCalls: [String] = []
-        let commandEnding = await runTheVoiceCommandEvents(
-            commandEvents,
-            lines: HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in }),
-            approvalIDWaitingWhenTheCommandStarted: nil,
-            secondsToWaitForAnEvent: 0.05,
-            whenNoEventArrivesInTime: { deadlinePassed = true },
-            runTool: { toolCall, _ in
-                ranCalls.append(toolCall.name)
-                return .changed(state: nil)
-            }
-        )
-        #expect(commandEnding == .finished(spokenLine: "turned it left", gaveUp: false))
-        #expect(ranCalls == ["rotate_model"])
-        #expect(!deadlinePassed)
     }
 
     @Test func theLinesToTheHarnessSayWhetherACommandWaitsAndConfirmIt() {

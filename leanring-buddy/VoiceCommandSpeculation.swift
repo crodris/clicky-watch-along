@@ -2,11 +2,12 @@
 //  VoiceCommandSpeculation.swift
 //  leanring-buddy
 //
-//  A voice command started on the partial transcript at push-to-talk release. The final transcript arrives about 0.7
-//  seconds after the release (the microphone's 0.5 second tail, then the provider's final result), while the screen read
-//  is in hand after about 0.3. So once the read is in, the brain starts on the words heard so far, and the harness holds
-//  the command at its first turn until the final transcript confirms those words (harness/brainloop.go). This file holds
-//  the decisions: where a transcript goes, whether a partial may start a command, and whether the final keeps it.
+//  A voice command started on the partial transcript at push-to-talk release. On a real press the final transcript
+//  arrives about 0.55 to 0.6 seconds after the release (0.7 in a rehearsal): the microphone's 0.5 second tail, then the
+//  provider's final result. The screen read is in hand after about 0.2. So once the read is in, the brain starts on the
+//  words heard so far, newer partial words start it again, and the harness holds the command at its first turn until the
+//  final transcript confirms those words (harness/brainloop.go). This file holds the decisions: where a transcript goes,
+//  whether a partial may start a command, and whether the final keeps it.
 //
 
 import Foundation
@@ -80,17 +81,37 @@ nonisolated func transcriptRoute(
     return routerTakesTheTranscript ? .voiceCommandRouter : .keywordPath
 }
 
-/// A transcript's words as the partial and the final transcripts are compared: lowercase, with punctuation and symbols
-/// dropped and runs of whitespace taken as one break. Apple Speech's final transcript often adds capitals and punctuation
-/// to the same words, which must still count as a match. Dropping a character, not breaking on it, can make two words one
-/// ("left,right"), which only ever costs a discard.
+/// A transcript's words as the partial and the final transcripts are compared: lowercase, split on whitespace, with the
+/// punctuation at each word's edges dropped. Apple Speech's final transcript often adds capitals and a closing period or
+/// comma to the same words, which must still count as a match. Punctuation inside a word stays, so "1:30" and "130", "1.5"
+/// and "15", or "it's" and "its" are different words, and a sign or decimal point right before a letter or digit stays too,
+/// so "-45" and "45" differ. A partial whose numbers differ from the final's is discarded, never run.
 nonisolated func transcriptWordsForComparison(_ transcript: String) -> [String] {
-    let keptScalars = transcript.lowercased().unicodeScalars.filter { scalar in
-        CharacterSet.alphanumerics.contains(scalar) || CharacterSet.whitespacesAndNewlines.contains(scalar)
-    }
-    return String(String.UnicodeScalarView(keptScalars))
+    transcript.lowercased()
         .components(separatedBy: .whitespacesAndNewlines)
+        .map(wordWithItsEdgePunctuationDropped)
         .filter { word in !word.isEmpty }
+}
+
+/// The punctuation that stays at the start of a word when a letter or digit follows it, as in "-45", ".5", or "'cause".
+private nonisolated let punctuationThatStaysBeforeALetterOrDigit: Set<Character> = [".", ":", ",", "-", "'"]
+
+private nonisolated func wordWithItsEdgePunctuationDropped(_ word: String) -> String {
+    let characters = Array(word)
+    func isALetterOrDigit(_ character: Character) -> Bool { character.isLetter || character.isNumber }
+    var endIndex = characters.count
+    while endIndex > 0, !isALetterOrDigit(characters[endIndex - 1]) {
+        endIndex -= 1
+    }
+    var startIndex = 0
+    while startIndex < endIndex, !isALetterOrDigit(characters[startIndex]) {
+        let characterAfter = startIndex + 1 < endIndex ? characters[startIndex + 1] : nil
+        if punctuationThatStaysBeforeALetterOrDigit.contains(characters[startIndex]), let characterAfter, isALetterOrDigit(characterAfter) {
+            break
+        }
+        startIndex += 1
+    }
+    return String(characters[startIndex..<endIndex])
 }
 
 /// Whether a command may start on the partial transcript, once the release's screen read is in hand and each time the
@@ -131,18 +152,22 @@ nonisolated enum SpeculationStep: Equatable {
 }
 
 /// The final transcript keeps the command only when everything the command was started from still holds: the final
-/// transcript goes to the router of the brain in the harness, it uses the same screen read, it has the partial's words,
-/// and the tools and scene state the command was sent with are what the app would send now.
+/// transcript goes to the router of the brain in the harness, the held command is still running there, it uses the same
+/// screen read, it has the partial's words, and the tools and scene state the command was sent with are what the app
+/// would send now. A held command whose first turn failed, or whose harness exited, has already ended, and the final
+/// transcript then starts a fresh command, which also launches a new harness, instead of running the failure's fallback.
 nonisolated func speculationStep(
     partialTranscript: String,
     finalTranscript: String,
     finalRoute: TranscriptRoute,
     voiceCommandsRunInTheHarness: Bool,
     finalUsesTheSameScreenRead: Bool,
-    commandInputsAreUnchanged: Bool
+    commandInputsAreUnchanged: Bool,
+    heldCommandIsStillRunning: Bool
 ) -> SpeculationStep {
     guard finalRoute == .voiceCommandRouter else { return .discard(reason: "the final transcript does not go to the router") }
     guard voiceCommandsRunInTheHarness else { return .discard(reason: "voice commands moved to the Worker router") }
+    guard heldCommandIsStillRunning else { return .discard(reason: "the held command already ended in the harness") }
     guard finalUsesTheSameScreenRead else { return .discard(reason: "the page the command read is gone") }
     guard transcriptWordsForComparison(partialTranscript) == transcriptWordsForComparison(finalTranscript) else {
         return .discard(reason: "the final transcript has other words")
@@ -163,6 +188,8 @@ struct VoiceCommandInputs: Equatable {
     let approvalIDWaitingWhenTheCommandStarted: String?
 
     var offeredToolNames: Set<String> { Set(tools.map(\.name)) }
+    /// The read-only tools, whose calls are lookups the model reads before it acts.
+    var lookupToolNames: Set<String> { Set(tools.filter(\.readOnly).map(\.name)) }
 }
 
 /// A voice command sent to the harness: its ID, the lines it writes back, its events, and when it went out.

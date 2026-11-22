@@ -95,10 +95,11 @@ func (brain *brainRunner) runCommand(commandContext context.Context, command *ru
 		// The line this turn speaks if every call changes the screen goes out before the first call, so the app fetches its
 		// audio while the calls run, and plays it only when voice_command_finished carries the same words.
 		if spokenLine := spokenLineIfEveryCallChanges(reply.toolCalls); spokenLine != "" {
-			brain.send(commandContext, newVoiceLineIfEveryCallChangesMessage(voiceCommand.TaskID, spokenLine))
+			brain.send(commandContext, newVoiceLineIfEveryCallChangesMessage(voiceCommand.TaskID, spokenLine, reply.toolCalls))
 		}
 		// A command started on the partial transcript goes no further until the final one matches: every call, the
-		// commit, and the finished line come after this, so a command the app discards leaves no trace in the session.
+		// commit, and the finished line come after this, so a command the app discards keeps no message, action line, or
+		// new change in the session. Its begin already ran, so a fold and the drop of stale changes still happen.
 		if err := brain.waitForTheFinalTranscript(commandContext, command, turnNumber); err != nil {
 			brain.logTheCancel(turnNumber)
 			run.abandon()

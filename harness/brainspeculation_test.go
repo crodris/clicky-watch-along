@@ -63,7 +63,8 @@ func TestACommandOnThePartialTranscriptSendsNoCallUntilTheFinalOneMatches(t *tes
 	driver := startHarness(t, worker.server.URL)
 
 	driver.send(speculativeVoiceCommandLine("command-1", "turn it left"))
-	// The early line goes out at once, so the app can fetch its audio while it waits for the final transcript.
+	// The early line goes out at once. The app reads it, and starts fetching its audio, only once the command is confirmed,
+	// since the command's events wait in their stream until then.
 	if got := driver.expectLine("voice_line_if_every_call_changes"); !strings.Contains(got, `"spokenLine":"turned it left"`) {
 		t.Fatalf("the early line was %s", got)
 	}
