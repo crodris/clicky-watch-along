@@ -29,17 +29,11 @@ struct CursorLoopView: View {
     /// Reduce Motion fades the line in whole, so it starts invisible and turns visible when it appears.
     @State private var hasAppeared = false
 
-    private static let underStrokeColor = Color.black.opacity(0.55)
-    private static let underStrokeWidthInPoints: CGFloat = 5.5
-    private static let lineWidthInPoints: CGFloat = 3
-    private static let sparkRadiusInPoints: CGFloat = 4.5
-    private static let sparkOutlineWidthInPoints: CGFloat = 2.5
-
     var body: some View {
         let outline = CursorLoopOutline.path(along: loop.lineRect, seed: loop.seed)
         Group {
             if reduceMotion {
-                Canvas { context, _ in drawTheLine(outline, share: 1, in: &context) }
+                Canvas { context, _ in CursorLoopDrawing.drawTheLine(outline, share: 1, color: color, in: &context) }
             } else {
                 TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
                     // The frame is worked out here, outside the Canvas, because SwiftUI redraws a Canvas only when
@@ -48,7 +42,9 @@ struct CursorLoopView: View {
                         secondsSinceTheLoopBegan: ProcessInfo.processInfo.systemUptime - loop.beganAt,
                         secondsWhenTheSparkSlows: loop.sparkSlowsAt.map { sparkSlowsAt in sparkSlowsAt - loop.beganAt }
                     )
-                    Canvas { context, _ in drawTheLineAndTheSpark(outline, frame: frame, in: &context) }
+                    Canvas { context, _ in
+                        CursorLoopDrawing.drawTheLineAndTheSpark(outline, frame: frame, color: color, cursorPosition: cursorPosition, in: &context)
+                    }
                 }
             }
         }
@@ -58,46 +54,65 @@ struct CursorLoopView: View {
         .allowsHitTesting(false)
         .onAppear { hasAppeared = true }
     }
+}
 
-    private func drawTheLineAndTheSpark(_ outline: Path, frame: CursorLoopTimeline.Frame, in context: inout GraphicsContext) {
-        drawTheLine(outline, share: frame.drawnShare, in: &context)
+/// How a loop's line and spark are drawn, shared by the cursor loop and the room art panel's loop, so the two look the
+/// same: a 3 point line in the color over a darker 5.5 point under-stroke, and a white spark with a colored outline.
+enum CursorLoopDrawing {
+    private static let underStrokeColor = Color.black.opacity(0.55)
+    private static let underStrokeWidthInPoints: CGFloat = 5.5
+    private static let lineWidthInPoints: CGFloat = 3
+    private static let sparkRadiusInPoints: CGFloat = 4.5
+    private static let sparkOutlineWidthInPoints: CGFloat = 2.5
 
-        let outlineStart = outline.trimmedPath(from: 0, to: 0.0005).currentPoint ?? loop.lineRect.origin
+    /// `cursorPosition` is where the spark leaves from while it flies to the line's start. With none, the spark waits at the
+    /// line's start for that first part.
+    static func drawTheLineAndTheSpark(
+        _ outline: Path,
+        frame: CursorLoopTimeline.Frame,
+        color: Color,
+        cursorPosition: CGPoint?,
+        in context: inout GraphicsContext
+    ) {
+        drawTheLine(outline, share: frame.drawnShare, color: color, in: &context)
+
+        let outlineStart = outline.trimmedPath(from: 0, to: 0.0005).currentPoint ?? outline.boundingRect.origin
         let sparkCenter: CGPoint
         switch frame.spark {
         case .flyingFromTheCursor(let share):
+            let flightStart = cursorPosition ?? outlineStart
             sparkCenter = CGPoint(
-                x: cursorPosition.x + (outlineStart.x - cursorPosition.x) * share,
-                y: cursorPosition.y + (outlineStart.y - cursorPosition.y) * share
+                x: flightStart.x + (outlineStart.x - flightStart.x) * share,
+                y: flightStart.y + (outlineStart.y - flightStart.y) * share
             )
         case .onTheLoop(let share):
             sparkCenter = outline.trimmedPath(from: 0, to: max(share, 0.0005)).currentPoint ?? outlineStart
         }
         let sparkPath = Path(ellipseIn: CGRect(
-            x: sparkCenter.x - Self.sparkRadiusInPoints,
-            y: sparkCenter.y - Self.sparkRadiusInPoints,
-            width: Self.sparkRadiusInPoints * 2,
-            height: Self.sparkRadiusInPoints * 2
+            x: sparkCenter.x - sparkRadiusInPoints,
+            y: sparkCenter.y - sparkRadiusInPoints,
+            width: sparkRadiusInPoints * 2,
+            height: sparkRadiusInPoints * 2
         ))
         context.drawLayer { sparkLayer in
             sparkLayer.addFilter(.shadow(color: color.opacity(0.55), radius: 5))
             sparkLayer.fill(sparkPath, with: .color(.white))
-            sparkLayer.stroke(sparkPath, with: .color(color), lineWidth: Self.sparkOutlineWidthInPoints)
+            sparkLayer.stroke(sparkPath, with: .color(color), lineWidth: sparkOutlineWidthInPoints)
         }
     }
 
-    private func drawTheLine(_ outline: Path, share: Double, in context: inout GraphicsContext) {
+    static func drawTheLine(_ outline: Path, share: Double, color: Color, in context: inout GraphicsContext) {
         guard share > 0 else { return }
         let drawnPart = share >= 1 ? outline : outline.trimmedPath(from: 0, to: share)
         context.stroke(
             drawnPart,
-            with: .color(Self.underStrokeColor),
-            style: StrokeStyle(lineWidth: Self.underStrokeWidthInPoints, lineCap: .round, lineJoin: .round)
+            with: .color(underStrokeColor),
+            style: StrokeStyle(lineWidth: underStrokeWidthInPoints, lineCap: .round, lineJoin: .round)
         )
         context.stroke(
             drawnPart,
             with: .color(color),
-            style: StrokeStyle(lineWidth: Self.lineWidthInPoints, lineCap: .round, lineJoin: .round)
+            style: StrokeStyle(lineWidth: lineWidthInPoints, lineCap: .round, lineJoin: .round)
         )
     }
 }
