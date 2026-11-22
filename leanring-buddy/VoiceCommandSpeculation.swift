@@ -93,9 +93,13 @@ nonisolated func transcriptWordsForComparison(_ transcript: String) -> [String] 
         .filter { word in !word.isEmpty }
 }
 
-/// Whether a command may start on the partial transcript once the release's screen read is in hand.
+/// Whether a command may start on the partial transcript, once the release's screen read is in hand and each time the
+/// partial transcript changes after that.
 nonisolated enum SpeculativeStartStep: Equatable {
     case start
+    /// These words start nothing, and newer ones may: none were heard yet, or they do not go to the router yet.
+    case waitForOtherWords(reason: String)
+    /// Nothing this press hears can start a command.
     case doNotStart(reason: String)
 }
 
@@ -112,8 +116,8 @@ nonisolated func speculativeStartStep(
     guard speculationIsOn else { return .doNotStart(reason: "speculation is turned off") }
     guard voiceCommandsRunInTheHarness else { return .doNotStart(reason: "voice commands run on the Worker router") }
     guard approvalIDSeenAtPress == nil else { return .doNotStart(reason: "an approval request may be answered") }
-    guard !transcriptWordsForComparison(partialTranscript).isEmpty else { return .doNotStart(reason: "no words were heard yet") }
-    guard partialRoute == .voiceCommandRouter else { return .doNotStart(reason: "the partial transcript does not go to the router") }
+    guard !transcriptWordsForComparison(partialTranscript).isEmpty else { return .waitForOtherWords(reason: "no words were heard yet") }
+    guard partialRoute == .voiceCommandRouter else { return .waitForOtherWords(reason: "the partial transcript does not go to the router") }
     return .start
 }
 
@@ -169,23 +173,33 @@ struct StartedHarnessVoiceCommand {
     let sentAt: Date
 }
 
+/// The release's screen read once its page read is in, which every command a press starts on its partial transcript is
+/// built from, and which the final transcript builds its own inputs from too.
+struct ReleaseScreenReadInHand {
+    let pressCount: Int
+    let frontVideoState: JSONValue?
+    let pageRead: VoiceCommandPageRead
+}
+
 /// A command the harness began on a press's partial transcript, which waits for that press's final transcript.
 struct SpeculativeVoiceCommand {
-    let pressCount: Int
     let partialTranscript: String
-    /// The release's page read the command was built from, which the final transcript builds its own inputs from too.
-    let pageRead: VoiceCommandPageRead
+    let screenRead: ReleaseScreenReadInHand
     let inputs: VoiceCommandInputs
     let command: StartedHarnessVoiceCommand
+
+    var pressCount: Int { screenRead.pressCount }
 }
 
 /// Where a press is in starting a voice command on its partial transcript. CompanionManager holds one, a new press ends it,
-/// and the press's final transcript takes it.
+/// newer partial words start the command again, and the press's final transcript takes it.
 enum VoiceCommandSpeculationState {
-    /// No command waits for a final transcript.
+    /// Nothing waits for a final transcript.
     case none
     /// The release's screen read is still coming in, and the partial transcript may start a command once it is.
     case waitingForTheScreenRead(pressCount: Int, start: Task<Void, Never>)
+    /// The screen read is in, and the words heard so far start nothing, so newer partial words may.
+    case waitingForWords(ReleaseScreenReadInHand)
     /// A command started on the partial transcript, held by the harness until the final transcript confirms it.
     case awaitingTheFinalTranscript(SpeculativeVoiceCommand)
 }
@@ -201,8 +215,27 @@ extension VoiceCommandSpeculationState {
         case .waitingForTheScreenRead(_, let startOnceTheScreenIsRead):
             startOnceTheScreenIsRead.cancel()
             return nil
+        case .waitingForWords:
+            return nil
         case .awaitingTheFinalTranscript(let speculativeCommand):
             return speculativeCommand
+        }
+    }
+
+    /// The screen read to start a command from when the press's partial words become these, or nil when they change
+    /// nothing: no read is in hand yet, the words are empty, or they are the words the waiting command started on.
+    /// Apple Speech's partial words lag the audio, so the words at the release are often the first one or two, and the
+    /// last partial before the final transcript is the one most likely to match it.
+    func screenReadToStartFrom(whenThePartialWordsBecome partialTranscript: String) -> ReleaseScreenReadInHand? {
+        let newWords = transcriptWordsForComparison(partialTranscript)
+        guard !newWords.isEmpty else { return nil }
+        switch self {
+        case .none, .waitingForTheScreenRead:
+            return nil
+        case .waitingForWords(let screenRead):
+            return screenRead
+        case .awaitingTheFinalTranscript(let speculativeCommand):
+            return newWords == transcriptWordsForComparison(speculativeCommand.partialTranscript) ? nil : speculativeCommand.screenRead
         }
     }
 
@@ -216,6 +249,10 @@ extension VoiceCommandSpeculationState {
         case .waitingForTheScreenRead(let pressCountWaiting, let startOnceTheScreenIsRead):
             guard pressCountWaiting == pressCount else { return nil }
             startOnceTheScreenIsRead.cancel()
+            self = .none
+            return nil
+        case .waitingForWords(let screenRead):
+            guard screenRead.pressCount == pressCount else { return nil }
             self = .none
             return nil
         case .awaitingTheFinalTranscript(let speculativeCommand):

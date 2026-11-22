@@ -41,12 +41,19 @@ struct VoiceCommandSpeculationTests {
         approvalIsWaiting: false
     )
 
+    private func screenRead(ofPress pressCount: Int) -> ReleaseScreenReadInHand {
+        ReleaseScreenReadInHand(
+            pressCount: pressCount,
+            frontVideoState: nil,
+            pageRead: VoiceCommandPageRead(pageTools: [], pageState: nil, studyGuideExistsForTheFrontVideo: false, finishedAt: Date())
+        )
+    }
+
     private func speculativeCommand(ofPress pressCount: Int, lines: HarnessVoiceCommandLines) -> SpeculativeVoiceCommand {
         let (commandEvents, _) = AsyncStream<HarnessTaskEvent>.makeStream()
         return SpeculativeVoiceCommand(
-            pressCount: pressCount,
             partialTranscript: "turn it left",
-            pageRead: VoiceCommandPageRead(pageTools: [], pageState: nil, studyGuideExistsForTheFrontVideo: false, finishedAt: Date()),
+            screenRead: screenRead(ofPress: pressCount),
             inputs: VoiceCommandInputs(tools: [], pageState: nil, frontVideoState: nil, harnessSceneState: .object([:]), approvalIDWaitingWhenTheCommandStarted: nil),
             command: StartedHarnessVoiceCommand(commandID: commandID, lines: lines, events: commandEvents, sentAt: Date())
         )
@@ -97,10 +104,11 @@ struct VoiceCommandSpeculationTests {
         #expect(step("turn it left") == .start)
         // The harness settles an approval from the transcript's own words, so a partial "yes" must never reach it.
         #expect(step("yes", approvalID: "approval-1") == .doNotStart(reason: "an approval request may be answered"))
-        #expect(step("turn it left", route: .keywordBranch(.startExperiment)) == .doNotStart(reason: "the partial transcript does not go to the router"))
-        #expect(step("stop the", route: .videoQuizCommand(.stop)) == .doNotStart(reason: "the partial transcript does not go to the router"))
-        #expect(step("the heart", route: .keywordPath) == .doNotStart(reason: "the partial transcript does not go to the router"))
-        #expect(step("") == .doNotStart(reason: "no words were heard yet"))
+        // Words that start nothing yet may be followed by newer ones that do, so the press waits for them.
+        #expect(step("turn it left", route: .keywordBranch(.startExperiment)) == .waitForOtherWords(reason: "the partial transcript does not go to the router"))
+        #expect(step("stop the", route: .videoQuizCommand(.stop)) == .waitForOtherWords(reason: "the partial transcript does not go to the router"))
+        #expect(step("the heart", route: .keywordPath) == .waitForOtherWords(reason: "the partial transcript does not go to the router"))
+        #expect(step("") == .waitForOtherWords(reason: "no words were heard yet"))
         #expect(step("turn it left", harness: false) == .doNotStart(reason: "voice commands run on the Worker router"))
         #expect(step("turn it left", isOn: false) == .doNotStart(reason: "speculation is turned off"))
     }
@@ -156,6 +164,34 @@ struct VoiceCommandSpeculationTests {
         #expect(speculation.takeForTheFinalTranscript(ofPress: 5) == nil)
         #expect(startOnceTheScreenIsRead.isCancelled)
         if case .none = speculation {} else { Issue.record("the start still waits after its final transcript arrived") }
+    }
+
+    @Test func newerPartialWordsStartTheCommandAgainOnlyWhenTheyAreOtherWords() {
+        // Apple Speech's partial words lag the audio: at the release the partial was "Zoo", and "Zoom in" came later.
+        let lines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in })
+        let waitingCommand = VoiceCommandSpeculationState.awaitingTheFinalTranscript(speculativeCommand(ofPress: 3, lines: lines))
+        #expect(waitingCommand.screenReadToStartFrom(whenThePartialWordsBecome: "turn it left twice")?.pressCount == 3)
+        // The same words with other capitals and punctuation, and an empty partial, change nothing.
+        #expect(waitingCommand.screenReadToStartFrom(whenThePartialWordsBecome: "Turn it left.") == nil)
+        #expect(waitingCommand.screenReadToStartFrom(whenThePartialWordsBecome: "") == nil)
+
+        // A press whose first partial had no words, or words the router does not take, starts on the first that do.
+        let waitingForWords = VoiceCommandSpeculationState.waitingForWords(screenRead(ofPress: 4))
+        #expect(waitingForWords.screenReadToStartFrom(whenThePartialWordsBecome: "zoom")?.pressCount == 4)
+        #expect(waitingForWords.screenReadToStartFrom(whenThePartialWordsBecome: " ") == nil)
+
+        // Before the release's screen read is in, and after the final transcript took the command, partial words start nothing.
+        let startOnceTheScreenIsRead = Task<Void, Never> {}
+        #expect(VoiceCommandSpeculationState.waitingForTheScreenRead(pressCount: 5, start: startOnceTheScreenIsRead).screenReadToStartFrom(whenThePartialWordsBecome: "zoom in") == nil)
+        #expect(VoiceCommandSpeculationState.none.screenReadToStartFrom(whenThePartialWordsBecome: "zoom in") == nil)
+    }
+
+    @Test func theFinalTranscriptEndsAPressThatWaitsForWords() {
+        var speculation = VoiceCommandSpeculationState.waitingForWords(screenRead(ofPress: 6))
+        #expect(speculation.takeForTheFinalTranscript(ofPress: 7) == nil)
+        if case .waitingForWords = speculation {} else { Issue.record("another press's transcript ended this press's wait") }
+        #expect(speculation.takeForTheFinalTranscript(ofPress: 6) == nil)
+        if case .none = speculation {} else { Issue.record("the final transcript left the press waiting for words") }
     }
 
     @Test func eventsThatWaitedForTheFinalTranscriptRunOnceItIsKeptWithNoDeadlinePassing() async {

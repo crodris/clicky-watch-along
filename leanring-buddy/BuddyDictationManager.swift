@@ -210,6 +210,10 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         latestRecognizedText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Each partial transcript the provider reports during a press. Apple Speech's partial words lag the audio, so a
+    /// voice command started on the words heard at the release starts again on newer ones before the final transcript.
+    let partialTranscriptUpdates = PassthroughSubject<String, Never>()
+
     var needsInitialPermissionPrompt: Bool {
         if transcriptionProvider.requiresSpeechRecognitionPermission {
             return AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
@@ -417,7 +421,9 @@ final class BuddyDictationManager: NSObject, ObservableObject {
             keyterms: buildTranscriptionKeyterms(),
             onTranscriptUpdate: { [weak self] transcriptText in
                 Task { @MainActor in
-                    self?.latestRecognizedText = transcriptText
+                    guard let self else { return }
+                    self.latestRecognizedText = transcriptText
+                    self.partialTranscriptUpdates.send(self.partialTranscript)
                 }
             },
             onFinalTranscriptReady: { [weak self] transcriptText in

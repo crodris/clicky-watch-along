@@ -419,6 +419,7 @@ final class CompanionManager: ObservableObject {
     private var currentResponseTask: Task<Void, Never>?
 
     private var shortcutTransitionCancellable: AnyCancellable?
+    private var partialTranscriptCancellable: AnyCancellable?
     /// The approval request whose whole summary the card had shown for a second when the learner last pressed
     /// push-to-talk, or a rehearsal step stood in for a press. A voice answer can reach only this request.
     private var approvalIDTheLearnerHadSeenAtThePress: String?
@@ -534,6 +535,7 @@ final class CompanionManager: ObservableObject {
         bindVoiceStateObservation()
         bindAudioPowerLevel()
         bindShortcutTransitions()
+        bindPartialTranscriptsToTheVoiceCommandSpeculation()
         bindPinchToLiveSceneZoom()
         bindEscapeToCloseLiveScene()
         bindShiftOptionHoldToTheSettingsDial()
@@ -839,6 +841,15 @@ final class CompanionManager: ObservableObject {
                         self.scheduleTransientHideIfNeeded()
                     }
                 }
+            }
+    }
+
+    /// Each newer partial transcript after the release may start the voice command again on its words.
+    private func bindPartialTranscriptsToTheVoiceCommandSpeculation() {
+        partialTranscriptCancellable = buddyDictationManager.partialTranscriptUpdates
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] partialTranscript in
+                self?.theLearnersPartialWordsChanged(to: partialTranscript)
             }
     }
 
@@ -1315,7 +1326,7 @@ final class CompanionManager: ObservableObject {
         if let speculativeCommand = voiceCommandSpeculation.takeForTheFinalTranscript(ofPress: pressCountOfTheTranscript) {
             let finalUsesTheSameScreenRead = screenReadAtRelease != nil
             let commandInputsAreUnchanged = route == .voiceCommandRouter && finalUsesTheSameScreenRead
-                && voiceCommandInputs(frontVideoState: frontVideoState(), pageRead: speculativeCommand.pageRead) == speculativeCommand.inputs
+                && voiceCommandInputs(frontVideoState: frontVideoState(), pageRead: speculativeCommand.screenRead.pageRead) == speculativeCommand.inputs
             switch speculationStep(
                 partialTranscript: speculativeCommand.partialTranscript,
                 finalTranscript: transcript,
@@ -1407,8 +1418,9 @@ final class CompanionManager: ObservableObject {
 
     /// Starts the voice command on the words heard so far once the release's page read is in, so the model works while the
     /// final transcript is still on its way. The harness holds the command before its first call until the final transcript
-    /// confirms the words, so nothing the learner can see or hear happens on a partial transcript. The press's final
-    /// transcript keeps or discards it (`speculationStep`), and a new press discards it.
+    /// confirms the words, so nothing the learner can see or hear happens on a partial transcript. Newer partial words
+    /// start it again (`theLearnersPartialWordsChanged`), the press's final transcript keeps or discards it
+    /// (`speculationStep`), and a new press discards it.
     private func startTheVoiceCommandOnThePartialTranscriptOnceTheScreenIsRead(_ screenRead: VoiceCommandScreenRead) {
         endTheVoiceCommandSpeculation(because: "a newer release read the screen again")
         let startOnceTheScreenIsRead = Task { @MainActor in
@@ -1418,40 +1430,68 @@ final class CompanionManager: ObservableObject {
                   case .waitingForTheScreenRead(let pressCountWaiting, _) = self.voiceCommandSpeculation,
                   pressCountWaiting == screenRead.pressCount else { return }
             self.voiceCommandSpeculation = .none
-            let partialTranscript = self.partialTranscriptHeardSoFar()
-            let partialRoute = transcriptRoute(
-                for: partialTranscript,
-                in: self.currentTranscriptRouteContext(),
-                videoIsInFront: { screenRead.frontVideoState != nil }
+            self.startTheVoiceCommand(
+                onThePartialTranscript: self.partialTranscriptHeardSoFar(),
+                from: ReleaseScreenReadInHand(pressCount: screenRead.pressCount, frontVideoState: screenRead.frontVideoState, pageRead: pageRead)
             )
-            let inputs = self.voiceCommandInputs(frontVideoState: screenRead.frontVideoState, pageRead: pageRead)
-            if case .doNotStart(let reason) = speculativeStartStep(
-                partialTranscript: partialTranscript,
-                partialRoute: partialRoute,
-                voiceCommandsRunInTheHarness: self.voiceCommandBackend.runsInTheHarness,
-                approvalIDSeenAtPress: inputs.approvalIDWaitingWhenTheCommandStarted,
-                speculationIsOn: VoiceCommandSpeculation.isOn()
-            ) {
-                print("Voice command: did not start on the partial transcript, because \(reason)")
-                return
-            }
-            do {
-                let command = try self.startTheHarnessVoiceCommand(transcript: partialTranscript, inputs: inputs, waitsForTheFinalTranscript: true)
-                self.voiceCommandSpeculation = .awaitingTheFinalTranscript(SpeculativeVoiceCommand(
-                    pressCount: screenRead.pressCount,
-                    partialTranscript: partialTranscript,
-                    pageRead: pageRead,
-                    inputs: inputs,
-                    command: command
-                ))
-                let releaseOfThisPress = self.lastPushToTalkRelease?.pressCount == screenRead.pressCount ? self.lastPushToTalkRelease : nil
-                let millisecondsAfterTheRelease = releaseOfThisPress.map { release in "\(Int(command.sentAt.timeIntervalSince(release.releasedAt) * 1000)) ms" } ?? "-"
-                print("Voice command: started on the partial transcript \(millisecondsAfterTheRelease) after the release, with \(inputs.tools.count) tools")
-            } catch {
-                print("Voice command: could not start on the partial transcript: \(error)")
-            }
         }
         voiceCommandSpeculation = .waitingForTheScreenRead(pressCount: screenRead.pressCount, start: startOnceTheScreenIsRead)
+    }
+
+    /// Newer partial words arrived after the release's screen read, before the final transcript. A command started on older
+    /// words is discarded and the command starts again on these, since the words heard at the release are often only the
+    /// first one or two, and the newest partial is the one most likely to match the final transcript.
+    private func theLearnersPartialWordsChanged(to partialTranscript: String) {
+        #if DEBUG
+        // A rehearsal stands in for the microphone, so a stray partial from a real press must not replace its words.
+        if rehearsalPartialTranscript != nil { return }
+        #endif
+        guard let screenRead = voiceCommandSpeculation.screenReadToStartFrom(whenThePartialWordsBecome: partialTranscript) else { return }
+        endTheVoiceCommandSpeculation(because: "newer words were heard")
+        startTheVoiceCommand(onThePartialTranscript: partialTranscript, from: screenRead)
+    }
+
+    /// Sends the command on these partial words when `speculativeStartStep` allows it, and otherwise waits for newer words
+    /// or gives up on the press, which the final transcript then runs the normal way.
+    private func startTheVoiceCommand(onThePartialTranscript partialTranscript: String, from screenRead: ReleaseScreenReadInHand) {
+        let partialRoute = transcriptRoute(
+            for: partialTranscript,
+            in: currentTranscriptRouteContext(),
+            videoIsInFront: { screenRead.frontVideoState != nil }
+        )
+        let inputs = voiceCommandInputs(frontVideoState: screenRead.frontVideoState, pageRead: screenRead.pageRead)
+        let releaseOfThisPress = lastPushToTalkRelease?.pressCount == screenRead.pressCount ? lastPushToTalkRelease : nil
+        let millisecondsAfterTheRelease = releaseOfThisPress.map { release in "\(Int(Date().timeIntervalSince(release.releasedAt) * 1000)) ms" } ?? "-"
+        switch speculativeStartStep(
+            partialTranscript: partialTranscript,
+            partialRoute: partialRoute,
+            voiceCommandsRunInTheHarness: voiceCommandBackend.runsInTheHarness,
+            approvalIDSeenAtPress: inputs.approvalIDWaitingWhenTheCommandStarted,
+            speculationIsOn: VoiceCommandSpeculation.isOn()
+        ) {
+        case .doNotStart(let reason):
+            print("Voice command: did not start on the partial transcript, because \(reason)")
+            return
+        case .waitForOtherWords(let reason):
+            print("Voice command: waits for newer partial words \(millisecondsAfterTheRelease) after the release, because \(reason)")
+            voiceCommandSpeculation = .waitingForWords(screenRead)
+            return
+        case .start:
+            break
+        }
+        do {
+            let command = try startTheHarnessVoiceCommand(transcript: partialTranscript, inputs: inputs, waitsForTheFinalTranscript: true)
+            voiceCommandSpeculation = .awaitingTheFinalTranscript(SpeculativeVoiceCommand(
+                partialTranscript: partialTranscript,
+                screenRead: screenRead,
+                inputs: inputs,
+                command: command
+            ))
+            // The words go in the log as the final transcript's do, so a discard shows what the two transcripts said.
+            print("Voice command: started on the partial transcript \"\(partialTranscript)\" \(millisecondsAfterTheRelease) after the release, with \(inputs.tools.count) tools")
+        } catch {
+            print("Voice command: could not start on the partial transcript: \(error)")
+        }
     }
 
     /// The words heard so far in the current press. A rehearsal step that starts with "%" stands in for them.
@@ -2966,7 +3006,7 @@ final class CompanionManager: ObservableObject {
         let commandStartedAt = Date()
         let pageRead: VoiceCommandPageRead
         if let confirmedSpeculativeCommand {
-            pageRead = confirmedSpeculativeCommand.pageRead
+            pageRead = confirmedSpeculativeCommand.screenRead.pageRead
         } else {
             // The read started at the press's release is awaited when it has not finished, and a command with no read of
             // its own (a quiz scene command, or a transcript whose read was dropped) reads the page now.
