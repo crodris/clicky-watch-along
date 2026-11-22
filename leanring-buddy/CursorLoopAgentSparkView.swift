@@ -28,9 +28,9 @@ private final class AgentSparkPhaseBook {
     private var phasesByAgentID: [UUID: AgentSparkPhase] = [:]
 
     /// The spark's phase at `now`. An agent seen for the first time starts at the place its number gives it.
-    func phase(of agentID: UUID, agentNumber: Int, at now: TimeInterval, agentProgress: Double, agentHasFinished: Bool) -> AgentSparkPhase {
+    func phase(of agentID: UUID, agentNumber: Int, at now: TimeInterval, agentProgress: Double, agentHasFinished: Bool, agentIsPaused: Bool) -> AgentSparkPhase {
         var phase = phasesByAgentID[agentID] ?? AgentSparkPhase(startingLaps: AgentSparkTimeline.startingLaps(forAgentNumber: agentNumber))
-        phase.advance(to: now, agentProgress: agentProgress, agentHasFinished: agentHasFinished)
+        phase.advance(to: now, agentProgress: agentProgress, agentHasFinished: agentHasFinished, agentIsPaused: agentIsPaused)
         phasesByAgentID[agentID] = phase
         return phase
     }
@@ -95,6 +95,8 @@ struct CursorLoopAgentSparkView: View {
         let color: Color
         let progress: Double
         let hasFinished: Bool
+        /// True while the learner has paused every agent, which holds the spark still.
+        let isPaused: Bool
         let agentNumber: Int
     }
 
@@ -107,6 +109,7 @@ struct CursorLoopAgentSparkView: View {
                 color: agent.displayColor.color,
                 progress: agent.progress(at: now),
                 hasFinished: agent.loopSparkStatus == .finished,
+                isPaused: agent.loopSparkIsHeldStill,
                 agentNumber: agentNumber
             )
         }
@@ -125,7 +128,8 @@ struct CursorLoopAgentSparkView: View {
                 agentNumber: agentOnTheLine.agentNumber,
                 at: now,
                 agentProgress: agentOnTheLine.progress,
-                agentHasFinished: agentOnTheLine.hasFinished
+                agentHasFinished: agentOnTheLine.hasFinished,
+                agentIsPaused: agentOnTheLine.isPaused
             )
             guard !phase.hasCompletedItsLastLap else { return nil }
             return SparkOnTheLine(color: agentOnTheLine.color, shareAroundTheLine: phase.shareAroundTheLine)

@@ -187,22 +187,22 @@ func onlyAChangeOfWhatIsInFrontClearsTheAgentLine(reason: CursorLoopEndReason) {
 
 @Test func theSparkTakesOneLapInTheTimeItsProgressGives() {
     var slowSpark = AgentSparkPhase()
-    slowSpark.advance(to: 100, agentProgress: 0, agentHasFinished: false)
-    slowSpark.advance(to: 104, agentProgress: 0, agentHasFinished: false)
+    slowSpark.advance(to: 100, agentProgress: 0, agentHasFinished: false, agentIsPaused: false)
+    slowSpark.advance(to: 104, agentProgress: 0, agentHasFinished: false, agentIsPaused: false)
     #expect(abs(slowSpark.laps - 1) < 0.000001)
 
     var fastSpark = AgentSparkPhase()
-    fastSpark.advance(to: 100, agentProgress: 1, agentHasFinished: false)
-    fastSpark.advance(to: 101.2, agentProgress: 1, agentHasFinished: false)
+    fastSpark.advance(to: 100, agentProgress: 1, agentHasFinished: false, agentIsPaused: false)
+    fastSpark.advance(to: 101.2, agentProgress: 1, agentHasFinished: false, agentIsPaused: false)
     #expect(abs(fastSpark.laps - 1) < 0.000001)
 }
 
 @Test func theSparkSpeedsUpAsTheProgressGrowsWithoutJumping() {
     var spark = AgentSparkPhase()
-    spark.advance(to: 0, agentProgress: 0, agentHasFinished: false)
-    spark.advance(to: 1, agentProgress: 0, agentHasFinished: false)
+    spark.advance(to: 0, agentProgress: 0, agentHasFinished: false, agentIsPaused: false)
+    spark.advance(to: 1, agentProgress: 0, agentHasFinished: false, agentIsPaused: false)
     let lapsInTheFirstSecond = spark.laps
-    spark.advance(to: 2, agentProgress: 0.9, agentHasFinished: false)
+    spark.advance(to: 2, agentProgress: 0.9, agentHasFinished: false, agentIsPaused: false)
     let lapsInTheSecondSecond = spark.laps - lapsInTheFirstSecond
     #expect(lapsInTheSecondSecond > lapsInTheFirstSecond)
     // Each step starts where the last one ended, so a change of progress never moves the spark itself.
@@ -211,17 +211,17 @@ func onlyAChangeOfWhatIsInFrontClearsTheAgentLine(reason: CursorLoopEndReason) {
 
 @Test func theFirstAdvanceOnlyRecordsTheTime() {
     var spark = AgentSparkPhase(startingLaps: 0.25)
-    spark.advance(to: 500, agentProgress: 0.5, agentHasFinished: false)
+    spark.advance(to: 500, agentProgress: 0.5, agentHasFinished: false, agentIsPaused: false)
     #expect(spark.laps == 0.25)
 }
 
 @Test(arguments: [0.1, 0.5, 0.9, 3.0])
 func aFinishedAgentsSparkReachesTheEndOfItsLapExactlyWhenTheControllerRemovesItWhereverItWas(startingLaps: Double) {
     var spark = AgentSparkPhase(startingLaps: startingLaps)
-    spark.advance(to: 0, agentProgress: 0, agentHasFinished: true)
-    spark.advance(to: AgentSparkTimeline.secondsAFinishingLapTakes - 0.1, agentProgress: 0, agentHasFinished: true)
+    spark.advance(to: 0, agentProgress: 0, agentHasFinished: true, agentIsPaused: false)
+    spark.advance(to: AgentSparkTimeline.secondsAFinishingLapTakes - 0.1, agentProgress: 0, agentHasFinished: true, agentIsPaused: false)
     #expect(!spark.hasCompletedItsLastLap)
-    spark.advance(to: AgentSparkTimeline.secondsAFinishingLapTakes + 0.001, agentProgress: 0, agentHasFinished: true)
+    spark.advance(to: AgentSparkTimeline.secondsAFinishingLapTakes + 0.001, agentProgress: 0, agentHasFinished: true, agentIsPaused: false)
     #expect(spark.hasCompletedItsLastLap)
 }
 
@@ -235,40 +235,40 @@ func aFinishedAgentsSparkReachesTheEndOfItsLapExactlyWhenTheControllerRemovesItW
 
 @Test func aFinishedAgentsSparkCompletesTheLapItIsOnAtTheFastestPaceThenStops() {
     var spark = AgentSparkPhase()
-    spark.advance(to: 0, agentProgress: 0.2, agentHasFinished: false)
-    spark.advance(to: 2, agentProgress: 0.2, agentHasFinished: false)
+    spark.advance(to: 0, agentProgress: 0.2, agentHasFinished: false, agentIsPaused: false)
+    spark.advance(to: 2, agentProgress: 0.2, agentHasFinished: false, agentIsPaused: false)
     #expect(!spark.hasCompletedItsLastLap)
     let lapsAtTheFinish = spark.laps
     #expect(lapsAtTheFinish > 0.5 && lapsAtTheFinish < 1)
 
-    spark.advance(to: 2.1, agentProgress: 1, agentHasFinished: true)
+    spark.advance(to: 2.1, agentProgress: 1, agentHasFinished: true, agentIsPaused: false)
     #expect(spark.stopsAtLap == 1)
     #expect(!spark.hasCompletedItsLastLap)
     // The rest of the lap takes under 1.2 seconds, however far the spark was.
-    spark.advance(to: 2.1 + AgentSparkTimeline.secondsAFinishingLapTakes + 0.001, agentProgress: 1, agentHasFinished: true)
+    spark.advance(to: 2.1 + AgentSparkTimeline.secondsAFinishingLapTakes + 0.001, agentProgress: 1, agentHasFinished: true, agentIsPaused: false)
     #expect(spark.hasCompletedItsLastLap)
     #expect(spark.laps == 1)
 }
 
 @Test func aFinishedAgentsSparkStopsAtTheLapAndNeverRunsPastIt() {
     var spark = AgentSparkPhase()
-    spark.advance(to: 0, agentProgress: 1, agentHasFinished: true)
-    spark.advance(to: 60, agentProgress: 1, agentHasFinished: true)
+    spark.advance(to: 0, agentProgress: 1, agentHasFinished: true, agentIsPaused: false)
+    spark.advance(to: 60, agentProgress: 1, agentHasFinished: true, agentIsPaused: false)
     #expect(spark.laps == 1)
     #expect(spark.hasCompletedItsLastLap)
 }
 
 @Test func aSparkAtTheStartOfALapWhenTheAgentFinishesStillGetsAFullLap() {
     var spark = AgentSparkPhase(startingLaps: 3)
-    spark.advance(to: 0, agentProgress: 1, agentHasFinished: true)
+    spark.advance(to: 0, agentProgress: 1, agentHasFinished: true, agentIsPaused: false)
     #expect(spark.stopsAtLap == 4)
     #expect(!spark.hasCompletedItsLastLap)
 }
 
 @Test func aSparkThatIsStillWorkingNeverCompletesItsLastLap() {
     var spark = AgentSparkPhase()
-    spark.advance(to: 0, agentProgress: 1, agentHasFinished: false)
-    spark.advance(to: 600, agentProgress: 1, agentHasFinished: false)
+    spark.advance(to: 0, agentProgress: 1, agentHasFinished: false, agentIsPaused: false)
+    spark.advance(to: 600, agentProgress: 1, agentHasFinished: false, agentIsPaused: false)
     #expect(!spark.hasCompletedItsLastLap)
     #expect(spark.stopsAtLap == nil)
 }
@@ -675,4 +675,39 @@ private struct RenderedAgentLine {
 @Test @MainActor func aControllerWithNoGateWiredDrawsNoSparks() {
     let controller = CursorLoopController(readTheMediaInTheFrontTab: { _ in nil }, readTheFrontTabSample: { nil })
     #expect(controller.agentSparksMayDraw() == false)
+}
+
+// MARK: - Pausing every agent
+
+@Test func aPausedAgentsSparkHoldsStillAndCarriesOnFromTheSamePlaceAfterTheResume() {
+    var spark = AgentSparkPhase()
+    spark.advance(to: 0, agentProgress: 0.5, agentHasFinished: false, agentIsPaused: false)
+    spark.advance(to: 1, agentProgress: 0.5, agentHasFinished: false, agentIsPaused: false)
+    let lapsAtThePause = spark.laps
+    #expect(lapsAtThePause > 0)
+
+    spark.advance(to: 30, agentProgress: 0.5, agentHasFinished: false, agentIsPaused: true)
+    #expect(spark.laps == lapsAtThePause)
+
+    // The first frame after "go ahead" adds only the time since the last frame, not the whole pause.
+    spark.advance(to: 30.1, agentProgress: 0.5, agentHasFinished: false, agentIsPaused: false)
+    #expect(spark.laps > lapsAtThePause)
+    #expect(spark.laps - lapsAtThePause < 0.1)
+}
+
+@Test func anAgentThatFinishesStillRunsItsLastLapWhateverItsPausedFlagSays() {
+    var spark = AgentSparkPhase()
+    spark.advance(to: 0, agentProgress: 1, agentHasFinished: true, agentIsPaused: true)
+    spark.advance(to: AgentSparkTimeline.secondsAFinishingLapTakes + 0.001, agentProgress: 1, agentHasFinished: true, agentIsPaused: true)
+    #expect(spark.hasCompletedItsLastLap)
+}
+
+@Test @MainActor func holdOnHoldsEveryRunningAgentsSparkStillAndGoAheadReleasesIt() {
+    let store = makeBackgroundAgentStore()
+    let agentID = store.start(kind: .task)
+    #expect(store.agents.first { $0.id == agentID }?.loopSparkIsHeldStill == false)
+    _ = store.pauseEveryAgent()
+    #expect(store.agents.first { $0.id == agentID }?.loopSparkIsHeldStill == true)
+    _ = store.resumeEveryAgent()
+    #expect(store.agents.first { $0.id == agentID }?.loopSparkIsHeldStill == false)
 }

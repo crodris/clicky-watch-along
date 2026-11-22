@@ -49,6 +49,9 @@ enum LoopSparkAgentStatus: Equatable {
 }
 
 extension BackgroundAgent {
+    /// True while the learner has paused every agent, which holds the agent's spark still.
+    var loopSparkIsHeldStill: Bool { pausedAt != nil }
+
     var loopSparkStatus: LoopSparkAgentStatus {
         switch phase {
         case .running: return .working
@@ -119,11 +122,14 @@ struct AgentSparkPhase: Equatable {
 
     /// Moves the spark on to `now`: at the pace of the agent's progress while it works, and once it has finished, in a
     /// straight run to the end of the lap that takes `secondsAFinishingLapTakes`. The first call only records the time.
-    mutating func advance(to now: TimeInterval, agentProgress: Double, agentHasFinished: Bool) {
+    /// While the learner has paused the agent, the spark holds still and carries on from the same place after the resume.
+    mutating func advance(to now: TimeInterval, agentProgress: Double, agentHasFinished: Bool, agentIsPaused: Bool) {
         defer { lastAdvancedAt = now }
         if agentHasFinished, lastLap == nil {
             lastLap = LastLap(startedAt: now, lapsAtStart: laps, endsAtLap: laps.rounded(.down) + 1)
         }
+        // An agent that has finished is no longer paused, and its last lap runs regardless.
+        if agentIsPaused, lastLap == nil { return }
         if let lastLap {
             let shareOfTheLastLapRun = min(1, max(0, (now - lastLap.startedAt) / AgentSparkTimeline.secondsAFinishingLapTakes))
             laps = lastLap.lapsAtStart + (lastLap.endsAtLap - lastLap.lapsAtStart) * shareOfTheLastLapRun
