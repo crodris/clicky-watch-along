@@ -192,6 +192,8 @@ enum PushToTalkPressStep: CaseIterable {
     case endTheRecapGather
     /// A serve, a Bring back spark, and a pause's moves land at once. A landing spark shows the chip it carries.
     case landTheFlights
+    /// A scrub on its way to the moment lands at once: the video seeks now, and the cursor goes back to the mouse.
+    case landTheScrub
     case hideTheStatusLabel
     /// The chip shrinks into the cursor. It comes after the landing, so the chip a Bring back spark carries shows first and
     /// then shrinks like any chip already up.

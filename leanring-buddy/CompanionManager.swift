@@ -135,6 +135,8 @@ final class CompanionManager: ObservableObject {
     @Published var detectedElementBubbleText: String?
     /// How long the buddy stays on the detected element. A 3D scene part holds until its narration ends.
     @Published var detectedElementPointingHold: BuddyPointingHold = .briefly
+    /// The cursor's slide along the video's progress bar before a voice seek, which BlueCursorView plays.
+    let cursorScrubController = CursorScrubController()
     /// Counts up each time an instant replay stops the buddy where it is, which BlueCursorView observes.
     @Published private(set) var buddyFreezeCount = 0
     /// The cursor's latest nod, shake, or hop, which BlueCursorView plays. Set only through `playCursorEmote`.
@@ -1350,6 +1352,7 @@ final class CompanionManager: ObservableObject {
                 switch pressStep {
                 case .endTheRecapGather: cancelTheVideoRecapGather()
                 case .landTheFlights: agentTokenDockController.finishTheServeAtOnce()
+                case .landTheScrub: cursorScrubController.landAtOnce()
                 case .hideTheStatusLabel: LiveSceneStatusLabel.shared.hide()
                 case .recallTheChip: VoiceToolCallChip.shared.recall()
                 case .endTheCursorLoop: cursorLoopController.pushToTalkWasPressed()
@@ -4040,7 +4043,14 @@ final class CompanionManager: ObservableObject {
             return .outcome(runLearnerVideoCommand(.seekBy(seconds: seconds)))
         case .seekToTime:
             guard let seconds = input["seconds"]?.numberValue else { return .outcome(.failed(error: "seconds must be a number", state: nil)) }
-            return .outcome(runLearnerVideoCommand(.seekTo(seconds: seconds)))
+            do {
+                let videoState = try await videoQuizSession.seekTheFrontVideo(toSeconds: seconds) { videoTab, targetSeconds in
+                    await self.scrubTheCursorAlongTheProgressBar(of: videoTab, toSeconds: targetSeconds)
+                }
+                return .outcome(.changed(state: .object(["video": videoState])))
+            } catch {
+                return .outcome(.failed(error: (error as? LocalizedError)?.errorDescription ?? "No video is in Chrome's front tab", state: nil))
+            }
         case .setSpeed:
             guard let playbackRate = input["rate"]?.numberValue else { return .outcome(.failed(error: "rate must be a number", state: nil)) }
             return .outcome(runLearnerVideoCommand(.setPlaybackRate(playbackRate)))
@@ -4056,7 +4066,9 @@ final class CompanionManager: ObservableObject {
         case .seekToMoment:
             // One call finds the best caption line and seeks there, so the model can follow it with pop_out in the same reply.
             do {
-                guard let seek = try await videoQuizSession.seekToTheCaptionMoment(matching: input["query"]?.stringValue ?? "") else {
+                guard let seek = try await videoQuizSession.seekToTheCaptionMoment(matching: input["query"]?.stringValue ?? "", scrubTheCursorFirst: { videoTab, targetSeconds in
+                    await self.scrubTheCursorAlongTheProgressBar(of: videoTab, toSeconds: targetSeconds)
+                }) else {
                     return .outcome(.failed(error: "No caption line says that. Try other words, or use find_moment.", state: nil))
                 }
                 return .outcome(.changed(state: .object([
@@ -5696,6 +5708,40 @@ final class CompanionManager: ObservableObject {
         return replayStop
     }
 
+    // MARK: - Scrub by voice
+
+    /// Flies the cursor to the video's progress bar, slides it to the moment, and returns as it arrives, so the seek runs
+    /// then. With no line to slide along, it returns at once and the seek runs as before.
+    private func scrubTheCursorAlongTheProgressBar(of videoTab: ChromeVideoTab, toSeconds targetSeconds: Double) async {
+        let scrubConditions = CursorScrubConditions(
+            chromeIsTheFrontApp: NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.google.Chrome",
+            cursorIsPointing: detectedElementScreenLocation != nil,
+            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            commandWasCancelled: Task.isCancelled
+        )
+        guard let scrubLine = scrubLineToPlay(scrubConditions, readTheLine: { ChromeVideoTab.scrubLineOfTheVideo(in: videoTab) }) else {
+            print("Scrub by voice: no line to slide along (\(scrubConditions)), so the video seeks at once")
+            return
+        }
+        showTheCursorOverlayForThisInteraction()
+        let startPoint = scrubLine.point(atSeconds: scrubLine.currentSeconds)
+        let momentPoint = scrubLine.point(atSeconds: targetSeconds)
+        let mouseLocation = NSEvent.mouseLocation
+        // The flight and the slide each take the Point move's time for their distance, and a second more covers a busy main actor.
+        let pointMoveCurve = DS.Move.point.curve
+        let timeoutSeconds = pointMoveCurve.seconds(travelingPoints: hypot(startPoint.x - mouseLocation.x, startPoint.y - mouseLocation.y))
+            + pointMoveCurve.seconds(travelingPoints: abs(momentPoint.x - startPoint.x))
+            + 1
+        let scrubOutcome = await cursorScrubController.scrubBeforeTheSeek(
+            along: scrubLine,
+            toSeconds: targetSeconds,
+            displayFrames: NSScreen.screens.map(\.frame),
+            timeoutSeconds: timeoutSeconds
+        )
+        // The voice command schedules the transient hide when it ends, which waits for the scrub's flight back.
+        print("Scrub by voice: \(scrubOutcome) from \(Int(scrubLine.currentSeconds)) s to \(Int(targetSeconds)) s along \(scrubLine.followsTheProgressBar ? "the progress bar" : "the video's bottom edge")")
+    }
+
     // MARK: - Instant replay
 
     private var replayStopsAreRecordedForTheSceneOnScreen: Bool {
@@ -5828,8 +5874,8 @@ final class CompanionManager: ObservableObject {
             }
 
             // Wait for pointing animation to finish (location is cleared
-            // when the buddy flies back to the cursor)
-            while detectedElementScreenLocation != nil {
+            // when the buddy flies back to the cursor), and for a scrub's flight back
+            while detectedElementScreenLocation != nil || cursorScrubController.request != nil {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard !Task.isCancelled else { return }
             }
