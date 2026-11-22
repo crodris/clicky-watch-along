@@ -235,6 +235,16 @@ struct CursorScrubTests {
         #expect(scrubController.request == nil)
     }
 
+    @Test func anOverlayThatRefusesTheScrubLetsTheSeekRunAndShowsTheCursorAtOnce() async throws {
+        // PR 17 left a scrub the first-launch welcome refused hiding the cursor on every screen until its timeout.
+        let scrubController = CursorScrubController(sleep: HandFiredClock().sleep)
+        let scrubTask = await startAScrub(on: scrubController)
+        let scrubRequest = try #require(scrubController.request)
+        scrubController.overlayRefused(scrubID: scrubRequest.scrubID)
+        #expect(await scrubTask.value == .refusedByTheOverlay)
+        #expect(scrubController.request == nil)
+    }
+
     @Test func aNewerScrubReplacesOneStillOnItsWay() async throws {
         let scrubController = CursorScrubController(sleep: HandFiredClock().sleep)
         let firstScrubTask = await startAScrub(on: scrubController, toSeconds: 300)

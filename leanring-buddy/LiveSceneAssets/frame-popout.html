@@ -884,7 +884,7 @@ const subjectBoxOnPage = (lookAtPoint, cameraYaw = yaw, cameraPitch = pitch, dis
     top: Math.min(...pagePoints.map((point) => point[1])), bottom: Math.max(...pagePoints.map((point) => point[1])),
   };
 };
-// The distance a focus or a replay stop moves the camera out to at this yaw and pitch, so the subject fits inside the video.
+// The distance a replay stop moves the camera out to at this yaw and pitch, so the subject fits inside the video.
 const cameraDistanceThatFitsTheFocusedSubject = (cameraYaw, cameraPitch, chosenDistance) =>
   cameraDistanceThatFitsTheSubject(chosenDistance, (distance) => subjectBoxOnPage(subjectCenter(), cameraYaw, cameraPitch, distance), roomForTheFocusedSubject);
 // The point to look at that puts the subject's box over the video's center. The camera keeps the point it looks at in the

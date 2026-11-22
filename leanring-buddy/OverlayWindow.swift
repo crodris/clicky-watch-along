@@ -1014,8 +1014,13 @@ struct BlueCursorView: View {
     /// instead, with no travel. A scrub this buddy already plays, or one for another screen, changes nothing.
     private func startScrubbing(_ scrubRequest: CursorScrubRequest) {
         guard playingScrubID != scrubRequest.scrubID,
-              targetDisplayIsThisScreen(scrubRequest.displayFrame),
-              !showWelcome || welcomeText.isEmpty else { return }
+              targetDisplayIsThisScreen(scrubRequest.displayFrame) else { return }
+        guard !showWelcome || welcomeText.isEmpty else {
+            // The welcome holds the buddy, so it does not fly, and the request clears now: while it is set, every screen
+            // hides its buddy.
+            cursorScrubController.overlayRefused(scrubID: scrubRequest.scrubID)
+            return
+        }
         // The buddy sits beside the point as it does beside a pointed element, so its tip touches the line, and stays 20
         // points inside the screen as a pointing does, for a line on the screen's bottom edge.
         func besideThePoint(_ screenPoint: CGPoint) -> CGPoint {

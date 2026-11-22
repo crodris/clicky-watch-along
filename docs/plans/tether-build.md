@@ -156,5 +156,5 @@ Left open by PR 19b: the agent list and the Theme Studio card still call `landAt
 Left open by PR 17, which was built while PR 19 was building, so a later polish PR takes them: the scrub's Reduce Motion fade is checked only by a unit test of `cursorScrubMotion`, not in the app.
 The scrub was not seen on a non-YouTube player (the video's bottom edge line), or with the mouse on another display than the video, where the cursor flies from wherever the video's screen last saw the mouse.
 One of four app runs read no line while the volcano video had about 14 seconds left, and the app sought with no slide, as designed; the first 400 characters of the reply are now logged, so the next case shows why.
-A scrub refused by the first-launch welcome hides the cursor on every screen until its timeout, up to about 4 seconds.
+A scrub refused by the first-launch welcome hid the cursor on every screen until its timeout, up to about 4 seconds; PR 19b closed it, since the overlay now reports the refusal and the seek runs at once.
 A page can choose the line's geometry, since the script runs in the page, so it can steer where the cursor slides on its own display; nothing reaches a model.

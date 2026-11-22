@@ -202,7 +202,9 @@ final class VoiceToolCallChip {
     private var cursorFollowTimer: Timer?
 
     /// A second call with other words while a chip shows pushes that chip up one step and pops the new chip below it, and the
-    /// chip above goes away. The same words from the same sender update the chip in place and restart its time on screen.
+    /// chip above goes away, unless it waits for the learner's answer, when the new chip replaces the bottom one instead. The
+    /// same words from the same sender update the chip in place and restart its time on screen, and the words of the chip
+    /// above send it away, so they show once. `voiceToolCallChipStackingStep` decides each case.
     /// - `survivesARecall`: a push-to-talk press leaves this chip up, for a chip that waits for an answer.
     func show(
         _ chipText: String,

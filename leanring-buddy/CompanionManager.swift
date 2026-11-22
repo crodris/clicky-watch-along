@@ -2084,6 +2084,8 @@ final class CompanionManager: ObservableObject {
             if requestedKind == nil {
                 Task {
                     await LiveSceneOverlay.shared.waitForReturnToFinish()
+                    // A scene asked for while the old one returned owns the pause now.
+                    guard case .idle = self.liveScenePhase else { return }
                     self.videoQuizSession.resumeVideoAfterRequestedScene()
                 }
             }
@@ -2757,6 +2759,8 @@ final class CompanionManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 500_000_000)
             // A frame pop-out lands back in the paused frame before the video moves.
             await LiveSceneOverlay.shared.waitForReturnToFinish()
+            // A scene asked for during the line or the return owns the pause now.
+            guard case .idle = self.liveScenePhase else { return }
             self.videoQuizSession.resumeVideoAfterRequestedScene()
         }
     }

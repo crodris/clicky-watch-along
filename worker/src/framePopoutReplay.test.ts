@@ -153,7 +153,6 @@ describe("frame-popout.html focus wiring", () => {
     expect(focusTargetSource).toContain("const fromPoint = targetThatCentersTheSubjectOnTheMedia()");
     expect(focusTargetSource).toContain("overflowOnEachSide(subjectBoxOnPage(candidate.lerpVectors(fromPoint, toPoint, share)), roomForTheFocusedSubject)");
   });
-
 });
 
 describe("frame-popout.html endFocus", () => {
