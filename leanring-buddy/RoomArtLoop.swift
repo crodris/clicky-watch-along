@@ -26,12 +26,12 @@ enum RoomArtLoopState: Equatable {
     case fadingOut(beganAt: TimeInterval)
 
     /// The panel's phase changed. The loop starts with a measurement, a first one or a click's, and with a shirt being
-    /// prepared, and keeps its clock while the work goes on, such as when the garment is ready before the learner stands in
-    /// view. The item or the shirt showing, a floor that was not found, or a failure fades it, and a panel that closes or is
+    /// prepared, and keeps its clock while the work goes on, such as while furniture waits for its first look around the
+    /// footprint where it will stand (and after it could not be drawn, where a click arranges it again), or when the garment is ready before the learner stands in view. The item or the shirt showing, a floor that was not found, or a failure fades it, and a panel that closes or is
     /// still reading the page has no loop at all.
     func after(phaseChangedTo phase: RoomArtPhase, at now: TimeInterval) -> RoomArtLoopState {
         switch phase {
-        case .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner:
+        case .measuring, .moving, .arranging, .couldNotDraw, .preparingTheShirt, .waitingToSeeTheLearner:
             if case .drawing = self { return self }
             return .drawing(beganAt: now)
         case .showing, .waitingForAFloorClick, .showingTheShirt, .failed:

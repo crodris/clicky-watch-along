@@ -68,8 +68,9 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     /// With no anchor, the spot is the bare wall spot for the wall and the bare floor spot for the floor.
     func takeAKeyframe(on surfaceKind: RoomArtSurfaceKind, anchorInCameraPixels: CGPoint?) async -> RoomArtKeyframe?
     func showTheItem(_ itemImage: CGImage, keyframeCorners: RoomArtCorners, on surfaceKind: RoomArtSurfaceKind)
-    /// Replaces the furniture's flat cutout with layers rendered or painted for the keyframe numbered `keyframeNumber`, with
-    /// a short crossfade. Layers for an older keyframe, such as one a click has replaced, are dropped.
+    /// Shows layers rendered or painted for the keyframe numbered `keyframeNumber`, with a short crossfade from the look
+    /// before them, or from the bare room when nothing showed yet. Layers for an older keyframe, such as one a click has
+    /// replaced, are dropped.
     func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int)
     /// Moves the loop to the window around `point` in the keyframe numbered `keyframeNumber`, such as the spot the furniture
     /// moved to after its floor was measured. The loop glides there, and a newer keyframe's loop is left alone.
@@ -117,8 +118,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     private var keyframeWallLight = RoomArtWallLight.neutral
     private var placedArt: PlacedArt?
     /// The drawing the furniture's layers replaced and when, faded out over `crossfadeSeconds` so the better look arrives
-    /// softly instead of popping.
-    private var crossfadeFrom: (placedArt: PlacedArt, startedAt: CFTimeInterval)?
+    /// softly instead of popping. A nil drawing is the bare room, which a first look fades in from.
+    private var crossfadeFrom: (placedArt: PlacedArt?, startedAt: CFTimeInterval)?
     private static let crossfadeSeconds = 0.5
     /// The number of the newest keyframe, which `showTheFurnitureLayers` checks.
     private var keyframeNumber = 0
@@ -309,7 +310,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 artCorners = smoothedCorners(previous: smoothedArtCorners, current: currentCorners)
                 smoothedArtCorners = artCorners
                 // The drawing fading out follows the same warp, unsmoothed for its half second.
-                fadingArtCorners = crossfadeFrom?.placedArt.keyframeCorners.map(cameraWarp.apply)
+                fadingArtCorners = crossfadeFrom?.placedArt?.keyframeCorners.map(cameraWarp.apply)
             }
         }
         // A frame that found no drawable was not shown, so it does not count toward the frame rate.
@@ -407,12 +408,17 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         var composedImage = frameImage
         if let placedArt, let artCorners, let latestPersonMask {
             composedImage = frameWithTheArt(frameImage: frameImage, placedArt: placedArt, artCorners: artCorners, personMask: latestPersonMask)
-            if let crossfadeFrom, let fadingArtCorners {
+            if let crossfadeFrom {
                 let fadeProgress = (CACurrentMediaTime() - crossfadeFrom.startedAt) / Self.crossfadeSeconds
+                // The bare room is the frame itself, and a drawing hidden this frame has nothing to fade from.
+                let fadingImage: CIImage? = if let fadingPlacedArt = crossfadeFrom.placedArt {
+                    fadingArtCorners.map { frameWithTheArt(frameImage: frameImage, placedArt: fadingPlacedArt, artCorners: $0, personMask: latestPersonMask) }
+                } else {
+                    frameImage
+                }
                 if fadeProgress >= 1 {
                     self.crossfadeFrom = nil
-                } else {
-                    let fadingImage = frameWithTheArt(frameImage: frameImage, placedArt: crossfadeFrom.placedArt, artCorners: fadingArtCorners, personMask: latestPersonMask)
+                } else if let fadingImage {
                     composedImage = fadingImage.applyingFilter("CIDissolveTransition", parameters: [
                         kCIInputTargetImageKey: composedImage,
                         kCIInputTimeKey: max(0, fadeProgress),
@@ -692,7 +698,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             let frameWidth = Double(CVPixelBufferGetWidth(latestFrame)), frameHeight = Double(CVPixelBufferGetHeight(latestFrame))
             // The layers move with the room, so the tracker carries the frame's own corners and the layers follow them.
             let frameCorners = [CGPoint(x: 0, y: 0), CGPoint(x: frameWidth, y: 0), CGPoint(x: frameWidth, y: frameHeight), CGPoint(x: 0, y: frameHeight)]
-            if let placedArt = self.placedArt { self.crossfadeFrom = (placedArt, CACurrentMediaTime()) }
+            // A first look fades in from the bare room, and a later one from the look before it.
+            self.crossfadeFrom = (self.placedArt, CACurrentMediaTime())
             self.placedArt = PlacedArt(
                 drawing: .keyframeLayers(
                     item: CIImage(cgImage: layers.itemLayer),
@@ -821,6 +828,9 @@ final class RoomArtPreviewController: ObservableObject {
         var renderTheFurniture: (RoomFurnitureRenderRequest) async -> RoomFurnitureKeyframeLayers? = { _ in nil }
         /// Turns a painted keyframe into its item layer (`RoomFurniturePaintedComposite`), off the main actor.
         var paintedItemLayers: (_ painted: CGImage, _ keyframe: CGImage, _ maskPNG: Data, _ projectedBox: [CGPoint]) async -> RoomFurnitureKeyframeLayers? = { _, _, _, _ in nil }
+        /// Returns when furniture has waited long enough for its first look, `roomFurnitureSecondsToWaitForALook` after its
+        /// floor is measured, so the fallback shows instead. A test returns when it chooses.
+        var waitTheLongestForAFurnitureLook: () async -> Void = { try? await Task.sleep(for: .seconds(roomFurnitureSecondsToWaitForALook)) }
 
         /// Chrome, the Worker at `workerBaseURL`, the app's defaults for the secret, Vision, and the camera (or a Debug
         /// build's `--room-camera-file`).
@@ -954,23 +964,36 @@ final class RoomArtPreviewController: ObservableObject {
 
     // MARK: The furniture's looks
 
-    /// Where the search for a model of the furniture stands: the store's model, else a generated one, else none, when the
-    /// painted composite is the only step. The flat cutout shows meanwhile.
+    /// Where the search for a model of the furniture stands: the store's model, else a generated one, else none. A model is
+    /// rendered only as the painting's fallback.
     private enum FurnitureLookSearch {
         case searching
         case found(RoomFurnitureLoadedModel)
-        case paintTheComposite
-        /// Nothing more to try, so the flat cutout stays.
-        case keepTheCutout
+        case noModel
     }
     private var furnitureLookSearch: FurnitureLookSearch?
     private var furnitureLookSearchTask: Task<Void, Never>?
-    /// Renders or paints the best look for the placement showing now. A new placement or a close cancels it.
-    private var furnitureUpgradeTask: Task<Void, Never>?
+    /// Paints the newest placement's composite, its first look. A new placement or a close cancels it.
+    private var furniturePaintingTask: Task<Void, Never>?
+    /// Renders the newest placement's model, held back as the painting's fallback. A new placement or a close cancels it.
+    private var furnitureRenderTask: Task<Void, Never>?
+    /// Shows the fallback once the newest placement has waited `roomFurnitureSecondsToWaitForALook` with no painting. A new
+    /// placement or a close cancels it.
+    private var furnitureLookDeadlineTask: Task<Void, Never>?
     /// The keyframe of the measurement that just finished, kept until its result is applied.
     private var keyframeOfTheLatestMeasurement: RoomArtKeyframe?
-    /// The furniture showing now, the keyframe it was placed on, and the floor it stands on.
-    private var furniturePlacementShowing: (furniture: RoomFurniture, keyframe: RoomArtKeyframe, floor: FloorPlane)?
+    /// The newest furniture placement: its measurement, the furniture, the keyframe it was placed on, and the floor it
+    /// stands on. It is set as the piece is arranged, before any look shows. The flat cutout is never drawn, and is kept
+    /// only as what both generation services work from.
+    private var furniturePlacement: (measurementID: RoomArtMeasurementID, furniture: RoomFurniture, keyframe: RoomArtKeyframe, floor: FloorPlane)?
+    /// The model's render for the newest placement, held back while the painting is on its way, since an early look makes
+    /// the painting that follows it read as a small change. It shows only as the fallback.
+    private var furnitureRenderHeldBack: (measurementID: RoomArtMeasurementID, layers: RoomFurnitureKeyframeLayers)?
+    /// What the newest placement's fallback waits on (`roomFurnitureFallbackStep`): the painting said it cannot come, the
+    /// wait ran out, and a render is still being made.
+    private var furniturePaintingCannotCome = false
+    private var furnitureWaitRanOut = false
+    private var furnitureRenderIsRunning = false
     /// The furniture's cutout over white, as a JPEG, which both generation services work from. It is the product cut out of
     /// the page's photo, never the raw page picture, which can hold a cookie banner or the rest of the page.
     private var furnitureCutoutJPEG: Data?
@@ -1115,10 +1138,15 @@ final class RoomArtPreviewController: ObservableObject {
         measurementTask = nil
         furnitureLookSearchTask?.cancel()
         furnitureLookSearchTask = nil
-        furnitureUpgradeTask?.cancel()
-        furnitureUpgradeTask = nil
+        furniturePaintingTask?.cancel()
+        furniturePaintingTask = nil
+        furnitureRenderTask?.cancel()
+        furnitureRenderTask = nil
+        furnitureLookDeadlineTask?.cancel()
+        furnitureLookDeadlineTask = nil
         furnitureLookSearch = nil
-        furniturePlacementShowing = nil
+        furniturePlacement = nil
+        furnitureRenderHeldBack = nil
         keyframeOfTheLatestMeasurement = nil
         furnitureCutoutJPEG = nil
         compositeServiceIsUnavailable = false
@@ -1302,8 +1330,9 @@ final class RoomArtPreviewController: ObservableObject {
         }
     }
 
-    /// Moves to `newPhase` and does what entering it means: place the item when it shows, put it back when a move failed,
-    /// say "Here it is" once, and say why when the panel fails.
+    /// Moves to `newPhase` and does what entering it means: look for furniture's first look while it is arranged, place wall
+    /// art when it shows, put the item back when a move failed, say "Here it is" once when the item shows, and say why when
+    /// the panel fails.
     private func apply(_ newPhase: RoomArtPhase) {
         guard newPhase != phase else { return }
         phase = newPhase
@@ -1316,19 +1345,47 @@ final class RoomArtPreviewController: ObservableObject {
                 frameProcessor.putBackTheItemFromBeforeTheMove()
                 return
             }
-            // The phase's transitions show the item only on a surface where its corners land, so this always places it.
-            guard let keyframeCorners = surface.keyframeCorners(of: item) else { return }
-            frameProcessor.showTheItem(item.image, keyframeCorners: keyframeCorners, on: item.surfaceKind)
+            // Furniture's look was drawn before the panel entered `showing`, so only wall art is placed here. The phase's
+            // transitions show the item only on a surface where its corners land, so this always places it.
+            if case .wallArt = item {
+                guard let keyframeCorners = surface.keyframeCorners(of: item) else { return }
+                frameProcessor.showTheItem(item.image, keyframeCorners: keyframeCorners, on: item.surfaceKind)
+            }
             sayHereItIsOnce(item.hereItIsLine)
             if case .furniture = item, theWholePieceDoesNotShow, !stepBackWasSaid {
                 stepBackWasSaid = true
                 environment.speak(roomFurnitureStepBackLine, false)
             }
-            // Furniture's flat cutout is the placeholder: its best look is rendered or painted for this placement.
-            if case .furniture(let furniture) = item, case .floor(let floor) = surface, let keyframe = keyframeOfTheLatestMeasurement {
-                furniturePlacementShowing = (furniture, keyframe, floor)
-                showTheFurnituresBestLook()
+        case .arranging(let measurementID, let item, let surface):
+            theSurfaceIsLost = false
+            furnitureLookDeadlineTask?.cancel()
+            furniturePaintingTask?.cancel()
+            furnitureRenderTask?.cancel()
+            furnitureRenderIsRunning = false
+            furnitureRenderHeldBack = nil
+            guard case .furniture(let furniture) = item, case .floor(let floor) = surface, let keyframe = keyframeOfTheLatestMeasurement else {
+                furniturePlacement = nil
+                print("Room furniture: the placement could not be read, so nothing can be painted")
+                apply(phase.afterTheFurnitureCouldNotBeDrawn(measurementID: measurementID))
+                return
             }
+            // The painting is the piece's first look, and the model's render shows only if none comes in time.
+            furniturePlacement = (measurementID, furniture, keyframe, floor)
+            furniturePaintingCannotCome = false
+            furnitureWaitRanOut = false
+            startPaintingTheFurniture()
+            startRenderingTheFurnituresModel()
+            let thisOpening = openingNumber
+            let waitTheLongestForAFurnitureLook = environment.waitTheLongestForAFurnitureLook
+            furnitureLookDeadlineTask = Task {
+                await waitTheLongestForAFurnitureLook()
+                guard !Task.isCancelled, thisOpening == openingNumber, furniturePlacement?.measurementID == measurementID else { return }
+                furnitureWaitRanOut = true
+                showTheFurnitureFallbackIfItIsDue(because: "no painting came within \(Int(roomFurnitureSecondsToWaitForALook)) s")
+            }
+        case .couldNotDraw:
+            // The loop stays and the camera keeps running, so a click on the floor arranges the piece again.
+            environment.speak(roomFurnitureNotDrawnLine, true)
         case .waitingForAFloorClick:
             // The camera keeps running, so the learner can tilt the screen down and click the floor.
             guard !floorNotFoundWasSaid else { return }
@@ -1431,9 +1488,9 @@ extension RoomArtPreviewController {
 
     // MARK: The furniture's best look
 
-    /// Searches for the furniture's best look while the cutout shows: the store's own model in the page, else a model the
-    /// generation service makes, else the painted composite. The result is shown on the placement showing then, and on
-    /// every placement after it.
+    /// Searches for a model of the furniture while its floor is measured: the store's own model in the page, else a model
+    /// the generation service makes. Either is rendered only as the painting's fallback. When the search ends it renders the
+    /// newest placement's model, or tells its fallback that no render is coming.
     /// `pagePictureJPEG` is the page's picture, which a generated model is cached by.
     fileprivate func startSearchingForTheFurnituresBestLook(itemTitle: String, pageURL: String, pagePictureJPEG: Data, thisOpening: Int) {
         furnitureLookSearch = .searching
@@ -1455,39 +1512,89 @@ extension RoomArtPreviewController {
                 }
             }
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
-            furnitureLookSearch = foundModel.map { .found($0) } ?? .paintTheComposite
-            showTheFurnituresBestLook()
+            furnitureLookSearch = foundModel.map { .found($0) } ?? .noModel
+            startRenderingTheFurnituresModel()
+            showTheFurnitureFallbackIfItIsDue(because: "no painting can come")
         }
     }
 
-    /// Shows the best look found so far for the furniture showing now. A model (the store's or a generated one) is rendered
-    /// first, which takes under a second, and then the painted composite is asked for, which takes 15 to 20 seconds and
-    /// looked more real than the render on the same frame (a real contact shadow and the room's own light), so it replaces
-    /// the render when it stands at the measured height. With no model, the composite is the only step. The frame processor
-    /// crossfades each step. While the search runs, the search calls this again when it ends.
-    fileprivate func showTheFurnituresBestLook() {
-        guard let placementShowing = furniturePlacementShowing, let furnitureLookSearch else { return }
-        furnitureUpgradeTask?.cancel()
+    /// Paints the newest placement's composite, its first look: it takes 15 to 20 seconds and looks real (a real contact
+    /// shadow and the room's own light), and any look shown before it made the painting read as a small change. It does not
+    /// wait for the model search. When no painting can come (the service is not set up, two paintings were refused, or the
+    /// request failed), the fallback shows: the model's render, else the line that the piece could not be drawn.
+    private func startPaintingTheFurniture() {
+        guard let placement = furniturePlacement else { return }
+        furniturePaintingTask?.cancel()
         let thisOpening = openingNumber
-        let furniture = placementShowing.furniture, keyframe = placementShowing.keyframe, floor = placementShowing.floor
-        let modelToRender: RoomFurnitureLoadedModel?
-        switch furnitureLookSearch {
-        case .searching, .keepTheCutout: return
-        case .found(let model): modelToRender = model
-        case .paintTheComposite: modelToRender = nil
-        }
-        furnitureUpgradeTask = Task {
-            guard let keyframeImage = decodedKeyframe(keyframe) else { return }
-            if let modelToRender {
-                await renderTheModel(modelToRender, furniture: furniture, keyframe: keyframe, keyframeImage: keyframeImage, floor: floor, thisOpening: thisOpening)
+        furniturePaintingTask = Task {
+            var painted = false
+            if !compositeServiceIsUnavailable, let keyframeImage = decodedKeyframe(placement.keyframe) {
+                painted = await paintTheComposite(furniture: placement.furniture, keyframe: placement.keyframe, keyframeImage: keyframeImage, floor: placement.floor, thisOpening: thisOpening)
             }
-            guard !Task.isCancelled, thisOpening == openingNumber, !compositeServiceIsUnavailable else { return }
-            await paintTheComposite(furniture: furniture, keyframe: keyframe, keyframeImage: keyframeImage, floor: floor, thisOpening: thisOpening)
+            guard !Task.isCancelled, thisOpening == openingNumber else { return }
+            if painted {
+                apply(phase.withTheFurnitureShowing(measurementID: placement.measurementID))
+                return
+            }
+            furniturePaintingCannotCome = true
+            showTheFurnitureFallbackIfItIsDue(because: "no painting can come")
         }
     }
 
+    /// Renders the model found for the newest placement and holds the render back as the painting's fallback. Waits for the
+    /// search while it runs, since the search calls this again when it ends.
+    private func startRenderingTheFurnituresModel() {
+        guard let placement = furniturePlacement, case .found(let model) = furnitureLookSearch else { return }
+        furnitureRenderTask?.cancel()
+        let thisOpening = openingNumber
+        furnitureRenderIsRunning = true
+        furnitureRenderTask = Task {
+            defer { if !Task.isCancelled, thisOpening == openingNumber { furnitureRenderIsRunning = false } }
+            guard let keyframeImage = decodedKeyframe(placement.keyframe) else { return }
+            await renderTheModel(model, furniture: placement.furniture, keyframe: placement.keyframe, keyframeImage: keyframeImage, floor: placement.floor, measurementID: placement.measurementID, thisOpening: thisOpening)
+            guard !Task.isCancelled, thisOpening == openingNumber else { return }
+            furnitureRenderIsRunning = false
+            showTheFurnitureFallbackIfItIsDue(because: "no painting can come")
+        }
+    }
+
+    /// Where the newest placement's render stands, for its fallback.
+    private var furnitureRenderState: RoomFurnitureRenderState {
+        guard let furniturePlacement else { return .none }
+        if let furnitureRenderHeldBack, furnitureRenderHeldBack.measurementID == furniturePlacement.measurementID { return .ready }
+        if furnitureRenderIsRunning { return .coming }
+        if case .searching = furnitureLookSearch { return .coming }
+        return .none
+    }
+
+    /// Shows the newest placement's fallback when `roomFurnitureFallbackStep` says it is due: the model's render, else no
+    /// piece and a line that says it could not be drawn, since the flat cutout reads as a sticker. A placement that already
+    /// shows a look changes nothing, a painting that arrives later still crossfades over the render or shows the piece, and
+    /// a render that finishes after the piece could not be drawn still shows it.
+    private func showTheFurnitureFallbackIfItIsDue(because reason: String) {
+        guard let furniturePlacement else { return }
+        let measurementID = furniturePlacement.measurementID
+        switch roomFurnitureFallbackStep(paintingCannotCome: furniturePaintingCannotCome, theWaitRanOut: furnitureWaitRanOut, render: furnitureRenderState) {
+        case .keepWaiting:
+            return
+        case .showTheRender:
+            let showingPhase = phase.withTheFurnitureShowing(measurementID: measurementID)
+            guard showingPhase != phase, let furnitureRenderHeldBack else { return }
+            print("Room furniture: showing the \(furnitureRenderHeldBack.layers.look.rawValue), since \(reason)")
+            frameProcessor.showTheFurnitureLayers(furnitureRenderHeldBack.layers, keyframeNumber: furniturePlacement.keyframe.keyframeNumber)
+            apply(showingPhase)
+        case .sayItCouldNotBeDrawn:
+            let couldNotDrawPhase = phase.afterTheFurnitureCouldNotBeDrawn(measurementID: measurementID)
+            guard couldNotDrawPhase != phase else { return }
+            print("Room furniture: nothing to draw, since \(reason) and there is no render")
+            apply(couldNotDrawPhase)
+        }
+    }
+
+    /// Renders the model for this placement and holds the render back as the fallback for the painting.
     private func renderTheModel(
-        _ model: RoomFurnitureLoadedModel, furniture: RoomFurniture, keyframe: RoomArtKeyframe, keyframeImage: CGImage, floor: FloorPlane, thisOpening: Int
+        _ model: RoomFurnitureLoadedModel, furniture: RoomFurniture, keyframe: RoomArtKeyframe, keyframeImage: CGImage, floor: FloorPlane,
+        measurementID: RoomArtMeasurementID, thisOpening: Int
     ) async {
         guard let placement = RoomFurniturePlacement(floor: floor, widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters) else { return }
         let layers = await environment.renderTheFurniture(RoomFurnitureRenderRequest(
@@ -1500,19 +1607,20 @@ extension RoomArtPreviewController {
         ))
         guard !Task.isCancelled, thisOpening == openingNumber else { return }
         guard let layers else {
-            print("Room furniture: the \(model.look.rawValue) did not render, so the composite is next")
+            print("Room furniture: the \(model.look.rawValue) did not render, so there is no render to fall back on")
             return
         }
-        frameProcessor.showTheFurnitureLayers(layers, keyframeNumber: keyframe.keyframeNumber)
-        print("Room furniture: showing the \(model.look.rawValue) from \(model.originForTheLog)")
+        furnitureRenderHeldBack = (measurementID, layers)
+        print("Room furniture: rendered the \(model.look.rawValue) from \(model.originForTheLog), held back while the painting comes")
     }
 
-    private func paintTheComposite(furniture: RoomFurniture, keyframe: RoomArtKeyframe, keyframeImage: CGImage, floor: FloorPlane, thisOpening: Int) async {
+    /// Asks for the painted composite, twice at most, and shows it. True once it shows.
+    private func paintTheComposite(furniture: RoomFurniture, keyframe: RoomArtKeyframe, keyframeImage: CGImage, floor: FloorPlane, thisOpening: Int) async -> Bool {
         guard let furnitureCutoutJPEG,
               let projectedBox = floor.keyframeBoxCorners(widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters),
-              let maskPNG = environment.compositeMaskPNG(projectedBox, keyframeImage.width, keyframeImage.height, Self.compositeShadowMarginPixels) else { return }
+              let maskPNG = environment.compositeMaskPNG(projectedBox, keyframeImage.width, keyframeImage.height, Self.compositeShadowMarginPixels) else { return false }
         // The service paints each request afresh, so a painting refused for its height, or a failed request, is asked for
-        // once more before the piece is left with the look before it, which with no model is the flat cutout.
+        // once more before the piece falls back to the model's render.
         for attempt in 1...Self.mostPaintingAttempts {
             do {
                 let painted = try await environment.furnitureGeneration.paintTheItemIntoTheKeyframe(
@@ -1524,29 +1632,30 @@ extension RoomArtPreviewController {
                     itemTitle: furniture.title,
                     itemSizeWords: furniture.sizeInWords
                 )
-                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                guard !Task.isCancelled, thisOpening == openingNumber else { return false }
                 #if DEBUG
                 // Verification reads the painting the height check judged, kept or refused, with what it was judged
                 // against. Debug builds only.
                 writeThePaintingForVerification(painted, keyframeJPEG: keyframe.measurementRequest.keyframeJPEGData, maskPNG: maskPNG, projectedBox: projectedBox)
                 #endif
                 if let layers = await environment.paintedItemLayers(painted, keyframeImage, maskPNG, projectedBox) {
-                    guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                    guard !Task.isCancelled, thisOpening == openingNumber else { return false }
                     frameProcessor.showTheFurnitureLayers(layers, keyframeNumber: keyframe.keyframeNumber)
                     print("Room furniture: showing the painted composite")
-                    return
+                    return true
                 }
-                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                guard !Task.isCancelled, thisOpening == openingNumber else { return false }
                 print("Room furniture: painting \(attempt) is shorter than the box's front, taller than its outline, or cut off, so it is not shown")
             } catch {
-                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                guard !Task.isCancelled, thisOpening == openingNumber else { return false }
                 print("Room furniture: no painted composite from painting \(attempt): \(error)")
                 // A Worker with no OpenAI key stays that way for this panel, so later placements do not ask again.
                 if case RoomFurnitureGenerationError.serviceIsNotSetUp = error { compositeServiceIsUnavailable = true }
-                guard roomFurniturePaintingIsWorthAskingForAgain(after: error) else { return }
+                guard roomFurniturePaintingIsWorthAskingForAgain(after: error) else { return false }
             }
         }
-        print("Room furniture: no painting stood at the measured size, so the look before it stays")
+        print("Room furniture: no painting stood at the measured size")
+        return false
     }
 
     #if DEBUG
@@ -1597,7 +1706,7 @@ extension RoomArtPhase {
     /// A click places a wall or floor item, so the video shows the crosshair in those phases and not for a shirt.
     var theItemIsPlacedByClicking: Bool {
         switch self {
-        case .waitingForTheCamera, .measuring, .showing, .moving, .waitingForAFloorClick: return true
+        case .waitingForTheCamera, .measuring, .arranging, .couldNotDraw, .showing, .moving, .waitingForAFloorClick: return true
         default: return false
         }
     }
