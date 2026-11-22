@@ -108,7 +108,7 @@ Sonnet then builds the 3D models for about $0.04 each, instead of about $0.37 wi
 
 Speech uses Apple's speech recognition in this fork, so you don't need an AssemblyAI key.
 Release builds won't compile until you set your own https Worker URL in `CompanionManager.swift`.
-The Notion routes, the room art routes (`/room-art` and `/room-wall`), and the `/v1/messages` route need an app secret, which the voice command brain and the task agents use, but the other routes have no authentication or rate limits yet, and the 3D Tiles route spends your Maps key for anyone who calls it, so I wouldn't deploy it publicly as is.
+The Notion routes, the room art routes (`/try-it-item` and `/room-wall`), and the `/v1/messages` route need an app secret, which the voice command brain and the task agents use, but the other routes have no authentication or rate limits yet, and the 3D Tiles route spends your Maps key for anyone who calls it, so I wouldn't deploy it publicly as is.
 
 Everything below is the original Clicky README, with the setup, architecture, and project structure updated for this fork.
 
@@ -196,7 +196,7 @@ pnpm wrangler secret put OPENAI_API_KEY
 pnpm wrangler secret put GOOGLE_MAPS_API_KEY
 # Optional, for Notion study guides and task agent pages
 pnpm wrangler secret put NOTION_API_KEY
-# A random string, such as from openssl rand -hex 32, that the app also holds. The Notion routes, /room-art,
+# A random string, such as from openssl rand -hex 32, that the app also holds. The Notion routes, /try-it-item,
 # /room-wall, and /v1/messages refuse requests without it, and /v1/messages carries the voice command brain and the task agents,
 # so an app with no secret keeps its voice commands on the old /voice-command route and its task agents fail.
 # Set it in the app with:
@@ -312,7 +312,7 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   SettingsDialPanel.swift        # The settings dial that Shift + Option opens
 harness/                 # Go helper that runs the task agent's loop through the Worker's /v1/messages
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /study-guide, /study-guide-status, /v1/messages, /notion-page, /v1/3dtiles, /room-art, /room-wall
+  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /study-guide, /study-guide-status, /v1/messages, /notion-page, /v1/3dtiles, /try-it-item, /room-wall
   src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
   src/liveScene.ts          # Asks GPT-6.1 Sol for a 3D model or GPT-6.2 Sol for a simulation, and grades spoken answers
   src/videoFrameParts.ts    # Finds the subject and its parts in a video frame or page image
@@ -322,7 +322,7 @@ worker/                  # Cloudflare Worker proxy
   src/mapTiles.ts           # Forwards Google 3D Tiles requests with the Maps key
   src/studyGuide.ts         # Writes the study guide and checks a saved guide's page
   src/notionPage.ts         # The task agent's Notion page
-  src/appSecret.ts          # The app secret the Notion routes, /v1/messages (the voice command brain and the task agents), /room-art, and /room-wall require
+  src/appSecret.ts          # The app secret the Notion routes, /v1/messages (the voice command brain and the task agents), /try-it-item, and /room-wall require
 demo/                    # The Remotion demo videos and the scripts that record them
 CLAUDE.md                # Full architecture doc (agents read this)
 ```
