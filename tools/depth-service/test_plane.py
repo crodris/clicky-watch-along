@@ -205,3 +205,13 @@ def test_a_floor_plane_with_a_nan_raises_instead_of_writing_nan(monkeypatch):
     with pytest.raises(plane.NonFinitePlaneError):
         plane.floor_frame(floor_depth(), FOCAL_PX, None, FLOOR_ANCHOR)
 
+
+def test_floor_inliers_tolerate_the_depth_noise_of_a_floor_seen_at_a_grazing_angle():
+    # 3 cm of depth noise on top of the fixture's 5 mm: 96% of the points lie within the floor's 3 cm inlier distance,
+    # where the wall's 2 cm would count only 84%.
+    depth = floor_depth() + np.random.default_rng(9).normal(0, 0.03, (FRAME_H, FRAME_W))
+
+    frame = plane.floor_frame(depth, FOCAL_PX, None, FLOOR_ANCHOR)
+
+    assert frame["planeInlierShare"] > 0.93
+    assert angle_between_degrees(np.array(frame["up"]), FLOOR_UP) < 2.0

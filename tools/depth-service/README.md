@@ -99,7 +99,7 @@ Errors are `{ "error": "..." }`.
 `403` is a request with an `Origin` header, and `415` a body whose `Content-Type` is not `application/json`, so a web page in a browser on this Mac cannot reach the service. The Worker sends `application/json` and no `Origin`.
 `422` means under 200 bare wall points remain around the anchor, or the plane has a NaN or infinite number, such as a wall seen edge on.
 `500` is a model failure.
-The `/floor` route has not been run on a live Depth Pro frame yet. Its geometry is tested on synthetic floors only.
+The `/floor` route ran on one live Depth Pro frame (see Measured), and its geometry is tested on synthetic floors.
 
 `POST /floor` takes the same body.
 `anchor` is the pixel where the furniture's front-bottom center should stand.
@@ -144,13 +144,19 @@ For a box W wide, H tall, and D deep, with `center` as the middle of its front-b
 
 The eight corners are `center + right * (sx * W/2) + up * (sy * H) + forward * (sz * D)`, with `sx` of -1 or 1, `sy` of 0 or 1, and `sz` of 0 or 1.
 
-`422` on `/floor` means under 200 bare floor points remain around the anchor, or the plane under it is not floor-like (tilted over 25 degrees from the camera's vertical, or the anchor is above the horizon).
+`422` on `/floor` means under 200 bare floor points remain around the anchor, the plane under it is not floor-like (tilted over 25 degrees from the camera's vertical, or the anchor is above the horizon), or the plane has a NaN or infinite number.
 
 ## Measured
 
 On a MacBook Air (M-series), a 1920 x 1080 frame takes about 14 to 16 seconds per wall once the model is warm (inference 16.1 s, the rest of the 16.5 s is decoding and the plane fit).
 The first request after a start was slower (31 s).
 A real room frame with a wall about 3 m away measured 3.83 m.
+
+On 2026-11-21 `/floor` ran on a 1440 x 960 frame of a person standing in a room, shot from a low camera that looks up at the person, with no floor in view.
+An anchor at the bottom right (1000, 930), on whatever low surface is there, gave a plane 1.29 m away, tilted 16.8 degrees from the camera's vertical (the camera pitched up about 17 degrees), with 47% of the points on it.
+An anchor on the wall at (1000, 500) answered 422 "tilted 71 degrees".
+Each took 12.9 s of Depth Pro inference.
+No photo in hand shows a floor, so the 200 above is not a check that the plane is the floor.
 
 ## Tests
 
