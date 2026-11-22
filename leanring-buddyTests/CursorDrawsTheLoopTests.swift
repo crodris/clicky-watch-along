@@ -295,30 +295,32 @@ struct CursorDrawsTheLoopTests {
     // MARK: - The overlay's line at 2x
 
     @MainActor
-    @Test func theOverlaysFinishedLineIsTheAccentWithNoWhiteSpark() throws {
+    @Test func theOverlaysFinishedLineIsTheAccentWithNoWhiteSpark() async throws {
         let loop = CursorLoopOnScreen(lineRect: CGRect(x: 20, y: 20, width: 400, height: 220), seed: 7, beganAt: 10, shimmerSlowsAt: nil, isFadingOut: false)
         let view = CursorLoopView(loop: loop, ink: .whole(since: ProcessInfo.processInfo.systemUptime), color: Color(hex: "#F26B1D"))
             .frame(width: 440, height: 260)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
-        let image = try #require(renderer.cgImage)
-        var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
-        let didDraw: Bool = bytes.withUnsafeMutableBytes { buffer in
-            guard let context = CGContext(
-                data: buffer.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
-                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else { return false }
-            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-            return true
-        }
-        #expect(didDraw)
-        var accentPixelCount = 0
-        var whitePixelCount = 0
-        for offset in stride(from: 0, to: bytes.count, by: 4) {
-            let red = Int(bytes[offset]), green = Int(bytes[offset + 1]), blue = Int(bytes[offset + 2]), alpha = Int(bytes[offset + 3])
-            if alpha >= 250 && abs(red - 242) < 14 && abs(green - 107) < 14 && abs(blue - 29) < 14 { accentPixelCount += 1 }
-            if alpha > 240 && red > 240 && green > 240 && blue > 240 { whitePixelCount += 1 }
-        }
+        nonisolated(unsafe) let image = try #require(renderer.cgImage)
+        // The scan runs off the main actor, since a scan on it holds every other main actor test back on a loaded Mac.
+        let (accentPixelCount, whitePixelCount) = await Task.detached { () -> (Int, Int) in
+            var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            bytes.withUnsafeMutableBytes { buffer in
+                guard let context = CGContext(
+                    data: buffer.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                ) else { return }
+                context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            }
+            var accentPixelCount = 0
+            var whitePixelCount = 0
+            for offset in stride(from: 0, to: bytes.count, by: 4) {
+                let red = Int(bytes[offset]), green = Int(bytes[offset + 1]), blue = Int(bytes[offset + 2]), alpha = Int(bytes[offset + 3])
+                if alpha >= 250 && abs(red - 242) < 14 && abs(green - 107) < 14 && abs(blue - 29) < 14 { accentPixelCount += 1 }
+                if alpha > 240 && red > 240 && green > 240 && blue > 240 { whitePixelCount += 1 }
+            }
+            return (accentPixelCount, whitePixelCount)
+        }.value
         // The 3 point line is 6 pixels wide at 2x and over 1,200 points long.
         #expect(accentPixelCount > 6_000)
         #expect(whitePixelCount == 0)

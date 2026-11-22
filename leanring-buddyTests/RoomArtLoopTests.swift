@@ -252,19 +252,32 @@ struct RoomArtLoopOutlineTests {
     }
 }
 
+/// The loop's renders at 2x. Only the render runs on the main actor, as `ImageRenderer` needs, and every scan of its 2 million
+/// pixels runs on a detached task. A scan on the main actor held it for a minute on a loaded Mac, and every main actor test that
+/// waited on it hit its time limit, the cursor loop suites among them.
 @MainActor
 struct RoomArtLoopRenderTests {
-    private let cameraFrame = CGSize(width: 1280, height: 720)
-    private let panelSize = CGSize(width: 960, height: 540)
-    private let accentRGB: (red: Int, green: Int, blue: Int) = (249, 115, 22)
+    private static let cameraFrame = CGSize(width: 1280, height: 720)
+    private static let panelSize = CGSize(width: 960, height: 540)
+    nonisolated private static let accentRGB: (red: Int, green: Int, blue: Int) = (249, 115, 22)
 
-    /// The rendered loop as 8-bit RGBA bytes at 2x, drawn into a known layout so no pixel read depends on the renderer's.
-    private func renderedLoop(tracerLook: CursorLoopTracerLook? = nil, tracer: CursorLoopTimeline.TracerPlace = .lapping(lapShare: 0.5), showsTheTracer: Bool = true) throws -> (bytes: [UInt8], width: Int, height: Int, path: Path) {
+    /// One render as 8-bit RGBA bytes at 2x, drawn into a known layout so no pixel read depends on the renderer's.
+    struct Render: Sendable {
+        let bytes: [UInt8]
+        let width: Int
+        let height: Int
+        let lineBoundsInPoints: CGRect
+    }
+
+    private static func loopPath() throws -> Path {
         let keyframe = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 640, y: 250), frameSize: cameraFrame, on: .wall)
         let snapshot = RoomArtLoopSnapshot(keyframeCorners: keyframe, currentCorners: keyframe)
-        let path = try #require(RoomArtLoopOutline.path(for: snapshot, fit: RoomArtVideoFit(cameraSize: cameraFrame, viewSize: panelSize)))
+        return try #require(RoomArtLoopOutline.path(for: snapshot, fit: RoomArtVideoFit(cameraSize: cameraFrame, viewSize: panelSize)))
+    }
+
+    private static func renderedImage(tracerLook: CursorLoopTracerLook?, tracer: CursorLoopTimeline.TracerPlace, showsTheTracer: Bool) throws -> CGImage {
         let canvas = RoomArtLoopCanvas(
-            outline: path,
+            outline: try loopPath(),
             frame: CursorLoopTimeline.Frame(drawnShare: 1, tracer: tracer),
             color: Color(hex: "#F97316"),
             tracerLook: tracerLook,
@@ -272,109 +285,142 @@ struct RoomArtLoopRenderTests {
         )
         let renderer = ImageRenderer(content: canvas.frame(width: panelSize.width, height: panelSize.height))
         renderer.scale = 2
-        let image = try #require(renderer.cgImage)
+        return try #require(renderer.cgImage)
+    }
+
+    private static func renderedLoop(tracerLook: CursorLoopTracerLook? = nil, tracer: CursorLoopTimeline.TracerPlace = .lapping(lapShare: 0.5), showsTheTracer: Bool = true) async throws -> Render {
+        let image = try renderedImage(tracerLook: tracerLook, tracer: tracer, showsTheTracer: showsTheTracer)
+        let lineBoundsInPoints = try loopPath().boundingRect
+        nonisolated(unsafe) let imageToRead = image
+        return await Task.detached {
+            Render(bytes: rgbaBytes(of: imageToRead), width: imageToRead.width, height: imageToRead.height, lineBoundsInPoints: lineBoundsInPoints)
+        }.value
+    }
+
+    nonisolated private static func rgbaBytes(of image: CGImage) -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
         // The context writes through the buffer's pointer, so the draw happens inside the closure that lends it.
-        let didDraw: Bool = bytes.withUnsafeMutableBytes { buffer in
+        bytes.withUnsafeMutableBytes { buffer in
             guard let context = CGContext(
                 data: buffer.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else { return false }
+            ) else { return }
             context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-            return true
         }
-        #expect(didDraw)
-        return (bytes, image.width, image.height, path)
+        return bytes
     }
 
-    private func isTheAccent(_ bytes: [UInt8], at offset: Int) -> Bool {
+    nonisolated private static func isTheAccent(_ bytes: [UInt8], at offset: Int) -> Bool {
         let alpha = Int(bytes[offset + 3])
         guard alpha >= 250 else { return false }
         return abs(Int(bytes[offset]) - accentRGB.red) < 14 && abs(Int(bytes[offset + 1]) - accentRGB.green) < 14 && abs(Int(bytes[offset + 2]) - accentRGB.blue) < 14
     }
 
-    @Test func theLineIsDrawnInTheAccentColorAndStaysInsideThePanel() throws {
-        let render = try renderedLoop()
-        #expect(render.width == 1920 && render.height == 1080)
+    /// What the line's render holds: where anything is drawn, how many pixels are the accent, and whether anything touches the
+    /// panel's two outermost pixels.
+    struct LineScan: Sendable {
+        let drawnBounds: CGRect
+        let accentPixelCount: Int
+        let anythingDrawnAtTheEdge: Bool
+    }
 
-        var accentPixelCount = 0
-        var drawnBounds = CGRect.null
-        for row in 0..<render.height {
-            for column in 0..<render.width {
-                let offset = (row * render.width + column) * 4
-                if render.bytes[offset + 3] > 0 {
-                    // Nothing is drawn on the two outermost pixels of the panel.
-                    #expect(column >= 2 && row >= 2 && column < render.width - 2 && row < render.height - 2)
-                    drawnBounds = drawnBounds.union(CGRect(x: column, y: row, width: 1, height: 1))
+    nonisolated private static func scanTheLine(_ render: Render) async -> LineScan {
+        await Task.detached {
+            var accentPixelCount = 0
+            var drawnBounds = CGRect.null
+            var anythingDrawnAtTheEdge = false
+            for row in 0..<render.height {
+                for column in 0..<render.width {
+                    let offset = (row * render.width + column) * 4
+                    if render.bytes[offset + 3] > 0 {
+                        if column < 2 || row < 2 || column >= render.width - 2 || row >= render.height - 2 { anythingDrawnAtTheEdge = true }
+                        drawnBounds = drawnBounds.union(CGRect(x: column, y: row, width: 1, height: 1))
+                    }
+                    if isTheAccent(render.bytes, at: offset) { accentPixelCount += 1 }
                 }
-                if isTheAccent(render.bytes, at: offset) { accentPixelCount += 1 }
             }
-        }
+            return LineScan(drawnBounds: drawnBounds, accentPixelCount: accentPixelCount, anythingDrawnAtTheEdge: anythingDrawnAtTheEdge)
+        }.value
+    }
+
+    @Test func theLineIsDrawnInTheAccentColorAndStaysInsideThePanel() async throws {
+        let render = try await Self.renderedLoop()
+        #expect(render.width == 1920 && render.height == 1080)
+        let scan = await Self.scanTheLine(render)
+        // Nothing is drawn on the two outermost pixels of the panel.
+        #expect(!scan.anythingDrawnAtTheEdge)
         // A 3 point line is 6 pixels wide at 2x and the line is over 700 points long.
-        #expect(accentPixelCount > 3_000)
-        // The drawing covers the line's own box, with room for its width and the glyph and its glow, and nothing beyond.
-        let pathBoundsInPixels = CGRect(x: render.path.boundingRect.minX * 2, y: render.path.boundingRect.minY * 2, width: render.path.boundingRect.width * 2, height: render.path.boundingRect.height * 2)
-        #expect(drawnBounds.minX >= pathBoundsInPixels.minX - 30 && drawnBounds.maxX <= pathBoundsInPixels.maxX + 30)
-        #expect(drawnBounds.minY >= pathBoundsInPixels.minY - 30 && drawnBounds.maxY <= pathBoundsInPixels.maxY + 30)
-        #expect(drawnBounds.minX <= pathBoundsInPixels.minX + 10 && drawnBounds.maxX >= pathBoundsInPixels.maxX - 10)
+        #expect(scan.accentPixelCount > 3_000)
+        // The drawing covers the line's own box, with room for its width, and nothing beyond.
+        let line = render.lineBoundsInPoints
+        let pathBoundsInPixels = CGRect(x: line.minX * 2, y: line.minY * 2, width: line.width * 2, height: line.height * 2)
+        #expect(scan.drawnBounds.minX >= pathBoundsInPixels.minX - 30 && scan.drawnBounds.maxX <= pathBoundsInPixels.maxX + 30)
+        #expect(scan.drawnBounds.minY >= pathBoundsInPixels.minY - 30 && scan.drawnBounds.maxY <= pathBoundsInPixels.maxY + 30)
+        #expect(scan.drawnBounds.minX <= pathBoundsInPixels.minX + 10 && scan.drawnBounds.maxX >= pathBoundsInPixels.maxX - 10)
     }
 
-    /// The pixels that differ between two renders, which is what the tracer drew.
-    private func boundsOfTheTracer(in render: (bytes: [UInt8], width: Int, height: Int, path: Path), comparedWith lineOnly: (bytes: [UInt8], width: Int, height: Int, path: Path)) -> (bounds: CGRect, seamPixelCount: Int, accentBluePixelCount: Int) {
-        var bounds = CGRect.null
-        var seamPixelCount = 0
-        var accentBluePixelCount = 0
-        for row in 0..<render.height {
-            for column in 0..<render.width {
-                let offset = (row * render.width + column) * 4
-                let differs = (0..<4).contains { abs(Int(render.bytes[offset + $0]) - Int(lineOnly.bytes[offset + $0])) > 24 }
-                guard differs else { continue }
-                bounds = bounds.union(CGRect(x: column, y: row, width: 1, height: 1))
-                let red = Int(render.bytes[offset]), green = Int(render.bytes[offset + 1]), blue = Int(render.bytes[offset + 2]), alpha = Int(render.bytes[offset + 3])
-                // A school's volleyball has dark seams, opaque and near black, which no triangle has.
-                if alpha >= 250 && red < 60 && green < 60 && blue < 60 { seamPixelCount += 1 }
-                if alpha >= 250 && blue > red + 80 && blue > green + 30 { accentBluePixelCount += 1 }
+    /// What the tracer drew: the pixels that differ between a render with it and one without.
+    struct TracerScan: Sendable {
+        let bounds: CGRect
+        let seamPixelCount: Int
+        let accentBluePixelCount: Int
+        let whitePixelCount: Int
+    }
+
+    nonisolated private static func scanTheTracer(in render: Render, comparedWith lineOnly: Render) async -> TracerScan {
+        await Task.detached {
+            var bounds = CGRect.null
+            var seamPixelCount = 0
+            var accentBluePixelCount = 0
+            var whitePixelCount = 0
+            for row in 0..<render.height {
+                for column in 0..<render.width {
+                    let offset = (row * render.width + column) * 4
+                    let red = Int(render.bytes[offset]), green = Int(render.bytes[offset + 1]), blue = Int(render.bytes[offset + 2]), alpha = Int(render.bytes[offset + 3])
+                    if red > 240 && green > 240 && blue > 240 && alpha > 240 { whitePixelCount += 1 }
+                    var differs = false
+                    for channel in 0..<4 where abs(Int(render.bytes[offset + channel]) - Int(lineOnly.bytes[offset + channel])) > 24 { differs = true }
+                    guard differs else { continue }
+                    bounds = bounds.union(CGRect(x: column, y: row, width: 1, height: 1))
+                    // A school's volleyball has dark seams, opaque and near black, which no triangle has.
+                    if alpha >= 250 && red < 60 && green < 60 && blue < 60 { seamPixelCount += 1 }
+                    if alpha >= 250 && blue > red + 80 && blue > green + 30 { accentBluePixelCount += 1 }
+                }
             }
-        }
-        return (bounds, seamPixelCount, accentBluePixelCount)
+            return TracerScan(bounds: bounds, seamPixelCount: seamPixelCount, accentBluePixelCount: accentBluePixelCount, whitePixelCount: whitePixelCount)
+        }.value
     }
 
-    private func whitePixelCount(_ render: (bytes: [UInt8], width: Int, height: Int, path: Path)) -> Int {
-        stride(from: 0, to: render.bytes.count, by: 4).filter { render.bytes[$0] > 240 && render.bytes[$0 + 1] > 240 && render.bytes[$0 + 2] > 240 && render.bytes[$0 + 3] > 240 }.count
-    }
-
-    @Test func theTracerIsTheThemesCursorGlyphOnTheLineAndThereIsNoWhiteSpark() throws {
-        let lineOnly = try renderedLoop(showsTheTracer: false)
-        let line = CursorLoopLine(outline: lineOnly.path)
+    @Test func theTracerIsTheThemesCursorGlyphOnTheLineAndThereIsNoWhiteSpark() async throws {
+        let lineOnly = try await Self.renderedLoop(showsTheTracer: false)
+        let line = CursorLoopLine(outline: try Self.loopPath())
         let tracerShare = 0.5
 
         // Under a school theme the tracer is its volleyball, centered on the ink, with the ball's dark seams.
         let karasuno = CursorLoopTracerLook(theme: bundledTheme("school-karasuno"), picture: nil)
-        let volleyballRender = try renderedLoop(tracerLook: karasuno, tracer: .tracing(share: tracerShare))
-        let volleyball = boundsOfTheTracer(in: volleyballRender, comparedWith: lineOnly)
+        let volleyball = await Self.scanTheTracer(in: try await Self.renderedLoop(tracerLook: karasuno, tracer: .tracing(share: tracerShare)), comparedWith: lineOnly)
         let ballPlacement = CursorLoopTracerPlacement(on: line, atShare: tracerShare, cursorFacing: karasuno.theme.cursorFacing)
         #expect(abs(volleyball.bounds.midX / 2 - ballPlacement.glyphCenter.x) < 4)
         #expect(abs(volleyball.bounds.midY / 2 - ballPlacement.glyphCenter.y) < 6)
         // The 24 point ball with its glow and contact shadow, and nothing the size of a 9 point spark.
         #expect(volleyball.bounds.width / 2 > 22 && volleyball.bounds.width / 2 < 60)
         #expect(volleyball.seamPixelCount > 20)
-        #expect(whitePixelCount(volleyballRender) == 0)
+        #expect(volleyball.whitePixelCount == 0)
 
         // Under Clicky blue it is the blue triangle, with no seams, beside the line with its tip on the ink.
         let clickyBlue = CursorLoopTracerLook(theme: clickyBlueTheme, picture: nil)
-        let triangleRender = try renderedLoop(tracerLook: clickyBlue, tracer: .tracing(share: tracerShare))
-        let triangle = boundsOfTheTracer(in: triangleRender, comparedWith: lineOnly)
+        let triangle = await Self.scanTheTracer(in: try await Self.renderedLoop(tracerLook: clickyBlue, tracer: .tracing(share: tracerShare)), comparedWith: lineOnly)
         let trianglePlacement = CursorLoopTracerPlacement(on: line, atShare: tracerShare, cursorFacing: clickyBlue.theme.cursorFacing)
         #expect(abs(triangle.bounds.midX / 2 - trianglePlacement.glyphCenter.x) < 4)
         #expect(abs(triangle.bounds.midY / 2 - trianglePlacement.glyphCenter.y) < 6)
         #expect(triangle.seamPixelCount == 0)
         #expect(triangle.accentBluePixelCount > 40)
-        #expect(whitePixelCount(triangleRender) == 0)
+        #expect(triangle.whitePixelCount == 0)
     }
 
-    @Test func reduceMotionDrawsNoTracer() throws {
-        let lineOnly = try renderedLoop(showsTheTracer: false)
-        let reduced = try renderedLoop(tracerLook: CursorLoopTracerLook(theme: bundledTheme("school-karasuno"), picture: nil), showsTheTracer: false)
-        #expect(boundsOfTheTracer(in: reduced, comparedWith: lineOnly).bounds.isNull)
+    @Test func reduceMotionDrawsNoTracer() async throws {
+        let lineOnly = try await Self.renderedLoop(showsTheTracer: false)
+        let reduced = try await Self.renderedLoop(tracerLook: CursorLoopTracerLook(theme: bundledTheme("school-karasuno"), picture: nil), showsTheTracer: false)
+        #expect(await Self.scanTheTracer(in: reduced, comparedWith: lineOnly).bounds.isNull)
     }
 }
