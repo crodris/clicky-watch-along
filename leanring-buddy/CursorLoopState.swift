@@ -69,6 +69,22 @@ enum CursorLoopEndReason: CaseIterable, Equatable {
     case speechStarted
     /// A scene or pop-out began to show, so it rises from the line Clicky drew.
     case aSceneStartedToShow
+
+    /// Whether this also clears the sparks agents lap around the media. An agent keeps working while the learner talks
+    /// and while Clicky answers, so only a change of what is in front ends its sparks: a scroll, a tab or media change,
+    /// another front app, or a scene covering the media.
+    var endsTheAgentSparks: Bool {
+        switch self {
+        case .scrolled, .tabOrMediaChanged, .appSwitched, .aSceneStartedToShow: return true
+        case .thinkingStopped, .newPushToTalk, .speechStarted: return false
+        }
+    }
+}
+
+/// The line background agents lap their sparks around: the media they work on, and the agents in the order they joined.
+struct AgentSparkLine: Equatable {
+    let media: MediaOnTheFrontTab
+    var agentIDs: [UUID]
 }
 
 /// Whether Clicky's voice state ends a loop that is showing. Going idle covers a cancel and a failure, and an
@@ -109,8 +125,16 @@ struct CursorLoopState: Equatable {
         case fadingOut(MediaOnTheFrontTab, since: TimeInterval, sparkSlowsAt: TimeInterval?)
     }
 
+    enum AgentLine: Equatable {
+        case hidden
+        case showing(AgentSparkLine)
+        /// Keeps its sparks while the line fades.
+        case fadingOut(AgentSparkLine)
+    }
+
     private(set) var turn = Turn.notWaitingForALoop
     private(set) var loop = Loop.hidden
+    private(set) var agentLine = AgentLine.hidden
 
     var loopIsShowing: Bool {
         if case .showing = loop { return true }
@@ -133,6 +157,61 @@ struct CursorLoopState: Equatable {
     var mediaTheLoopIsAround: MediaOnTheFrontTab? {
         if case .showing(let media, _, _) = loop { return media }
         return nil
+    }
+
+    var agentLineIsShowing: Bool {
+        if case .showing = agentLine { return true }
+        return false
+    }
+
+    /// The agent line to draw, whether it is showing or fading out.
+    var agentLineOnTheMedia: (line: AgentSparkLine, isFadingOut: Bool)? {
+        switch agentLine {
+        case .hidden: return nil
+        case .showing(let line): return (line, false)
+        case .fadingOut(let line): return (line, true)
+        }
+    }
+
+    /// The media the poll watches: a loop's, or else the agent line's. Either one clears when the front tab differs from it.
+    var mediaThePollWatches: MediaOnTheFrontTab? {
+        if let mediaTheLoopIsAround { return mediaTheLoopIsAround }
+        if case .showing(let line) = agentLine { return line.media }
+        return nil
+    }
+
+    /// An agent started. Its sparks join the line when its work is on the video in front. The line goes around the media it
+    /// already has, or a loop's, or else the rect the push-to-talk release read for this turn, which a turn that handed off
+    /// to nothing keeps. With no request loop, that rect in hand is what gives an agent a line of its own, and dropping it
+    /// would limit sparks to a loop a request already drew.
+    mutating func agentStarted(id agentID: UUID, sourceTab: AgentSourceTab) {
+        var candidateMedia: [MediaOnTheFrontTab] = []
+        if case .showing(let line) = agentLine { candidateMedia.append(line.media) }
+        if let mediaTheLoopIsAround { candidateMedia.append(mediaTheLoopIsAround) }
+        if case .rectIsInHand(let mediaInHand) = turn { candidateMedia.append(mediaInHand) }
+        guard let media = candidateMedia.first(where: { agentWorksOnTheVideoInFront(sourceTab: sourceTab, frontTabURL: $0.sample.tabURL) }) else {
+            return
+        }
+        if case .showing(var line) = agentLine, line.media.sample.tabURL == media.sample.tabURL {
+            if !line.agentIDs.contains(agentID) { line.agentIDs.append(agentID) }
+            agentLine = .showing(line)
+        } else {
+            agentLine = .showing(AgentSparkLine(media: media, agentIDs: [agentID]))
+        }
+    }
+
+    /// The agent's spark is done, or the agent ended without finishing. The line fades with its last agent.
+    mutating func agentLeavesTheLine(id agentID: UUID) {
+        guard case .showing(var line) = agentLine, line.agentIDs.contains(agentID) else { return }
+        line.agentIDs.removeAll { $0 == agentID }
+        agentLine = line.agentIDs.isEmpty ? .fadingOut(line) : .showing(line)
+    }
+
+    /// The fade is over, so the agent line leaves the screen.
+    mutating func agentLineFadeOutFinished() {
+        if case .fadingOut = agentLine {
+            agentLine = .hidden
+        }
     }
 
     /// A press starts a new request, so a loop from the last one is out of date, and so is any rect read for it.
@@ -190,6 +269,9 @@ struct CursorLoopState: Equatable {
         turn = .notWaitingForALoop
         if case .showing(let media, let since, let sparkSlowsAt) = loop {
             loop = .fadingOut(media, since: since, sparkSlowsAt: sparkSlowsAt)
+        }
+        if reason.endsTheAgentSparks, case .showing(let line) = agentLine {
+            agentLine = .fadingOut(line)
         }
     }
 

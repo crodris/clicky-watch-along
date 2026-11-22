@@ -407,6 +407,7 @@ final class CompanionManager: ObservableObject {
     private var pinchCancellable: AnyCancellable?
     private var scrollWheelCancellable: AnyCancellable?
     private var cursorLoopVoiceStateCancellable: AnyCancellable?
+    private var cursorLoopAgentSparksCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
@@ -924,6 +925,24 @@ final class CompanionManager: ObservableObject {
             .sink { [weak self] in
                 self?.cursorLoopController.end(because: .scrolled)
             }
+        // A finished agent's spark completes its lap, and a failed or cancelled agent's goes at once.
+        cursorLoopAgentSparksCancellable = backgroundAgentStore.$agents
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] agents in
+                self?.cursorLoopController.agentStatusesChanged(Dictionary(uniqueKeysWithValues: agents.map { ($0.id, $0.loopSparkStatus) }))
+            }
+    }
+
+    /// A background agent started from a tab. Its sparks lap the loop when its work is on the video in front, and never
+    /// while a scene covers the media or a quiz question is open, as a request's loop never draws then.
+    private func theAgentStartedFromTheFrontTab(_ agentID: UUID, sourceTab: AgentSourceTab) {
+        guard requestMayDrawALoop(
+            aSceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            aQuizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer || videoQuizQuestionIsActive
+        ) else {
+            return
+        }
+        cursorLoopController.agentStarted(id: agentID, sourceTab: sourceTab)
     }
 
     private func bindPinchToLiveSceneZoom() {
@@ -3507,6 +3526,9 @@ final class CompanionManager: ObservableObject {
         // The screenshots the agent took, which only this task's tools needed.
         defer { TaskAgentWorkspace.removeFolder(taskID: agentID) }
         let frontTab = videoQuizSession.frontTabTitleAndURLOfTheFrontWindow()
+        if let frontTabURL = frontTab?.url {
+            theAgentStartedFromTheFrontTab(agentID, sourceTab: .tab(url: frontTabURL))
+        }
         var writtenPageURL: URL?
         do {
             let taskEvents = try agentHarness.startTask(taskID: agentID, goal: goal, frontTabTitle: frontTab?.title, frontTabURL: frontTab?.url, skill: skillName)
@@ -3825,6 +3847,9 @@ final class CompanionManager: ObservableObject {
             // An experiment over a page with no video is tied to no tab, so it may rise once the screen is free.
             let buildsOverAVideo = agentKind == .threeDModel || videoQuizSession.frontVideoStateForVoiceCommands() != nil
             let sourceTabURL = buildsOverAVideo ? videoQuizSession.frontTabURLOfTheFrontWindow() : nil
+            if let sourceTabURL {
+                theAgentStartedFromTheFrontTab(agentID, sourceTab: .tab(url: sourceTabURL))
+            }
             let heardText = videoQuizSession.whatTheQuizVideoInFrontJustSaid()
             let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
             let videoScreen = screenAndCaptureShowing(VideoQuizSession.screenRectOfTheMediaToRiseFrom(), in: screenCaptures)
@@ -4037,6 +4062,7 @@ final class CompanionManager: ObservableObject {
             return .failed(error: "This video's study guide is still being written", state: nil)
         }
         let agentID = backgroundAgentStore.start(kind: studyGuideJob.agentKind, studyGuideVideoKey: videoKey)
+        theAgentStartedFromTheFrontTab(agentID, sourceTab: .youTubeVideo(key: videoKey))
         if studyGuideJob.isAskedForByTheLearner {
             agentTokenDockController.startServingTheToken(of: agentID)
         }

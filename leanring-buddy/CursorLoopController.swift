@@ -18,7 +18,12 @@ final class CursorLoopController: ObservableObject {
     private var mediaRectReadTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var fadeOutTask: Task<Void, Never>?
+    private var agentLineFadeOutTask: Task<Void, Never>?
+    /// One task for each finished agent whose spark is completing its last lap, which removes the agent when the lap is over.
+    private var finishingLapTasks: [UUID: Task<Void, Never>] = [:]
     private var appActivationObserver: NSObjectProtocol?
+    /// Where the front app changing is announced. Tests pass their own, since a post to the shared one reaches every controller.
+    private let workspaceNotificationCenter: NotificationCenter
     private var idleMustHoldTask: Task<Void, Never>?
     private var latestVoiceState = CompanionVoiceState.idle
     /// Read Chrome's front tab: the full media read at release, and the cheap sample the poll takes. Tests pass
@@ -29,6 +34,8 @@ final class CursorLoopController: ObservableObject {
     /// The wait between front tab samples. Tests pass one that counts its calls, so they check when the poll waits without
     /// reading the clock of a busy machine.
     private let waitBetweenFrontTabPolls: () async -> Void
+    /// The wait for a finished agent's spark to complete its last lap. Tests pass one that returns at once.
+    private let waitForAFinishingSparkLap: () async -> Void
 
     static let secondsBetweenFrontTabPolls: TimeInterval = 1
     /// The real wait between front tab polls. A cancelled poll ends its sleep early and then sees that it was cancelled.
@@ -39,17 +46,25 @@ final class CursorLoopController: ObservableObject {
     /// and before the request sets its own processing state, so an idle ends a loop only after it holds this long.
     static let secondsAnIdleMustHoldToEndTheLoop: TimeInterval = 0.3
     private static let chromeBundleIdentifier = "com.google.Chrome"
+    /// The real wait for a finishing lap, as long as the longest one, which the spark never exceeds.
+    static func sleepForAFinishingSparkLap() async {
+        try? await Task.sleep(for: .seconds(AgentSparkTimeline.secondsAFinishingLapTakesAtMost))
+    }
 
     init(
         readTheMediaInTheFrontTab: @escaping (FrontTabReadAtRelease) -> MediaOnTheFrontTab? = CursorLoopController.readTheMediaInTheFrontTab,
         readTheFrontTabSample: @escaping () -> FrontTabSample? = CursorLoopController.readTheFrontTabSample,
-        waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls
+        waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls,
+        waitForAFinishingSparkLap: @escaping () async -> Void = CursorLoopController.sleepForAFinishingSparkLap,
+        workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
     ) {
+        self.workspaceNotificationCenter = workspaceNotificationCenter
         self.readTheMediaInTheFrontTab = readTheMediaInTheFrontTab
         self.readTheFrontTabSample = readTheFrontTabSample
         self.waitBetweenFrontTabPolls = waitBetweenFrontTabPolls
+        self.waitForAFinishingSparkLap = waitForAFinishingSparkLap
         // The front app changing is a system event, so a notification is the only way to hear it.
-        appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+        appActivationObserver = workspaceNotificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
@@ -57,7 +72,7 @@ final class CursorLoopController: ObservableObject {
             let activatedApplication = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             guard activatedApplication?.bundleIdentifier != Self.chromeBundleIdentifier else { return }
             MainActor.assumeIsolated {
-                guard let self, self.state.loopIsShowing || self.state.turn != .notWaitingForALoop else { return }
+                guard let self, self.state.loopIsShowing || self.state.agentLineIsShowing || self.state.turn != .notWaitingForALoop else { return }
                 print("Cursor loop: the front app became \(activatedApplication?.bundleIdentifier ?? "unknown")")
                 self.end(because: .appSwitched)
             }
@@ -66,7 +81,7 @@ final class CursorLoopController: ObservableObject {
 
     deinit {
         if let appActivationObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(appActivationObserver)
+            workspaceNotificationCenter.removeObserver(appActivationObserver)
         }
     }
 
@@ -133,6 +148,38 @@ final class CursorLoopController: ObservableObject {
         }
     }
 
+    // MARK: - Agent sparks
+
+    /// A background agent started. Its sparks lap the media in front when it works on that video (`agentWorksOnTheVideoInFront`).
+    /// The caller skips this while a scene covers the media or a quiz question is open, as it does for a request's loop.
+    func agentStarted(id agentID: UUID, sourceTab: AgentSourceTab) {
+        change { $0.agentStarted(id: agentID, sourceTab: sourceTab) }
+    }
+
+    /// The agents changed. Each agent on the line is checked against its status: a finished agent's spark completes its
+    /// lap and then goes, and an agent that failed, was cancelled, or has left the store goes at once.
+    func agentStatusesChanged(_ statusesByAgentID: [UUID: LoopSparkAgentStatus]) {
+        guard case .showing(let line) = state.agentLine else { return }
+        for agentID in line.agentIDs {
+            switch statusesByAgentID[agentID] ?? .endedWithoutFinishing {
+            case .working:
+                break
+            case .endedWithoutFinishing:
+                finishingLapTasks[agentID]?.cancel()
+                finishingLapTasks[agentID] = nil
+                change { $0.agentLeavesTheLine(id: agentID) }
+            case .finished:
+                guard finishingLapTasks[agentID] == nil else { continue }
+                finishingLapTasks[agentID] = Task {
+                    await waitForAFinishingSparkLap()
+                    guard !Task.isCancelled else { return }
+                    finishingLapTasks[agentID] = nil
+                    change { $0.agentLeavesTheLine(id: agentID) }
+                }
+            }
+        }
+    }
+
     // MARK: - Waiting for background work
 
     /// Each returns once a task the controller started has finished, so a test reads the result when the work is done instead of
@@ -141,9 +188,12 @@ final class CursorLoopController: ObservableObject {
     func waitForTheIdleHoldToFinish() async { await idleMustHoldTask?.value }
     /// Only returns when the poll ends the loop, since a poll whose samples match keeps sampling for as long as the loop shows.
     func waitForThePollToEndTheLoop() async { await pollTask?.value }
+    func waitForTheFinishingLapsToEnd() async {
+        for finishingLapTask in Array(finishingLapTasks.values) { await finishingLapTask.value }
+    }
 
     func end(because reason: CursorLoopEndReason) {
-        guard state.loopIsShowing || state.turn != .notWaitingForALoop else { return }
+        guard state.loopIsShowing || state.turn != .notWaitingForALoop || (reason.endsTheAgentSparks && state.agentLineIsShowing) else { return }
         print("Cursor loop: ended because \(reason), \(state.loopIsShowing ? "with the loop showing" : "before any loop drew")")
         change { $0.end(because: reason) }
     }
@@ -173,19 +223,49 @@ final class CursorLoopController: ObservableObject {
         )
     }
 
+    /// The agent sparks to draw on the screen with this frame, or nil when the media is on another screen or no agent line shows.
+    func agentLoopToDraw(onScreenWithFrame screenFrame: CGRect) -> AgentLoopOnScreen? {
+        guard let agentLineOnTheMedia = state.agentLineOnTheMedia else { return nil }
+        let screens = NSScreen.screens
+        guard let screenIndex = indexOfTheScreenFrameHolding(agentLineOnTheMedia.line.media.screenRect, screenFramesInAppKitCoordinates: screens.map(\.frame)),
+              screens[screenIndex].frame == screenFrame else {
+            return nil
+        }
+        let mediaRect = rectInOverlayCoordinates(of: agentLineOnTheMedia.line.media.screenRect, overlayScreen: screens[screenIndex])
+        return AgentLoopOnScreen(
+            lineRect: CursorLoopOutline.rectTheLineRunsAlong(around: mediaRect, insideScreenBounds: CGRect(origin: .zero, size: screenFrame.size)),
+            seed: CursorLoopOutline.seed(for: mediaRect),
+            agentIDs: agentLineOnTheMedia.line.agentIDs,
+            // A request's loop draws the whole line itself, so the agents' track shows only when none does.
+            drawsItsOwnTrack: !state.loopIsShowing,
+            isFadingOut: agentLineOnTheMedia.isFadingOut
+        )
+    }
+
     // MARK: - State changes
 
     /// Every change goes through here, so the poll and the fade-out follow the state and nothing else.
     private func change(_ stateChange: (inout CursorLoopState) -> Void) {
         let loopWasFadingOut = if case .fadingOut = state.loop { true } else { false }
         let loopWasShowing = state.loopIsShowing
+        let agentLineWasFadingOut = if case .fadingOut = state.agentLine { true } else { false }
+        let agentLineWasShowing = state.agentLineIsShowing
         stateChange(&state)
-        if state.loopIsShowing {
-            if !loopWasShowing { print("Cursor loop: drawing around the media in the front tab") }
+        if state.loopIsShowing || state.agentLineIsShowing {
+            if !loopWasShowing && state.loopIsShowing { print("Cursor loop: drawing around the media in the front tab") }
+            if !agentLineWasShowing && state.agentLineIsShowing { print("Cursor loop: agent sparks lap the media in the front tab") }
             if pollTask == nil { startPollingTheFrontTab() }
         } else {
             pollTask?.cancel()
             pollTask = nil
+        }
+        if case .fadingOut = state.agentLine, !agentLineWasFadingOut {
+            agentLineFadeOutTask?.cancel()
+            agentLineFadeOutTask = Task {
+                try? await Task.sleep(for: .seconds(CursorLoopState.fadeOutSeconds))
+                guard !Task.isCancelled else { return }
+                change { $0.agentLineFadeOutFinished() }
+            }
         }
         if case .fadingOut = state.loop, !loopWasFadingOut {
             fadeOutTask?.cancel()
@@ -203,10 +283,10 @@ final class CursorLoopController: ObservableObject {
     private func startPollingTheFrontTab() {
         pollTask = Task {
             while !Task.isCancelled {
-                guard let mediaTheLoopIsAround = state.mediaTheLoopIsAround else { return }
+                guard let mediaThePollWatches = state.mediaThePollWatches else { return }
                 let sampleNow = readTheFrontTabSample()
                 guard !Task.isCancelled else { return }
-                if let sampleNow, mediaTheLoopIsAround.isTheSameMediaInTheSameTab(as: sampleNow) {
+                if let sampleNow, mediaThePollWatches.isTheSameMediaInTheSameTab(as: sampleNow) {
                     await waitBetweenFrontTabPolls()
                     continue
                 }
