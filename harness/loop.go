@@ -39,6 +39,9 @@ type runningTask struct {
 	// nil before a cancel_task arrives. A cancel from inside the harness, such as a new command's, names none, so it
 	// can be written after the command's context ended, and it is atomic for that reason.
 	toolUseIDTheAppWasRunningAtTheCancel atomic.Pointer[string]
+	// finalTranscript holds a voice command the app started on the partial transcript until the app confirms that the
+	// final transcript matches (brainloop.go). It is open from the start for every other command, and nil for a task.
+	finalTranscript *finalTranscriptGate
 }
 
 // taskRunner runs task agents. It holds no per-task state, so any number of tasks can run on one runner.

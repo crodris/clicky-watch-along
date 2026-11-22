@@ -169,6 +169,8 @@ type protocolDriver struct {
 	logs        []string
 	// settledLines are the approval_settled lines skipped on the way to another line.
 	settledLines []string
+	// voiceLines are the voice_line_if_every_call_changes lines skipped on the way to another line.
+	voiceLines []string
 }
 
 // startHarness runs the harness against a Worker URL and checks that it announces itself first.
@@ -253,6 +255,10 @@ func (driver *protocolDriver) expectLine(expectedType string) string {
 			// A click or a voice answer is announced to the app right after the gate takes it, so a test that does not
 			// wait for it skips it. The tests of the answer itself expect it by name.
 			driver.settledLines = append(driver.settledLines, line)
+		case actualType == "voice_line_if_every_call_changes":
+			// A turn with calls sends its line ahead of them, so a test that does not wait for it skips it. The tests of
+			// the line itself expect it by name.
+			driver.voiceLines = append(driver.voiceLines, line)
 		default:
 			driver.t.Fatalf("expected a %s line, got %s", expectedType, line)
 		}

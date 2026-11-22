@@ -172,9 +172,39 @@ enum BuddyDictationPermissionProblem {
     case speechRecognitionDenied
 }
 
-private struct BuddyDictationDraftCallbacks {
+/// The callbacks of one dictation session, which end it at most once: with its final transcript, or with none when the
+/// final transcript comes back empty or the session is cancelled, such as on Apple Speech's "No speech detected". A voice
+/// command started on the press's partial transcript waits for one of the two, so it must hear exactly one.
+@MainActor
+final class BuddyDictationSessionCallbacks {
     let updateDraftText: (String) -> Void
-    let submitDraftText: (String) -> Void
+    private let submitDraftText: (String) -> Void
+    private let endWithNoTranscript: () -> Void
+    private var sessionHasEnded = false
+
+    init(updateDraftText: @escaping (String) -> Void, submitDraftText: @escaping (String) -> Void, endWithNoTranscript: @escaping () -> Void) {
+        self.updateDraftText = updateDraftText
+        self.submitDraftText = submitDraftText
+        self.endWithNoTranscript = endWithNoTranscript
+    }
+
+    /// Submits the final transcript, or says the session had none when it is empty.
+    func endWithTheFinalTranscript(finalDraftText: String, finalTranscriptText: String) {
+        guard !sessionHasEnded else { return }
+        sessionHasEnded = true
+        if finalTranscriptText.isEmpty {
+            endWithNoTranscript()
+        } else {
+            submitDraftText(finalDraftText)
+        }
+    }
+
+    /// A cancelled session has no transcript.
+    func endCancelled() {
+        guard !sessionHasEnded else { return }
+        sessionHasEnded = true
+        endWithNoTranscript()
+    }
 }
 
 @MainActor
@@ -204,6 +234,16 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         isPreparingToRecord || isRecordingFromKeyboardShortcut || isFinalizingTranscript
     }
 
+    /// The words the provider has recognized so far in the current press, before its final transcript, which a voice
+    /// command may start on. Empty outside a dictation session.
+    var partialTranscript: String {
+        latestRecognizedText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Each partial transcript the provider reports during a press. Apple Speech's partial words lag the audio, so a
+    /// voice command started on the words heard at the release starts again on newer ones before the final transcript.
+    let partialTranscriptUpdates = PassthroughSubject<String, Never>()
+
     var needsInitialPermissionPrompt: Bool {
         if transcriptionProvider.requiresSpeechRecognitionPermission {
             return AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
@@ -216,7 +256,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     private let transcriptionProvider: any BuddyTranscriptionProvider
     private let audioEngine = AVAudioEngine()
     private var activeTranscriptionSession: (any BuddyStreamingTranscriptionSession)?
-    private var draftCallbacks: BuddyDictationDraftCallbacks?
+    private var draftCallbacks: BuddyDictationSessionCallbacks?
     private var draftTextBeforeCurrentDictation = ""
     private var latestRecognizedText = ""
     private var shouldAutomaticallySubmitFinalDraft = false
@@ -254,13 +294,18 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         audioEngine.inputNode.removeTap(onBus: 0)
         activeTranscriptionSession?.cancel()
 
+        let cancelledDraftCallbacks = draftCallbacks
         resetSessionState()
+        cancelledDraftCallbacks?.endCancelled()
     }
 
+    /// `endWithNoTranscript` runs once when the session ends with nothing to submit, after its state is reset, so a voice
+    /// command started on the press's partial transcript is not left waiting for a final transcript that never comes.
     func startPushToTalkFromKeyboardShortcut(
         currentDraftText: String,
         updateDraftText: @escaping (String) -> Void,
-        submitDraftText: @escaping (String) -> Void
+        submitDraftText: @escaping (String) -> Void,
+        endWithNoTranscript: @escaping () -> Void = {}
     ) async {
         let shouldAutomaticallySubmitFinalDraftOnStop = currentDraftText
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -307,9 +352,10 @@ final class BuddyDictationManager: NSObject, ObservableObject {
 
         draftTextBeforeCurrentDictation = currentDraftText
         latestRecognizedText = ""
-        draftCallbacks = BuddyDictationDraftCallbacks(
+        draftCallbacks = BuddyDictationSessionCallbacks(
             updateDraftText: updateDraftText,
-            submitDraftText: submitDraftText
+            submitDraftText: submitDraftText,
+            endWithNoTranscript: endWithNoTranscript
         )
         shouldAutomaticallySubmitFinalDraft = shouldAutomaticallySubmitFinalDraftOnStop
         hasFinishedCurrentDictationSession = false
@@ -411,7 +457,9 @@ final class BuddyDictationManager: NSObject, ObservableObject {
             keyterms: buildTranscriptionKeyterms(),
             onTranscriptUpdate: { [weak self] transcriptText in
                 Task { @MainActor in
-                    self?.latestRecognizedText = transcriptText
+                    guard let self else { return }
+                    self.latestRecognizedText = transcriptText
+                    self.partialTranscriptUpdates.send(self.partialTranscript)
                 }
             },
             onFinalTranscriptReady: { [weak self] transcriptText in
@@ -490,9 +538,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         resetSessionState()
 
         guard shouldSubmitFinalDraft else { return }
-        guard !finalTranscriptText.isEmpty else { return }
-
-        currentDraftCallbacks?.submitDraftText(finalDraftText)
+        currentDraftCallbacks?.endWithTheFinalTranscript(finalDraftText: finalDraftText, finalTranscriptText: finalTranscriptText)
     }
 
     private func composeDraftText(withTranscribedText transcribedText: String) -> String {

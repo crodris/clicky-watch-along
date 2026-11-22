@@ -22,7 +22,7 @@ struct VoiceCommandTimingTests {
             firstToolCallReceivedAt: released.addingTimeInterval(1.5),
             firstLineAudioStartedAt: released.addingTimeInterval(2.1)
         )
-        #expect(timing.logLine == "release_to_transcript_ms=700 release_to_screen_state_ms=300 transcript_to_request_ms=20 request_to_first_call_ms=780 first_call_to_first_line_ms=600 release_to_first_line_ms=2100")
+        #expect(timing.logLine == "release_to_transcript_ms=700 release_to_screen_state_ms=300 transcript_to_request_ms=20 request_to_first_call_ms=780 first_call_to_first_line_ms=600 release_to_first_line_ms=2100 line_audio=- speculation=none")
 
         // A hand-off command speaks no line itself, and a command with no press has no release.
         let timingWithMissingMarks = VoiceCommandTiming(
@@ -33,7 +33,7 @@ struct VoiceCommandTimingTests {
             firstToolCallReceivedAt: released.addingTimeInterval(0.9),
             firstLineAudioStartedAt: nil
         )
-        #expect(timingWithMissingMarks.logLine == "release_to_transcript_ms=- release_to_screen_state_ms=- transcript_to_request_ms=110 request_to_first_call_ms=790 first_call_to_first_line_ms=- release_to_first_line_ms=-")
+        #expect(timingWithMissingMarks.logLine == "release_to_transcript_ms=- release_to_screen_state_ms=- transcript_to_request_ms=110 request_to_first_call_ms=790 first_call_to_first_line_ms=- release_to_first_line_ms=- line_audio=- speculation=none")
     }
 
     @Test func theReleaseOfAPressIgnoredDuringTheTailStartsNoRead() {
