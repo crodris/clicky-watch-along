@@ -39,7 +39,7 @@ A PR in a later wave starts once every PR it depends on has merged.
 | 5 Approval card | B | 2 | Read rail, ring, equal buttons, desk-driven states, per-surface seen state and clock, the stored transcript for "You said", instant No. |
 | 6 Agent list, Theme Studio, dial | B | 2, 3 | Glide from origin, live lines, result buttons, studio states and sound preview, dial plate. |
 | 7 Menu bar | B | 2 | Icon states, the disc dot, the approval disc, peek, right-click menu, and Bring back. |
-| 9 Cursor and ring | B | 2 | Glyph, stretch and landing ring, nod, shake, hop, ticks to dots to bubble. |
+| 9 Cursor and ring | B | 2 | Glyph, stretch and landing ring, nod, shake, hop, ticks to dots to the speech Callout. |
 | 10 Quiz, scenes, edges | B | 2 | Quiz states and summary, scene stylesheet with dark glass labels, lesson stages, error and full-screen states. |
 | 11 Instant replay | B | 2 | Record each stop's label, sentence, and camera pose; voice and click controls; cancelation; the Reduce Motion list. |
 | 8 Panel, onboarding, keyboard | C | 2, 3, 7 | Home panel, banner slot, theme cards, all-themes grid, six-step setup, keyboard and VoiceOver paths. |
@@ -118,7 +118,7 @@ Left open by PR 2, folded into PR 7: the serve has no still ring under Reduce Mo
 
 Deferred from PR 3: the "Add theme?" card shown before an install (done in PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18).
 
-Left open by PR 4: the ring still hides while a status line shows (PR 9), and a push-to-talk press during a narration leaves the bubble with a rise instead of shrinking it into the cursor (PR 11).
+Left open by PR 4: a push-to-talk press during a narration leaves the bubble with a rise instead of shrinking it into the cursor (PR 11).
 PR 19 takes the rest, plus PR 7's leftovers: Bring back's drop to the cursor can cross the video, no unit test pins the tether cut when a disc slides, the right-click menu's quiz check, or the press-handler order, and the app icon's cursor points down and right while the app's cursor points up and left. PR 4's leftovers in PR 19: stacked chips (a new chip pushes the old one up, which needs a second panel), the speech underline at exactly 2 points, and the `start_background_task` description that still says "a chip under the cursor", with its three fixtures and recorded evals.
 
 Folded into PR 8 from PR 7: keyboard focus on the agent discs, and the status badge on a light menu bar.

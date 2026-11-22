@@ -393,7 +393,8 @@ final class VideoQuizSession {
     private let workerBaseURL: String
     private let canAskQuestionNow: @MainActor () -> Bool
     private let askQuestion: @MainActor (LiveSceneQuiz, VideoFramePopout?) -> Void
-    private let speakLine: @MainActor (String) -> Void
+    /// Says a line after whatever Clicky is saying. The second value is true for a line that reports a failure, so the cursor shakes.
+    private let speakLine: @MainActor (String, Bool) -> Void
 
     private(set) var isRunning = false
     private var runningTask: Task<Void, Never>?
@@ -428,7 +429,7 @@ final class VideoQuizSession {
         workerBaseURL: String,
         canAskQuestionNow: @escaping @MainActor () -> Bool,
         askQuestion: @escaping @MainActor (LiveSceneQuiz, VideoFramePopout?) -> Void,
-        speakLine: @escaping @MainActor (String) -> Void
+        speakLine: @escaping @MainActor (String, Bool) -> Void
     ) {
         self.workerBaseURL = workerBaseURL
         self.canAskQuestionNow = canAskQuestionNow
@@ -619,7 +620,7 @@ final class VideoQuizSession {
             print("Video quiz: planned \(plannedMoments.count) moments in \(String(format: "%.1f", planningSeconds))s")
 
             let spotCountText = plannedMoments.count == 1 ? "1 spot" : "\(plannedMoments.count) spots"
-            speakLine("Okay, I've got \(spotCountText) picked out.")
+            speakLine("Okay, I've got \(spotCountText) picked out.", false)
             // The line takes about this long, and the video should start after it.
             try await Task.sleep(for: .seconds(Self.secondsForTheReadyLineToFinish))
             guard isRunning else { return }
@@ -638,7 +639,7 @@ final class VideoQuizSession {
     private func fail(with failure: VideoQuizFailure) {
         guard isRunning, !Task.isCancelled else { return }
         print("Video quiz: failed: \(failure)")
-        speakLine(failure.spokenLine)
+        speakLine(failure.spokenLine, true)
         stop()
     }
 
