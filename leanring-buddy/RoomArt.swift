@@ -521,6 +521,9 @@ nonisolated enum RoomArtBareFloorWindow {
     /// The lower part of the frame, where the floor shows when the screen is tilted down. The depth service fits the floor
     /// in a window around and below the anchor, so the lowest rows are left for it.
     static let centerRowShares = 0.62...0.86
+    /// How much more a spot at the frame's side edge costs than one in the middle, as a share of its texture: furniture
+    /// standing at the edge is cut off by the frame, and the darkest, plainest floor is often a far corner.
+    static let costOfTheSideEdges = 1.0
 }
 
 /// The spot of the frame with the least texture, away from the person, in the upper part of the frame where art hangs, and
@@ -536,27 +539,31 @@ nonisolated func bareWallSpot(grayscale: RoomGrayscaleImage, roomMask: [Float]) 
 }
 
 /// Where furniture stands first: the open floor with the least texture, away from the person, in the lower part of the
-/// frame, in the image's pixels. The spot is the furniture's front-bottom center, the anchor `POST /room-floor` takes. An
-/// open patch of floor has less texture than the edge of a rug or another piece of furniture, so the piece lands in the
-/// open.
+/// frame, leaning toward the middle so the whole piece stays in view, in the image's pixels. The spot is the furniture's
+/// front-bottom center, the anchor `POST /room-floor` takes. An open patch of floor has less texture than the edge of a rug
+/// or another piece of furniture, so the piece lands in the open.
 nonisolated func bareFloorSpot(grayscale: RoomGrayscaleImage, roomMask: [Float]) -> CGPoint {
     quietestSpot(
         grayscale: grayscale, roomMask: roomMask,
         windowWidthShare: RoomArtBareFloorWindow.widthShareOfTheFrame, windowHeightShare: RoomArtBareFloorWindow.heightShareOfTheFrame,
         centerRowShares: RoomArtBareFloorWindow.centerRowShares,
+        costOfTheSideEdges: RoomArtBareFloorWindow.costOfTheSideEdges,
         spotWhenNothingFits: CGPoint(x: Double(grayscale.width) / 2, y: Double(grayscale.height) * 0.8)
     )
 }
 
 /// The center of the window of the given shape with the least texture, with every pixel within 15 of the person counted as
 /// the most texture there is, so the spot stays off them. Centers run along `centerRowShares` of the height, and far
-/// enough from the side edges for the window to fit.
+/// enough from the side edges for the window to fit. `costOfTheSideEdges` raises a window's score in step with its
+/// distance from the middle column, up to that share more at the edge, with each pixel counted as at least 1 so a blank
+/// window still prefers the middle; 0 leaves the score as the texture alone.
 nonisolated private func quietestSpot(
     grayscale: RoomGrayscaleImage,
     roomMask: [Float],
     windowWidthShare: Double,
     windowHeightShare: Double,
     centerRowShares: ClosedRange<Double>,
+    costOfTheSideEdges: Double = 0,
     spotWhenNothingFits: CGPoint
 ) -> CGPoint {
     let width = grayscale.width, height = grayscale.height
@@ -604,7 +611,11 @@ nonisolated private func quietestSpot(
     guard firstColumn <= lastColumn, firstRow <= lastRow else { return bestSpot }
     for row in stride(from: firstRow, through: lastRow, by: 4) {
         for column in stride(from: firstColumn, through: lastColumn, by: 4) {
-            let score = windowTotal(left: column - windowWidth / 2, top: row - windowHeight / 2, right: column + (windowWidth + 1) / 2, bottom: row + (windowHeight + 1) / 2)
+            let texture = windowTotal(left: column - windowWidth / 2, top: row - windowHeight / 2, right: column + (windowWidth + 1) / 2, bottom: row + (windowHeight + 1) / 2)
+            let shareOfTheWayToTheSideEdge = abs(Double(column) - Double(width) / 2) / (Double(width) / 2)
+            let score = costOfTheSideEdges == 0
+                ? texture
+                : (texture + Double(windowWidth * windowHeight)) * (1 + costOfTheSideEdges * shareOfTheWayToTheSideEdge)
             if score < bestScore {
                 bestScore = score
                 bestSpot = CGPoint(x: column, y: row)

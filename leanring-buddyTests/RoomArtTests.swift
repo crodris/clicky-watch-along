@@ -434,6 +434,19 @@ struct RoomArtGeometryTests {
         #expect(spot.y >= 111 && spot.y <= 155)
     }
 
+    @Test func onAnEvenFloorTheFurnitureStandsInTheMiddleNotInACorner() {
+        let width = 320, height = 180
+        // Plain floor everywhere, a little plainer at the right edge, as a dark corner of a wood floor is.
+        var pixels = [Float](repeating: 0, count: width * height)
+        for row in 0..<height {
+            for column in 0..<width where column < 260 { pixels[row * width + column] = (row + column) % 2 == 0 ? 120 : 124 }
+        }
+        let spot = bareFloorSpot(grayscale: RoomGrayscaleImage(width: width, height: height, pixels: pixels), roomMask: [Float](repeating: 1, count: width * height))
+
+        // A blank corner alone does not pull the piece to the edge, where the frame would cut it off.
+        #expect(abs(spot.x - 160) <= 40, "the spot is at \(spot)")
+    }
+
     @Test func flatteningCutsTheArtOutOfItsPhotoAtTheSizesShape() throws {
         // A 200 by 200 photo, white, with a red square from (50, 40) to (150, 140): the art.
         let context = CGContext(data: nil, width: 200, height: 200, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
