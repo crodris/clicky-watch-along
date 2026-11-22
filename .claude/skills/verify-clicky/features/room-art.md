@@ -40,10 +40,8 @@ Preconditions:
   When the video turns away from the wall, the status line says "Lost the wall. Turn back, or click the wall to place it again." until the wall returns.
 - **Checks before the camera.** Run `$V app-launch --no-app-secret "how would this look in my room"`: Clicky says "Clicky needs its app secret for this. See the README's Worker setup." and no panel opens.
   With an `http://` page in Chrome's front tab, it says "I can only read store pages served over https.".
-
-- **Worker not reachable.** Run `$V worker-down 8787` (only when no other session's Clicky uses that Worker), then `$V app-launch --room-camera-file <video of a room> "how would this look in my room"`.
-  The panel's status line shows "Couldn't reach Clicky's Worker", and Clicky says "I couldn't reach Clicky's Worker." once it is quiet.
-  Start the Worker again afterwards.
+- **Worker not reachable.** `app-launch` refuses to start without the Worker it started, so this failure is driven by the unit test, not the app.
+  Run `tools/swift-check.sh --filter aWorkerThatGivesNoAnswerSaysItCouldNotBeReached`, which passes when a `URLError` from either route becomes "I couldn't reach Clicky's Worker." with the status "Couldn't reach Clicky's Worker".
 
 ## Gotchas
 
