@@ -113,14 +113,14 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 15 End-of-video recap | Merged: [#93](https://github.com/crodris/clicky-watch-along/pull/93) |
 | 16 Pause every agent by voice | Merged: [#94](https://github.com/crodris/clicky-watch-along/pull/94) |
 | 17 Scrub by voice | Starts when PR 11 merges |
-| 18 Share themes as files | Building |
+| 18 Share themes as files | Merged: [#102](https://github.com/crodris/clicky-watch-along/pull/102) |
 | 19 Tether polish | After the build order: what earlier PRs left open that no later PR owns |
 
 Deferred from PR 1, to fold into later PRs: the Chrome control row hides after onboarding (PR 8), a hover that shows only after the next mouse move on a still pointer (PR 8), the dimmed No button's low contrast (PR 5), a pop-out label's leader line that can point off screen after a resize (PR 10), and the menu bar icon not found beside the notch (PR 7).
 
 Left open by PR 2, folded into PR 7: the serve has no still ring under Reduce Motion, the tether fades for about 200 ms after a disc covers its slot, and the flush is unchecked through a real Apple Event stall. PR 6 writes the first Glide caller.
 
-Deferred from PR 3: the "Add theme?" card shown before an install (done in PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18).
+Deferred from PR 3: the "Add theme?" card shown before an install (done in PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18, which closed it: an install opens the package folder once and walks each file's path from it with `openat` and `O_NOFOLLOW`, so the package folder is resolved once per read and every name below it is looked up from a folder already open).
 
 Left open by PR 4: a push-to-talk press during a narration left the bubble with a rise instead of shrinking it into the cursor. PR 11 makes it shrink into the cursor.
 PR 19 takes the rest, plus PR 7's leftovers: Bring back's drop to the cursor can cross the video, no unit test pins the tether cut when a disc slides, the right-click menu's quiz check, or the press-handler order, and the app icon's cursor points down and right while the app's cursor points up and left. PR 4's leftovers in PR 19: stacked chips (a new chip pushes the old one up, which needs a second panel), the speech underline at exactly 2 points, and the `start_background_task` description that still says "a chip under the cursor", with its three fixtures and recorded evals.
@@ -136,3 +136,6 @@ Left open by PR 8, for PR 19: a double flight when the agent list is open under 
 Left open by PR 11, for PR 19: under PR 13's slowest theme a long replay flight leaves about 0.72 seconds of dwell at a stop instead of 1.0.
 Left open by PR 15, for PR 19: an open menu bar panel does not count as busy for the recap, keyboard focus can reach a hidden disc while the recap Card is open, the gather is unchecked in the app under Reduce Motion, a press, Escape, or a scene during its 0.5 seconds, and on a second display, and the Escape-order paragraph in `AGENTS.md` lacks the gather step. Known limits: the recap covers only the last quiz, and a playlist that ends can be missed.
 Left open by PR 16, for PR 19: a push-to-talk press during the recap's disc gather sends the discs back on a 0.5 second flight instead of at once, the panel's agent chips stay colored during a pause, keyboard focus does not move to the paused disc or back after "go ahead", a recap within half a second of a pause or resume can leave a disc showing, and three `AGENTS.md` nits (the `AgentPauseTests.swift` line count, the approval line in the Swift agents bullet, and the missing held tool call log line).
+Left open by PR 18, for PR 19: a theme card keeps its hover look when the panel re-lays out under a still pointer, such as after a delete, which comes from the shared `HoverAndPointerNSView`.
+Finder also has no Quick Look thumbnail for a `.clickytheme` file yet (`qlmanage -t`), so its icon is still the app's document icon.
+The Quick Look extension draws its own still cursor, a small copy of the triangle shape and the Clicky blue palette order, because the app's cursor view depends on app-only state.

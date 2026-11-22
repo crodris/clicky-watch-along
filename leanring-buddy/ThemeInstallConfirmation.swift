@@ -27,15 +27,6 @@ nonisolated func themeInstallCardTitle(for theme: ClickyTheme) -> String {
     "Add \"\(theme.name)\" to Clicky?"
 }
 
-/// How the theme moves, in a line, such as "Wobbles while thinking · 2 trail streaks". It leaves out the sounds, which the
-/// learner can hear after adding it. A theme with no motion says it keeps the cursor still.
-nonisolated func themeInstallCardSummary(for theme: ClickyTheme) -> String {
-    let motionTags = themeStudioTags(for: theme).filter { !$0.hasPrefix("sounds:") }
-    guard let firstTag = motionTags.first else { return "A still cursor" }
-    let joinedTags = ([firstTag.prefix(1).uppercased() + firstTag.dropFirst()] + motionTags.dropFirst()).joined(separator: " · ")
-    return joinedTags
-}
-
 /// Shows and hides the card. The real one is a panel, and a test swaps in one that records the calls.
 @MainActor
 protocol ThemeInstallCardPresenting: AnyObject {

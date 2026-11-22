@@ -138,9 +138,13 @@ struct SettingsDialPickingTests {
         #expect(backInsideAtAgents.fanItemIndex == nil)
     }
 
-    @Test func thePlateBoundaryDecidesBetweenPickingASliceAndPickingAFanItem() {
+    @Test func thePlateBoundaryDecidesBetweenPickingASliceAndPickingAFanItem() throws {
+        // The fan's spacing divides by the number of themes read from themes/. Fewer than 2 themes leave no ball at the
+        // expected angle, so name that here instead of failing on a pick.
+        #expect(bundledThemesForTests.count >= 2, "themes/ loaded only \(bundledThemesForTests.count) themes, so the Team fan has no spacing")
         let teamOpen = SettingsDialSelection(slice: .team, fanItemIndex: nil)
-        let angleOfClickyBlueBall = SettingsDialFans.builtIn.layout(of: .team)!.angleDegrees(ofItemAt: 0)
+        let teamFanLayout = try #require(SettingsDialFans.builtIn.layout(of: .team), "the built-in fans have no Team layout")
+        let angleOfClickyBlueBall = teamFanLayout.angleDegrees(ofItemAt: 0)
         // On the plate's edge the pointer is still inside, so it picks the slice at that angle, which is Show here.
         let onTheEdge = teamOpen.afterPointerMoved(to: pointerOffset(atAngleDegrees: SettingsDialSlice.show.angleDegrees, distance: SettingsDialGeometry.plateRadius))
         #expect(onTheEdge.slice == .show)
