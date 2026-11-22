@@ -203,6 +203,8 @@ private let storePageTab = RoomArtFrontTab(url: "https://shop.example/water-lili
 private final class HarnessRecorder {
     var spokenLines: [String] = []
     var pictureCaptureStarted = false
+    /// How many times the controller asked to end its spoken line, which every close does.
+    var timesTheSpokenLineWasEnded = 0
     /// How many times the panel had shown each time the live scene was cleared.
     var timesTheSceneWasClearedBeforeThePanel: [Int] = []
 }
@@ -242,7 +244,8 @@ private struct RoomArtHarness {
                 measureTheWall: { wallRequest in try await worker.measureTheWall(wallRequest) },
                 makeFrameSource: { camera },
                 clearTheLiveScene: { recorder.timesTheSceneWasClearedBeforeThePanel.append(panel.timesShown) },
-                speak: { line in recorder.spokenLines.append(line) }
+                speak: { line in recorder.spokenLines.append(line) },
+                endTheSpokenLine: { recorder.timesTheSpokenLineWasEnded += 1 }
             ),
             frameProcessor: frameProcessor,
             panelPresenter: panel
@@ -502,6 +505,30 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.spokenLines() == ["I need camera access for that. You can turn it on in System Settings."])
         #expect(harness.worker.wallRequests.isEmpty)
         harness.controller.close()
+    }
+
+    @Test func everyCloseEndsTheSpokenLine() async throws {
+        // Escape on an open panel.
+        let escapedHarness = RoomArtHarness()
+        await escapedHarness.controller.showTheArtInTheRoom()
+        #expect(escapedHarness.recorder.timesTheSpokenLineWasEnded == 0)
+        #expect(escapedHarness.controller.closeOnEscape())
+        #expect(escapedHarness.recorder.timesTheSpokenLineWasEnded == 1)
+
+        // Escape while the picture is still being captured.
+        let openingHarness = RoomArtHarness(secondsToCaptureThePicture: 0.3)
+        let openingTask = Task { await openingHarness.controller.showTheArtInTheRoom() }
+        try await waitFor("the picture capture to start") { openingHarness.recorder.pictureCaptureStarted }
+        #expect(openingHarness.controller.closeOnEscape())
+        await openingTask.value
+        #expect(openingHarness.recorder.timesTheSpokenLineWasEnded == 1)
+
+        // The Close button, after a failure whose line is still playing.
+        let failedHarness = RoomArtHarness(camera: SyntheticRoomCamera(startFailure: .cameraAccessDenied))
+        await failedHarness.controller.showTheArtInTheRoom()
+        #expect(failedHarness.controller.phase == .failed(.cameraAccessDenied))
+        failedHarness.controller.close()
+        #expect(failedHarness.recorder.timesTheSpokenLineWasEnded == 1)
     }
 
     @Test func escapeClosesAnOpenPanelAndNothingElse() async {

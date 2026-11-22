@@ -45,4 +45,4 @@ Preconditions:
 
 - Depth Pro takes about 14 s warm and about 100 s for its first load, so start the service before the run.
 - A second Depth Pro process on the same GPU slows both. Stop any other one first.
-- The depth service refuses a request with an `Origin` header (403) or without `content-type: application/json` (415). `$V post` goes through the Worker, which sends neither problem, but a hand-written `curl` to port 8801 needs `-H 'content-type: application/json'`.
+- The depth service refuses a request with an `Origin` header (403) or without `content-type: application/json` (415). `$V post` goes through the Worker, which sends neither an Origin header nor a non-JSON body, but a hand-written `curl` to port 8801 needs `-H 'content-type: application/json'`.

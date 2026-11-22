@@ -108,7 +108,7 @@ Sonnet then builds the 3D models for about $0.04 each, instead of about $0.37 wi
 
 Speech uses Apple's speech recognition in this fork, so you don't need an AssemblyAI key.
 Release builds won't compile until you set your own https Worker URL in `CompanionManager.swift`.
-The Notion routes and the `/v1/messages` route need an app secret, which the voice command brain and the task agents use, but the other routes have no authentication or rate limits yet, and the 3D Tiles route spends your Maps key for anyone who calls it, so I wouldn't deploy it publicly as is.
+The Notion routes, the room art routes (`/room-art` and `/room-wall`), and the `/v1/messages` route need an app secret, which the voice command brain and the task agents use, but the other routes have no authentication or rate limits yet, and the 3D Tiles route spends your Maps key for anyone who calls it, so I wouldn't deploy it publicly as is.
 
 Everything below is the original Clicky README, with the setup, architecture, and project structure updated for this fork.
 
@@ -196,8 +196,8 @@ pnpm wrangler secret put OPENAI_API_KEY
 pnpm wrangler secret put GOOGLE_MAPS_API_KEY
 # Optional, for Notion study guides and task agent pages
 pnpm wrangler secret put NOTION_API_KEY
-# A random string, such as from openssl rand -hex 32, that the app also holds. The Notion routes and
-# /v1/messages refuse requests without it, and /v1/messages carries the voice command brain and the task agents,
+# A random string, such as from openssl rand -hex 32, that the app also holds. The Notion routes, /room-art,
+# /room-wall, and /v1/messages refuse requests without it, and /v1/messages carries the voice command brain and the task agents,
 # so an app with no secret keeps its voice commands on the old /voice-command route and its task agents fail.
 # Set it in the app with:
 # defaults write com.crodris.clicky-watch-along clickyAppSecret <the same string>

@@ -513,6 +513,9 @@ final class RoomArtPreviewController: ObservableObject {
         /// Clears a scene or pop-out on screen, whose window sits above the panel's and would hide it.
         var clearTheLiveScene: () -> Void
         var speak: (String) -> Void
+        /// Runs on every close, from Escape, the Close button, or a new request, so a line about this panel that is
+        /// still waiting or playing ends with it.
+        var endTheSpokenLine: () -> Void
 
         /// Chrome, the Worker at `workerBaseURL`, the app's defaults for the secret, and the camera (or a Debug build's
         /// `--room-camera-file`).
@@ -520,7 +523,8 @@ final class RoomArtPreviewController: ObservableObject {
             workerBaseURL: String,
             capturePicture: @escaping () async -> RoomArtPicture?,
             clearTheLiveScene: @escaping () -> Void,
-            speak: @escaping (String) -> Void
+            speak: @escaping (String) -> Void,
+            endTheSpokenLine: @escaping () -> Void
         ) -> Environment {
             let roomArtClient = RoomArtClient(workerBaseURL: workerBaseURL)
             return Environment(
@@ -531,7 +535,8 @@ final class RoomArtPreviewController: ObservableObject {
                 measureTheWall: { wallRequest in try await roomArtClient.measureTheWall(wallRequest) },
                 makeFrameSource: { makeRoomFrameSource() },
                 clearTheLiveScene: clearTheLiveScene,
-                speak: speak
+                speak: speak,
+                endTheSpokenLine: endTheSpokenLine
             )
         }
     }
@@ -659,7 +664,9 @@ final class RoomArtPreviewController: ObservableObject {
         return true
     }
 
+    /// Every close goes through here, the Close button's included, so the camera and the spoken line always stop together.
     func close() {
+        environment.endTheSpokenLine()
         openingNumber += 1
         anOpeningIsUnderway = false
         measurementTask?.cancel()

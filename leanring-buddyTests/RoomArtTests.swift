@@ -126,7 +126,16 @@ struct RoomArtReplyTests {
         #expect(roomArtFailure(forAFailedWallMeasurement: RoomArtWorkerError.workerReturned(statusCode: 502, body: "")) == .depthServiceUnavailable)
         // A 422 is the service or the Worker finding no wall it can hang on, which a bare wall fixes.
         #expect(roomArtFailure(forAFailedWallMeasurement: RoomArtWorkerError.workerReturned(statusCode: 422, body: "")) == .wallNotMeasured)
-        #expect(roomArtFailure(forAFailedWallMeasurement: URLError(.timedOut)) == .wallNotMeasured)
+    }
+
+    @Test func aWorkerThatGivesNoAnswerSaysItCouldNotBeReached() {
+        // The Worker is not running, or the request timed out, on either route.
+        #expect(roomArtFailure(forAFailedWallMeasurement: URLError(.cannotConnectToHost)) == .workerUnreachable)
+        #expect(roomArtFailure(forAFailedWallMeasurement: URLError(.timedOut)) == .workerUnreachable)
+        #expect(roomArtFailure(forAFailedPageRead: URLError(.cannotConnectToHost)) == .workerUnreachable)
+        #expect(roomArtFailure(forAFailedPageRead: URLError(.timedOut)) == .workerUnreachable)
+        #expect(RoomArtFailure.workerUnreachable.spokenLine == "I couldn't reach Clicky's Worker.")
+        #expect(RoomArtFailure.workerUnreachable.statusLine == "Couldn't reach Clicky's Worker")
     }
 
     @Test func a401OnEitherRouteSaysTheAppSecretIsMissing() {
@@ -257,6 +266,9 @@ struct RoomArtPhraseTests {
         "hang that print in my office",
         "put this in my office",
         "I want to see it in my apartment",
+        // Up to two words from a closed list may sit between the look and the room phrase.
+        "would this look good in my room",
+        "how would this look hanging in my living room",
     ])
     func aPlacingVerbOrALookOnTheItemBeforeARoomPhraseAsksForIt(transcript: String) {
         #expect(asksToSeeArtInMyRoom(transcript))
@@ -277,6 +289,9 @@ struct RoomArtPhraseTests {
         "is there a window in my office",
         // A look with no item before it: the learner asks about themselves.
         "how do I look in my room",
+        "how do I look good in my room",
+        // Words outside the closed list between the look and the room phrase.
+        "how would this look next to the lamp in my room",
     ])
     func anythingElseAsksNothing(transcript: String) {
         #expect(!asksToSeeArtInMyRoom(transcript))
@@ -465,6 +480,15 @@ struct RoomArtLineTests {
         #expect(step(audio: true) == .waitForQuiet)
         #expect(step(thinking: true) == .waitForQuiet)
         #expect(step(dictation: true) == .waitForQuiet)
+    }
+
+    @Test func closingAPanelResetsTheSpeakingStateOnlyWhenItStoppedThePanelsOwnLine() {
+        #expect(voiceStateAfterAPanelStoppedItsLine(.responding, theStopReachedThePanelsLine: true) == .idle)
+        // The audio playing is another answer, which keeps its state.
+        #expect(voiceStateAfterAPanelStoppedItsLine(.responding, theStopReachedThePanelsLine: false) == .responding)
+        // A newer request already moved the state on, so the close leaves it alone.
+        #expect(voiceStateAfterAPanelStoppedItsLine(.processing, theStopReachedThePanelsLine: true) == .processing)
+        #expect(voiceStateAfterAPanelStoppedItsLine(.listening, theStopReachedThePanelsLine: true) == .listening)
     }
 
     @Test func aLineIsDroppedOnceTheLearnerPressedPushToTalkSinceAsking() {

@@ -548,6 +548,8 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
     /// `POST /room-wall` answered 422 (no bare wall there, or a wall too near, too far, or not flat), or its reply could
     /// not place the art.
     case wallNotMeasured
+    /// A request to the Worker never got an answer: the Worker is not running, the connection failed, or it timed out.
+    case workerUnreachable
 
     /// What Clicky says.
     var spokenLine: String {
@@ -561,6 +563,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .sizeNotOnThePage: return "I couldn't find the size on that page."
         case .depthServiceUnavailable: return "I couldn't measure your wall. Is the depth service running?"
         case .wallNotMeasured: return "I couldn't measure your wall. Try pointing the camera at a bare wall."
+        case .workerUnreachable: return "I couldn't reach Clicky's Worker."
         }
     }
 
@@ -576,6 +579,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .sizeNotOnThePage: return "Couldn't find the size on the page"
         case .depthServiceUnavailable: return "Couldn't measure the wall. Is the depth service running?"
         case .wallNotMeasured: return "Couldn't measure the wall"
+        case .workerUnreachable: return "Couldn't reach Clicky's Worker"
         }
     }
 }
@@ -750,7 +754,8 @@ nonisolated func roomArtLineStep(
 
 /// Whether the learner asks to see this item placed in their own room: a room phrase ("in my room", "on my wall", "on the
 /// wall behind me", ...) right after either a placing verb and the item ("show this", "put it", "can I see this", "hang
-/// that print") or the item and a look ("how would this look", "what would that poster look like"). The item is "this",
+/// that print") or the item and a look ("how would this look", "what would that poster look like", "would this look good",
+/// "how would this look hanging"). The item is "this",
 /// "it", or "that", or "this", "that", or "the" and one noun. So "how does the router in my house work", "what would look
 /// good in my room", and "I put a poster in my room" name no item to place, and none of them asks.
 nonisolated func asksToSeeArtInMyRoom(_ transcript: String) -> Bool {
@@ -770,6 +775,9 @@ nonisolated func asksToSeeArtInMyRoom(_ transcript: String) -> Bool {
     let itemWords: Set<String> = ["this", "it", "that"]
     let itemDeterminers: Set<String> = ["this", "that", "the"]
     let modalWords: Set<String> = ["would", "will", "could", "might", "does", "do"]
+    /// Words that may sit between the look and the room phrase: "would this look good in my room", "how would this look
+    /// hanging in my living room". A closed list, so a look that runs into other words still asks nothing.
+    let wordsBetweenTheLookAndTheRoom: Set<String> = ["good", "nice", "great", "okay", "ok", "hanging", "framed", "up", "there"]
 
     /// The first index of each way the item can end at `lastIndex`: one word ("this"), or a determiner and a noun ("this print").
     func itemStarts(endingAt lastIndex: Int) -> [Int] {
@@ -786,9 +794,15 @@ nonisolated func asksToSeeArtInMyRoom(_ transcript: String) -> Bool {
         if itemStart >= 1, placingVerbs.contains(words[itemStart - 1]) { return true }
         return itemStart >= 2 && words[itemStart - 1] == "me" && placingVerbs.contains(words[itemStart - 2])
     }
-    /// The item, an optional modal, "look" or "looks", and an optional "like", ending right before the room phrase.
+    /// The item, an optional modal, "look" or "looks", an optional "like", and up to two words from
+    /// `wordsBetweenTheLookAndTheRoom`, ending right before the room phrase.
     func theItemLooksRightBefore(roomPhraseStart: Int) -> Bool {
         var lookIndex = roomPhraseStart - 1
+        var wordsSkippedBetween = 0
+        while wordsSkippedBetween < 2, lookIndex >= 0, wordsBetweenTheLookAndTheRoom.contains(words[lookIndex]) {
+            lookIndex -= 1
+            wordsSkippedBetween += 1
+        }
         if lookIndex >= 0, words[lookIndex] == "like" { lookIndex -= 1 }
         guard lookIndex >= 1, words[lookIndex] == "look" || words[lookIndex] == "looks" else { return false }
         // "how this would look" has the modal after the item, and "how would this look" before it.
@@ -861,10 +875,11 @@ final class RoomArtClient {
     }
 }
 
-/// What a failed wall measurement means to the learner: 401 says the app secret is missing, 503 (no depth service
-/// configured) and 502 (it is down) ask whether it runs, and anything else, a 422 included, says the wall could not be
-/// measured.
+/// What a failed wall measurement means to the learner: a transport error says the Worker could not be reached, 401 says
+/// the app secret is missing, 503 (no depth service configured) and 502 (it is down) ask whether it runs, and anything
+/// else, a 422 included, says the wall could not be measured.
 nonisolated func roomArtFailure(forAFailedWallMeasurement error: Error) -> RoomArtFailure {
+    if error is URLError { return .workerUnreachable }
     guard case RoomArtWorkerError.workerReturned(let statusCode, _) = error else { return .wallNotMeasured }
     switch statusCode {
     case 401: return .appSecretMissing
@@ -873,9 +888,10 @@ nonisolated func roomArtFailure(forAFailedWallMeasurement error: Error) -> RoomA
     }
 }
 
-/// What a failed page read means to the learner: 401 says the app secret is missing, and anything else that the page
-/// could not be read.
+/// What a failed page read means to the learner: a transport error says the Worker could not be reached, 401 says the app
+/// secret is missing, and anything else that the page could not be read.
 nonisolated func roomArtFailure(forAFailedPageRead error: Error) -> RoomArtFailure {
+    if error is URLError { return .workerUnreachable }
     if case RoomArtWorkerError.workerReturned(statusCode: 401, _) = error { return .appSecretMissing }
     return .pageNotRead
 }

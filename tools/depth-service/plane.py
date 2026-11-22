@@ -31,9 +31,9 @@ class NonFinitePlaneError(WallNotMeasuredError):
 
 def back_project(pixel_us, pixel_vs, depths, focal_px, principal_point):
     principal_u, principal_v = principal_point
-    xs = (pixel_us - principal_u) * depths / focal_px
-    ys = (pixel_vs - principal_v) * depths / focal_px
-    return np.stack([xs, ys, depths], axis=1)
+    camera_x_meters = (pixel_us - principal_u) * depths / focal_px
+    camera_y_meters = (pixel_vs - principal_v) * depths / focal_px
+    return np.stack([camera_x_meters, camera_y_meters, depths], axis=1)
 
 
 def plane_distances(points, point_on_plane, normal):
@@ -98,12 +98,12 @@ def wall_frame(depth_m, focal_px, person_mask, anchor):
         keep = np.ones(grid_vs.shape, bool)
     else:
         keep = ~person_mask[grid_vs, grid_us]
-    us, vs = grid_us[keep].astype(np.float64), grid_vs[keep].astype(np.float64)
-    if len(us) < MINIMUM_BARE_WALL_POINTS:
+    bare_wall_us, bare_wall_vs = grid_us[keep].astype(np.float64), grid_vs[keep].astype(np.float64)
+    if len(bare_wall_us) < MINIMUM_BARE_WALL_POINTS:
         raise TooLittleWallError("Too little bare wall around that point: click away from people and objects")
 
     principal = (image_width / 2, image_height / 2)
-    points = back_project(us, vs, depth_m[vs.astype(int), us.astype(int)], focal_px, principal)
+    points = back_project(bare_wall_us, bare_wall_vs, depth_m[bare_wall_vs.astype(int), bare_wall_us.astype(int)], focal_px, principal)
     normal, plane_point, inlier_share = fit_plane_ransac(points, inlier_distance_m=WALL_INLIER_DISTANCE_M)
 
     ray = np.array([(anchor_u - principal[0]) / focal_px, (anchor_v - principal[1]) / focal_px, 1.0])

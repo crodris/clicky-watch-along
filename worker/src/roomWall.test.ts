@@ -103,6 +103,24 @@ describe("handleRoomWall", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("sends the service a JSON body and no Origin header, which the service refuses", async () => {
+    const fetchMock = stubServiceReply(new Response(JSON.stringify(goodServiceReply)));
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    // The app's request carries an Origin header here, which must not reach the service.
+    const requestWithAnOrigin = new Request("https://worker.test/room-wall", {
+      method: "POST",
+      headers: { origin: "https://shop.example", "content-type": "text/plain" },
+      body: JSON.stringify(goodRequest),
+    });
+
+    await handleRoomWall(requestWithAnOrigin, depthServiceURL);
+
+    const [, init] = fetchMock.mock.calls[0];
+    const forwardedHeaders = new Headers(init.headers);
+    expect(forwardedHeaders.get("content-type")).toBe("application/json");
+    expect(forwardedHeaders.has("origin")).toBe(false);
+  });
+
   it("returns the service's reply unchanged, extra fields included, and logs one line", async () => {
     const serviceReplyWithExtras = { ...goodServiceReply, focalWasGiven: false };
     stubServiceReply(new Response(JSON.stringify(serviceReplyWithExtras)));

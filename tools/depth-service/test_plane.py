@@ -13,8 +13,8 @@ WALL_NORMAL = np.array([0.3, -0.1, -1.0]) / np.linalg.norm([0.3, -0.1, -1.0])
 
 
 def pixel_rays():
-    vs, us = np.mgrid[0:FRAME_H, 0:FRAME_W]
-    return np.stack([(us - FRAME_W / 2) / FOCAL_PX, (vs - FRAME_H / 2) / FOCAL_PX, np.ones((FRAME_H, FRAME_W))], axis=-1)
+    pixel_vs, pixel_us = np.mgrid[0:FRAME_H, 0:FRAME_W]
+    return np.stack([(pixel_us - FRAME_W / 2) / FOCAL_PX, (pixel_vs - FRAME_H / 2) / FOCAL_PX, np.ones((FRAME_H, FRAME_W))], axis=-1)
 
 
 def plane_depth(normal, distance_along_z=3.0):
@@ -95,9 +95,9 @@ def test_center_lies_on_the_ray_through_the_anchor_and_on_the_wall(noisy_wall_de
 
 def test_ransac_on_42000_points_runs_under_half_a_second():
     # 42,000 points of a tilted plane: the 4,000 point subset path.
-    vs, us = np.mgrid[0:200, 0:210]
-    depths = plane_depth(WALL_NORMAL)[vs * 5, us * 9]
-    points = plane.back_project(us.ravel().astype(float) * 9, vs.ravel().astype(float) * 5, depths.ravel(), FOCAL_PX, (FRAME_W / 2, FRAME_H / 2))
+    grid_vs, grid_us = np.mgrid[0:200, 0:210]
+    depths = plane_depth(WALL_NORMAL)[grid_vs * 5, grid_us * 9]
+    points = plane.back_project(grid_us.ravel().astype(float) * 9, grid_vs.ravel().astype(float) * 5, depths.ravel(), FOCAL_PX, (FRAME_W / 2, FRAME_H / 2))
     assert len(points) == 42_000
 
     started_at = time.perf_counter()
