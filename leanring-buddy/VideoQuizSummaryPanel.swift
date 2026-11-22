@@ -2,8 +2,10 @@
 //  VideoQuizSummaryPanel.swift
 //  leanring-buddy
 //
-//  The Card at the end of a video quiz: the score and each question to look at again, each a button that goes back to it.
-//  It Glides out of the video on the shared carrier and closes back into it, and shows in a full-screen space too.
+//  The Card at the end of a video quiz or a video: the score, what the learner learned, each question to look at again
+//  (a button that goes back to it), and the study guide link. At the end of a quiz it Glides out of the video; at the end of
+//  a video it Glides out of the cursor, after the agent discs gather there. It closes back into where it came from on the
+//  shared carrier, and shows in a full-screen space too.
 //
 
 import AppKit
@@ -33,37 +35,51 @@ func appKitRect(of screenRect: ScreenRectInChromeCoordinates, mainDisplayHeight:
 struct VideoQuizSummaryCardView: View {
     static let cardWidth: CGFloat = 320
 
-    let summary: VideoQuizSummary
+    let recap: VideoRecap
+    let moment: VideoRecapMoment
     let accentColor: Color
     let goBackToTheMissedQuestion: (VideoQuizMissedQuestion) -> Void
+    let openTheStudyGuide: () -> Void
     let close: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Quiz done")
+                Text(recap.title(when: moment))
                     .font(DS.TypeScale.voice.font)
                     .foregroundStyle(Color.white)
                 Spacer(minLength: 8)
-                Text(summary.scoreText)
-                    .font(DS.TypeScale.title.font)
-                    // Green means right in Clicky, so only a quiz with every answer right shows its score in green.
-                    .foregroundStyle(summary.missedQuestions.isEmpty ? DS.Colors.success : DS.Colors.textPrimary)
-            }
-            Text(summary.captionText)
-                .font(DS.TypeScale.caption.font)
-                .foregroundStyle(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            // A long list scrolls inside the Card, so its Close button always stays on screen.
-            if summary.missedQuestions.count > Self.missedQuestionsShownWithoutScrolling {
-                ScrollView {
-                    missedQuestionButtons
+                if let summary = recap.summary {
+                    Text(summary.scoreText)
+                        .font(DS.TypeScale.title.font)
+                        // Green means right in Clicky, so only a quiz with every answer right shows its score in green.
+                        .foregroundStyle(summary.missedQuestions.isEmpty ? DS.Colors.success : DS.Colors.textPrimary)
                 }
-                .frame(height: Self.scrollingListHeight)
-            } else {
-                missedQuestionButtons
             }
-            HStack {
+            if let summary = recap.summary {
+                Text(summary.captionText)
+                    .font(DS.TypeScale.caption.font)
+                    .foregroundStyle(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !recap.learnedLines.isEmpty {
+                learnedLines
+            }
+            // A long list scrolls inside the Card, so its Close button always stays on screen.
+            if let summary = recap.summary, !summary.missedQuestions.isEmpty {
+                if summary.missedQuestions.count > Self.missedQuestionsShownWithoutScrolling {
+                    ScrollView {
+                        missedQuestionButtons(of: summary)
+                    }
+                    .frame(height: Self.scrollingListHeight)
+                } else {
+                    missedQuestionButtons(of: summary)
+                }
+            }
+            HStack(spacing: 8) {
+                if recap.studyGuideURL != nil {
+                    VideoRecapStudyGuideButton(accentColor: accentColor, action: openTheStudyGuide)
+                }
                 Spacer()
                 VideoQuizSummaryCloseButton(close: close)
             }
@@ -77,12 +93,70 @@ struct VideoQuizSummaryCardView: View {
     /// About five rows of two lines each.
     static let scrollingListHeight: CGFloat = 300
 
-    private var missedQuestionButtons: some View {
+    private var learnedLines: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("What you learned")
+                .font(DS.TypeScale.caption.font)
+                .foregroundStyle(DS.Colors.textSecondary)
+            ForEach(recap.learnedLines, id: \.self) { learnedLine in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Circle()
+                        .fill(accentColor)
+                        .frame(width: 5, height: 5)
+                        // The dot sits on the first line's middle, not its baseline.
+                        .offset(y: -2)
+                    Text(learnedLine)
+                        .font(DS.TypeScale.body.font)
+                        .foregroundStyle(DS.Colors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private func missedQuestionButtons(of summary: VideoQuizSummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(summary.missedQuestions) { missedQuestion in
                 VideoQuizMissedQuestionButton(missedQuestion: missedQuestion, accentColor: accentColor) {
                     goBackToTheMissedQuestion(missedQuestion)
                 }
+            }
+        }
+    }
+}
+
+/// Opens the video's study guide, in the accent, at the Card's foot beside Close.
+private struct VideoRecapStudyGuideButton: View {
+    let accentColor: Color
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text("Study guide")
+                    .font(DS.TypeScale.title.font)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .foregroundStyle(accentColor)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                    .fill(Color.white.opacity(isHovered ? 0.1 : 0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                    .strokeBorder(isHovered ? accentColor : Color.white.opacity(0.1), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverAndPointer { hovering in
+            withAnimation(DS.Move.snap.animation(reduceMotionIsOn: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
+                isHovered = hovering
             }
         }
     }
@@ -164,25 +238,35 @@ final class VideoQuizSummaryPanelController {
     private var accentNSColor: NSColor = .white
     /// The Glide that carries the Card in, so a close before it lands can end it at once.
     private var glideInFlight: CarrierFlight?
+    /// Called each time a shown Card closes, however it closed, so the discs a video's end gathered at the cursor go back.
+    var onClosed: ((_ glideOrigin: CGPoint) -> Void)?
 
     /// True from the moment the Card starts to Glide in, so Escape closes it even before it lands.
     var isShowing: Bool { panel != nil }
 
-    /// Shows the Card for `summary`, Gliding out of the video, or fading in with Reduce Motion on.
+    /// Shows the Card for `recap`, over the video when its rect is known. It Glides out of the video's top edge when a quiz
+    /// ended, or out of `cursorPoint`, where the discs gathered, when the video did, or fades in with Reduce Motion on.
+    /// A `cursorPoint` off the Card's display, or none, makes a video's end Glide out of the video's top edge too, since a
+    /// carrier move stays on one display.
     func show(
-        summary: VideoQuizSummary,
+        recap: VideoRecap,
+        moment: VideoRecapMoment,
+        cursorPoint: CGPoint? = nil,
         videoRect: CGRect?,
         accentColor: Color,
-        goBackToTheMissedQuestion: @escaping (VideoQuizMissedQuestion) -> Void
+        goBackToTheMissedQuestion: @escaping (VideoQuizMissedQuestion) -> Void,
+        openTheStudyGuide: @escaping () -> Void
     ) {
         close(animated: false)
         let cardView = VideoQuizSummaryCardView(
-            summary: summary,
+            recap: recap,
+            moment: moment,
             accentColor: accentColor,
             goBackToTheMissedQuestion: { [weak self] missedQuestion in
                 self?.close(animated: true)
                 goBackToTheMissedQuestion(missedQuestion)
             },
+            openTheStudyGuide: openTheStudyGuide,
             close: { [weak self] in self?.close(animated: true) }
         )
         // The window is larger than the Card by the margins the other Cards use, so the Card's shadow has room to draw.
@@ -222,8 +306,18 @@ final class VideoQuizSummaryPanelController {
         shownCardFrame = cardFrame
         shownCardView = cardView
         accentNSColor = NSColor(accentColor)
-        glideOrigin = videoQuizSummaryGlideOrigin(videoRect: videoRect, mouseLocation: mouseLocation)
-        print("Video quiz summary: showing the Card at \(cardFrame.integral), \(videoRect == nil ? "with no video in front" : "over the quiz video")")
+        switch moment {
+        case .quizEnded:
+            glideOrigin = videoQuizSummaryGlideOrigin(videoRect: videoRect, mouseLocation: mouseLocation)
+        case .videoEnded:
+            // The discs gathered at the cursor glyph, so the Card unfolds from the point they landed on.
+            if let cursorPoint, screen.frame.contains(cursorPoint) {
+                glideOrigin = cursorPoint
+            } else {
+                glideOrigin = videoQuizSummaryGlideOrigin(videoRect: videoRect, mouseLocation: mouseLocation)
+            }
+        }
+        print("Video quiz summary: showing the Card at \(cardFrame.integral) after \(moment == .videoEnded ? "the video ended" : "the quiz ended"), \(videoRect == nil ? "with no video in front" : "over the video")")
 
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             summaryPanel.alphaValue = 0
@@ -251,6 +345,7 @@ final class VideoQuizSummaryPanelController {
     func close(animated: Bool) {
         guard let closingPanel = panel else { return }
         panel = nil
+        onClosed?(glideOrigin)
         // A Card still Gliding in lands at once, and the guard in its landing keeps the real panel from showing.
         glideInFlight?.landAtOnce()
         glideInFlight = nil
