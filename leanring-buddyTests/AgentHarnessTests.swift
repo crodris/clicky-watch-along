@@ -411,7 +411,8 @@ struct AgentHarnessTests {
 
     @Test(.timeLimit(.minutes(1))) func aRequestNoOneAnswersIsDeclinedAfterTheTimeoutAndAnAnsweredOneIsNot() async {
         var answers: [(approvalID: String, approved: Bool)] = []
-        let desk = HarnessApprovalDesk(timeoutSeconds: 0.2) { approvalID, approved, _ in answers.append((approvalID, approved)) }
+        // The 15 second default grace would drop the answered request before a wait on a loaded runner ends.
+        let desk = HarnessApprovalDesk(timeoutSeconds: 0.2, answerSettleGraceSeconds: 60) { approvalID, approved, _ in answers.append((approvalID, approved)) }
 
         desk.receive(anApprovalRequest("approval-1"))
         desk.receive(anApprovalRequest("approval-2"))
