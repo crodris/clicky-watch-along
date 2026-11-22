@@ -31,18 +31,127 @@ private let wall = WallPlane(
     principalPoint: SIMD2(640, 360), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 0.9
 )
 
-private let goodRoomArtReply = """
-{"title": "Water Lilies print", "isWallArt": true, "sizeFoundOnPage": true,
- "chosenSize": {"label": "16x20 in", "widthCentimeters": 40.6, "heightCentimeters": 50.8, "includesFrame": true},
- "whyThisSize": "The page's size menu shows 16x20 in selected.",
- "otherSizes": [{"label": "8x10 in", "widthCentimeters": 20.3, "heightCentimeters": 25.4}, {"label": "Huge", "widthCentimeters": 5000, "heightCentimeters": 25}],
- "artworkCorners": {"topLeft": {"x": -3, "y": 10}, "topRight": {"x": 390, "y": 12}, "bottomRight": {"x": 392, "y": 505}, "bottomLeft": {"x": 8, "y": 503}}}
+/// The reply `POST /try-it-item` writes: the shared fields and an `item` that names its kind and holds that kind's object.
+private func tryItReply(item itemJSON: String, title: String = "Water Lilies print", corners cornersJSON: String? = nil) -> String {
+    let corners = cornersJSON ?? #"{"topLeft": {"x": -3, "y": 10}, "topRight": {"x": 390, "y": 12}, "bottomRight": {"x": 392, "y": 505}, "bottomLeft": {"x": 8, "y": 503}}"#
+    return #"{"title": "\#(title)", "whyThisSize": "The page's size menu shows it selected.", "itemCorners": \#(corners), "item": \#(itemJSON)}"#
+}
+
+private let goodWallArtItem = """
+{"kind": "wallArt", "wallArt": {"sizeFoundOnPage": true,
+ "size": {"label": "16x20 in", "widthCentimeters": 40.6, "heightCentimeters": 50.8, "includesFrame": true},
+ "otherSizes": [{"label": "8x10 in", "widthCentimeters": 20.3, "heightCentimeters": 25.4}, {"label": "Huge", "widthCentimeters": 5000, "heightCentimeters": 25}]}}
+"""
+
+private let goodRoomArtReply = tryItReply(item: goodWallArtItem)
+
+private let goodFurnitureItem = """
+{"kind": "furniture", "furniture": {"sizeFoundOnPage": true,
+ "size": {"label": "180 x 90 cm", "widthCentimeters": 180, "heightCentimeters": 75, "depthCentimeters": 90}, "otherSizes": []}}
+"""
+
+private let goodClothingItem = """
+{"kind": "clothing", "clothing": {"garment": "tshirt", "sleeves": "short", "chosenSizeLabel": "M", "photoShows": "flatLay",
+ "printDescription": "large wave across the chest"}}
 """
 
 private let goodRoomWallReply = """
 {"center": [0.1, -0.2, 2.5], "right": [2, 0, 0], "up": [0, -1, 0], "focalPx": 980, "principal": [640, 360],
  "distanceMeters": 2.5, "wallAngleDegrees": 4, "planeInlierShare": 0.91, "inferenceSeconds": 12.1, "seconds": 13.9}
 """
+
+private let sliverCorners = #"{"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 2}, "bottomLeft": {"x": 0, "y": 2}}"#
+private let fullCorners = #"{"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 500}, "bottomLeft": {"x": 0, "y": 500}}"#
+
+private func wallArtItem(sizeFound: String = "true", size: String = #"{"label": "S", "widthCentimeters": 20, "heightCentimeters": 30, "includesFrame": false}"#) -> String {
+    #"{"kind": "wallArt", "wallArt": {"sizeFoundOnPage": \#(sizeFound), "size": \#(size), "otherSizes": []}}"#
+}
+
+/// The fixture the Worker's tests read too: `POST /try-it-item` responses shaped as the Worker returns them, one for each
+/// kind plus wall art and furniture whose page states no size.
+private struct TryItItemRepliesFixture: Decodable {
+    struct PictureSize: Decodable {
+        let width: Int
+        let height: Int
+    }
+
+    struct Case: Decodable {
+        let name: String
+        let kind: String
+        let response: JSONValue
+    }
+
+    let picture: PictureSize
+    let cases: [Case]
+
+    static func load() throws -> TryItItemRepliesFixture {
+        let fixtureData = try Data(contentsOf: repositoryRootURL.appendingPathComponent("worker/src/testdata/try-it-item-replies.json"))
+        return try JSONDecoder().decode(TryItItemRepliesFixture.self, from: fixtureData)
+    }
+}
+
+/// What each case of the shared fixture must read as, written next to the case's name. A case with no expectation here fails.
+private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPageReading? {
+    let pictureCorners = { (left: Double, top: Double, right: Double, bottom: Double) in
+        RoomArtCorners(topLeft: CGPoint(x: left, y: top), topRight: CGPoint(x: right, y: top), bottomRight: CGPoint(x: right, y: bottom), bottomLeft: CGPoint(x: left, y: bottom))
+    }
+    switch caseName {
+    case "wall art with a stated size":
+        return .wallArt(RoomArtWallArtReading(
+            title: "Water Lilies print, framed",
+            chosenSize: RoomArtSize(label: "16 x 20 in", widthCentimeters: 40.6, heightCentimeters: 50.8),
+            chosenSizeIncludesFrame: true,
+            whyThisSize: "The page's size menu shows 16 x 20 in selected.",
+            otherSizes: [RoomArtSize(label: "8 x 10 in", widthCentimeters: 20.3, heightCentimeters: 25.4)],
+            artworkCorners: pictureCorners(40, 50, 360, 450)
+        ))
+    case "wall art with no size on the page":
+        return .sizeNotOnThePage(title: "Water Lilies print")
+    case "furniture only 5 centimeters deep":
+        return .furniture(RoomArtFurnitureReading(
+            title: "Slim floor mirror",
+            chosenSize: RoomArtFurnitureSize(label: "50 x 170 cm", widthCentimeters: 50, heightCentimeters: 170, depthCentimeters: 5),
+            whyThisSize: "The page lists one size, 50 x 170 cm.",
+            itemCorners: pictureCorners(120, 20, 280, 480)
+        ))
+    case "furniture with no size on the page":
+        return .furniture(RoomArtFurnitureReading(
+            title: "Slim floor mirror",
+            chosenSize: nil,
+            whyThisSize: "The page text states no size.",
+            itemCorners: pictureCorners(120, 20, 280, 480)
+        ))
+    case "clothing":
+        return .clothing(RoomArtClothingReading(
+            title: "Great Wave tee",
+            garment: .tshirt,
+            sleeves: .short,
+            chosenSizeLabel: "M",
+            photoShows: .flatLay,
+            printDescription: "large wave print across the chest",
+            whyThisSize: "The page has size M selected.",
+            itemCorners: pictureCorners(30, 60, 370, 440)
+        ))
+    case "other":
+        return .other(title: "Brass lamp")
+    default:
+        return nil
+    }
+}
+
+struct RoomArtTryItReplyFixtureTests {
+    @Test func everyWorkerReplyInTheSharedFixtureReadsAsItsExpectedReading() throws {
+        let fixture = try TryItItemRepliesFixture.load()
+        #expect(Set(fixture.cases.map(\.kind)) == ["wallArt", "furniture", "clothing", "other"])
+
+        for fixtureCase in fixture.cases {
+            let responseData = try JSONEncoder().encode(fixtureCase.response)
+            let reading = try RoomArtPageReading(responseData: responseData, pictureWidth: fixture.picture.width, pictureHeight: fixture.picture.height)
+
+            #expect(reading == expectedReading(ofFixtureCaseNamed: fixtureCase.name), "the \(fixtureCase.name) reply read as \(reading)")
+        }
+    }
+}
 
 struct RoomArtReplyTests {
     @Test func aWallArtReplyBecomesItsSizeAndCornersClampedIntoThePicture() throws {
@@ -61,10 +170,47 @@ struct RoomArtReplyTests {
         #expect(wallArt.otherSizes.map(\.label) == ["8x10 in"])
     }
 
-    @Test func aReplyThatIsNotWallArtNeedsNoSizeOrCorners() throws {
-        let reading = try RoomArtPageReading(responseData: jsonData(#"{"title": "Blue sofa", "isWallArt": false}"#), pictureWidth: 400, pictureHeight: 500)
+    @Test func aFurnitureReplyBecomesItsSizeWithDepthAndCornersClampedIntoThePicture() throws {
+        let reading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: goodFurnitureItem, title: "Walnut table")), pictureWidth: 400, pictureHeight: 500)
 
-        #expect(reading == .notWallArt(title: "Blue sofa"))
+        #expect(reading == .furniture(RoomArtFurnitureReading(
+            title: "Walnut table",
+            chosenSize: RoomArtFurnitureSize(label: "180 x 90 cm", widthCentimeters: 180, heightCentimeters: 75, depthCentimeters: 90),
+            whyThisSize: "The page's size menu shows it selected.",
+            itemCorners: RoomArtCorners(topLeft: CGPoint(x: 0, y: 10), topRight: CGPoint(x: 390, y: 12), bottomRight: CGPoint(x: 392, y: 500), bottomLeft: CGPoint(x: 8, y: 500))
+        )))
+    }
+
+    @Test func furnitureWhosePageStatesNoSizeStillReadsAsFurnitureWithNoSize() throws {
+        let noSizeItem = goodFurnitureItem.replacingOccurrences(of: #""sizeFoundOnPage": true"#, with: #""sizeFoundOnPage": false"#)
+            .replacingOccurrences(of: #""widthCentimeters": 180"#, with: #""widthCentimeters": 0"#)
+
+        let reading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: noSizeItem)), pictureWidth: 400, pictureHeight: 500)
+
+        guard case .furniture(let furniture) = reading else {
+            Issue.record("Expected furniture, got \(reading)")
+            return
+        }
+        #expect(furniture.chosenSize == nil)
+    }
+
+    @Test func aClothingReplyBecomesItsGarmentDetailsAndCorners() throws {
+        let reading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: goodClothingItem, title: "Wave tee")), pictureWidth: 400, pictureHeight: 500)
+
+        guard case .clothing(let clothing) = reading else {
+            Issue.record("Expected clothing, got \(reading)")
+            return
+        }
+        #expect(clothing.title == "Wave tee")
+        #expect(clothing.garment == .tshirt && clothing.sleeves == .short && clothing.photoShows == .flatLay)
+        #expect(clothing.chosenSizeLabel == "M" && clothing.printDescription == "large wave across the chest")
+        #expect(clothing.itemCorners.bottomRight == CGPoint(x: 392, y: 500))
+    }
+
+    @Test func anOtherReplyNeedsOnlyItsKindAndTitle() throws {
+        let reading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: #"{"kind": "other"}"#, title: "Brass lamp")), pictureWidth: 400, pictureHeight: 500)
+
+        #expect(reading == .other(title: "Brass lamp"))
     }
 
     @Test func wallArtWhosePageStatesNoSizeIsReadAsSoAndNeverHung() throws {
@@ -79,21 +225,29 @@ struct RoomArtReplyTests {
     @Test(arguments: [
         // No sizeFoundOnPage, so the reply cannot say whether the size came from the page.
         goodRoomArtReply.replacingOccurrences(of: #""sizeFoundOnPage": true,"#, with: ""),
+        // No item.
+        #"{"title": "A", "whyThisSize": "", "itemCorners": \#(fullCorners)}"#,
         // No corners.
-        #"{"title": "A", "isWallArt": true, "sizeFoundOnPage": true, "chosenSize": {"label": "S", "widthCentimeters": 20, "heightCentimeters": 30, "includesFrame": false}}"#,
-        // No size.
-        #"{"title": "A", "isWallArt": true, "sizeFoundOnPage": true, "artworkCorners": {"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 500}, "bottomLeft": {"x": 0, "y": 500}}}"#,
+        #"{"title": "A", "whyThisSize": "", "item": \#(wallArtItem())}"#,
+        // A kind this app does not know.
+        tryItReply(item: #"{"kind": "wallpaper"}"#, corners: fullCorners),
+        // A kind named without its object.
+        tryItReply(item: #"{"kind": "wallArt"}"#, corners: fullCorners),
         // A width of zero.
-        #"{"title": "A", "isWallArt": true, "sizeFoundOnPage": true, "chosenSize": {"label": "S", "widthCentimeters": 0, "heightCentimeters": 30, "includesFrame": false}, "artworkCorners": {"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 500}, "bottomLeft": {"x": 0, "y": 500}}}"#,
+        tryItReply(item: wallArtItem(size: #"{"label": "S", "widthCentimeters": 0, "heightCentimeters": 30, "includesFrame": false}"#), corners: fullCorners),
         // An empty label, which the Worker refuses too.
-        #"{"title": "A", "isWallArt": true, "sizeFoundOnPage": true, "chosenSize": {"label": " ", "widthCentimeters": 20, "heightCentimeters": 30, "includesFrame": false}, "artworkCorners": {"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 500}, "bottomLeft": {"x": 0, "y": 500}}}"#,
+        tryItReply(item: wallArtItem(size: #"{"label": " ", "widthCentimeters": 20, "heightCentimeters": 30, "includesFrame": false}"#), corners: fullCorners),
         // Corners that enclose a sliver.
-        #"{"title": "A", "isWallArt": true, "sizeFoundOnPage": true, "chosenSize": {"label": "S", "widthCentimeters": 20, "heightCentimeters": 30, "includesFrame": false}, "artworkCorners": {"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 2}, "bottomLeft": {"x": 0, "y": 2}}}"#,
+        tryItReply(item: wallArtItem(), corners: sliverCorners),
+        // A furniture size outside any real size.
+        tryItReply(item: goodFurnitureItem.replacingOccurrences(of: #""depthCentimeters": 90"#, with: #""depthCentimeters": 0"#), corners: fullCorners),
+        // A garment this app does not know.
+        tryItReply(item: goodClothingItem.replacingOccurrences(of: #""tshirt""#, with: #""cape""#), corners: fullCorners),
         // An error body.
         #"{"error": "The page has no picture"}"#,
         "not json",
     ])
-    func aRoomArtReplyThatCannotHangTheArtIsRefused(replyText: String) {
+    func aTryItReplyThatCannotBeReadIsRefused(replyText: String) {
         #expect(throws: RoomArtReplyError.self) {
             try RoomArtPageReading(responseData: jsonData(replyText), pictureWidth: 400, pictureHeight: 500)
         }
@@ -147,14 +301,35 @@ struct RoomArtReplyTests {
         #expect(RoomArtFailure.appSecretMissing.spokenLine == "Clicky needs its app secret for this. See the README's Worker setup.")
     }
 
-    @Test func thePageTextAndTitleAreCutToTheWorkersLimitsInUTF16Units() {
+    @Test func thePageTextTitleAndLearnerWordsAreCutToTheWorkersLimitsInUTF16Units() {
         let picture = RoomArtPicture(jpegData: Data([1, 2, 3]), width: 10, height: 10)
         // Each emoji is 2 UTF-16 units, so 15,001 of them is 30,002 units and one must go.
-        let pageRequest = RoomArtPageRequest(pageURL: "https://shop.example/print", pageTitle: String(repeating: "🖼", count: 251), pageText: String(repeating: "🖼", count: 15_001), picture: picture)
+        let pageRequest = RoomArtPageRequest(
+            pageURL: "https://shop.example/print",
+            pageTitle: String(repeating: "🖼", count: 251),
+            pageText: String(repeating: "🖼", count: 15_001),
+            learnerRequest: String(repeating: "🖼", count: 251),
+            picture: picture
+        )
 
         #expect(pageRequest.pageText.utf16.count == 30_000)
         #expect(pageRequest.pageTitle.utf16.count == 500)
+        #expect(pageRequest.learnerRequest.utf16.count == 500)
+        // One character past the Worker's 500 is cut, with plain text where no emoji's pair of units can hide an off by one.
+        let plainWords = RoomArtPageRequest(pageURL: "https://shop.example/print", pageTitle: "Print", pageText: "A print", learnerRequest: String(repeating: "a", count: 501), picture: picture)
+        #expect(plainWords.learnerRequest.utf16.count == 500)
         #expect(pageRequest.json["picture"]?["jpegBase64"]?.stringValue == Data([1, 2, 3]).base64EncodedString())
+    }
+
+    @Test func theLearnersWordsGoToTheWorkerOnlyWhenTheyHoldAnything() {
+        let picture = RoomArtPicture(jpegData: Data([1]), width: 10, height: 10)
+        func json(forLearnerRequest learnerRequest: String) -> JSONValue {
+            RoomArtPageRequest(pageURL: "https://shop.example/print", pageTitle: "Print", pageText: "A print", learnerRequest: learnerRequest, picture: picture).json
+        }
+
+        #expect(json(forLearnerRequest: "how would this chair look in my room")["learnerRequest"]?.stringValue == "how would this chair look in my room")
+        #expect(json(forLearnerRequest: "")["learnerRequest"] == nil)
+        #expect(json(forLearnerRequest: " \n ")["learnerRequest"] == nil)
     }
 }
 
@@ -269,6 +444,8 @@ struct RoomArtPhraseTests {
         // Up to two words from a closed list may sit between the look and the room phrase.
         "would this look good in my room",
         "how would this look hanging in my living room",
+        // Furniture and clothes are read too, and the app then says they are coming.
+        "how would this chair look in my room",
     ])
     func aPlacingVerbOrALookOnTheItemBeforeARoomPhraseAsksForIt(transcript: String) {
         #expect(asksToSeeArtInMyRoom(transcript))
@@ -452,6 +629,14 @@ struct RoomArtPhaseTests {
         #expect(RoomArtFailure.cameraAccessDenied.spokenLine == "I need camera access for that. You can turn it on in System Settings.")
         #expect(RoomArtFailure.depthServiceUnavailable.spokenLine == "I couldn't measure your wall. Is the depth service running?")
         #expect(RoomArtFailure.notWallArt.spokenLine == "That doesn't look like something that hangs on a wall.")
+    }
+
+    @Test func furnitureAndClothingGetTheirOwnLineSoTheyAreNeverTakenForALamp() {
+        #expect(RoomArtFailure.onlyWallArtSoFar.spokenLine == "I can hang wall art so far. Furniture and clothes are coming next.")
+        #expect(RoomArtFailure.onlyWallArtSoFar.spokenLine != RoomArtFailure.notWallArt.spokenLine)
+        #expect(RoomArtFailure.onlyWallArtSoFar.statusLine == "Only wall art so far. Furniture and clothes are coming next")
+        let measuring = RoomArtPhase.startingCamera.startingAMeasurement(id: firstMeasurement)
+        #expect(measuring.afterTheMeasurementFailed(.onlyWallArtSoFar, measurementID: firstMeasurement) == .failed(.onlyWallArtSoFar))
     }
 }
 

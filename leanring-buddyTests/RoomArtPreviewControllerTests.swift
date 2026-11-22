@@ -13,6 +13,7 @@ import CoreVideo
 import Foundation
 import ImageIO
 import QuartzCore
+import SwiftUI
 import Testing
 import UniformTypeIdentifiers
 @testable import Clicky
@@ -39,6 +40,7 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     private var recordedArtHungCount = 0
     private var recordedArtPutBackCount = 0
     private var recordedKeyframeAnchors: [CGPoint?] = []
+    private var latestLoop: RoomArtLoopSnapshot?
 
     var artHungCount: Int { lock.withLock { recordedArtHungCount } }
     var artPutBackCount: Int { lock.withLock { recordedArtPutBackCount } }
@@ -80,6 +82,14 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
 
     func putBackTheArtFromBeforeTheMove() {
         lock.withLock { recordedArtPutBackCount += 1 }
+    }
+
+    func currentLoop() -> RoomArtLoopSnapshot? {
+        lock.withLock { latestLoop }
+    }
+
+    func setTheLoop(_ loop: RoomArtLoopSnapshot?) {
+        lock.withLock { latestLoop = loop }
     }
 
     /// The tracker lost the room (true) or found it again (false), reported on the main actor as the real processor does.
@@ -199,11 +209,16 @@ private func pictureJPEG() -> RoomArtPicture {
     return RoomArtPicture(jpegData: jpegData as Data, width: 400, height: 500)
 }
 
+/// What the learner said, which reaches the Worker so it knows which item on the page they mean.
+private let whatTheLearnerSaid = "how would this look in my room"
+
 private let storePageTab = RoomArtFrontTab(url: "https://shop.example/water-lilies", title: "Water Lilies print", text: "Sizes: 8x10 in, 16x20 in")
 
 @MainActor
 private final class HarnessRecorder {
     var spokenLines: [String] = []
+    /// For each spoken line, whether the controller said it reports a failure, so the cursor shakes.
+    var spokenLineFailureFlags: [Bool] = []
     var pictureCaptureStarted = false
     /// How many times the controller asked to end its spoken line, which every close does.
     var timesTheSpokenLineWasEnded = 0
@@ -246,7 +261,11 @@ private struct RoomArtHarness {
                 measureTheWall: { wallRequest in try await worker.measureTheWall(wallRequest) },
                 makeFrameSource: { camera },
                 clearTheLiveScene: { recorder.timesTheSceneWasClearedBeforeThePanel.append(panel.timesShown) },
-                speak: { line in recorder.spokenLines.append(line) },
+                speak: { line, isAFailure in
+                    recorder.spokenLines.append(line)
+                    recorder.spokenLineFailureFlags.append(isAFailure)
+                },
+                loopAccentColor: { .orange },
                 endTheSpokenLine: { recorder.timesTheSpokenLineWasEnded += 1 }
             ),
             frameProcessor: frameProcessor,
@@ -267,12 +286,14 @@ private struct RoomArtHarness {
     }
 }
 
+// The longest wait inside a test is 120 s, so a regression that stalls every flow fails here, minutes before CI's 30 minute job limit.
+@Suite(.timeLimit(.minutes(3)))
 @MainActor
 struct RoomArtPreviewControllerTests {
     @Test func theArtShowsOnceThePageAndTheWallAreReadTogether() async throws {
         let harness = RoomArtHarness()
 
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
         #expect(harness.panel.timesShown == 1)
         try await waitFor("the art to show on the wall") { harness.artIsShowing() }
 
@@ -284,6 +305,8 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.worker.thePageWasAskedForBeforeTheWallReplied)
         let pageRequest = try #require(harness.worker.pageRequests.first)
         #expect(pageRequest.pageURL == "https://shop.example/water-lilies")
+        // The learner's words go to the Worker, so it knows which item on the page they mean.
+        #expect(pageRequest.learnerRequest == whatTheLearnerSaid)
         // The first keyframe has no anchor, so the art centers on the bare wall spot.
         #expect(harness.frameProcessor.keyframeAnchors == [nil])
         #expect(harness.worker.wallRequests.first?.anchor == StandInFrameProcessor.bareWallSpot)
@@ -296,7 +319,7 @@ struct RoomArtPreviewControllerTests {
 
     @Test func aClickMovesTheArtWithANewWallMeasurementAndIsIgnoredWhileOneRuns() async throws {
         let harness = RoomArtHarness()
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
         try await waitFor("the art to show on the wall") { harness.artIsShowing() }
         harness.worker.secondsBeforeTheWallReplies = 0.3
 
@@ -317,7 +340,7 @@ struct RoomArtPreviewControllerTests {
 
     @Test func aFailedMoveKeepsTheArtWhereItWasAndTheCameraRunningAndSpeaksNothing() async throws {
         let harness = RoomArtHarness()
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
         try await waitFor("the art to show on the wall") { harness.artIsShowing() }
         let firstWall = try harness.worker.wallReply.get()
         harness.worker.wallReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"Too little bare wall around that point"}"#))
@@ -339,7 +362,7 @@ struct RoomArtPreviewControllerTests {
 
     @Test func aLostWallSaysSoInTheStatusLineUntilItIsFound() async throws {
         let harness = RoomArtHarness()
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
         try await waitFor("the art to show on the wall") { harness.artIsShowing() }
 
         harness.frameProcessor.reportTheWall(lost: true)
@@ -356,7 +379,7 @@ struct RoomArtPreviewControllerTests {
         let worker = WorkerStub()
         worker.secondsBeforeTheWallReplies = 0.4
         let harness = RoomArtHarness(worker: worker)
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
         try await waitFor("the wall request") { !worker.wallRequests.isEmpty }
 
         harness.controller.close()
@@ -370,7 +393,7 @@ struct RoomArtPreviewControllerTests {
     @Test func noAppSecretSaysSoBeforeTheCameraOpens() async {
         let harness = RoomArtHarness(appSecretIsSet: false)
 
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         #expect(harness.spokenLines() == ["Clicky needs its app secret for this. See the README's Worker setup."])
         #expect(harness.panel.timesShown == 0)
@@ -380,7 +403,7 @@ struct RoomArtPreviewControllerTests {
     @Test func aPageThatIsNotHTTPSSaysSoBeforeTheCameraOpens() async {
         let harness = RoomArtHarness(frontTab: RoomArtFrontTab(url: "http://shop.example/water-lilies", title: "Water Lilies print", text: "16x20 in"))
 
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         #expect(harness.spokenLines() == ["I can only read store pages served over https."])
         #expect(harness.panel.timesShown == 0)
@@ -390,7 +413,7 @@ struct RoomArtPreviewControllerTests {
     func pageTextThatCouldNotBeReadSaysSoBeforeAnyWorkerCall(pageText: String?) async {
         let harness = RoomArtHarness(frontTab: RoomArtFrontTab(url: "https://shop.example/water-lilies", title: "Water Lilies print", text: pageText))
 
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         #expect(harness.spokenLines() == ["I couldn't read the size from that page."])
         #expect(harness.panel.timesShown == 0)
@@ -402,7 +425,7 @@ struct RoomArtPreviewControllerTests {
         worker.pageReading = .success(.sizeNotOnThePage(title: "Water Lilies print"))
         let harness = RoomArtHarness(worker: worker)
 
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         try await waitFor("the panel to fail with no size on the page") { harness.controller.phase == .failed(.sizeNotOnThePage) }
         #expect(harness.spokenLines() == ["I couldn't find the size on that page."])
@@ -412,7 +435,7 @@ struct RoomArtPreviewControllerTests {
     @Test func escapeWhileThePictureIsCapturedStopsTheRequest() async throws {
         let harness = RoomArtHarness(secondsToCaptureThePicture: 0.3)
 
-        let openingTask = Task { await harness.controller.showTheArtInTheRoom() }
+        let openingTask = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
         try await waitFor("the picture capture to start") { harness.recorder.pictureCaptureStarted }
         #expect(harness.controller.closeOnEscape())
         await openingTask.value
@@ -427,7 +450,7 @@ struct RoomArtPreviewControllerTests {
         let harness = RoomArtHarness(secondsToCaptureThePicture: 0.3)
 
         // A press cancels the reply task the request runs in.
-        let openingTask = Task { await harness.controller.showTheArtInTheRoom() }
+        let openingTask = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
         try await waitFor("the picture capture to start") { harness.recorder.pictureCaptureStarted }
         openingTask.cancel()
         await openingTask.value
@@ -441,7 +464,7 @@ struct RoomArtPreviewControllerTests {
         let camera = SyntheticRoomCamera(secondsToStart: 0.3)
         let harness = RoomArtHarness(camera: camera)
 
-        let openingTask = Task { await harness.controller.showTheArtInTheRoom() }
+        let openingTask = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
         try await waitFor("the panel to show") { harness.panel.timesShown == 1 }
         harness.controller.close()
         await openingTask.value
@@ -454,7 +477,7 @@ struct RoomArtPreviewControllerTests {
     @Test func noPictureSaysSoAndOpensNothing() async {
         let harness = RoomArtHarness(picture: nil)
 
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         #expect(harness.spokenLines() == ["I don't see a picture in Chrome's front tab."])
         #expect(harness.panel.timesShown == 0)
@@ -466,7 +489,7 @@ struct RoomArtPreviewControllerTests {
         worker.wallReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 502, body: #"{"error":"The depth service is not answering"}"#))
         let harness = RoomArtHarness(worker: worker)
 
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         try await waitFor("the panel to fail asking about the depth service") { harness.controller.phase == .failed(.depthServiceUnavailable) }
         #expect(harness.spokenLines() == ["I couldn't measure your wall. Is the depth service running?"])
@@ -479,29 +502,133 @@ struct RoomArtPreviewControllerTests {
         worker.wallReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 401, body: #"{"error":"Missing or wrong x-clicky-app-secret"}"#))
         let harness = RoomArtHarness(worker: worker)
 
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         try await waitFor("the panel to fail on the app secret") { harness.controller.phase == .failed(.appSecretMissing) }
         #expect(harness.spokenLines() == ["Clicky needs its app secret for this. See the README's Worker setup."])
         harness.controller.close()
     }
 
-    @Test func artThatDoesNotHangOnAWallSaysSo() async throws {
+    @Test func anItemThatIsNeitherWallArtNorFurnitureNorClothingSaysItDoesNotHang() async throws {
         let worker = WorkerStub()
-        worker.pageReading = .success(.notWallArt(title: "Blue sofa"))
+        worker.pageReading = .success(.other(title: "Brass lamp"))
         let harness = RoomArtHarness(worker: worker)
 
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
-        try await waitFor("the panel to fail on art that is not wall art") { harness.controller.phase == .failed(.notWallArt) }
+        try await waitFor("the panel to fail on an item that does not hang") { harness.controller.phase == .failed(.notWallArt) }
         #expect(harness.spokenLines() == ["That doesn't look like something that hangs on a wall."])
         harness.controller.close()
+    }
+
+    @Test func furnitureAndClothingSayOnlyWallArtWorksSoFar() async throws {
+        let pictureCorners = RoomArtCorners(topLeft: CGPoint(x: 20, y: 25), topRight: CGPoint(x: 380, y: 25), bottomRight: CGPoint(x: 380, y: 475), bottomLeft: CGPoint(x: 20, y: 475))
+        let furniture = RoomArtPageReading.furniture(RoomArtFurnitureReading(title: "Blue sofa", chosenSize: nil, whyThisSize: "No size on the page.", itemCorners: pictureCorners))
+        let clothing = RoomArtPageReading.clothing(RoomArtClothingReading(
+            title: "Great Wave tee", garment: .tshirt, sleeves: .short, chosenSizeLabel: "M", photoShows: .flatLay,
+            printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners
+        ))
+        for pageReading in [furniture, clothing] {
+            let worker = WorkerStub()
+            worker.pageReading = .success(pageReading)
+            let harness = RoomArtHarness(worker: worker)
+
+            await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this chair look in my room")
+
+            try await waitFor("the panel to fail on an item that is not wall art yet") { harness.controller.phase == .failed(.onlyWallArtSoFar) }
+            #expect(harness.spokenLines() == ["I can hang wall art so far. Furniture and clothes are coming next."])
+            harness.controller.close()
+        }
+    }
+
+    @Test func everyFailureLineIsSpokenAsAFailureAndHereItIsIsNot() async throws {
+        // Lines the controller speaks before the camera opens.
+        let noSecretHarness = RoomArtHarness(appSecretIsSet: false)
+        await noSecretHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        let httpHarness = RoomArtHarness(frontTab: RoomArtFrontTab(url: "http://shop.example/print", title: "Print", text: "A print"))
+        await httpHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        let noTextHarness = RoomArtHarness(frontTab: RoomArtFrontTab(url: "https://shop.example/print", title: "Print", text: nil))
+        await noTextHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        let noTabHarness = RoomArtHarness(frontTab: nil)
+        await noTabHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        let noPictureHarness = RoomArtHarness(picture: nil)
+        await noPictureHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        // A failure the panel enters after it opened.
+        let cameraHarness = RoomArtHarness(camera: SyntheticRoomCamera(startFailure: .noCamera))
+        await cameraHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        let furnitureWorker = WorkerStub()
+        furnitureWorker.pageReading = .success(.other(title: "Brass lamp"))
+        let measuredFailureHarness = RoomArtHarness(worker: furnitureWorker)
+        await measuredFailureHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the panel to fail on an item that does not hang") { measuredFailureHarness.controller.phase == .failed(.notWallArt) }
+
+        for failureHarness in [noSecretHarness, httpHarness, noTextHarness, noTabHarness, noPictureHarness, cameraHarness, measuredFailureHarness] {
+            #expect(failureHarness.recorder.spokenLineFailureFlags == [true], "\(failureHarness.spokenLines())")
+            failureHarness.controller.close()
+        }
+
+        let successHarness = RoomArtHarness()
+        await successHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the art to show on the wall") { successHarness.artIsShowing() }
+        #expect(successHarness.recorder.spokenLineFailureFlags == [false])
+        successHarness.controller.close()
+    }
+
+    @Test func theLoopDrawsFromTheKeyframeUntilTheArtShowsAndThenFadesAndClearsOnClose() async throws {
+        let worker = WorkerStub()
+        // The wall replies late, so the loop is on screen for a while, even on a loaded machine.
+        worker.secondsBeforeTheWallReplies = 3
+        let harness = RoomArtHarness(worker: worker)
+        #expect(harness.controller.loopState == .hidden)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the measurement to start the loop") { !harness.controller.loopState.isHidden }
+        #expect(harness.controller.loopState.beganAt != nil && !harness.controller.loopState.isFadingOut)
+        let beganAt = harness.controller.loopState.beganAt
+
+        try await waitFor("the art to show on the wall") { harness.artIsShowing() }
+        #expect(harness.controller.loopState == .fadingOut(beganAt: try #require(beganAt)))
+
+        harness.controller.theLoopFadeFinished()
+        #expect(harness.controller.loopState == .hidden)
+
+        // A click's measurement draws it again, and closing the panel removes it at once.
+        harness.controller.moveTheArt(toCameraPixel: CGPoint(x: 100, y: 100))
+        #expect(harness.controller.loopState.beganAt != beganAt && !harness.controller.loopState.isFadingOut)
+        harness.controller.close()
+        #expect(harness.controller.loopState == .hidden)
+    }
+
+    @Test func theLoopFadesWhenTheMeasurementFails() async throws {
+        let worker = WorkerStub()
+        worker.wallReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 422, body: ""))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+
+        try await waitFor("the panel to fail on the wall") { harness.controller.phase == .failed(.wallNotMeasured) }
+        #expect(harness.controller.loopState.isFadingOut)
+        harness.controller.close()
+    }
+
+    @Test func theLoopOutlineComesFromTheProcessorsNewestSnapshotInPanelPoints() async {
+        let harness = RoomArtHarness()
+        let panelSize = CGSize(width: 960, height: 540)
+        #expect(harness.controller.currentLoopOutline(cameraSize: CGSize(width: 1280, height: 720), panelSize: panelSize) == nil)
+
+        let keyframeCorners = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 640, y: 250), frameSize: CGSize(width: 1280, height: 720))
+        harness.frameProcessor.setTheLoop(RoomArtLoopSnapshot(keyframeCorners: keyframeCorners, currentCorners: keyframeCorners))
+
+        let outline = harness.controller.currentLoopOutline(cameraSize: CGSize(width: 1280, height: 720), panelSize: panelSize)
+        #expect(outline?.boundingRect.isEmpty == false)
+        // No camera frame yet, so nothing can be placed.
+        #expect(harness.controller.currentLoopOutline(cameraSize: .zero, panelSize: panelSize) == nil)
     }
 
     @Test func aRefusedCameraAsksForAccess() async {
         let harness = RoomArtHarness(camera: SyntheticRoomCamera(startFailure: .cameraAccessDenied))
 
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         #expect(harness.controller.phase == .failed(.cameraAccessDenied))
         #expect(harness.spokenLines() == ["I need camera access for that. You can turn it on in System Settings."])
@@ -512,14 +639,14 @@ struct RoomArtPreviewControllerTests {
     @Test func everyCloseEndsTheSpokenLine() async throws {
         // Escape on an open panel.
         let escapedHarness = RoomArtHarness()
-        await escapedHarness.controller.showTheArtInTheRoom()
+        await escapedHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
         #expect(escapedHarness.recorder.timesTheSpokenLineWasEnded == 0)
         #expect(escapedHarness.controller.closeOnEscape())
         #expect(escapedHarness.recorder.timesTheSpokenLineWasEnded == 1)
 
         // Escape while the picture is still being captured.
         let openingHarness = RoomArtHarness(secondsToCaptureThePicture: 0.3)
-        let openingTask = Task { await openingHarness.controller.showTheArtInTheRoom() }
+        let openingTask = Task { await openingHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
         try await waitFor("the picture capture to start") { openingHarness.recorder.pictureCaptureStarted }
         #expect(openingHarness.controller.closeOnEscape())
         await openingTask.value
@@ -527,7 +654,7 @@ struct RoomArtPreviewControllerTests {
 
         // The Close button, after a failure whose line is still playing.
         let failedHarness = RoomArtHarness(camera: SyntheticRoomCamera(startFailure: .cameraAccessDenied))
-        await failedHarness.controller.showTheArtInTheRoom()
+        await failedHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
         #expect(failedHarness.controller.phase == .failed(.cameraAccessDenied))
         failedHarness.controller.close()
         #expect(failedHarness.recorder.timesTheSpokenLineWasEnded == 1)
@@ -537,7 +664,7 @@ struct RoomArtPreviewControllerTests {
         let harness = RoomArtHarness()
         #expect(!harness.controller.closeOnEscape())
 
-        await harness.controller.showTheArtInTheRoom()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         #expect(harness.controller.closeOnEscape())
         #expect(harness.controller.phase == .closed)

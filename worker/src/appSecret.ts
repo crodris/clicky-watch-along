@@ -8,14 +8,14 @@ export const appSecretHeaderName = "x-clicky-app-secret";
 
 /**
  * Every route that uses the Notion token, the Messages passthrough, which spends the owner's Anthropic key for the agent
- * harness, and the room art routes, which spend it on a page read and keep the local depth service's GPU busy for about 14 s.
+ * harness, and the try-it routes, which spend it on a page read and keep the local depth service's GPU busy for about 14 s.
  */
 export const routesThatNeedTheAppSecret = new Set([
   "/notion-page",
   "/study-guide",
   "/study-guide-status",
   "/v1/messages",
-  "/room-art",
+  "/try-it-item",
   "/room-wall",
 ]);
 

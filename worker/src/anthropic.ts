@@ -42,11 +42,14 @@ export type AnthropicMessage = z.infer<typeof anthropicMessageSchema>;
 /**
  * Zod's own message is pretty-printed JSON across many lines, so a rejection logged with it keeps only
  * its first line in tools that read the Worker log line by line. This names each issue as "path: message".
+ * A message can also hold model-written text, such as a received enum value or an unrecognized key, so every line
+ * break character (CR, LF, VT, FF, NEL, U+2028, U+2029) becomes a space, and no issue can forge a log line.
  */
 export function zodIssuesOnOneLine(zodError: z.ZodError): string {
   return zodError.issues
     .map((issue) => (issue.path.length > 0 ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
-    .join("; ");
+    .join("; ")
+    .replace(/[\r\n\v\f\u0085\u2028\u2029]/g, " ");
 }
 
 export function jsonResponse(body: unknown, status: number): Response {
