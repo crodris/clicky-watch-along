@@ -66,9 +66,9 @@ var themeStoreWithNoSavedThemes: CustomThemeStore {
 /// Theme settings backed by their own UserDefaults suite, so a test never reads or changes the app's saved theme.
 @MainActor
 func makeThemeSettings(startingWith theme: ClickyTheme = clickyBlueTheme, customThemeStore: CustomThemeStore = themeStoreWithNoSavedThemes) -> CompanionThemeSettings {
-    // One fixed suite for every test, since macOS keeps an empty preferences file for each suite even after its domain
-    // is removed. Sharing it is safe because each test sets the theme and Shuffle right after this reads them and never
-    // reads the saved values back. The name is a plain string UserDefaults accepts, so the optional is never nil.
+    // One suite for every test, and for every test run. Sharing it is safe because each test sets the theme and Shuffle
+    // right after this reads them and never reads the saved values back, so another test or run writing to it changes
+    // nothing a test checks. The name is a plain string UserDefaults accepts, so the optional is never nil.
     let testDefaults = UserDefaults(suiteName: "BundledThemeTests")!
     let themeSettings = CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: customThemeStore, bundledThemes: bundledThemesForTests)
     themeSettings.theme = theme
@@ -91,12 +91,37 @@ func makeBackgroundAgentStore(theme: ClickyTheme = clickyBlueTheme) -> Backgroun
 /// macOS keeps an empty preferences file for every suite name even after its domain is removed, and a name per run would
 /// leave one file for each run, so `removeTestDefaultsSuite` deletes it.
 func perRunTestDefaultsSuiteName(_ testName: String) -> String {
-    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(checkoutPathHash)-\(ProcessInfo.processInfo.processIdentifier)-\(testName)"
+    perRunTestDefaultsSuitePrefix + testName
+}
+
+/// What every `perRunTestDefaultsSuiteName` starts with: the test host's bundle ID, the checkout's hash, and the process ID.
+private var perRunTestDefaultsSuitePrefix: String {
+    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(checkoutPathHash)-\(ProcessInfo.processInfo.processIdentifier)-"
+}
+
+/// Whether a name is one `perRunTestDefaultsSuiteName` made in this process, so a name such as the app's real bundle ID,
+/// whose defaults and preferences file are the developer's, is never emptied or deleted. A slash or ".." would also leave
+/// the Preferences folder.
+func isAPerRunTestDefaultsSuiteName(_ suiteName: String) -> Bool {
+    suiteName.hasPrefix(perRunTestDefaultsSuitePrefix)
+        && suiteName.count > perRunTestDefaultsSuitePrefix.count
+        && !suiteName.contains("/")
+        && !suiteName.contains("..")
+}
+
+struct RefusedToRemoveADefaultsSuiteThatIsNotAPerRunTestSuite: Error {
+    let suiteName: String
 }
 
 /// Empties a suite named by `perRunTestDefaultsSuiteName` and deletes the preferences file macOS keeps for it.
-func removeTestDefaultsSuite(named suiteName: String) {
+/// Any other name throws before anything is touched.
+func removeTestDefaultsSuite(named suiteName: String) throws {
+    guard isAPerRunTestDefaultsSuiteName(suiteName) else {
+        throw RefusedToRemoveADefaultsSuiteThatIsNotAPerRunTestSuite(suiteName: suiteName)
+    }
     UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+    // Writes out what cfprefsd still holds for the suite first, so it does not write the file back after the delete.
+    CFPreferencesAppSynchronize(suiteName as CFString)
     let preferencesFileURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Preferences/\(suiteName).plist")
     try? FileManager.default.removeItem(at: preferencesFileURL)
@@ -119,7 +144,7 @@ func withEmptyDefaults(suiteName: String, _ body: @MainActor (UserDefaults) thro
     let runnerSuiteName = perRunTestDefaultsSuiteName(suiteName)
     let testDefaults = try #require(UserDefaults(suiteName: runnerSuiteName))
     testDefaults.removePersistentDomain(forName: runnerSuiteName)
-    defer { removeTestDefaultsSuite(named: runnerSuiteName) }
+    defer { try? removeTestDefaultsSuite(named: runnerSuiteName) }
     try body(testDefaults)
 }
 
@@ -246,17 +271,49 @@ struct BundledThemeTests {
         #expect(ThemeSettingValue.migrated(fromSavedValue: "bundled:school-nekoma") == ("bundled:school-nekoma", false))
     }
 
-    @Test func aTestRunAndItsSuiteFileAreOwnedByThatRunAlone() throws {
+    @Test func aRunsSuiteNameCarriesItsProcessIDAndItsFileIsDeleted() throws {
         // Another run of the same checkout has another process ID, so its suite never shares this one's values.
         let suiteName = perRunTestDefaultsSuiteName("BundledThemeTests-SuiteName")
         #expect(suiteName.contains("-\(ProcessInfo.processInfo.processIdentifier)-"))
 
         let testDefaults = try #require(UserDefaults(suiteName: suiteName))
         testDefaults.set("bundled:school-inarizaki", forKey: CompanionThemeSettings.userDefaultsKey)
-        removeTestDefaultsSuite(named: suiteName)
+        try removeTestDefaultsSuite(named: suiteName)
         #expect(testDefaults.string(forKey: CompanionThemeSettings.userDefaultsKey) == nil)
+
+        // cfprefsd may still be flushing, so the file gets a short while to be gone.
         let preferencesFileURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences/\(suiteName).plist")
+        var waitedSeconds = 0.0
+        while FileManager.default.fileExists(atPath: preferencesFileURL.path) && waitedSeconds < 2 {
+            Thread.sleep(forTimeInterval: 0.05)
+            waitedSeconds += 0.05
+        }
         #expect(!FileManager.default.fileExists(atPath: preferencesFileURL.path))
+    }
+
+    @Test func onlyThisRunsPerRunSuiteNamesMayBeEmptiedAndDeleted() throws {
+        // The app's real bundle ID names the developer's own Clicky defaults and preferences file.
+        let namesThatAreNotThisRunsSuites = [
+            "com.crodris.clicky-watch-along",
+            Bundle.main.bundleIdentifier ?? "clicky-tests",
+            "com.apple.finder",
+            // Longer than a per-run name, so only the prefix tells it apart.
+            String(repeating: "x", count: perRunTestDefaultsSuiteName("x").count),
+            perRunTestDefaultsSuiteName(""),
+            perRunTestDefaultsSuiteName("x/../../y"),
+            perRunTestDefaultsSuiteName("x..y"),
+        ]
+        for refusedName in namesThatAreNotThisRunsSuites {
+            #expect(!isAPerRunTestDefaultsSuiteName(refusedName), "\(refusedName)")
+        }
+        #expect(isAPerRunTestDefaultsSuiteName(perRunTestDefaultsSuiteName("BundledThemeTests-Refusal")))
+
+        // The refusal is thrown before anything is touched. These names are made up, so nothing real is at risk if it is not.
+        for refusedName in ["com.example.not-a-test-suite", perRunTestDefaultsSuiteName(""), perRunTestDefaultsSuiteName("x/../y")] {
+            #expect(throws: RefusedToRemoveADefaultsSuiteThatIsNotAPerRunTestSuite.self) {
+                try removeTestDefaultsSuite(named: refusedName)
+            }
+        }
     }
 
     @Test func aLaunchReadsAnOlderSettingWithoutRewritingItAndRandomIsClickyBlueWithShuffleOn() async throws {

@@ -787,17 +787,34 @@ export function appToolStepKindsIn(managerSource: string, voiceCommandToolsSourc
   return { handOffToolNames, lookupToolNames };
 }
 
-/** Each app tool's branch of `appVoiceToolStep` in CompanionManager.swift, with the tool's wire name. */
-function appToolBranchesIn(managerSource: string, voiceCommandToolsSource: string): { toolName: string; branch: string }[] {
+/**
+ * Each app tool's branch of `appVoiceToolStep` in CompanionManager.swift, with the tool's wire name. A shape this reader cannot
+ * read throws, so the test that uses it fails instead of passing on a branch it skipped: a case label that is not exactly one
+ * `AppVoiceTool` case (`case .a, .b:`, or a `where` clause), or a branch with no `return .handOff` or `return .outcome`.
+ */
+export function appToolBranchesIn(managerSource: string, voiceCommandToolsSource: string): { toolName: string; branch: string }[] {
   const toolNameOfCase = appToolNamesByCaseIn(voiceCommandToolsSource);
   const stepStart = managerSource.indexOf("private func appVoiceToolStep(");
   const stepSource = managerSource.slice(stepStart, managerSource.indexOf("// MARK:", stepStart));
   // The tool branches are the `case .name:` lines at the switch's own indent, 8 spaces, so a nested switch's cases do not split one.
   const branches = stepSource.split(/^ {8}case \./m).slice(1);
-  return branches.flatMap((branch) => {
-    const toolName = toolNameOfCase[branch.slice(0, branch.indexOf(":"))];
-    return toolName === undefined ? [] : [{ toolName, branch }];
+  return branches.map((branch) => {
+    const caseLabel = branch.slice(0, branch.indexOf(":"));
+    // A label of two cases or with a where clause is not a key of the table, so it is not read as one tool.
+    const toolName = toolNameOfCase[caseLabel];
+    if (toolName === undefined) {
+      throw new Error(`appVoiceToolStep has a branch "case .${caseLabel}:" that is not exactly one AppVoiceTool case, which this reader cannot tell apart`);
+    }
+    if (!/return \.(handOff|outcome)/.test(branch)) {
+      throw new Error(`appVoiceToolStep's branch for ${toolName} has no "return .handOff" or "return .outcome", so this reader cannot tell what it does`);
+    }
+    return { toolName, branch };
   });
+}
+
+/** The wire name of every `AppVoiceTool` case in VoiceCommandTools.swift. */
+export function allAppToolNamesIn(voiceCommandToolsSource: string): string[] {
+  return Object.values(appToolNamesByCaseIn(voiceCommandToolsSource));
 }
 
 /**

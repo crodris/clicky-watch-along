@@ -85,8 +85,9 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
 
     /// Whether a call to the tool can hand the request to a slow path, which then owns what Clicky says, so the turn's
     /// confirmation is never spoken. These are the tools whose branch in CompanionManager's `appVoiceToolStep` returns
-    /// `.handOff`, which `bench/brainEvals.ts` (`appToolStepKindsIn`) also reads, and a tool that hands off only some of
-    /// the time, such as `build_simulation`, counts.
+    /// `.handOff`, and a tool that hands off only some of the time, such as `build_simulation`, counts. The bench test
+    /// "lists in AppVoiceTool.mayHandOff exactly the tools whose appVoiceToolStep branch can hand off"
+    /// (`bench/brainEvals.test.ts`, which reads this list and the branches from the Swift source) fails when they differ.
     var mayHandOff: Bool {
         switch self {
         case .answerWithScreen, .buildNewScene, .buildSimulation, .popOut, .animatePicture, .showArtInMyRoom, .closeScene, .explainPart,
