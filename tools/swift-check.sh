@@ -32,8 +32,9 @@ done
 echo "swift-check: skipping ${#tests_that_need_the_app_bundle[@]} test(s) that need the app bundle: ${tests_that_need_the_app_bundle[*]}"
 
 # The Quick Look extension compiles a few of the app's files on their own: the project's membership exception set for the
-# ClickyThemeQuickLook target. Type-check that set alone, with the app's Swift settings from Package.swift, so a shared file
-# that starts using an app-only type fails here instead of only in CI's Xcode build.
+# ClickyThemeQuickLook target. Type-check that set alone, with flags that mirror the app's Swift settings in Package.swift
+# (change all three together: the Xcode targets, Package.swift, and these flags), so a shared file that starts using an
+# app-only type fails here instead of only in CI's Xcode build.
 quick_look_files=()
 while IFS= read -r shared_file_name; do
   quick_look_files+=("$checkout_root/leanring-buddy/$shared_file_name")

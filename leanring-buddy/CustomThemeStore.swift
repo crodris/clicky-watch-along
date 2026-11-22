@@ -237,13 +237,6 @@ nonisolated struct CustomThemeStore: Sendable {
         return installedTheme
     }
 
-    /// The bytes of the file at `relativePath` inside a package, or nil when nothing is there, read as
-    /// `OpenedPackageFolder.plainFileData` reads it. A caller that reads several files of one package opens the folder once
-    /// instead, so they all come from the same folder.
-    static func plainFileData(atRelativePath relativePath: String, inPackageAt packageURL: URL, mostBytes: Int) throws -> Data? {
-        try OpenedPackageFolder(openingFolderAt: packageURL)?.plainFileData(atRelativePath: relativePath, mostBytes: mostBytes)
-    }
-
     /// Reads an open file, which it closes, only when the file itself is a regular file of at most `mostBytes`. The read stops
     /// at `mostBytes + 1` bytes, so a larger file is refused without reading the rest of it.
     fileprivate static func boundedRegularFileData(openFileDescriptor fileDescriptor: Int32, relativePath: String, mostBytes: Int) throws -> Data {
@@ -259,13 +252,14 @@ nonisolated struct CustomThemeStore: Sendable {
 
     // MARK: - Exporting a package
 
-    /// The package's file name for a theme, such as "Moonlit.clickytheme". A name can hold a slash, a colon, or a control
-    /// character, which a file name should not, so those become hyphens. The name is trimmed first, so a dot at its start
-    /// after the spaces also becomes a hyphen, since a leading dot would hide the file in Finder. Only the control category
-    /// counts, so an emoji joined with a zero-width joiner stays whole.
+    /// The package's file name for a theme, such as "Moonlit.clickytheme". A name can hold a slash, a colon, a control
+    /// character, or a bidirectional control such as a right-to-left override, which a file name should not, so those become
+    /// hyphens. A theme from someone else could use an override to make the file's name read differently in Finder. The
+    /// name is trimmed first, so a dot at its start after the spaces also becomes a hyphen, since a leading dot would hide
+    /// the file. The zero-width joiner is neither, so an emoji built with one stays whole.
     static func exportedPackageFileName(forThemeName themeName: String) -> String {
         var fileName = String(themeName.trimmingCharacters(in: .whitespaces).map { character in
-            let isAControlCharacter = character.unicodeScalars.contains { $0.properties.generalCategory == .control }
+            let isAControlCharacter = character.unicodeScalars.contains { $0.properties.generalCategory == .control || $0.properties.isBidiControl }
             return character == "/" || character == ":" || isAControlCharacter ? "-" : character
         })
         while fileName.hasPrefix(".") { fileName = "-" + fileName.dropFirst() }
@@ -480,7 +474,8 @@ nonisolated final class OpenedPackageFolder {
     /// Nil when nothing is at the path or it is not a folder. The package is the folder the learner opened, so a link to
     /// it is followed, as Finder follows it.
     init?(openingFolderAt folderURL: URL) {
-        let openedDescriptor = open(folderURL.path, O_RDONLY | O_DIRECTORY)
+        // `O_NONBLOCK` keeps a named pipe at the path from blocking the open, which `O_DIRECTORY` then refuses.
+        let openedDescriptor = open(folderURL.path, O_RDONLY | O_DIRECTORY | O_NONBLOCK)
         guard openedDescriptor >= 0 else { return nil }
         folderDescriptor = openedDescriptor
     }
@@ -493,7 +488,8 @@ nonisolated final class OpenedPackageFolder {
     /// looked up once, relative to a folder already open, so a folder swapped for a link between two steps cannot send the
     /// read outside the package. That is the parent folder race a hostile network volume could run, where the server can
     /// change what a path names between two calls: a check of the path followed by a later open of it would follow the swap.
-    /// The bytes come from the opened file, at most `mostBytes`.
+    /// Each file's walk starts again at the package folder, so two files in one folder each look that folder up, and each
+    /// lookup refuses a link. The bytes come from the opened file, at most `mostBytes`.
     func plainFileData(atRelativePath relativePath: String, mostBytes: Int) throws -> Data? {
         let pathParts = relativePath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         // The theme's own rules already refuse such a path. An empty name, "." or ".." here would name the folder itself or

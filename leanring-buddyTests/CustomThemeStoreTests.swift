@@ -478,8 +478,9 @@ struct CustomThemeStoreRenameAndDeleteTests {
         let folderURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-test-read-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folderURL.appendingPathComponent("inner"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folderURL) }
+        let packageFolder = try #require(OpenedPackageFolder(openingFolderAt: folderURL))
         func read(_ relativePath: String, mostBytes: Int = 10) throws -> Data? {
-            try CustomThemeStore.plainFileData(atRelativePath: relativePath, inPackageAt: folderURL, mostBytes: mostBytes)
+            try packageFolder.plainFileData(atRelativePath: relativePath, mostBytes: mostBytes)
         }
         let regularFileURL = folderURL.appendingPathComponent("regular.jpg")
         try Data(count: 10).write(to: regularFileURL)
