@@ -164,8 +164,9 @@ func tabToSeekAfterTheScrub(checkedTab: ChromeVideoTab, tabInFrontNow: ChromeVid
 }
 
 /// Holds the one scrub the overlay plays and the wait for it. The overlay reads `request`, reports arrival with
-/// `cursorReachedTheMoment` and the end of its flight back with `overlayFinished`, and a push-to-talk press calls
-/// `landAtOnce`. Each scrub resumes its wait exactly once, whichever of these comes first.
+/// `cursorReachedTheMoment` and the end of its flight back with `overlayFinished`, or a refusal to fly with
+/// `overlayRefused`, and a push-to-talk press calls `landAtOnce`. Each scrub resumes its wait exactly once, whichever of
+/// these comes first.
 @MainActor
 final class CursorScrubController: ObservableObject {
     @Published private(set) var request: CursorScrubRequest?

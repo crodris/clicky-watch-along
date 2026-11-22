@@ -1011,7 +1011,8 @@ struct BlueCursorView: View {
 
     /// Flies to the current time on the video's line, slides along it to the moment, tells the controller it arrived so the
     /// video seeks, holds there for a moment, and flies back to the mouse. With Reduce Motion on, it fades in at the moment
-    /// instead, with no travel. A scrub this buddy already plays, or one for another screen, changes nothing.
+    /// instead, with no travel. A scrub this buddy already plays, or one for another screen, changes nothing. During the
+    /// first-launch welcome the buddy does not fly, and the controller hears the refusal, so the seek runs at once.
     private func startScrubbing(_ scrubRequest: CursorScrubRequest) {
         guard playingScrubID != scrubRequest.scrubID,
               targetDisplayIsThisScreen(scrubRequest.displayFrame) else { return }
