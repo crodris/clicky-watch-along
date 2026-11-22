@@ -279,6 +279,22 @@ struct RoomFurniturePaintedCompositeTests {
         #expect(result.layers != nil)
     }
 
+    @Test func aRedrawnPatchAtThePointOfTheRegionsTopIsKept() throws {
+        // A box seen turned, so the top of its outline is one corner, (560, 300), and the pasted region comes to a point
+        // there, widening by about 8 pixels a row. The service redrew the wall in the region's first 3 rows, 61 percent of
+        // its first 4 rows but 22 percent of its first 200 pixels, and painted the item at its measured height; the live
+        // check refused a good painting of a Blu Dot chair when the guard read only the first 4 rows.
+        let turnedBox = [
+            CGPoint(x: 500, y: 320), CGPoint(x: 700, y: 340), CGPoint(x: 700, y: 500), CGPoint(x: 500, y: 500),
+            CGPoint(x: 560, y: 300), CGPoint(x: 720, y: 330), CGPoint(x: 720, y: 480), CGPoint(x: 560, y: 480),
+        ]
+        let keyframe = try #require(roomFurnitureTestKeyframe())
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: turnedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        let painted = try painting(topRow: 320, over: keyframe, andBandFromRow: 270, toRow: 278, color: CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        let result = RoomFurniturePaintedComposite.itemLayers(painted: painted, keyframe: keyframe, maskPNG: maskPNG, projectedBox: turnedBox)
+        #expect(result.layers != nil, "measured \(String(describing: result.paintedRows))")
+    }
+
     @Test func aPaintingCutOffAlongThePastedRegionsTopIsRefused() throws {
         // A painted item from row 220 is 1.4 times the box's 200 rows. The client pasted nothing above the region, which
         // starts 24 rows above the box, so the measured height is only 1.125 times, and the cut along the top refuses it.

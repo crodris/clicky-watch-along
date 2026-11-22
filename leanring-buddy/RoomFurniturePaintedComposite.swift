@@ -62,11 +62,13 @@ nonisolated enum RoomFurniturePaintedComposite {
     /// and measured a LACK side table and a Blu Dot chair at 75 to 87 percent of their height.
     static let shareOfARowThatMustChange = 0.02
     static let fewestChangedPixelsInARow = 6
-    /// A painting that changed at least this share of the pasted region's top `rowsAlongTheRegionsTop` rows reached past
-    /// the region and was cut off by the paste. On the live check the service's redrawn wall changed about 20 percent of
-    /// them above a Blu Dot chair and none above a LACK side table, while a piece cut off there fills the region's top.
+    /// A painting that changed at least this share of the pasted region's top `pixelsAlongTheRegionsTop` pixels, counted
+    /// row by row from its top, reached past the region and was cut off by the paste. On the live check the service's
+    /// redrawn wall changed 8 to 20 percent of them above a Blu Dot chair and none above a LACK side table, while a piece
+    /// cut off there fills the region's top. Pixels and not rows, since the region often comes to a point at its top,
+    /// where the first rows hold only a few pixels and one redrawn patch of wall refused a good painting of the chair.
     static let mostOfTheRegionsTopThatMayChange = 0.5
-    static let rowsAlongTheRegionsTop = 4
+    static let pixelsAlongTheRegionsTop = 200
 
     /// The painted item as keyframe layers, or nil when the painting is not the keyframe's size, the mask does not read, the
     /// painted item is shorter than the box's front face or taller than its outline, each by more than
@@ -135,7 +137,7 @@ nonisolated enum RoomFurniturePaintedComposite {
 
     /// The rows from the highest to the lowest where the painting changed enough of the pasted region's pixels in that row
     /// (`shareOfARowThatMustChange`, `fewestChangedPixelsInARow`), in y-down keyframe rows, and the share of the region's
-    /// pixels that changed in its top `rowsAlongTheRegionsTop` rows, or nil when no row did.
+    /// top `pixelsAlongTheRegionsTop` pixels that changed, or nil when no row did.
     ///
     /// Rows below the box's lowest corner (`lowestItemRow`) never count. The piece stands on the floor at that row, and below
     /// it the pasted region holds only the painted shadow and the floor the service drew again. Counting them ran the item
@@ -153,7 +155,7 @@ nonisolated enum RoomFurniturePaintedComposite {
         ciContext.render(difference, toBitmap: &differenceBytes, rowBytes: width, bounds: frameRectangle, format: .L8, colorSpace: gray)
         ciContext.render(mask.cropped(to: frameRectangle), toBitmap: &maskBytes, rowBytes: width, bounds: frameRectangle, format: .L8, colorSpace: gray)
         let changeThreshold = UInt8(paintedLuminanceChange * 255)
-        var firstPaintedRow: Int?, lastPaintedRow: Int?, firstRowOfTheRegion: Int?
+        var firstPaintedRow: Int?, lastPaintedRow: Int?
         var regionTopPixels = 0, regionTopPixelsChanged = 0
         // Row 0 of the rendered bytes is the frame's top row, as y-down keyframe pixels count.
         for row in 0..<min(height, lowestItemRow + 1) {
@@ -162,8 +164,7 @@ nonisolated enum RoomFurniturePaintedComposite {
                 maskPixels += 1
                 if differenceBytes[row * width + column] > changeThreshold { changedPixels += 1 }
             }
-            if maskPixels > 0 { firstRowOfTheRegion = firstRowOfTheRegion ?? row }
-            if let firstRowOfTheRegion, row - firstRowOfTheRegion < rowsAlongTheRegionsTop {
+            if maskPixels > 0, regionTopPixels < pixelsAlongTheRegionsTop {
                 regionTopPixels += maskPixels
                 regionTopPixelsChanged += changedPixels
             }
