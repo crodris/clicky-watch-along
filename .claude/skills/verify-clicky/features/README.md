@@ -59,6 +59,7 @@ It then uses exactly four H2 sections in this order.
 - [3D model agent](./three-d-model-agent.md) covers building a 3D model in the background while the video plays, beside other background agents, and showing it when it is ready.
 - [Task agent](./task-agent.md) covers the general background agent that works on any task with web search, the video's captions, and a Notion page.
 - [Agent token serve](./agent-token-serve.md) covers a new agent's token flying from the cursor into its slot beside the notch, and the spoken confirmation that waits for it.
+- [Menu bar icon and agent discs](./menu-bar-icon-and-discs.md) covers the status icon's states and approval badge, a disc's orbiting dot, "!" face and pulse, its peek card and right-click menu, and Bring back, the spark that carries an ending chip to the cursor.
 - [Settings dial](./settings-dial.md) covers the dial that holding shift + option opens: previewing a slice, the Team and Model fans, committing on release, canceling, and the Agents list.
 - [Team theme](./team-theme.md) covers the Haikyu!! team theme: the picker, the volleyball cursor, the player portrait tokens beside the notch, and the themed agent list.
 - [Cursor ring and loop](./cursor-ring-and-loop.md) covers the ring of ticks and dots around the cursor and the hand-drawn loop around the video or image a request looks at.
