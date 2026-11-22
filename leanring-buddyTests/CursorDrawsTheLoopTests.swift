@@ -285,8 +285,9 @@ struct CursorDrawsTheLoopTests {
         #expect(theLoopDrawLandsForAnotherDraw(heldToken: thisScreensToken, newRecordToken: anotherScreensToken))
         // The record naming this screen's own draw, as when it starts one, leaves it alone.
         #expect(!theLoopDrawLandsForAnotherDraw(heldToken: thisScreensToken, newRecordToken: thisScreensToken))
-        // The record clearing, as when this screen releases its own draw, leaves it alone.
-        #expect(!theLoopDrawLandsForAnotherDraw(heldToken: thisScreensToken, newRecordToken: nil))
+        // The record clearing while this screen still holds its token means another screen's draw started and ended inside one
+        // update, and the other screens show their buddy again. This screen's own release clears its token first.
+        #expect(theLoopDrawLandsForAnotherDraw(heldToken: thisScreensToken, newRecordToken: nil))
         // A screen whose buddy is at the mouse has nothing to bring back.
         #expect(!theLoopDrawLandsForAnotherDraw(heldToken: nil, newRecordToken: anotherScreensToken))
     }

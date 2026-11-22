@@ -112,10 +112,11 @@ struct BuddyLoopDraw: Equatable {
 }
 
 /// Whether this screen's buddy, away for a loop with `heldToken`, comes back because the controller's record of the buddy away
-/// changed to `newRecordToken`. Another screen's buddy left for a newer loop when the record names another token. The record
-/// naming this screen's own token, or none, never sends it back.
+/// changed to `newRecordToken`. Only the record naming this screen's own token keeps it away. Another token means another
+/// screen's buddy left for a newer loop. No token means that newer draw started and ended inside one update, which the overlay
+/// sees as one change, and the other screens show their buddy again.
 func theLoopDrawLandsForAnotherDraw(heldToken: UUID?, newRecordToken: UUID?) -> Bool {
-    guard let heldToken, let newRecordToken else { return false }
+    guard let heldToken else { return false }
     return newRecordToken != heldToken
 }
 
