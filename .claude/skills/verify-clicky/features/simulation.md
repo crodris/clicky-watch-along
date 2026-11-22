@@ -45,7 +45,8 @@ Preconditions:
   GPT pages matched within 1 percent on 2026-11-15.
 - **App.** Run `$V app-launch "let me try it | &I think 60 degrees will go farther | make the angle 30 degrees | run it | +8 make the angle 60 degrees | run it"`, then `$V app-wait 480`.
   A Sonnet Worker can take 99 seconds for one experiment build.
-  With its retry it can take about 200 seconds, so the default 240 second `app-wait` is too short.
+  With its retry it can take about 200 seconds.
+  The default 240 second `app-wait` is too short for that build plus the rise, the guess, and the runs.
   The "&" prefix makes the guess wait for the build, the rise, and the spoken question, since the experiment now builds in the background.
   The log shows `Experiment: built`, `Experiment: showing`, `Simulation: asked for the guess` before `Live scene rehearsal: saying "I think`, `Voice command: record_guess(...)`, `Simulation: guess recorded`, two `run_simulation()` calls, `Simulation: guess check skipped after run 1, one setting tried`, and `Simulation: guess check after run 2`.
   Run `$V shot simulation` once the log shows `Simulation: challenge started`.
