@@ -26,10 +26,15 @@ struct TaskAgentSkillsTests {
         return directoryURL
     }
 
-    @Test func theBundledFlashcardsSkillReadsTheSameWayAsInTheHarness() {
+    @Test func theBundledFlashcardsSkillReadsTheSameWayAsInTheHarness() throws {
         // This file sits in leanring-buddyTests, next to leanring-buddy. swift-check links it, so resolve the link first.
         let repositoryRootURL = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
         let bundledSkillsURL = repositoryRootURL.appendingPathComponent("leanring-buddy/Skills", isDirectory: true)
+        // The catalog skips a folder or file it cannot read, so a read that fails under load would only show as a missing
+        // skill. Reading both here throws the operating system's own error, which names the cause.
+        let skillFileNames = try FileManager.default.contentsOfDirectory(atPath: bundledSkillsURL.path)
+        #expect(skillFileNames.contains("flashcards.md"), "leanring-buddy/Skills lists \(skillFileNames)")
+        _ = try String(contentsOf: bundledSkillsURL.appendingPathComponent("flashcards.md"), encoding: .utf8)
         let skills = TaskAgentSkillCatalog.skills(inDirectoryURLs: [bundledSkillsURL])
         // harness/skills_test.go asserts these same two strings.
         #expect(skills.first { $0.name == "flashcards" } == TaskAgentSkillSummary(
