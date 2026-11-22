@@ -2,14 +2,17 @@
 //  RoomArt.swift
 //  leanring-buddy
 //
-//  "Show me how this would look in my room": Clicky reads the wall art on Chrome's front tab and its size from the page,
-//  opens a live camera panel, and hangs the art on the learner's wall at its real size.
+//  "Show me how this would look in my room": Clicky reads the item on Chrome's front tab and its size from the page, opens a
+//  live camera panel, and shows the item in the learner's room at its real size: wall art hung on the wall, furniture stood
+//  on the floor, or a shirt tried on the learner's own body.
 //
 //  This file holds the pure parts: the Worker replies parsed into Swift types (`POST /try-it-item` reads the page and says
-//  what kind of item it shows, `POST /room-wall` measures the wall with Depth Pro), the art's corners projected from the wall
-//  plane, the bare wall spot the art goes to first, the wall's light, the phase state machine behind the panel, the clients,
-//  and the phrase that asks for it. `RoomTracker` keeps the art on the wall, `RoomCamera` supplies the frames, `RoomArtLoop`
-//  draws Clicky's loop around the spot while it is measured, and `RoomArtPreview` runs and draws the panel.
+//  what kind of item it shows, `POST /room-wall` measures the wall and `POST /room-floor` the floor with Depth Pro), the
+//  art's corners projected from the wall plane and the furniture's from the floor plane, the bare wall or floor spot the item
+//  goes to first, the wall's light, the phase state machine behind the panel, the clients, and the phrase that asks for it.
+//  `RoomTracker` keeps the item in place, `RoomCamera` supplies the frames, `RoomArtLoop` draws Clicky's loop around the spot
+//  while it is measured, `RoomArtPreview` runs and draws the panel, `RoomFloor` and the `RoomFurniture` files place and
+//  draw the furniture, and `ShirtTryOn` overlays the shirt.
 //
 
 import CoreGraphics

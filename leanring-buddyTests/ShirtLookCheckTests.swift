@@ -125,11 +125,11 @@ private func linearLuminance(red: Double, green: Double, blue: Double) -> Double
 
 /// CIE Lab (L from 0 to 100) of a linear sRGB color, white D65.
 private func cieLab(linearRed: Double, linearGreen: Double, linearBlue: Double) -> SIMD3<Double> {
-    let x = (0.4124564 * linearRed + 0.3575761 * linearGreen + 0.1804375 * linearBlue) / 0.95047
-    let y = 0.2126729 * linearRed + 0.7151522 * linearGreen + 0.0721750 * linearBlue
-    let z = (0.0193339 * linearRed + 0.1191920 * linearGreen + 0.9503041 * linearBlue) / 1.08883
+    let tristimulusX = (0.4124564 * linearRed + 0.3575761 * linearGreen + 0.1804375 * linearBlue) / 0.95047
+    let tristimulusY = 0.2126729 * linearRed + 0.7151522 * linearGreen + 0.0721750 * linearBlue
+    let tristimulusZ = (0.0193339 * linearRed + 0.1191920 * linearGreen + 0.9503041 * linearBlue) / 1.08883
     func curve(_ value: Double) -> Double { value > 0.008856 ? cbrt(value) : 7.787 * value + 16 / 116 }
-    let fx = curve(x), fy = curve(y), fz = curve(z)
+    let fx = curve(tristimulusX), fy = curve(tristimulusY), fz = curve(tristimulusZ)
     return SIMD3(116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz))
 }
 

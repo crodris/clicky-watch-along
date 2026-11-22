@@ -338,8 +338,11 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
     private(set) var modelsGenerated = 0
     private(set) var paintings = 0
     private(set) var renders: [RoomFurnitureLook] = []
+    /// The product image each generation service was sent, which must be the furniture's cutout and never the page picture.
+    private(set) var productJPEGsSent: [Data] = []
 
     func generateAModel(productJPEG: Data, itemTitle: String) async throws -> Data {
+        productJPEGsSent.append(productJPEG)
         modelsGenerated += 1
         guard let generatedModelData else { throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "") }
         return generatedModelData
@@ -348,6 +351,7 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data, keyframeWidth: Int, keyframeHeight: Int, productJPEG: Data, maskPNG: Data, itemTitle: String, itemSizeWords: String
     ) async throws -> CGImage {
+        productJPEGsSent.append(productJPEG)
         paintings += 1
         guard let paintedImage else { throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "") }
         if paintings <= failingPaintings { throw RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "") }
@@ -992,6 +996,26 @@ struct RoomArtPreviewControllerTests {
         try await waitFor("the painted composite to replace the cutout") { !harness.frameProcessor.furnitureLayersShown.isEmpty }
         #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
         #expect(looks.modelsGenerated == 1 && looks.paintings == 1)
+        harness.controller.close()
+    }
+
+    @Test func bothGenerationServicesGetTheFurnituresCutoutAndNeverThePagePicture() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("both services to be asked") { looks.modelsGenerated == 1 && looks.paintings == 1 }
+        #expect(looks.productJPEGsSent.count == 2)
+        for productJPEG in looks.productJPEGsSent {
+            // The page picture is 400 by 500, and the cutout is 60 by 45.
+            let sentImage = try #require(decodedImage(from: productJPEG))
+            #expect(sentImage.width == 60 && sentImage.height == 45)
+        }
+        #expect(looks.productJPEGsSent[0] == looks.productJPEGsSent[1])
         harness.controller.close()
     }
 

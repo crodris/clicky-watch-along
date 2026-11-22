@@ -699,8 +699,8 @@ struct ShirtTryOnRendererTests {
     }
 
     private func maxDifference(_ first: ShirtTestCanvas, _ second: ShirtTestCanvas, column: Int, row: Int) -> Int {
-        let a = first.pixel(column: column, row: row), b = second.pixel(column: column, row: row)
-        return max(abs(a.red - b.red), abs(a.green - b.green), abs(a.blue - b.blue))
+        let firstPixel = first.pixel(column: column, row: row), secondPixel = second.pixel(column: column, row: row)
+        return max(abs(firstPixel.red - secondPixel.red), abs(firstPixel.green - secondPixel.green), abs(firstPixel.blue - secondPixel.blue))
     }
 
     @Test func theGarmentDrawsOnlyInsideThePersonAndNeverOnTheHeadOrNeck() throws {

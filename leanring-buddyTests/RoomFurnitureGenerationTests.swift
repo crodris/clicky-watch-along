@@ -319,11 +319,11 @@ struct RoomFurnitureMaskTests {
         // white piece inside the mask, which the fit must not read.
         func gradientImage(brightening: Int, whitePiece: CGRect? = nil) -> CGImage {
             var pixelBytes = [UInt8](repeating: 255, count: 320 * 180 * 4)
-            for y in 0..<180 {
-                for x in 0..<320 {
-                    let isInThePiece = whitePiece?.contains(CGPoint(x: x, y: y)) ?? false
-                    let value = isInThePiece ? 255 : UInt8(min(255, 40 + x / 2 + brightening))
-                    pixelBytes.replaceSubrange(((y * 320 + x) * 4)..<((y * 320 + x) * 4 + 3), with: [value, value, value])
+            for row in 0..<180 {
+                for column in 0..<320 {
+                    let isInThePiece = whitePiece?.contains(CGPoint(x: column, y: row)) ?? false
+                    let value = isInThePiece ? 255 : UInt8(min(255, 40 + column / 2 + brightening))
+                    pixelBytes.replaceSubrange(((row * 320 + column) * 4)..<((row * 320 + column) * 4 + 3), with: [value, value, value])
                 }
             }
             let context = CGContext(
@@ -357,6 +357,40 @@ struct RoomFurnitureMaskTests {
         // Without the lengths, photo "AB" with title "C" and photo "A" with title "BC" would hash the same bytes.
         #expect(tryItModelCacheKey(productJPEG: Data("AB".utf8), itemTitle: "C") != tryItModelCacheKey(productJPEG: Data("A".utf8), itemTitle: "BC"))
         #expect(tryItModelCacheKey(productJPEG: photo, itemTitle: "Chair").count == 64)
+    }
+
+    @Test func aTransparentCutoutComesOutWhiteWhereItWasTransparentAndKeepsItsPixelsElsewhere() throws {
+        // A 40 by 30 cutout: an opaque red block in the middle, transparent everywhere else.
+        let context = try #require(CGContext(
+            data: nil, width: 40, height: 30, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+        context.fill(CGRect(x: 10, y: 8, width: 20, height: 14))
+        let cutout = try #require(context.makeImage())
+
+        let jpegData = try #require(roomFurnitureCutoutJPEG(cutout))
+        let decoded = try #require(decodedImage(from: jpegData))
+        let reader = PixelReader(decoded)
+
+        // A JPEG, at the cutout's size.
+        #expect(jpegData.prefix(2) == Data([0xFF, 0xD8]))
+        #expect(decoded.width == 40 && decoded.height == 30)
+        let cornerPixel = reader.rgb(x: 1, y: 1)
+        #expect(cornerPixel.red > 245 && cornerPixel.green > 245 && cornerPixel.blue > 245)
+        #expect(reader.isMostlyRed(x: 20, y: 15))
+    }
+
+    @Test func aTitleIsCutToTheWorkersLimitInUTF16UnitsNeverInsideACharacter() {
+        let shortTitle = "LACK Coffee table"
+        #expect(roomFurnitureTitleForTheWorker(shortTitle) == shortTitle)
+        #expect(roomFurnitureTitleForTheWorker(String(repeating: "a", count: 300)).utf16.count == 300)
+        #expect(roomFurnitureTitleForTheWorker(String(repeating: "a", count: 301)).utf16.count == 300)
+        // Each chair emoji is two UTF-16 units, so a cut at 300 units keeps 150 of them, and a 299 unit prefix plus one emoji
+        // keeps the 299 units and drops the emoji whole.
+        #expect(roomFurnitureTitleForTheWorker(String(repeating: "🪑", count: 200)).utf16.count == 300)
+        let cutBeforeAnEmoji = roomFurnitureTitleForTheWorker(String(repeating: "a", count: 299) + "🪑")
+        #expect(cutBeforeAnEmoji == String(repeating: "a", count: 299))
     }
 
     @Test func onlyDataThatStartsWithTheGLBMagicIsAModel() {
@@ -434,6 +468,26 @@ struct RoomFurnitureGenerationClientTests {
         #expect(pasted.width == 200)
         #expect(reader.isMostlyBlue(x: 100, y: 50))
         #expect(reader.isMostlyRed(x: 5, y: 5))
+    }
+
+    @Test func aTitleOverTheWorkersLimitIsCutBeforeBothRequestsAreSent() async throws {
+        let longTitle = String(repeating: "Sofa ", count: 100)
+        answer("room-furniture-composite", statusCode: 200, body: compositeReply())
+        answer("try-it-model", statusCode: 200, body: glbBytes)
+        let furnitureClient = client()
+        defer { try? FileManager.default.removeItem(at: modelCacheFolder) }
+
+        _ = try await furnitureClient.paintTheItemIntoTheKeyframe(
+            keyframeJPEG: keyframeJPEG, keyframeWidth: 200, keyframeHeight: 100, productJPEG: productJPEG,
+            maskPNG: maskPNG, itemTitle: longTitle, itemSizeWords: "31.5 inches wide and 29.5 tall"
+        )
+        _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: longTitle)
+
+        for route in ["room-furniture-composite", "try-it-model"] {
+            let sentBody = try #require(requestBodies(of: route).first)
+            let sentJSON = try #require(JSONSerialization.jsonObject(with: sentBody) as? [String: Any])
+            #expect((sentJSON["itemTitle"] as? String)?.utf16.count == 300)
+        }
     }
 
     @Test func aCompositeReplyOfAnotherSizeComesBackAtTheKeyframesSize() async throws {

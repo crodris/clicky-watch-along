@@ -145,8 +145,8 @@ nonisolated struct RoomFurnitureModelCandidate: Equatable, Sendable {
     let claimedType: RoomFurnitureClaimedModelType
     /// True when the URL's path says Draco, the mesh compression SceneKit cannot decode.
     let looksLikeDraco: Bool
-    /// True when the page itself fetched this file (the script found it among the page's loaded resources), so its host is
-    /// one the store chose to load the model from, such as a CDN on another domain.
+    /// True when the page's own script says the page fetched this file (it found the URL among the page's loaded resources),
+    /// which is how a CDN on another domain is let through. It is the page's claim and is not checked.
     var wasLoadedByThePage = false
 
     /// The candidates in a discovery script's reply, in the order the script found them. Only https URLs on a public host are
@@ -247,7 +247,12 @@ nonisolated func rankedModelCandidates(_ candidates: [RoomFurnitureModelCandidat
 
 /// The candidates the app may download for the page at `pageURL`: a file on the page's own registrable domain (IKEA's
 /// web-api.ikea.com for www.ikea.com), or a file the page itself loaded, whatever its host. Any other URL the page merely
-/// names is left out, so a page cannot point the app's download at an arbitrary public host of its choosing.
+/// names is left out.
+///
+/// This is a filter on which files the page offers, and it is not a boundary on where a download goes. A same-domain URL
+/// may redirect to any other public https host, which the safe download follows, and `wasLoadedByThePage` comes from the
+/// page's own script, so a hostile page can claim it for any URL. What bounds the download is the safe download's own rules
+/// (https, no private or local host, no cookies, the size cap) and the checks on the bytes.
 nonisolated func candidatesThePageMayOffer(_ candidates: [RoomFurnitureModelCandidate], pageURL: URL) -> [RoomFurnitureModelCandidate] {
     guard let pageHost = pageURL.host else { return [] }
     let pageDomain = registrableDomain(ofHost: pageHost)

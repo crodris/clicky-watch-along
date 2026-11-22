@@ -94,8 +94,13 @@ export function imageEditSizeFor(keyframeWidth: number, keyframeHeight: number):
 // MARK: - The mask
 
 const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-/** Bytes per pixel for each 8-bit PNG color type the app can write: gray, RGB, gray with alpha, and RGBA. */
-const bytesPerPixelForColorType: Record<number, number> = { 0: 1, 2: 3, 4: 2, 6: 4 };
+/**
+ * The only mask format the app writes: an 8-bit gray PNG (color type 0). Wider formats are refused rather than read, since
+ * a 4096 by 4096 RGBA image is about 64 MB of pixels and the filter pass below holds the image data and its unfiltered
+ * copy at once.
+ */
+const grayColorType = 0;
+const grayBitDepth = 8;
 
 export type GrayMask = { width: number; height: number; grayValues: Uint8Array };
 
@@ -148,9 +153,9 @@ function paethPredictor(left: number, above: number, upperLeft: number): number 
 }
 
 /**
- * Reads the app's mask: an 8-bit, non-interlaced PNG in gray, RGB, gray with alpha, or RGBA, whose first channel says
- * where the piece may be drawn (white) and where not (black). The app writes 8-bit gray. Throws an Error that names the
- * problem for anything else, which the route answers with 400. With `requiredSize`, a header of any other size is refused
+ * Reads the app's mask: an 8-bit, non-interlaced gray PNG whose value says where the piece may be drawn (white) and where
+ * not (black), which is the only format the app writes. Throws an Error that names the problem for anything else, color
+ * PNGs and 16-bit gray included, which the route answers with 400. With `requiredSize`, a header of any other size is refused
  * before the image data is inflated, and the inflate never produces more than that size needs.
  */
 export async function decodeGrayMaskPNG(pngBytes: Uint8Array, requiredSize?: { width: number; height: number }): Promise<GrayMask> {
@@ -187,10 +192,10 @@ export async function decodeGrayMaskPNG(pngBytes: Uint8Array, requiredSize?: { w
   if (header === undefined) {
     throw new Error("maskPNGBase64 has no IHDR chunk");
   }
-  const bytesPerPixel = bytesPerPixelForColorType[header.colorType];
-  if (header.bitDepth !== 8 || bytesPerPixel === undefined || header.interlace !== 0) {
-    throw new Error("maskPNGBase64 must be an 8-bit, non-interlaced gray, RGB, gray with alpha, or RGBA PNG");
+  if (header.colorType !== grayColorType || header.bitDepth !== grayBitDepth || header.interlace !== 0) {
+    throw new Error("maskPNGBase64 must be an 8-bit, non-interlaced gray PNG");
   }
+  const bytesPerPixel = 1;
   if (header.width < 1 || header.height < 1 || header.width > maximumImageSide || header.height > maximumImageSide) {
     throw new Error(`maskPNGBase64 must be from 1 to ${maximumImageSide} pixels on each side`);
   }
@@ -239,11 +244,8 @@ export async function decodeGrayMaskPNG(pngBytes: Uint8Array, requiredSize?: { w
     }
   }
 
-  const grayValues = new Uint8Array(header.width * header.height);
-  for (let pixelIndex = 0; pixelIndex < grayValues.length; pixelIndex += 1) {
-    grayValues[pixelIndex] = pixelBytes[pixelIndex * bytesPerPixel];
-  }
-  return { width: header.width, height: header.height, grayValues };
+  // One byte per pixel, so the unfiltered bytes are the gray values.
+  return { width: header.width, height: header.height, grayValues: pixelBytes };
 }
 
 const crc32Table = (() => {
@@ -334,6 +336,41 @@ export function maskBounds(grayMask: GrayMask): MaskBounds | undefined {
   return bounds;
 }
 
+/**
+ * The width and height an image's own header states, for a PNG (the IHDR chunk) or a JPEG (the first start-of-frame
+ * marker). Undefined for anything else or a header that is cut short. Nothing is decoded.
+ */
+export function imageSizeFromHeader(imageBytes: Uint8Array): ImageEditSize | undefined {
+  const view = new DataView(imageBytes.buffer, imageBytes.byteOffset, imageBytes.byteLength);
+  if (imageBytes.length >= 24 && pngSignature.every((byte, index) => imageBytes[index] === byte)) {
+    return { width: view.getUint32(16), height: view.getUint32(20) };
+  }
+  if (imageBytes.length >= 4 && imageBytes[0] === 0xff && imageBytes[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 4 <= imageBytes.length) {
+      if (imageBytes[offset] !== 0xff) return undefined;
+      const marker = imageBytes[offset + 1];
+      if (marker === 0xff) {
+        // Fill bytes may come before a marker.
+        offset += 1;
+        continue;
+      }
+      // Start of frame: C0 to CF except the Huffman table (C4), JPEG extensions (C8), and arithmetic conditioning (CC).
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        if (offset + 9 > imageBytes.length) return undefined;
+        return { width: view.getUint16(offset + 7), height: view.getUint16(offset + 5) };
+      }
+      // The markers with no length: standalone ones, then the length of the segment that follows every other marker.
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)) {
+        offset += 2;
+        continue;
+      }
+      offset += 2 + view.getUint16(offset + 2);
+    }
+  }
+  return undefined;
+}
+
 function base64ToBytes(base64Text: string): Uint8Array | undefined {
   try {
     return Uint8Array.from(atob(base64Text), (character) => character.charCodeAt(0));
@@ -411,9 +448,14 @@ const failedEditError = "The furniture could not be drawn into the room";
 
 export async function handleRoomFurnitureComposite(
   request: Request,
-  openAIAPIKey: string,
+  openAIAPIKey: string | undefined,
   options: { editTimeoutMilliseconds?: number } = {},
 ): Promise<Response> {
+  // Checked before the body, so an install with no OpenAI key hears so whatever it sent, and the app stops asking, as it
+  // does for /try-it-model with no FAL_KEY.
+  if (openAIAPIKey === undefined || openAIAPIKey === "") {
+    return jsonResponse({ error: "OPENAI_API_KEY is not set" }, 503);
+  }
   const parsedRequest = await parseJSONRequest(request, roomFurnitureCompositeRequestSchema);
   if (!parsedRequest.ok) {
     return parsedRequest.response;
@@ -472,6 +514,16 @@ export async function handleRoomFurnitureComposite(
     return jsonResponse({ error: failedEditError }, 502);
   }
 
+  // The size reported is the one the image says, since OpenAI may draw another size than the one asked for, and the app
+  // refuses a reply whose image is not the size it states.
+  const drawnImageBase64 = parsedEditReply.data.data[0].b64_json;
+  const drawnImageBytes = base64ToBytes(drawnImageBase64);
+  const drawnImageSize = drawnImageBytes === undefined ? undefined : imageSizeFromHeader(drawnImageBytes);
+  if (drawnImageSize === undefined) {
+    console.error(`[${routeName}] OpenAI's image has no readable size`);
+    return jsonResponse({ error: failedEditError }, 502);
+  }
+
   logModelUsage(routeName, { model: furnitureCompositeImageModel, usage: { ...parsedEditReply.data.usage, seconds: (Date.now() - startedAt) / 1000 } });
-  return jsonResponse({ imageJPEGBase64: parsedEditReply.data.data[0].b64_json, width: outputSize.width, height: outputSize.height }, 200);
+  return jsonResponse({ imageJPEGBase64: drawnImageBase64, width: drawnImageSize.width, height: drawnImageSize.height }, 200);
 }

@@ -276,6 +276,45 @@ nonisolated func decodedImage(from imageData: Data) -> CGImage? {
     return CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
 }
 
+// MARK: - What the Worker takes
+
+/// The most characters either generation route takes for an item title, counted as JavaScript counts them, in UTF-16 code
+/// units. The routes answer 400 for a longer one and cut nothing.
+nonisolated let roomFurnitureMostTitleUTF16Units = 300
+
+/// `itemTitle` cut to the Worker's limit, never in the middle of a character (a character outside the Basic Multilingual
+/// Plane is two UTF-16 units, so a cut between them would send half of one).
+nonisolated func roomFurnitureTitleForTheWorker(_ itemTitle: String) -> String {
+    var cutTitle = String.UnicodeScalarView()
+    var utf16UnitCount = 0
+    for unicodeScalar in itemTitle.unicodeScalars {
+        utf16UnitCount += unicodeScalar.value > 0xFFFF ? 2 : 1
+        if utf16UnitCount > roomFurnitureMostTitleUTF16Units { break }
+        cutTitle.append(unicodeScalar)
+    }
+    return String(cutTitle)
+}
+
+/// The furniture's cutout as the JPEG both generation routes take: the cutout drawn over white, since a JPEG has no
+/// transparency and a Worker prompt that says "the product on white" must get one. Nil when the image cannot be drawn.
+nonisolated func roomFurnitureCutoutJPEG(_ cutoutImage: CGImage) -> Data? {
+    guard cutoutImage.width > 0, cutoutImage.height > 0,
+          let context = CGContext(
+              data: nil, width: cutoutImage.width, height: cutoutImage.height, bitsPerComponent: 8, bytesPerRow: 0,
+              space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+          ) else { return nil }
+    let imageRectangle = CGRect(x: 0, y: 0, width: cutoutImage.width, height: cutoutImage.height)
+    context.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+    context.fill(imageRectangle)
+    context.draw(cutoutImage, in: imageRectangle)
+    guard let imageOverWhite = context.makeImage() else { return nil }
+    let encodedData = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(encodedData, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+    CGImageDestinationAddImage(destination, imageOverWhite, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
+    guard CGImageDestinationFinalize(destination) else { return nil }
+    return encodedData as Data
+}
+
 // MARK: - The model cache
 
 /// Every GLB starts with the ASCII magic "glTF".
@@ -358,9 +397,10 @@ final class RoomFurnitureGenerationClient {
     }
 
     /// Draws the product into the keyframe and returns the keyframe with the drawn piece pasted in, at the keyframe's
-    /// size. `maskPNG` comes from `furnitureCompositeMaskPNG`, and `itemSizeWords` reads like "55 cm wide, 45 cm tall,
-    /// 55 cm deep". The Worker cuts nothing: a title or size words over 300 characters, or an image over 4,000,000
-    /// characters of base64 (about 3 MB), gets a 400.
+    /// size. `productJPEG` is the furniture's cutout over white (`roomFurnitureCutoutJPEG`), `maskPNG` comes from
+    /// `roomFurnitureCompositeMaskPNG`, and `itemSizeWords` reads like "31.5 inches wide and 29.5 tall"
+    /// (`RoomFurniture.sizeInWords`). The Worker cuts nothing: size words over 300 characters, or an image over 4,000,000
+    /// characters of base64 (about 3 MB), gets a 400, so the title is cut here (`roomFurnitureTitleForTheWorker`).
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data,
         keyframeWidth: Int,
@@ -382,7 +422,7 @@ final class RoomFurnitureGenerationClient {
             "keyframeHeight": keyframeHeight,
             "productJPEGBase64": productJPEG.base64EncodedString(),
             "maskPNGBase64": maskPNG.base64EncodedString(),
-            "itemTitle": itemTitle,
+            "itemTitle": roomFurnitureTitleForTheWorker(itemTitle),
             "itemSizeWords": itemSizeWords,
         ], to: compositeURL)
 
@@ -409,7 +449,9 @@ final class RoomFurnitureGenerationClient {
 
     /// The product as a GLB, from the cache when this photo and title were made into a model before. A cache that cannot
     /// be read or written only costs a new model, so its errors never fail the call.
-    func generateAModel(productJPEG: Data, itemTitle: String) async throws -> Data {
+    func generateAModel(productJPEG: Data, itemTitle fullItemTitle: String) async throws -> Data {
+        // The key and the request use the same cut title, so what is cached is what the Worker was asked for.
+        let itemTitle = roomFurnitureTitleForTheWorker(fullItemTitle)
         let cacheFile = modelCacheFolder.appendingPathComponent(tryItModelCacheKey(productJPEG: productJPEG, itemTitle: itemTitle) + ".glb")
         if let cachedModel = try? Data(contentsOf: cacheFile), dataIsAGLB(cachedModel) {
             return cachedModel

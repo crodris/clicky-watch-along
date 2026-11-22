@@ -272,7 +272,9 @@ enum PageImageAnimation {
     }
 }
 
-/// A redirect may only move to another https URL on a public host (`PageImageAnimation.mayDownload`).
+/// A redirect may only move to another https URL on a public host (`PageImageAnimation.mayDownload`). That is the only limit
+/// on where a redirect goes, so a store model download that passed the page's host filter (`candidatesThePageMayOffer`) may
+/// still end on another public host.
 /// The completion-handler form is used because Swift 6.3 crashes emitting the async form's thunk under main-actor default isolation.
 nonisolated final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(

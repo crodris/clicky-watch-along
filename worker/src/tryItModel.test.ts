@@ -172,6 +172,10 @@ describe("handleTryItModel", () => {
     expect(response.status).toBe(200);
   });
 
+  it("holds a GLB to the app's own limit, GLBLoader.largestFileByteCount, so the app never refuses a download it paid for", () => {
+    expect(largestModelByteCount).toBe(40_000_000);
+  });
+
   it("answers 503 before any call when FAL_KEY is not set, whatever the body", async () => {
     const fetchMock = stubFal();
 

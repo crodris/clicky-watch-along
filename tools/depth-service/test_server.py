@@ -144,3 +144,76 @@ def test_the_cache_keeps_only_the_newest_frames(monkeypatch):
 
     assert depth_runs == [900, 1000, 1100, 900]
     assert len(server.depth_cache) == server.DEPTH_CACHE_SIZE
+
+
+def png_bytes_of_size(width, height):
+    buffer = io.BytesIO()
+    Image.fromarray(np.zeros((height, width), np.uint8)).save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+def a_png_header_that_declares(width, height):
+    """The first 24 bytes of a PNG that states a size its image data never holds, as a hostile file would."""
+    ihdr_fields = width.to_bytes(4, "big") + height.to_bytes(4, "big")
+    return server.PNG_SIGNATURE + (13).to_bytes(4, "big") + b"IHDR" + ihdr_fields
+
+
+def base64_of(data):
+    return base64.b64encode(data).decode()
+
+
+def test_an_image_over_4096_pixels_on_a_side_is_refused_before_its_pixels_are_decoded():
+    buffer = io.BytesIO()
+    Image.fromarray(np.full((8, server.MAX_IMAGE_SIDE + 1, 3), 128, np.uint8)).save(buffer, "JPEG")
+    body = {"jpegBase64": base64_of(buffer.getvalue()), "anchor": {"u": 1, "v": 1}}
+
+    with pytest.raises(server.BadRequestError, match=r"jpegBase64 is 4097 x 8, and each side must be at most 4096"):
+        server.parse_plane_request(body)
+
+
+def test_an_image_at_the_side_limit_is_read():
+    buffer = io.BytesIO()
+    Image.fromarray(np.full((8, server.MAX_IMAGE_SIDE, 3), 128, np.uint8)).save(buffer, "JPEG")
+    body = {"jpegBase64": base64_of(buffer.getvalue()), "anchor": {"u": 1, "v": 1}}
+
+    frame_rgb, _, _, _ = server.parse_plane_request(body)
+
+    assert frame_rgb.shape == (8, server.MAX_IMAGE_SIDE, 3)
+
+
+def test_a_mask_over_4096_pixels_on_a_side_is_refused_before_it_is_decoded(monkeypatch):
+    # A forged header with no image data behind it: the refusal must come from the header, since decoding would fail or
+    # allocate the size it states.
+    def never_decode_the_mask(*arguments, **keyword_arguments):
+        raise AssertionError("the mask was decoded")
+
+    monkeypatch.setattr(server.cv2, "imdecode", never_decode_the_mask)
+    body = {**frame_body({"u": 1, "v": 1}), "maskPngBase64": base64_of(a_png_header_that_declares(60_000, 60_000))}
+
+    with pytest.raises(server.BadRequestError, match=r"maskPngBase64 is 60000 x 60000, and each side must be at most 4096"):
+        server.parse_plane_request(body)
+
+
+def test_a_mask_that_is_not_a_png_is_refused_without_a_decode(monkeypatch):
+    monkeypatch.setattr(server.cv2, "imdecode", lambda *arguments, **keyword_arguments: pytest.fail("the mask was decoded"))
+    body = {**frame_body({"u": 1, "v": 1}), "maskPngBase64": base64_of(b"GIF89a not a PNG at all, and long enough")}
+
+    with pytest.raises(server.BadRequestError, match="maskPngBase64 is not a readable PNG"):
+        server.parse_plane_request(body)
+
+
+def test_a_mask_within_the_limit_is_scaled_to_the_frame():
+    body = {**frame_body({"u": 1, "v": 1}), "maskPngBase64": base64_of(png_bytes_of_size(32, 18))}
+
+    frame_rgb, person_mask, _, _ = server.parse_plane_request(body)
+
+    assert person_mask.shape == frame_rgb.shape[:2]
+
+
+@pytest.mark.parametrize("route", ["/wall", "/floor"])
+def test_a_refusal_is_logged_under_the_route_that_was_called(depth_service_port, capsys, route):
+    post_to_route(depth_service_port, route, {"Content-Type": "application/json", "Origin": "https://shop.example"})
+
+    logged_lines = capsys.readouterr().out.splitlines()
+
+    assert f"[{route}] 403 Requests from web pages are refused" in logged_lines

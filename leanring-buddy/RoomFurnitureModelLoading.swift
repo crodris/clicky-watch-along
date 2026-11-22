@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import ImageIO
 import SceneKit
 
 /// A model ready to render, and which look it is.
@@ -38,6 +39,9 @@ nonisolated enum RoomFurnitureModelLoading {
         case .glb:
             rootNode = try GLBLoader.rootNode(fromGLBData: fileData)
         case .usdz:
+            // SceneKit decodes a USDZ's textures at whatever size their headers declare, so the ZIP's entries are checked
+            // against the image caps `GLBLoader` holds a GLB to before SceneKit sees the file.
+            try checkTheUSDZsEntries(in: fileData)
             let temporaryFolder = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-room-furniture-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: temporaryFolder, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: temporaryFolder) }
@@ -63,6 +67,79 @@ nonisolated enum RoomFurnitureModelLoading {
             throw RoomFurnitureModelLoadError(reason: "the model has no geometry")
         }
         return rootNode
+    }
+
+    /// The most entries a USDZ may hold, which is far more than a product's model and its textures need.
+    static let mostEntriesInAUSDZ = 4096
+
+    /// Refuses a USDZ whose ZIP could make SceneKit allocate without bound, before SceneKit reads it. It walks the local file
+    /// headers the way `RoomFurnitureModelFileKind.sniff` does, and refuses an entry that is compressed (a USDZ stores every
+    /// entry as is, so a compressed one is not a USDZ), an entry with a data descriptor (its size is not in its header, so it
+    /// cannot be walked past), an entry whose data runs past the file, an image that is larger than `largestImageSide` on a
+    /// side, and images that number more than `mostImages` or hold more than `mostPixels` in all. An image's size is read from
+    /// its header with `CGImageSource` and never decoded here.
+    static func checkTheUSDZsEntries(
+        in fileData: Data,
+        largestImageSide: Int = GLBLoader.largestImageSideInPixels,
+        mostImages: Int = GLBLoader.mostImagesDecodedFromAFile,
+        mostPixels: Int = GLBLoader.mostPixelsDecodedAndDerived
+    ) throws {
+        let localFileHeaderSignature = 0x0403_4B50
+        let fixedHeaderByteCount = 30
+        // Slices of `Data` keep their parent's indices, so offsets here count from the first byte of the file.
+        let fileBytes = Data(fileData)
+        var headerOffset = 0
+        var entryCount = 0
+        var imageCount = 0
+        var totalPixelCount = 0
+        func littleEndianValue(at offset: Int, byteCount: Int) -> Int {
+            (0..<byteCount).reduce(0) { value, byteIndex in value | Int(fileBytes[offset + byteIndex]) << (8 * byteIndex) }
+        }
+        while headerOffset + 4 <= fileBytes.count, littleEndianValue(at: headerOffset, byteCount: 4) == localFileHeaderSignature {
+            entryCount += 1
+            guard entryCount <= mostEntriesInAUSDZ else {
+                throw RoomFurnitureModelLoadError(reason: "the USDZ has more than \(mostEntriesInAUSDZ) entries")
+            }
+            guard headerOffset + fixedHeaderByteCount <= fileBytes.count else {
+                throw RoomFurnitureModelLoadError(reason: "the USDZ ends inside an entry's header")
+            }
+            let flags = littleEndianValue(at: headerOffset + 6, byteCount: 2)
+            let compressionMethod = littleEndianValue(at: headerOffset + 8, byteCount: 2)
+            let storedByteCount = littleEndianValue(at: headerOffset + 18, byteCount: 4)
+            let nameByteCount = littleEndianValue(at: headerOffset + 26, byteCount: 2)
+            let extraByteCount = littleEndianValue(at: headerOffset + 28, byteCount: 2)
+            guard compressionMethod == 0 else {
+                throw RoomFurnitureModelLoadError(reason: "the USDZ has a compressed entry, and a USDZ stores its entries uncompressed")
+            }
+            guard flags & 0x08 == 0 else {
+                throw RoomFurnitureModelLoadError(reason: "the USDZ has an entry with a data descriptor, so its size cannot be read")
+            }
+            let entryDataStart = headerOffset + fixedHeaderByteCount + nameByteCount + extraByteCount
+            guard entryDataStart + storedByteCount <= fileBytes.count else {
+                throw RoomFurnitureModelLoadError(reason: "the USDZ has an entry whose data runs past the end of the file")
+            }
+            let entryData = fileBytes.subdata(in: entryDataStart..<(entryDataStart + storedByteCount))
+            if let imageSource = CGImageSourceCreateWithData(entryData as CFData, nil), CGImageSourceGetCount(imageSource) >= 1 {
+                guard let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+                      let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int,
+                      let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int,
+                      pixelWidth >= 1, pixelHeight >= 1, pixelWidth <= largestImageSide, pixelHeight <= largestImageSide else {
+                    throw RoomFurnitureModelLoadError(reason: "the USDZ has an image with no size or one larger than \(largestImageSide) pixels on a side")
+                }
+                imageCount += 1
+                totalPixelCount += pixelWidth * pixelHeight
+                guard imageCount <= mostImages else {
+                    throw RoomFurnitureModelLoadError(reason: "the USDZ has more than \(mostImages) images")
+                }
+                guard totalPixelCount <= mostPixels else {
+                    throw RoomFurnitureModelLoadError(reason: "the USDZ's images hold more than \(mostPixels) pixels")
+                }
+            }
+            headerOffset = entryDataStart + storedByteCount
+        }
+        guard entryCount > 0 else {
+            throw RoomFurnitureModelLoadError(reason: "the USDZ has no readable entries")
+        }
     }
 
     /// Refuses a model with more nodes or vertices than the caps, before anything renders it.
@@ -93,7 +170,8 @@ nonisolated enum RoomFurnitureModelLoading {
         // The script may fetch a Shopify store's product data synchronously, so it gets longer than the default 2 seconds.
         let scriptResult = try? ChromeVideoTab.runJavaScript(roomFurnitureModelDiscoveryScript, in: frontTab, timeoutSeconds: 8)
         let candidatesThePageNamed = RoomFurnitureModelCandidate.parse(discoveryScriptResult: scriptResult)
-        // Only the page's own domain, or a host the page itself loaded the file from, may receive the download.
+        // A filter on which files the page may offer (its own domain, or a file its own script says it loaded), not a boundary:
+        // the download follows a redirect to any public https host.
         let candidates = URL(string: pageURL).map { candidatesThePageMayOffer(candidatesThePageNamed, pageURL: $0) } ?? []
         let ranking = rankedModelCandidates(candidates)
         print("Room furniture: the page names \(candidatesThePageNamed.count) model files, \(candidatesThePageNamed.count - candidates.count) on other hosts, \(ranking.candidatesToTry.count) worth trying, \(ranking.droppedBecauseOfDracoCount) Draco only")

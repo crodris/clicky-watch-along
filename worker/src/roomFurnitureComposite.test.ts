@@ -7,6 +7,7 @@ import {
   handleRoomFurnitureComposite,
   imageEditSizeFor,
   imageEditSizeRules,
+  imageSizeFromHeader,
   openAIEditMaskPNG,
 } from "./roomFurnitureComposite";
 
@@ -182,9 +183,18 @@ function requestWithBody(body: unknown): Request {
   return new Request("https://worker.test/room-furniture-composite", { method: "POST", body: JSON.stringify(body) });
 }
 
+/** The start of a JPEG: an APP0 segment, which a reader must skip, then the start-of-frame segment that states the size. */
+function jpegHeaderOfSize(width: number, height: number): Uint8Array<ArrayBuffer> {
+  const app0 = [0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00];
+  const startOfFrame = [0xff, 0xc0, 0x00, 0x11, 0x08, height >> 8, height & 0xff, width >> 8, width & 0xff, 0x03, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1];
+  return new Uint8Array([0xff, 0xd8, ...app0, ...startOfFrame, 0xff, 0xd9]);
+}
+
+const drawnImageBase64 = base64Of(jpegHeaderOfSize(1280, 720));
+
 const goodOpenAIReply = {
   created: 1,
-  data: [{ b64_json: "Z2VuZXJhdGVk" }],
+  data: [{ b64_json: drawnImageBase64 }],
   size: "1280x720",
   usage: { input_tokens: 2067, output_tokens: 812, total_tokens: 2879 },
 };
@@ -209,7 +219,7 @@ describe("handleRoomFurnitureComposite", () => {
     const response = await handleRoomFurnitureComposite(requestWithBody(goodBody()), openAIAPIKey);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ imageJPEGBase64: "Z2VuZXJhdGVk", width: 1280, height: 720 });
+    expect(await response.json()).toEqual({ imageJPEGBase64: drawnImageBase64, width: 1280, height: 720 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("https://api.openai.com/v1/images/edits");
@@ -248,6 +258,44 @@ describe("handleRoomFurnitureComposite", () => {
     const usage = JSON.parse((usageLine ?? "").slice("[/room-furniture-composite] usage ".length));
     expect(usage).toMatchObject({ model: "gpt-image-2.6-sunburst", input_tokens: 2067, output_tokens: 812 });
     expect(typeof usage.seconds).toBe("number");
+  });
+
+  it("reports the size of the image OpenAI drew, not the size it was asked for", async () => {
+    // A 1280x720 request that OpenAI answered with a 1536x864 image.
+    const drawnAtAnotherSize = { ...goodOpenAIReply, data: [{ b64_json: base64Of(jpegHeaderOfSize(1536, 864)) }] };
+    stubFetch(async () => new Response(JSON.stringify(drawnAtAnotherSize), { status: 200 }));
+
+    const response = await handleRoomFurnitureComposite(requestWithBody(goodBody()), openAIAPIKey);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ width: 1536, height: 864 });
+  });
+
+  it.each([
+    ["not an image", base64Of(new TextEncoder().encode("generated"))],
+    ["a JPEG cut off before its size", base64Of(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]))],
+  ])("answers 502 when the drawn image is %s, since its size cannot be told", async (_name, unreadableImageBase64) => {
+    stubFetch(async () => new Response(JSON.stringify({ ...goodOpenAIReply, data: [{ b64_json: unreadableImageBase64 }] }), { status: 200 }));
+
+    const response = await handleRoomFurnitureComposite(requestWithBody(goodBody()), openAIAPIKey);
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "The furniture could not be drawn into the room" });
+  });
+
+  it.each([
+    ["empty", ""],
+    ["missing", undefined],
+  ])("answers 503 before reading the body or calling OpenAI when the OpenAI key is %s", async (_name, missingKey) => {
+    const fetchMock = stubFetch(async () => new Response("{}"));
+
+    const response = await handleRoomFurnitureComposite(requestWithBody(goodBody()), missingKey);
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "OPENAI_API_KEY is not set" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    // Whatever the body, the app hears that the service is not set up.
+    expect((await handleRoomFurnitureComposite(requestWithBody({}), missingKey)).status).toBe(503);
   });
 
   it("puts the title and size words in tags whose text cannot close them", () => {
@@ -464,21 +512,24 @@ describe("decodeGrayMaskPNG", () => {
     [7, 70, 140, 210],
   ];
 
-  it.each([
-    ["gray", 0],
-    ["RGB", 2],
-    ["gray with alpha", 4],
-    ["RGBA", 6],
-  ])("reads the first channel of a %s PNG through every row filter", async (_name, colorType) => {
-    const channelCount = channelCountForColorType[colorType];
-    // Every other channel holds a different value, so a decoder that reads the wrong channel fails.
-    const pixelRows = firstChannelRows.map((row) => row.flatMap((value) => [value, ...Array.from({ length: channelCount - 1 }, () => 255 - value)]));
-    const pngBytes = await pngWith({ width: 4, height: 5, colorType, pixelRows, filterTypes: [0, 1, 2, 3, 4] });
+  it("reads an 8-bit gray PNG through every row filter", async () => {
+    const pngBytes = await pngWith({ width: 4, height: 5, pixelRows: firstChannelRows, filterTypes: [0, 1, 2, 3, 4] });
 
     const grayMask = await decodeGrayMaskPNG(pngBytes);
 
     expect([grayMask.width, grayMask.height]).toEqual([4, 5]);
     expect([...grayMask.grayValues]).toEqual(firstChannelRows.flat());
+  });
+
+  it.each([
+    ["RGB", 2],
+    ["gray with alpha", 4],
+    ["RGBA", 6],
+  ])("refuses a %s PNG, since the app writes only 8-bit gray and a color image costs several times the memory", async (_name, colorType) => {
+    const channelCount = channelCountForColorType[colorType];
+    const pixelRows = firstChannelRows.map((row) => row.flatMap((value) => Array.from({ length: channelCount }, () => value)));
+
+    await expect(decodeGrayMaskPNG(await pngWith({ width: 4, height: 5, colorType, pixelRows }))).rejects.toThrow("8-bit, non-interlaced gray PNG");
   });
 
   it("refuses an unknown row filter", async () => {
@@ -523,9 +574,23 @@ describe("openAIEditMaskPNG", () => {
     expect(await alphaValuesOf(pngBytes)).toEqual({ width: 3, height: 1, alphaValues: [0, 255, 127] });
   });
 
-  it("round-trips through the decoder, whose first channel is the black color", async () => {
-    const pngBytes = await openAIEditMaskPNG({ width: 2, height: 2, grayValues: new Uint8Array([255, 0, 0, 255]) });
+});
 
-    expect([...(await decodeGrayMaskPNG(pngBytes)).grayValues]).toEqual([0, 0, 0, 0]);
+describe("imageSizeFromHeader", () => {
+  it("reads a JPEG's size from its start-of-frame segment, past the segments before it", () => {
+    expect(imageSizeFromHeader(jpegHeaderOfSize(1536, 864))).toEqual({ width: 1536, height: 864 });
+  });
+
+  it("reads a PNG's size from its IHDR chunk", async () => {
+    const pngBytes = await pngWith({ width: 3, height: 2, pixelRows: [[0, 0, 0], [0, 0, 0]] });
+
+    expect(imageSizeFromHeader(pngBytes)).toEqual({ width: 3, height: 2 });
+  });
+
+  it("reads nothing from other bytes or a header cut short", () => {
+    expect(imageSizeFromHeader(new TextEncoder().encode("GIF89a, not a PNG or a JPEG"))).toBeUndefined();
+    expect(imageSizeFromHeader(new Uint8Array(0))).toBeUndefined();
+    expect(imageSizeFromHeader(jpegHeaderOfSize(10, 10).subarray(0, 22))).toBeUndefined();
+    expect(imageSizeFromHeader(pngSignature)).toBeUndefined();
   });
 });

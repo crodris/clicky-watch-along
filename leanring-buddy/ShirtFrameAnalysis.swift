@@ -45,11 +45,11 @@ nonisolated enum ShirtColorMath {
     /// limit above was tuned in.
     static func lab(red: UInt8, green: UInt8, blue: UInt8) -> SIMD3<Float> {
         let linearRed = linearValueOfEachByte[Int(red)], linearGreen = linearValueOfEachByte[Int(green)], linearBlue = linearValueOfEachByte[Int(blue)]
-        let x = (0.4124564 * linearRed + 0.3575761 * linearGreen + 0.1804375 * linearBlue) / 0.950456
-        let y = 0.2126729 * linearRed + 0.7151522 * linearGreen + 0.0721750 * linearBlue
-        let z = (0.0193339 * linearRed + 0.1191920 * linearGreen + 0.9503041 * linearBlue) / 1.088754
+        let tristimulusX = (0.4124564 * linearRed + 0.3575761 * linearGreen + 0.1804375 * linearBlue) / 0.950456
+        let tristimulusY = 0.2126729 * linearRed + 0.7151522 * linearGreen + 0.0721750 * linearBlue
+        let tristimulusZ = (0.0193339 * linearRed + 0.1191920 * linearGreen + 0.9503041 * linearBlue) / 1.088754
         func labCurve(_ value: Float) -> Float { value > 0.008856 ? cbrt(value) : 7.787 * value + 16 / 116 }
-        let fx = labCurve(x), fy = labCurve(y), fz = labCurve(z)
+        let fx = labCurve(tristimulusX), fy = labCurve(tristimulusY), fz = labCurve(tristimulusZ)
         return SIMD3((116 * fy - 16) * 255 / 100, 500 * (fx - fy) + 128, 200 * (fy - fz) + 128)
     }
 

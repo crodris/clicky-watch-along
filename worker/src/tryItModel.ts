@@ -22,8 +22,11 @@ const falQueueOrigin = "https://queue.fal.run";
 /** The whole call, from the submit to the last byte of the GLB. Past this the panel says it failed. */
 const wholeCallTimeoutMilliseconds = 120_000;
 const statusPollIntervalMilliseconds = 1_500;
-/** A 2048 texture and a 500,000 face mesh, TRELLIS 2's defaults, make a GLB of about 20 to 30 MB. */
-export const largestModelByteCount = 40 * 1024 * 1024;
+/**
+ * A 2048 texture and a 500,000 face mesh, TRELLIS 2's defaults, make a GLB of about 20 to 30 MB. This is the app's own limit,
+ * `GLBLoader.largestFileByteCount`, so the Worker never returns a file the app would refuse after the download.
+ */
+export const largestModelByteCount = 40_000_000;
 
 const maximumImageBase64Length = 4_000_000;
 const maximumItemTitleLength = 300;

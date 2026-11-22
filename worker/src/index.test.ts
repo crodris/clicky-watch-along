@@ -258,4 +258,15 @@ describe("the app secret on the gated routes", () => {
     expect(response.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("answers /room-furniture-composite with 503 when the Worker has an empty OpenAI key, as /try-it-model does for FAL_KEY", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await worker.fetch(postTo("/room-furniture-composite", { "x-clicky-app-secret": "app-secret" }), { ...notionEnv, OPENAI_API_KEY: "" });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "OPENAI_API_KEY is not set" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

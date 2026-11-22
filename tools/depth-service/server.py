@@ -4,8 +4,9 @@ GET  /health -> {"ok": true}
 POST /wall   -> { jpegBase64, maskPngBase64?, anchor: { u, v }, focalPx? }
                 200 { center, right, up, focalPx, principal, distanceMeters, wallAngleDegrees,
                       planeInlierShare, inferenceSeconds, seconds }
-                400 { error } for a bad body, 422 { error } when under 200 bare wall points remain or the
-                plane is not finite.
+                400 { error } for a bad body (an image or mask side over 4096 pixels included, read from the
+                header before any pixel is decoded), 422 { error } when under 200 bare wall points remain
+                or the plane is not finite.
 POST /floor  -> the same body, where anchor is the pixel the furniture's front-bottom center stands on.
                 200 { center, right, up, forward, focalPx, principal, distanceMeters,
                       floorTiltDegrees, planeInlierShare, inferenceSeconds, seconds }
@@ -42,6 +43,10 @@ CHECKPOINT_DOWNLOAD_URL = "https://ml-site.cdn-apple.com/models/depth-pro/depth_
 DEFAULT_CHECKPOINT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints", "depth_pro.pt")
 DEFAULT_PORT = 8801
 MAX_BODY_BYTES = 40_000_000
+# The most pixels either image may span on a side. The panel's frame is 1280 x 720, so this is generous, and it keeps a
+# small file that declares a huge image from filling memory in the decode.
+MAX_IMAGE_SIDE = 4096
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 # A person mask pixel counts as a person above this gray value.
 PERSON_MASK_THRESHOLD = 100
 
@@ -125,12 +130,30 @@ def decode_base64(value, field_name):
         raise BadRequestError(f"{field_name} is not valid base64")
 
 
+def refuse_an_image_over_the_side_limit(field_name, image_width, image_height):
+    if image_width > MAX_IMAGE_SIDE or image_height > MAX_IMAGE_SIDE:
+        raise BadRequestError(f"{field_name} is {image_width} x {image_height}, and each side must be at most {MAX_IMAGE_SIDE} pixels")
+
+
+def png_size_from_header(png_bytes):
+    """(width, height) from a PNG's IHDR chunk, or None for bytes that do not start like a PNG. Nothing is decoded."""
+    if len(png_bytes) < 24 or not png_bytes.startswith(PNG_SIGNATURE) or png_bytes[12:16] != b"IHDR":
+        return None
+    return int.from_bytes(png_bytes[16:20], "big"), int.from_bytes(png_bytes[20:24], "big")
+
+
 def parse_plane_request(body):
     """Checks the body and returns (frame_rgb, person_mask or None, anchor, focal_hint or None)."""
     if not isinstance(body, dict):
         raise BadRequestError("The body must be a JSON object")
     try:
-        frame_rgb = np.array(Image.open(io.BytesIO(decode_base64(body.get("jpegBase64"), "jpegBase64"))).convert("RGB"))
+        frame_image = Image.open(io.BytesIO(decode_base64(body.get("jpegBase64"), "jpegBase64")))
+        # `size` comes from the header, so a file that declares a huge image is refused before its pixels are decoded.
+        refuse_an_image_over_the_side_limit("jpegBase64", *frame_image.size)
+        frame_rgb = np.array(frame_image.convert("RGB"))
+    except Image.DecompressionBombError:
+        # Pillow's own guard for an image of many times this limit, which it refuses while opening.
+        raise BadRequestError(f"jpegBase64 spans far more than {MAX_IMAGE_SIDE} x {MAX_IMAGE_SIDE} pixels")
     except (UnidentifiedImageError, OSError):
         raise BadRequestError("jpegBase64 is not a readable image")
     image_height, image_width = frame_rgb.shape[:2]
@@ -152,6 +175,10 @@ def parse_plane_request(body):
     person_mask = None
     if body.get("maskPngBase64") is not None:
         mask_bytes = decode_base64(body["maskPngBase64"], "maskPngBase64")
+        mask_size = png_size_from_header(mask_bytes)
+        if mask_size is None:
+            raise BadRequestError("maskPngBase64 is not a readable PNG")
+        refuse_an_image_over_the_side_limit("maskPngBase64", *mask_size)
         mask_small = cv2.imdecode(np.frombuffer(mask_bytes, np.uint8), cv2.IMREAD_GRAYSCALE)
         if mask_small is None:
             raise BadRequestError("maskPngBase64 is not a readable PNG")
@@ -216,8 +243,8 @@ class Handler(BaseHTTPRequestHandler):
         refusal = refusal_for_headers(self.headers)
         if refusal is not None:
             status, error = refusal
+            print(f"[{route}] {status} {error}", flush=True)
             self.reply(status, {"error": error})
-            print(f"[/wall] {status} {error}", flush=True)
             return
         started_at = time.time()
         try:

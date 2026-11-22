@@ -971,8 +971,9 @@ final class RoomArtPreviewController: ObservableObject {
     private var keyframeOfTheLatestMeasurement: RoomArtKeyframe?
     /// The furniture showing now, the keyframe it was placed on, and the floor it stands on.
     private var furniturePlacementShowing: (furniture: RoomFurniture, keyframe: RoomArtKeyframe, floor: FloorPlane)?
-    /// The product photo the page read used, which the generation service works from.
-    private var productPhotoJPEG: Data?
+    /// The furniture's cutout over white, as a JPEG, which both generation services work from. It is the product cut out of
+    /// the page's photo, never the raw page picture, which can hold a cookie banner or the rest of the page.
+    private var furnitureCutoutJPEG: Data?
     /// The composite service said it is not set up, so no later placement in this panel asks it again.
     private var compositeServiceIsUnavailable = false
     /// The latest furniture spot shows only part of the piece, so Clicky asks the learner to step back.
@@ -1037,7 +1038,6 @@ final class RoomArtPreviewController: ObservableObject {
         }
         self.pictureImage = pictureImage
         pageRequest = RoomArtPageRequest(pageURL: frontTab.url, pageTitle: frontTab.title, pageText: pageText, learnerRequest: learnerRequest, picture: picture)
-        productPhotoJPEG = picture.jpegData
         hereItIsWasSaid = false
         floorNotFoundWasSaid = false
         shirtCoachingWasSaid = false
@@ -1117,7 +1117,7 @@ final class RoomArtPreviewController: ObservableObject {
         furnitureLookSearch = nil
         furniturePlacementShowing = nil
         keyframeOfTheLatestMeasurement = nil
-        productPhotoJPEG = nil
+        furnitureCutoutJPEG = nil
         compositeServiceIsUnavailable = false
         theWholePieceDoesNotShow = false
         stepBackWasSaid = false
@@ -1189,14 +1189,16 @@ final class RoomArtPreviewController: ObservableObject {
 
         case .standOnTheFloor(let furnitureReading, let size):
             print("Room art: \"\(furnitureReading.title)\" at \(size.label), because \(furnitureReading.whyThisSize)")
-            // The better looks are searched for while the cutout is made and the floor measured, which take seconds.
-            startSearchingForTheFurnituresBestLook(itemTitle: furnitureReading.title, pageURL: pageRequest.pageURL, thisOpening: thisOpening)
             let cutoutImage = await environment.cutOutTheFurniture(pictureImage, furnitureReading.itemCorners)
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
             guard let cutoutImage else {
                 apply(phase.afterThePageFailed(.furnitureNotCutOut))
                 return
             }
+            // Both generation services get the cutout over white and never the raw page picture, so the search for the
+            // better looks starts once the cutout exists. It then runs while the floor is measured, which takes seconds.
+            furnitureCutoutJPEG = roomFurnitureCutoutJPEG(cutoutImage)
+            startSearchingForTheFurnituresBestLook(itemTitle: furnitureReading.title, pageURL: pageRequest.pageURL, thisOpening: thisOpening)
             itemIsReady(.furniture(RoomFurniture(
                 title: furnitureReading.title,
                 widthMeters: size.widthCentimeters / 100,
@@ -1427,14 +1429,14 @@ extension RoomArtPreviewController {
     fileprivate func startSearchingForTheFurnituresBestLook(itemTitle: String, pageURL: String, thisOpening: Int) {
         furnitureLookSearch = .searching
         furnitureLookSearchTask?.cancel()
-        let productPhotoJPEG = productPhotoJPEG
+        let furnitureCutoutJPEG = furnitureCutoutJPEG
         furnitureLookSearchTask = Task {
             var foundModel = await environment.findTheStoreModel(pageURL)
             if let foundModel {
                 print("Room furniture: found the store's own model at \(foundModel.originForTheLog)")
-            } else if let productPhotoJPEG {
+            } else if let furnitureCutoutJPEG {
                 do {
-                    let glbData = try await environment.furnitureGeneration.generateAModel(productJPEG: productPhotoJPEG, itemTitle: itemTitle)
+                    let glbData = try await environment.furnitureGeneration.generateAModel(productJPEG: furnitureCutoutJPEG, itemTitle: itemTitle)
                     guard !Task.isCancelled else { return }
                     foundModel = await environment.loadAGeneratedModel(glbData)
                 } catch {
@@ -1495,7 +1497,7 @@ extension RoomArtPreviewController {
     }
 
     private func paintTheComposite(furniture: RoomFurniture, keyframe: RoomArtKeyframe, keyframeImage: CGImage, floor: FloorPlane, thisOpening: Int) async {
-        guard let productPhotoJPEG,
+        guard let furnitureCutoutJPEG,
               let projectedBox = floor.keyframeBoxCorners(widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters),
               let maskPNG = environment.compositeMaskPNG(projectedBox, keyframeImage.width, keyframeImage.height, Self.compositeShadowMarginPixels) else { return }
         // The service paints each request afresh, so a painting refused for its height, or a failed request, is asked for
@@ -1506,7 +1508,7 @@ extension RoomArtPreviewController {
                     keyframeJPEG: keyframe.measurementRequest.keyframeJPEGData,
                     keyframeWidth: keyframeImage.width,
                     keyframeHeight: keyframeImage.height,
-                    productJPEG: productPhotoJPEG,
+                    productJPEG: furnitureCutoutJPEG,
                     maskPNG: maskPNG,
                     itemTitle: furniture.title,
                     itemSizeWords: furniture.sizeInWords
