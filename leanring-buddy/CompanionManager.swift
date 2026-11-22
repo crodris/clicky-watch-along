@@ -248,13 +248,29 @@ final class CompanionManager: ObservableObject {
                 guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
                 self.startSpeakingTheTaskAnswer()
             },
+            tryAgain: { [weak self] agentID in self?.tryTheBackgroundAgentAgain(agentID) },
             answerApproval: { [weak self] approvalID, approved, scope in
                 self?.agentHarness.approvalDesk.answerByClick(approvalID: approvalID, approved: approved, scope: scope)
             }
         )
     )
     /// The discs floating beside the notch, one per running agent or waiting result. A click opens the agent list under it.
-    private lazy var agentTokenDockController = AgentTokenDockController(store: backgroundAgentStore, themeSettings: themeSettings) { [weak self] click in
+    private lazy var agentTokenDockController = AgentTokenDockController(
+        store: backgroundAgentStore,
+        themeSettings: themeSettings,
+        menuActions: AgentDiscMenuActions(
+            cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) },
+            // A quiz question can open while the menu is up, so each closure checks again, as the agent list's buttons do.
+            showReadyScene: { [weak self] in
+                guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
+                self.startShowingTheReadyBackgroundScene()
+            },
+            hearTaskAnswer: { [weak self] in
+                guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
+                self.startSpeakingTheTaskAnswer()
+            }
+        )
+    ) { [weak self] click in
         self?.agentListPanelController.toggle(from: click.discID, discPanelFrame: click.discPanelFrame, on: click.screen)
     }
     /// The radial settings dial that holding shift + option opens. Its Agents slice opens the agent list.
@@ -265,7 +281,14 @@ final class CompanionManager: ObservableObject {
         return ThemeStudioController(
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
-                speak: { [weak self] line in self?.speakAThemeStudioLine(line) },
+                speak: { [weak self] line in
+                    // A failed design is also a red Callout, so the failure never rests on the voice alone. While the card stays
+                    // open with its old ideas, the card's own red Callout says it, so the chip would say it twice.
+                    if line == ThemeStudioController.couldNotDesignLine, self?.themeStudioController.showsTheDesignFailedNotice != true {
+                        VoiceToolCallChip.shared.show("Couldn't design that one", sender: .failure)
+                    }
+                    self?.speakAThemeStudioLine(line)
+                },
                 stopSpeaking: { [weak self] in self?.stopTheThemeStudioSpeech() },
                 playSound: { sound in sound.play() },
                 captureThePicture: { [weak self] in await self?.captureThePictureForTheThemeStudio() },
@@ -274,10 +297,17 @@ final class CompanionManager: ObservableObject {
             cardPresenter: ThemeStudioPanelController(onSaveClicked: { saveOutcome in
                 // The voice tool's chip comes from the router, so only a click on Save needs its own.
                 guard let chipPhrase = saveOutcome.chipPhraseAfterAClickOnSave else { return }
-                VoiceToolCallChip.shared.show(chipPhrase)
+                let chipSender: VoiceToolCallChipSender
+                if case .failed = saveOutcome { chipSender = .failure } else { chipSender = .voiceToolCall }
+                VoiceToolCallChip.shared.show(chipPhrase, sender: chipSender)
             })
         )
     }()
+    /// The "Add theme?" card shown before a theme file the learner opened is installed.
+    private lazy var themeInstallConfirmation = ThemeInstallConfirmation(
+        cardPresenter: ThemeInstallCardPanelController(),
+        install: { [weak self] confirmedInstall in self?.installTheConfirmedThemePackage(confirmedInstall) }
+    )
     private var themeStudioSpeechTask: Task<Void, Never>?
     /// "Show me how this would look in my room": the live camera panel with the picture from Chrome's front tab on the wall.
     private lazy var roomArtPreviewController = RoomArtPreviewController(environment: .live(
@@ -454,6 +484,10 @@ final class CompanionManager: ObservableObject {
 
     func start() {
         LiveSceneOverlay.shared.mapTilesWorkerBaseURL = Self.workerBaseURL
+        // A voice tool call's chip takes the accent of the theme on screen, preview included.
+        VoiceToolCallChip.shared.themeAccentProvider = { [weak self] in
+            self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue
+        }
         agentTokenDockController.start()
         // The brain runs in the harness process, so the first voice command must not pay its launch.
         if voiceCommandBackend.runsInTheHarness {
@@ -620,7 +654,7 @@ final class CompanionManager: ObservableObject {
         pinchCancellable?.cancel()
         escapeKeyCancellable?.cancel()
         settingsDialCancellable?.cancel()
-        settingsDialController.close()
+        settingsDialController.closeAtOnce()
         agentListPanelController.close()
         agentTokenDockController.stop()
         voiceStateCancellable?.cancel()
@@ -925,8 +959,12 @@ final class CompanionManager: ObservableObject {
             pushToTalkPressAcceptance.pressWasAccepted()
             // A screen read from an earlier press is out of date the moment a new press begins.
             forgetTheVoiceCommandScreenRead()
+            // A token still flying from the cursor to its slot lands there at once, and so does a Bring back spark. The chip a
+            // spark carries shows as it lands, so this comes before the Recall, which then shrinks it into the cursor like any chip.
+            agentTokenDockController.finishTheServeAtOnce()
             // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
+            VoiceToolCallChip.shared.recall()
             cursorLoopController.pushToTalkWasPressed()
 
             showTheCursorOverlayForThisInteraction()
@@ -937,8 +975,6 @@ final class CompanionManager: ObservableObject {
             // Cancel any in-progress response and TTS from a previous utterance
             currentResponseTask?.cancel()
             elevenLabsTTSClient.stopPlayback()
-            // A token still flying from the cursor to its slot lands there at once.
-            agentTokenDockController.finishTheServeAtOnce()
             clearDetectedElementLocation()
             // A cancelled narration or scene line returns without leaving the responding state, and the
             // dictation binding never replaces responding, so the listening ring would not show.
@@ -1119,6 +1155,7 @@ final class CompanionManager: ObservableObject {
             // A push-to-talk press hides the label before a transcript goes out, so the rehearsal does
             // the same, and a line the previous step left up cannot stay on screen.
             LiveSceneStatusLabel.shared.hide()
+            VoiceToolCallChip.shared.recall()
             pushToTalkPressCount += 1
             approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
@@ -1769,6 +1806,7 @@ final class CompanionManager: ObservableObject {
         // A tap while waiting cancels this task, and a line spoken now would cut off the tap's own narration.
         guard !Task.isCancelled else { return }
         if let spokenLine = pictureFlowsOutcome?.spokenLineWhenNotShowing {
+            if pictureFlowsOutcome == .failed { VoiceToolCallChip.shared.show("Couldn't animate that one", sender: .failure) }
             await speakLiveSceneLine(spokenLine)
         }
         voiceState = .idle
@@ -1805,6 +1843,7 @@ final class CompanionManager: ObservableObject {
         LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
         voiceState = .idle
         if let spokenLine = pictureFlowsOutcome.spokenLineWhenNotShowing {
+            if pictureFlowsOutcome == .failed { VoiceToolCallChip.shared.show("Couldn't animate that one", sender: .failure) }
             await speakLiveSceneLine(spokenLine)
         }
         guard !Task.isCancelled else { return }
@@ -2560,6 +2599,7 @@ final class CompanionManager: ObservableObject {
     /// No scene is on screen, so nothing else will resume a video paused for it.
     private func sayTheSceneCouldNotBeBuilt() async {
         liveScenePhase = .idle
+        VoiceToolCallChip.shared.show("Couldn't build that one", sender: .failure)
         await speakLiveSceneLine("Sorry, I couldn't build that one.")
         voiceState = .idle
         // A pop-out whose page failed may still be landing back in its frame.
@@ -2600,13 +2640,17 @@ final class CompanionManager: ObservableObject {
         if settingsDialController.isOpen {
             return
         }
-        // With the agent list open, Escape only closes it.
+        // With the agent list open, Escape only closes it, back into the disc it opened from.
         if agentListPanelController.isOpen {
-            agentListPanelController.close()
+            agentListPanelController.closeWithGlide()
             return
         }
         // With the Theme Studio card open, Escape closes it and keeps the old theme, ahead of any scene behavior.
         if themeStudioController.closeOnEscape() {
+            return
+        }
+        // An "Add theme?" card is answered with a no.
+        if themeInstallConfirmation.cancelOnEscape() {
             return
         }
         // With the room art panel open, or its page still being read, Escape closes it, stops the camera, and drops a line
@@ -2879,7 +2923,7 @@ final class CompanionManager: ObservableObject {
         }
         guard !Task.isCancelled else { return }
         if theTurnsRanOut {
-            if await speakLiveSceneLine(voiceCommandGaveUpLine) { timing.mark(\.firstLineAudioStartedAt) }
+            if await speakTheGaveUpLine() { timing.mark(\.firstLineAudioStartedAt) }
         }
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -2981,7 +3025,7 @@ final class CompanionManager: ObservableObject {
             }
             guard !Task.isCancelled else { return false }
             if gaveUp {
-                if await speakLiveSceneLine(voiceCommandGaveUpLine) { timing.mark(\.firstLineAudioStartedAt) }
+                if await speakTheGaveUpLine() { timing.mark(\.firstLineAudioStartedAt) }
             }
             guard !Task.isCancelled else { return false }
             voiceState = .idle
@@ -3031,7 +3075,7 @@ final class CompanionManager: ObservableObject {
         // so handing it back would loop between the two on every failure.
         if liveScenePhaseIsWaitingForAQuizAnswer {
             print("Voice command: the router failed during a quiz question: \(failureDescription)")
-            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            await speakTheGaveUpLine()
             guard !Task.isCancelled else { return }
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -3044,7 +3088,7 @@ final class CompanionManager: ObservableObject {
             themeStudioIsOpen: themeStudioController.isOpen
         ) {
         case .giveUp:
-            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            await speakTheGaveUpLine()
             guard !Task.isCancelled else { return }
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -3449,6 +3493,11 @@ final class CompanionManager: ObservableObject {
         runInTheBackground(agentID) {
             await self.runTheTaskAgent(goal: goal, skillName: skillName, agentID: agentID)
         }
+        allowTryingAgain(agentID) { [weak self] in
+            guard let self, self.agentMayBeTriedAgainNow(agentKind: .task) else { return false }
+            _ = self.startTheTaskAgent(goal: goal, skillName: skillName)
+            return true
+        }
         return .changed(state: .object(["task": .string("started")]))
     }
 
@@ -3494,7 +3543,9 @@ final class CompanionManager: ObservableObject {
             }
             print("Task agent: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The task could not be finished. Ask again to try once more.")
-            VoiceToolCallChip.shared.show("Couldn't finish the task", sender: chipSender(forAgent: agentID, kind: .task), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
+            bringBackTheEndingChip(ofAgent: agentID) {
+                VoiceToolCallChip.shared.show("Couldn't finish the task", sender: .failure, secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
+            }
         }
     }
 
@@ -3520,6 +3571,7 @@ final class CompanionManager: ObservableObject {
                     .map { transcriptLine in "[\(backgroundAgentElapsedTimeText(seconds: transcriptLine.seconds))] \(transcriptLine.text)" }
                     .joined(separator: "\n")
                 let captionsResult = "Title: \(video.title)\nLink: \(video.url)\nCaptions:\n\(captionText)"
+                backgroundAgentStore.setReadingHost(agentListHost(ofLink: video.url), for: agentID)
                 return (.string(String(captionsResult.prefix(longestTaskAgentCaptionText))), false, nil, video.url)
             } catch {
                 return errorResult((error as? LocalizedError)?.errorDescription ?? "No YouTube video with captions is in Chrome's front tab")
@@ -3552,6 +3604,9 @@ final class CompanionManager: ObservableObject {
                 return errorResult("The page could not be written: \(error)")
             }
         case .takeScreenshot, .readClipboard, .writeClipboard, .openURL:
+            if TaskAgentTool(rawValue: toolCall.toolName) == .openURL {
+                backgroundAgentStore.setReadingHost(toolCall.input["url"]?.stringValue.flatMap(agentListHost(ofLink:)), for: agentID)
+            }
             let generalToolRun = await runTaskAgentGeneralTool(named: toolCall.toolName, input: toolCall.input, taskID: agentID)
             return (generalToolRun.content, generalToolRun.isError, nil, nil)
         case nil:
@@ -3596,20 +3651,39 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Installing a theme file
 
-    /// Installs a `.clickytheme` package the learner opened and puts it on, with a chip that says how it went. A package
-    /// that does not parse is refused with a log line naming the rule it broke, and nothing changes.
+    /// A `.clickytheme` package the learner opened: reads and checks it, and asks "Add theme?" before installing anything. A
+    /// package that does not parse is refused with a log line naming the rule it broke and a chip, with no card, and nothing
+    /// changes.
     func installTheThemePackage(at themePackageURL: URL) {
         do {
-            let installedTheme = try themeSettings.installAndApply(packageAt: themePackageURL)
-            print("Themes: installed \(themePackageURL.lastPathComponent) as \(installedTheme.id)")
+            let packagePreview = try themeSettings.previewPackage(at: themePackageURL)
+            themeInstallConfirmation.ask(about: PendingThemeInstall(packageURL: themePackageURL, theme: packagePreview.theme, pictureJPEG: packagePreview.pictureJPEG))
+        } catch let parseError as CustomThemeParseError {
+            print("Themes: refused \(themePackageURL.lastPathComponent): \(parseError.reason)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
+        } catch {
+            print("Themes: refused \(themePackageURL.lastPathComponent): \(error)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
+        }
+    }
+
+    /// The learner added the theme on the card: installs it, puts it on, plays its done sound, and says so. The package is
+    /// read and checked again, since it may have changed while the card showed.
+    private func installTheConfirmedThemePackage(_ confirmedInstall: PendingThemeInstall) {
+        do {
+            let installedTheme = try themeSettings.installAndApply(
+                packageAt: confirmedInstall.packageURL,
+                expectedPreview: CustomThemeStore.ThemePackagePreview(theme: confirmedInstall.theme, pictureJPEG: confirmedInstall.pictureJPEG)
+            )
+            print("Themes: installed \(confirmedInstall.packageURL.lastPathComponent) as \(installedTheme.id)")
             VoiceToolCallChip.shared.show(themeAddedChipPhrase, secondaryChipText: installedTheme.name)
             installedTheme.sounds.done.play()
         } catch let parseError as CustomThemeParseError {
-            print("Themes: refused \(themePackageURL.lastPathComponent): \(parseError.reason)")
-            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+            print("Themes: refused \(confirmedInstall.packageURL.lastPathComponent): \(parseError.reason)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         } catch {
-            print("Themes: refused \(themePackageURL.lastPathComponent): \(error)")
-            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+            print("Themes: refused \(confirmedInstall.packageURL.lastPathComponent): \(error)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         }
     }
 
@@ -3625,6 +3699,8 @@ final class CompanionManager: ObservableObject {
     /// Keeps the chip in step with the approval desk, after each arrival and answer.
     private func syncTheApprovalWaitingState(_ waitingRequests: [HarnessApprovalRequest]) {
         backgroundAgentStore.agentIDsWaitingForApproval = Set(waitingRequests.map(\.taskID))
+        // The oldest request of an agent speaks for it, and the requests arrive oldest first.
+        backgroundAgentStore.approvalCapabilitiesByAgentID = Dictionary(waitingRequests.map { ($0.taskID, $0.capability) }, uniquingKeysWith: { oldestCapability, _ in oldestCapability })
         if let previousChipText = approvalWaitingChipPrimaryText {
             VoiceToolCallChip.shared.hide(ifShowing: previousChipText)
             approvalWaitingChipPrimaryText = nil
@@ -3637,6 +3713,7 @@ final class CompanionManager: ObservableObject {
             chipTexts.primary,
             sender: chipSender(forAgent: waitingAgent.id, kind: waitingAgent.kind),
             secondaryChipText: chipTexts.secondary,
+            survivesARecall: true,
             secondsOnScreen: HarnessApprovalDesk.defaultTimeoutSeconds
         )
     }
@@ -3720,6 +3797,13 @@ final class CompanionManager: ObservableObject {
         runInTheBackground(agentID) {
             await self.buildTheBackgroundScene(whatToBuild: whatToBuild, agentID: agentID, agentKind: agentKind)
         }
+        allowTryingAgain(agentID) { [weak self] in
+            // The same rules the voice tools keep: one experiment builds at a time, a question owns the scene while it is
+            // open, and a 3D model is built from a video in front.
+            guard let self, self.agentMayBeTriedAgainNow(agentKind: agentKind) else { return false }
+            _ = self.startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: agentKind)
+            return true
+        }
         return .changed(state: .object(["backgroundScene": .string("started")]))
     }
 
@@ -3771,11 +3855,13 @@ final class CompanionManager: ObservableObject {
             }
             print("\(agentKind.displayName): failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
-            VoiceToolCallChip.shared.show(
-                "Couldn't build the \(agentKind.builtThingName)",
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) {
+                VoiceToolCallChip.shared.show(
+                    "Couldn't build the \(agentKind.builtThingName)",
+                    sender: .failure,
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
         }
     }
 
@@ -3961,6 +4047,15 @@ final class CompanionManager: ObservableObject {
                 }
             }
         }
+        allowTryingAgain(agentID) { [weak self] in
+            // A guide is written from the video in front, so a retry waits for the video the first one was for.
+            guard let self,
+                  self.agentMayBeTriedAgainNow(agentKind: studyGuideJob.agentKind),
+                  let frontVideoURL = self.videoQuizSession.frontTabURLOfTheFrontWindow(),
+                  studyGuideVideoKey(forVideoURL: frontVideoURL) == videoKey else { return false }
+            if case .failed = self.startWritingTheStudyGuide(studyGuideJob) { return false }
+            return true
+        }
         return .changed(state: .object(["studyGuide": .string("started")]))
     }
 
@@ -4011,7 +4106,7 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Nothing is spoken when the guide ends, because the learner is watching a video. The token beside the notch,
-    /// the chip under it, and the page in a background tab say it instead. Returns whether the guide was written.
+    /// the chip above the cursor, and the page in a background tab say it instead. Returns whether the guide was written.
     @discardableResult
     private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob, agentID: UUID) async -> Bool {
         let startedAt = Date()
@@ -4081,11 +4176,13 @@ final class CompanionManager: ObservableObject {
             }
             print("Study guide: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
-            VoiceToolCallChip.shared.show(
-                studyGuideFailureLine(for: error),
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) {
+                VoiceToolCallChip.shared.show(
+                    studyGuideFailureLine(for: error),
+                    sender: .failure,
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
             return false
         }
     }
@@ -4119,21 +4216,25 @@ final class CompanionManager: ObservableObject {
                 notionPageChromeTabIDsByPageURL[pageURL] = openedChromeTabID
                 secondaryChipText = "· opened in a new tab"
             }
-            VoiceToolCallChip.shared.show(
-                agentKind.finishedChipText,
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondaryChipText: secondaryChipText,
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    agentKind.finishedChipText,
+                    sender: chipSender(forAgent: agentID, kind: agentKind),
+                    secondaryChipText: secondaryChipText,
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
         case .readyScene:
             themeSettings.shownTheme.sounds.done.play()
             let sceneRisesNow = aReadyBackgroundSceneMayRiseNow
-            VoiceToolCallChip.shared.show(
-                agentKind.finishedChipText,
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondaryChipText: sceneRisesNow ? nil : "· say \(agentKind.waitingPhrase)",
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    agentKind.finishedChipText,
+                    sender: chipSender(forAgent: agentID, kind: agentKind),
+                    secondaryChipText: sceneRisesNow ? nil : "· say \(agentKind.waitingPhrase)",
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
             if sceneRisesNow {
                 startShowingTheReadyBackgroundScene()
             } else {
@@ -4145,18 +4246,64 @@ final class CompanionManager: ObservableObject {
             if let pageURL, let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL) {
                 notionPageChromeTabIDsByPageURL[pageURL] = openedChromeTabID
             }
-            VoiceToolCallChip.shared.show(
-                agentKind.finishedChipText,
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondaryChipText: "· say what did you find",
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    agentKind.finishedChipText,
+                    sender: chipSender(forAgent: agentID, kind: agentKind),
+                    secondaryChipText: "· say what did you find",
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
         }
+    }
+
+    /// Shows an agent's ending chip after the spark carries it from the agent's disc to the cursor (Bring back), so the chip shows
+    /// where the spark lands. An agent with no disc to leave from shows the chip at once.
+    private func bringBackTheEndingChip(ofAgent agentID: UUID, showTheChip: @escaping () -> Void) {
+        let agentColor = backgroundAgentStore.agents.first { $0.id == agentID }?.displayColor.color ?? DS.Colors.textSecondary
+        agentTokenDockController.bringBack(agentID: agentID, in: agentColor, showTheChip: showTheChip)
     }
 
     /// Who an ending chip speaks for: the agent's kind, and its player while a team theme is on.
     private func chipSender(forAgent agentID: UUID, kind: BackgroundAgentKind) -> VoiceToolCallChipSender {
         .backgroundAgent(color: backgroundAgentStore.displayColor(for: agentID) ?? kind.preferredPaletteColor, face: backgroundAgentStore.face(for: agentID))
+    }
+
+    /// What starts a failed agent's work again, by agent, for the agent list's "Try again". Each returns whether the work
+    /// started.
+    private var tryAgainActionsByAgentID: [UUID: @MainActor () -> Bool] = [:]
+
+    /// Lets the agent list offer "Try again" if this agent fails. `start` begins the same work as a new agent.
+    private func allowTryingAgain(_ agentID: UUID, start: @escaping @MainActor () -> Bool) {
+        // An agent the store dropped can never be tried again, so its action goes with it.
+        let agentIDsInTheStore = Set(backgroundAgentStore.agents.map(\.id))
+        tryAgainActionsByAgentID = tryAgainActionsByAgentID.filter { agentIDsInTheStore.contains($0.key) }
+        tryAgainActionsByAgentID[agentID] = start
+        backgroundAgentStore.allowTryingAgain(agentID)
+    }
+
+    /// Whether a failed agent's work may start again now, by the rules the voice tools that start it keep.
+    private func agentMayBeTriedAgainNow(agentKind: BackgroundAgentKind) -> Bool {
+        backgroundAgentMayBeTriedAgain(
+            agentKind: agentKind,
+            aQuizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer || videoQuizQuestionIsActive,
+            experimentRequestStep: currentExperimentRequestStep,
+            anExperimentIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
+            aVideoIsInFront: agentKind == .threeDModel ? videoQuizSession.frontVideoStateForVoiceCommands() != nil : false
+        )
+    }
+
+    /// "Try again" on a failed agent's row. It starts the same work once, as a new agent with its own row, and the failed
+    /// row stops offering it only when the work started.
+    private func tryTheBackgroundAgentAgain(_ agentID: UUID) {
+        guard let startTheWorkAgain = tryAgainActionsByAgentID[agentID] else { return }
+        guard startTheWorkAgain() else {
+            print("Agent list: could not try \(agentID) again, so its row keeps the button")
+            VoiceToolCallChip.shared.show("Couldn't try that again", sender: .failure)
+            return
+        }
+        tryAgainActionsByAgentID[agentID] = nil
+        backgroundAgentStore.markTriedAgain(agentID)
     }
 
     /// Cancels a running agent from the agent list. A cancelled agent shows no chip, and a cancelled new guide keeps no
@@ -4191,8 +4338,14 @@ final class CompanionManager: ObservableObject {
 
     /// Not listed by tools/list, since it is for screenshots and demo takes, not for the model.
     private static let debugSeedAgentsToolName = "debug_seed_agents"
+    /// Clicks the menu bar icon, as the learner does, since a status item can sit where no script can find its window.
+    private static let debugClickMenuBarIconToolName = "debug_click_menu_bar_icon"
 
     private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
+        if toolName == Self.debugClickMenuBarIconToolName {
+            NotificationCenter.default.post(name: .clickyClickMenuBarIcon, object: nil)
+            return .changed(state: nil)
+        }
         if toolName == Self.debugSeedAgentsToolName {
             if let kindNames = toolInput["kinds"]?.arrayValue {
                 // Running agents of the kinds named, in order, with no finished or failed ones.
@@ -4205,6 +4358,12 @@ final class CompanionManager: ObservableObject {
                     for seededAgentID in seededAgentIDs {
                         agentTokenDockController.startServingTheToken(of: seededAgentID)
                     }
+                }
+                // "waitingForApproval": true puts the seeded agents in the waiting state the approval desk gives them, so their
+                // discs show the "!" face, the notch, the pulse, and the peek card's capability line.
+                if toolInput["waitingForApproval"]?.boolValue == true {
+                    backgroundAgentStore.agentIDsWaitingForApproval.formUnion(seededAgentIDs)
+                    for seededAgentID in seededAgentIDs { backgroundAgentStore.approvalCapabilitiesByAgentID[seededAgentID] = .sends }
                 }
             } else {
                 seedBackgroundAgentsForScreenshots(runningAgentCount: toolInput["runningAgentCount"]?.numberValue.map { Int(min(max($0, 0), 3)) } ?? 3)
@@ -4228,12 +4387,18 @@ final class CompanionManager: ObservableObject {
         let finishedAgentID = backgroundAgentStore.seedAgentsForScreenshots(runningAgentCount: runningAgentCount)
         // The seeded task's answer waits to be heard like a real one, so its list row's Hear answer button speaks it.
         holdTheTaskAnswerUntilItIsHeard("Karasuno won 2 sets to 1.", forAgent: finishedAgentID)
-        VoiceToolCallChip.shared.show(
-            BackgroundAgentKind.task.finishedChipText,
-            sender: chipSender(forAgent: finishedAgentID, kind: .task),
-            secondaryChipText: "· say what did you find",
-            secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-        )
+        // The agent is new to the dock, which makes its disc on the next turn of the run loop. A real agent has had its disc
+        // since it started, so this waits for the disc that Bring back leaves from.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [self] in
+            bringBackTheEndingChip(ofAgent: finishedAgentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    BackgroundAgentKind.task.finishedChipText,
+                    sender: chipSender(forAgent: finishedAgentID, kind: .task),
+                    secondaryChipText: "· say what did you find",
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
+        }
     }
     #endif
 
@@ -4355,9 +4520,16 @@ final class CompanionManager: ObservableObject {
     }
 
     /// How far through `text` Clicky's voice is, from 0 to 1, or nil when Clicky is not speaking that line.
-    /// The pointing bubble types along with it.
+    /// The speech Callout brightens its words along with it.
     func spokenFractionOfTheLine(_ text: String) -> Double? {
         elevenLabsTTSClient.spokenFraction(ofLine: text)
+    }
+
+    /// Says that a command did not work, with the red failure chip above the cursor, so the failure never rests on the voice alone.
+    @discardableResult
+    private func speakTheGaveUpLine() async -> Bool {
+        VoiceToolCallChip.shared.show("Couldn't do that one", sender: .failure)
+        return await speakLiveSceneLine(voiceCommandGaveUpLine)
     }
 
     /// Returns true once the line's own audio has started, and false on a cancel or when the credits fallback plays instead.
@@ -4496,7 +4668,7 @@ final class CompanionManager: ObservableObject {
         detectedElementScreenLocation = partScreenPoint.globalPoint
     }
 
-    /// The blue cursor flies to the quiz's "?" label and its bubble shows the question, typed along with the voice, so a
+    /// The blue cursor flies to the quiz's "?" label and its speech Callout shows the question, brightening its words along with the voice, so a
     /// learner can read a long question again while answering. It stays until the question is answered, or the scene
     /// clears, which releases any held pointing.
     private func pointTheBuddyAtTheQuizQuestion(_ quiz: LiveSceneQuiz, labelScreenPoints: [LiveScenePartScreenPoint]) {

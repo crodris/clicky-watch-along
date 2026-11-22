@@ -6,12 +6,18 @@
 //  the notch: a progress ring (an opaque dark track, filled in the team's color or the agent's own color) around a face,
 //  which is a roster player's portrait, a theme's picture, or a triangle in the agent's color. The state shows by shape, so
 //  a theme may use any ring color: a finished agent gets a green check badge, a failed one a cross badge on a gray face in
-//  a red ring, and one that waits for the learner's OK a "!" badge and a notch in its ring (`agentTokenBadge`). The "+N" disc counts the agents with no position of their own, and the open slot is the dashed
-//  outline a new agent's token flies to.
-//  Motion here is one-shot only. Nothing pulses or spins, because a looping animation pegs the GPU on high-refresh displays.
-//  The same triangle and progress view also draw the agent list's rows.
+//  a red ring, and one that waits for the learner's OK a "!" face and a notch in its ring (`agentTokenBadge` still names
+//  that badge, which no surface draws now). The "+N" disc counts the agents with no position of their own, and the open
+//  slot is the dashed outline a new agent's token flies to.
+//  Motion is one-shot, except two loops that run on Core Animation (`AgentTokenLoopView`), so the render server plays them
+//  and the main thread draws nothing per frame, since a SwiftUI loop pegs the GPU on high-refresh displays: a running agent's
+//  bright dot orbits its ring every 3 seconds, so a slow agent still looks alive, and a waiting approval's disc pulses
+//  once every 1.6 seconds. With Reduce Motion on, the dot only fades in and out at the top of the ring and the pulse
+//  is a still halo, so the shape of the state still shows.
+//  The agent list's rows draw the same disc at its own size.
 //
 
+import AppKit
 import SwiftUI
 
 // MARK: - Token disc
@@ -23,6 +29,7 @@ struct AgentTokenDiscView: View {
     var isWaitingForApproval = false
     /// Set by the dock while the mouse is over the disc.
     var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotionIsOn
 
     /// The gap the "!" badge's notch cuts in the ring at 12 o'clock, as a share of the ring.
     private static let approvalNotchShareOfTheRing = 0.12
@@ -45,7 +52,17 @@ struct AgentTokenDiscView: View {
     }
 
     @ViewBuilder private var face: some View {
-        if case .rosterFace(let rosterFace) = agent.face {
+        if isWaitingForApproval {
+            // The "!" is the state's shape, so amber is never the only signal.
+            Circle()
+                .fill(DS.Colors.agentTokenFace)
+                .frame(width: faceDiameter, height: faceDiameter)
+                .overlay(
+                    Text("!")
+                        .font(.system(size: 12, weight: .heavy, design: .rounded))
+                        .foregroundColor(DS.Colors.warning)
+                )
+        } else if case .rosterFace(let rosterFace) = agent.face {
             RosterFaceView(rosterFace: rosterFace, size: faceDiameter, isGrayscale: agent.phase.isFailed)
         } else if case .themePicture(let themeID) = agent.face, let themePicture = CustomThemePictureCache.image(forThemeID: themeID) {
             ThemePictureFaceView(picture: themePicture, size: faceDiameter, isGrayscale: agent.phase.isFailed)
@@ -82,11 +99,17 @@ struct AgentTokenDiscView: View {
                     .padding(Self.ringWidth / 2)
             }
             face
+            if agent.isRunning && !isWaitingForApproval {
+                AgentTokenLoopView(loop: .orbitingDot, reduceMotionIsOn: reduceMotionIsOn)
+            }
+            if isWaitingForApproval {
+                AgentTokenLoopView(loop: .approvalPulse, reduceMotionIsOn: reduceMotionIsOn)
+            }
         }
         .frame(width: AgentTokenMetrics.discDiameter, height: AgentTokenMetrics.discDiameter)
         .agentTokenEdgeAndShadow(isHovered: isHovered, edgeWidth: Self.edgeWidth)
         .overlay(alignment: .bottomTrailing) {
-            if let badge = agentTokenBadge(phase: agent.phase, isWaitingForApproval: isWaitingForApproval) {
+            if let badge = agentTokenBadgeOnTheDisc(phase: agent.phase, isWaitingForApproval: isWaitingForApproval) {
                 // Dark rim and the same size as the design's badge, so the badge reads on a light menu bar too.
                 // The 2 point offset keeps the whole rim inside the disc's panel, which is as tall as the menu bar. A screenshot of
                 // a 1080p display's bar showed a 3 point offset cutting the rim's bottom, and 2 points leaving it whole.
@@ -96,8 +119,9 @@ struct AgentTokenDiscView: View {
                     .transition(.scale.combined(with: .opacity))
             }
         }
-        .animation(.easeOut(duration: 0.25), value: agent.phase)
-        .animation(.easeOut(duration: 0.25), value: isWaitingForApproval)
+        // The badge pops in and the ring settles, as the moves say a disc's phase and check do.
+        .animation(DS.Move.pop.animation(reduceMotionIsOn: reduceMotionIsOn), value: agent.phase)
+        .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotionIsOn), value: isWaitingForApproval)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
     }
@@ -178,16 +202,167 @@ private extension View {
     /// A 1.5 point dark edge outside the disc and a soft shadow, so the disc reads on a light menu bar and a bright
     /// wallpaper whatever its face color. Hovering grows the disc a little, which tells the learner it takes a click.
     func agentTokenEdgeAndShadow(isHovered: Bool, edgeWidth: CGFloat) -> some View {
-        overlay(Circle().stroke(Color.black.opacity(0.75), lineWidth: edgeWidth).padding(-edgeWidth / 2))
+        modifier(AgentTokenEdgeAndShadow(isHovered: isHovered, edgeWidth: edgeWidth))
+    }
+}
+
+private struct AgentTokenEdgeAndShadow: ViewModifier {
+    let isHovered: Bool
+    let edgeWidth: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotionIsOn
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(Circle().stroke(Color.black.opacity(0.75), lineWidth: edgeWidth).padding(-edgeWidth / 2))
             .shadow(color: .black.opacity(0.55), radius: 2, x: 0, y: 1.5)
-            .scaleEffect(isHovered ? 1.08 : 1)
-            .animation(.easeOut(duration: 0.12), value: isHovered)
+            // Under Reduce Motion the Snap move is a fade, so the disc keeps its size and the peek card carries the hover.
+            .scaleEffect(isHovered && !reduceMotionIsOn ? 1.08 : 1)
+            .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotionIsOn), value: isHovered)
+    }
+}
+
+// MARK: - Looping motion on Core Animation
+
+/// The two loops a disc runs. Core Animation plays them, so the main thread draws nothing per frame.
+enum AgentTokenLoop {
+    /// A bright dot that circles the ring clockwise once every `secondsPerTurn`, on a running agent's disc.
+    case orbitingDot
+    /// A soft ring that grows out of the disc and fades once every `secondsPerPulse`, on a disc that waits for the learner's OK.
+    case approvalPulse
+
+    static let secondsPerTurn: TimeInterval = 3
+    static let secondsPerPulse: TimeInterval = 1.6
+    /// How much larger than the disc the pulse's ring gets. A disc sits in a menu bar only a little taller than itself on
+    /// a display with no notch, so the pulse stays small enough to show whole there.
+    static let pulseEndScale: CGFloat = 1.12
+    /// With Reduce Motion on, the dot fades between these opacities over `secondsPerTurn` at the top of the ring.
+    static let reducedMotionDotOpacities: (dim: Float, bright: Float) = (0.25, 1)
+    /// With Reduce Motion on, the pulse is a ring that stays at this opacity and scale.
+    static let reducedMotionPulseOpacity: Float = 0.5
+    static let reducedMotionPulseScale: CGFloat = 1.06
+}
+
+/// Hosts one loop in a layer, sized to a disc. SwiftUI sizes it to a disc, and the layers follow its bounds.
+struct AgentTokenLoopView: NSViewRepresentable {
+    let loop: AgentTokenLoop
+    let reduceMotionIsOn: Bool
+
+    func makeNSView(context: Context) -> AgentTokenLoopHostView {
+        AgentTokenLoopHostView(loop: loop, reduceMotionIsOn: reduceMotionIsOn)
+    }
+
+    func updateNSView(_ hostView: AgentTokenLoopHostView, context: Context) {
+        hostView.update(reduceMotionIsOn: reduceMotionIsOn)
+    }
+}
+
+final class AgentTokenLoopHostView: NSView {
+    private let loop: AgentTokenLoop
+    private var reduceMotionIsOn: Bool
+    private let loopLayer = CALayer()
+
+    init(loop: AgentTokenLoop, reduceMotionIsOn: Bool) {
+        self.loop = loop
+        self.reduceMotionIsOn = reduceMotionIsOn
+        super.init(frame: NSRect(x: 0, y: 0, width: AgentTokenMetrics.discDiameter, height: AgentTokenMetrics.discDiameter))
+        wantsLayer = true
+        layer?.addSublayer(loopLayer)
+        rebuildLoopLayers()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("Created in code only") }
+
+    /// The loop never takes a click, since the disc under it does.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        loopLayer.bounds = CGRect(origin: .zero, size: bounds.size)
+        loopLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+    }
+
+    func update(reduceMotionIsOn newReduceMotionIsOn: Bool) {
+        guard newReduceMotionIsOn != reduceMotionIsOn else { return }
+        reduceMotionIsOn = newReduceMotionIsOn
+        rebuildLoopLayers()
+    }
+
+    /// Builds the loop's layers and animation again, which Reduce Motion changing needs.
+    private func rebuildLoopLayers() {
+        loopLayer.sublayers = nil
+        loopLayer.removeAllAnimations()
+        loopLayer.transform = CATransform3DIdentity
+        loopLayer.opacity = 1
+        let diameter = AgentTokenMetrics.discDiameter
+        loopLayer.bounds = CGRect(x: 0, y: 0, width: diameter, height: diameter)
+        loopLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+
+        switch loop {
+        case .orbitingDot:
+            let dotDiameter: CGFloat = 3.4
+            let dotLayer = CALayer()
+            dotLayer.backgroundColor = NSColor.white.cgColor
+            dotLayer.cornerRadius = dotDiameter / 2
+            dotLayer.bounds = CGRect(x: 0, y: 0, width: dotDiameter, height: dotDiameter)
+            // At 12 o'clock on the ring's center line. Layer y grows upward, so the top is the larger y.
+            dotLayer.position = CGPoint(x: diameter / 2, y: diameter - 1.25 - dotDiameter / 2)
+            dotLayer.shadowColor = NSColor.black.cgColor
+            dotLayer.shadowOpacity = 0.5
+            dotLayer.shadowRadius = 1
+            dotLayer.shadowOffset = .zero
+            loopLayer.addSublayer(dotLayer)
+            if reduceMotionIsOn {
+                let breathing = CABasicAnimation(keyPath: "opacity")
+                breathing.fromValue = AgentTokenLoop.reducedMotionDotOpacities.dim
+                breathing.toValue = AgentTokenLoop.reducedMotionDotOpacities.bright
+                breathing.duration = AgentTokenLoop.secondsPerTurn / 2
+                breathing.autoreverses = true
+                breathing.repeatCount = .infinity
+                breathing.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                dotLayer.add(breathing, forKey: "dot.breathing")
+            } else {
+                let turning = CABasicAnimation(keyPath: "transform.rotation.z")
+                // A negative turn is clockwise, since the layer's y grows upward.
+                turning.fromValue = 0
+                turning.toValue = -2 * Double.pi
+                turning.duration = AgentTokenLoop.secondsPerTurn
+                turning.repeatCount = .infinity
+                loopLayer.add(turning, forKey: "dot.turn")
+            }
+        case .approvalPulse:
+            let pulseLayer = CAShapeLayer()
+            pulseLayer.path = CGPath(ellipseIn: CGRect(x: 0.75, y: 0.75, width: diameter - 1.5, height: diameter - 1.5), transform: nil)
+            pulseLayer.fillColor = nil
+            pulseLayer.strokeColor = NSColor(DS.Colors.warning).cgColor
+            pulseLayer.lineWidth = 1.5
+            pulseLayer.bounds = CGRect(x: 0, y: 0, width: diameter, height: diameter)
+            pulseLayer.position = CGPoint(x: diameter / 2, y: diameter / 2)
+            loopLayer.addSublayer(pulseLayer)
+            if reduceMotionIsOn {
+                pulseLayer.opacity = AgentTokenLoop.reducedMotionPulseOpacity
+                pulseLayer.transform = CATransform3DMakeScale(AgentTokenLoop.reducedMotionPulseScale, AgentTokenLoop.reducedMotionPulseScale, 1)
+            } else {
+                let growing = CABasicAnimation(keyPath: "transform.scale")
+                growing.fromValue = 1
+                growing.toValue = AgentTokenLoop.pulseEndScale
+                let fading = CABasicAnimation(keyPath: "opacity")
+                fading.fromValue = 0.8
+                fading.toValue = 0
+                let pulse = CAAnimationGroup()
+                pulse.animations = [growing, fading]
+                pulse.duration = AgentTokenLoop.secondsPerPulse
+                pulse.repeatCount = .infinity
+                pulse.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                pulseLayer.add(pulse, forKey: "pulse")
+            }
+        }
     }
 }
 
 // MARK: - Agent triangle
 
-/// One agent's triangle, drawn small in the agent list's rows.
+/// One agent's triangle. No surface draws it now, since the agent list's rows draw the agent's disc.
 struct AgentTriangleView: View {
     let agent: BackgroundAgent
     var size: CGFloat = 11
@@ -310,6 +485,13 @@ func agentTokenBadge(phase: BackgroundAgentPhase, isWaitingForApproval: Bool) ->
     case .failed: return .failed
     case .running, .cancelled: return nil
     }
+}
+
+/// The badge a disc draws at its lower right. A waiting approval is the "!" face and the notch instead, so only a finished or
+/// failed agent gets a badge on its disc.
+func agentTokenBadgeOnTheDisc(phase: BackgroundAgentPhase, isWaitingForApproval: Bool) -> AgentTokenBadge? {
+    let badge = agentTokenBadge(phase: phase, isWaitingForApproval: isWaitingForApproval)
+    return badge == .needsYourOK ? nil : badge
 }
 
 struct AgentTokenBadgeView: View {

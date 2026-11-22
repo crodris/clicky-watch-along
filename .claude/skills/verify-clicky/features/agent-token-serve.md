@@ -9,14 +9,15 @@ With no slot for the agent, or no room for discs on the mouse's display, nothing
 
 - `serve-fly` flies the token from the cursor glyph (35 points right and 25 below the mouse) to the next open slot along a curved arc, in 0.5 seconds, on the shared carrier panel, under Clicky blue and under a team theme.
   The disc looks the same in flight and in the dock, and the cursor stays with the mouse.
-- `serve-tether` draws a 1 point line in the cursor's color from the cursor glyph to the flying token, which fades out within 0.25 seconds of the landing, and no carrier window (level 1002) stays on screen afterward.
+- `serve-tether` draws a 1 point line in the cursor's color from the cursor glyph to the flying token, which fades out within 0.25 seconds of the landing, or at once when a disc ahead leaves and the disc under the token slides, and no carrier window (level 1002) stays on screen afterward.
 - `serve-open-slot` shows a dashed outline at the slot from the start of the flight, and the token replaces it on landing.
 - `serve-confirmation-waits` plays the spoken line after the landing.
   The log says `Agent token serve: the spoken line waited N ms for the token to land`.
 - `serve-no-slot` flies nothing when the new agent goes to the "+N" disc, and the line plays at once.
   The log says `no serve, the agent has no slot on the display the mouse is on`.
 - `serve-no-room` does the same when the mouse's display has no free space, a hidden menu bar, or a full-screen space.
-- `serve-reduce-motion` fades the token in at its slot, with the line at once, when Reduce Motion is on.
+- `serve-reduce-motion` fades the token in at its slot over 0.2 seconds, leaves a still ring in the cursor's color around it for 1 second, and plays the line at once, when Reduce Motion is on.
+  The log says `Reduce Motion is on, so the token fades in at its slot with a still ring`.
 - `serve-cursor-display` flies the token to the dock on the display the mouse is on, and the other displays' discs fade in as usual.
 - `serve-push-to-talk` lands the token in its slot at once when push-to-talk is pressed during the flight, and the press cancels the line that was waiting.
   The log says `the token lands at once`.
@@ -72,5 +73,7 @@ Preconditions:
   The log's `accessibility: true` line says when it holds.
 - `say` reaches the microphone only through the speakers, so a muted or headphone output gives `No speech detected`.
 - The flight is a Core Animation keyframe animation.
+  The "let me try it" recipe reads Chrome through Apple Events on the main thread right after the agent starts (`Front video:` lines), so it is also the check that a main thread stall in that turn does not freeze the token.
+  A recording at 30 frames a second shows the token moving in every frame of the half second, with the tether attached.
   A move on the main thread, such as the build's Apple Event reads, would have frozen a timer-driven token, so a frozen-then-jumping token in a recording is a regression.
 - `$V build` reports "up to date" when the dylib is newer than every Swift file, so check the dylib's time after an edit.

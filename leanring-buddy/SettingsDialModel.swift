@@ -70,6 +70,37 @@ enum SettingsDialPlacement {
     }
 }
 
+// MARK: - Closing
+
+/// How the dial leaves, from the move that closes it (`DS.Move`). The dial's window never leaves its place, so every form is
+/// drawn inside it.
+enum SettingsDialClosingForm: Equatable {
+    /// The chosen item flies into the center while the dial shrinks into the cursor: the Glide close, at 0.7x.
+    case flyTheChosenItemIntoTheCursor(seconds: Double)
+    /// The dial fades out in place: a cancel, a release over nothing, and every close with Reduce Motion on.
+    case fadeOut(seconds: Double)
+
+    /// How the dial of a release that `committedAChoice` or not, closes.
+    static func form(committedAChoice: Bool, reduceMotionIsOn: Bool) -> SettingsDialClosingForm {
+        if reduceMotionIsOn {
+            return .fadeOut(seconds: DS.Move.fadeSeconds)
+        }
+        if committedAChoice {
+            return .flyTheChosenItemIntoTheCursor(seconds: DS.Move.glide.curve.timeScaled(by: DS.Move.glideCloseTimeFactor).seconds())
+        }
+        return .fadeOut(seconds: cancelFadeSeconds)
+    }
+
+    /// A cancel fades the dial in 120 ms.
+    static let cancelFadeSeconds = 0.12
+
+    var seconds: Double {
+        switch self {
+        case .flyTheChosenItemIntoTheCursor(let seconds), .fadeOut(let seconds): return seconds
+        }
+    }
+}
+
 // MARK: - Labels
 
 /// The dial's text labels. Text never sits on the bare page: every label is drawn on its own dark pill that is sized to

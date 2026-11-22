@@ -125,6 +125,19 @@ nonisolated enum ThemeStudioState: Equatable, Sendable {
 
 // MARK: - Tags
 
+/// One sound of the sound preview, and when it plays.
+nonisolated struct ThemeSoundPreviewStep: Equatable, Sendable {
+    let sound: ThemeSound
+    let secondsAfterTheStart: Double
+}
+
+/// The sound preview of an idea: its done, correct, and needs-your-OK sounds in that row, `secondsBetweenSounds` apart.
+nonisolated func themeSoundPreviewPlan(for idea: ClickyTheme, secondsBetweenSounds: Double) -> [ThemeSoundPreviewStep] {
+    [idea.sounds.done, idea.sounds.correct, idea.sounds.needsYourOK].enumerated().map { soundIndex, sound in
+        ThemeSoundPreviewStep(sound: sound, secondsAfterTheStart: Double(soundIndex) * secondsBetweenSounds)
+    }
+}
+
 /// What the card says about the highlighted idea, in words, as short tags: a picture cursor's look, how it moves, and the sounds.
 nonisolated func themeStudioTags(for idea: ClickyTheme) -> [String] {
     var tags: [String] = []
@@ -295,7 +308,7 @@ nonisolated func themeStudioLineMayStart(
 
 // MARK: - What a save says
 
-/// What the chip under the cursor says when a theme is saved, by the voice tool (`save_theme`) or by a click on Save.
+/// What the chip above the cursor says when a theme is saved, by the voice tool (`save_theme`) or by a click on Save.
 nonisolated let themeSavedChipPhrase = "Theme saved"
 
 /// What the chip says when a click on Save could not write the theme. The voice tool reports the same failure to the router.

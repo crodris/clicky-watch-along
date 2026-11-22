@@ -41,6 +41,10 @@ struct CarrierFlightPlan: Equatable {
     let seconds: TimeInterval
     /// Where the tether line starts, which is the origin of the move. Nil draws no line.
     let tetherOrigin: CGPoint?
+    /// True when the tether follows the path the pivot took, drawn from the origin up to the pivot, instead of running
+    /// straight from the origin to the pivot. A Bring back needs it, since a straight line from a disc to the cursor
+    /// would cross the video the spark goes around.
+    var tetherFollowsThePath = false
 
     /// Steps per second when a move's curve is sampled. At a 60 or 120 Hz display a step is one or two frames, so the
     /// straight lines between keyframes read as the curve.
@@ -96,7 +100,7 @@ struct CarrierFlightPlan: Equatable {
     }
 
     /// The times of the samples: from 0 to `seconds` inclusive, at `samplesPerSecond`, so the last pose is the move's end.
-    private static func sampleTimes(over seconds: TimeInterval) -> [TimeInterval] {
+    static func sampleTimes(over seconds: TimeInterval) -> [TimeInterval] {
         let stepCount = max(1, Int((seconds * samplesPerSecond).rounded()))
         return (0...stepCount).map { stepIndex in seconds * Double(stepIndex) / Double(stepCount) }
     }
@@ -112,6 +116,16 @@ func carrierLayerTranslation(for pose: CarrierPose, restingFrame: CGRect, pivotA
         dx: pose.pivot.x - restingFrame.minX - pose.scale * pivotInLayer.x - (1 - pose.scale) * anchorInLayer.x,
         dy: pose.pivot.y - restingFrame.minY - pose.scale * pivotInLayer.y - (1 - pose.scale) * anchorInLayer.y
     )
+}
+
+/// How much of a path's length a pivot has covered at each pose: the running total of the distances between neighboring
+/// poses, so the first is 0 and the last is the whole path. The trail tether reveals its line by these shares.
+func carrierTrailLengthsCovered(by pivots: [CGPoint]) -> [CGFloat] {
+    var lengthCoveredSoFar: CGFloat = 0
+    return pivots.enumerated().map { index, pivot in
+        if index > 0 { lengthCoveredSoFar += hypot(pivot.x - pivots[index - 1].x, pivot.y - pivots[index - 1].y) }
+        return lengthCoveredSoFar
+    }
 }
 
 /// The tether line at each pose: its length and its angle from the origin to the pose's pivot. The angles are unwrapped,
@@ -293,12 +307,17 @@ final class CarrierFlight {
 
         // The tether is added outside that transaction, since its fade outlasts the move and would hold back the landing.
         if let tetherOrigin = plan.tetherOrigin, let tetherHostLayer = tetherHostView.layer {
-            let tetherLayer = Self.tetherLayer(
-                from: local(tetherOrigin),
-                lines: carrierTetherLines(from: tetherOrigin, to: plan.poses.map(\.pivot)),
-                color: tetherColor,
-                seconds: plan.seconds
-            )
+            let tetherLayer: CALayer
+            if plan.tetherFollowsThePath {
+                tetherLayer = Self.trailTetherLayer(pivotsInPanel: plan.poses.map { local($0.pivot) }, color: tetherColor, seconds: plan.seconds)
+            } else {
+                tetherLayer = Self.tetherLayer(
+                    from: local(tetherOrigin),
+                    lines: carrierTetherLines(from: tetherOrigin, to: plan.poses.map(\.pivot)),
+                    color: tetherColor,
+                    seconds: plan.seconds
+                )
+            }
             tetherHostLayer.addSublayer(tetherLayer)
             self.tetherLayer = tetherLayer
         }
@@ -318,6 +337,17 @@ final class CarrierFlight {
     func landAtOnce() {
         tetherLayer?.removeAllAnimations()
         land()
+    }
+
+    /// Whether the tether line is still on the screen. False once it has ended with `endTheTetherNow`, or for a move with none.
+    var tetherIsShowing: Bool { tetherLayer != nil }
+
+    /// Takes the tether off the screen now, instead of letting it fade. The dock calls it when a disc is about to slide out
+    /// from under the landed token, since the line would then end where the disc used to be.
+    func endTheTetherNow() {
+        tetherLayer?.removeAllAnimations()
+        tetherLayer?.removeFromSuperlayer()
+        tetherLayer = nil
     }
 
     /// Lands a move that cannot play, after `play` has returned, so the caller holds the flight before `onLanded` runs and
@@ -358,6 +388,36 @@ final class CarrierFlight {
         animation.fillMode = .forwards
         animation.isRemovedOnCompletion = false
         return animation
+    }
+
+    /// The tether of a move whose line follows the path: the pivot's whole path drawn as one line, revealed up to the pivot on
+    /// the same clock as the carried view, so the line's end is attached on every frame. It fades like the straight tether.
+    /// Each keyframe of the reveal is the share of the path's length the pivot has covered at that pose.
+    private static func trailTetherLayer(pivotsInPanel: [CGPoint], color: NSColor, seconds: TimeInterval) -> CALayer {
+        let lengthCoveredAtEachPose = carrierTrailLengthsCovered(by: pivotsInPanel)
+        let wholeLength = lengthCoveredAtEachPose.last ?? 0
+        let trailPath = CGMutablePath()
+        if let firstPivot = pivotsInPanel.first {
+            trailPath.move(to: firstPivot)
+            for pivot in pivotsInPanel.dropFirst() { trailPath.addLine(to: pivot) }
+        }
+        let trailLayer = CAShapeLayer()
+        trailLayer.path = trailPath
+        trailLayer.fillColor = nil
+        trailLayer.strokeColor = color.cgColor
+        trailLayer.lineWidth = DS.Move.tetherLineWidth
+        trailLayer.lineJoin = .round
+        trailLayer.allowsEdgeAntialiasing = true
+        trailLayer.strokeEnd = 1
+        trailLayer.opacity = 0
+        let revealedShares = lengthCoveredAtEachPose.map { wholeLength > 0 ? NSNumber(value: Double($0 / wholeLength)) : NSNumber(value: 1) }
+        trailLayer.add(keyframes("strokeEnd", revealedShares, seconds: seconds), forKey: "tether.reveal")
+
+        let secondsUntilFadedOut = seconds + DS.Move.tetherFadeSeconds
+        let fade = keyframes("opacity", [1, 1, 0], seconds: secondsUntilFadedOut)
+        fade.keyTimes = [0, NSNumber(value: seconds / secondsUntilFadedOut), 1]
+        trailLayer.add(fade, forKey: "tether.fade")
+        return trailLayer
     }
 
     /// The tether: a solid line from the origin whose length and angle follow the carried view's pivot on the same clock,
