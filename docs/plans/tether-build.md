@@ -139,3 +139,7 @@ Left open by PR 16, for PR 19: a push-to-talk press during the recap's disc gath
 Left open by PR 18, for PR 19: a theme card keeps its hover look when the panel re-lays out under a still pointer, such as after a delete, which comes from the shared `HoverAndPointerNSView`.
 Finder also has no Quick Look thumbnail for a `.clickytheme` file yet (`qlmanage -t`), so its icon is still the app's document icon.
 The Quick Look extension draws its own still cursor, a small copy of the triangle shape and the Clicky blue palette order, because the app's cursor view depends on app-only state.
+
+Left open by PR 14, for PR 19: no test covers the loop view passing the paused flag to an agent's spark.
+The recap watcher reads the front tab every 3 seconds on the main actor, so a spark may jump while an agent works on that video; this is not measured.
+"Let me try it" timed out at 60 seconds on the local Worker in both of PR 14's app runs, which no one has looked into yet.
