@@ -1225,7 +1225,10 @@ struct RoomArtPreviewControllerTests {
         worker.floorReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 502, body: "{}"))
         harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 300, y: 320))
         try await waitFor("the retry's failure") { harness.spokenLines().count == 2 }
-        #expect(harness.spokenLines() == [roomFurnitureNotDrawnLine, roomFurnitureNotDrawnLine])
+        // Clicky says why the click could not help, and every line is a failure.
+        #expect(harness.spokenLines() == [roomFurnitureNotDrawnLine, RoomArtFailure.depthServiceUnavailable.spokenLine])
+        #expect(harness.recorder.spokenLineFailureFlags == [true, true])
+        #expect(harness.statusLine() == RoomArtFailure.depthServiceUnavailable.statusLine)
         guard case .couldNotDraw = harness.controller.phase else {
             Issue.record("A failed retry ended the panel: \(harness.controller.phase)")
             return

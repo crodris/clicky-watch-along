@@ -247,8 +247,8 @@ nonisolated func roomFurniturePaintingIsWorthAskingForAgain(after error: Error) 
 }
 
 /// How long furniture with no look yet waits after its floor is measured before its fallback shows (the model's render,
-/// else the could-not-draw line). A painting
-/// takes 15 to 20 seconds, and a second painting after a refused one about as long again.
+/// else the could-not-draw line). A painting takes 15 to 20 seconds, and a second painting after a refused one about as
+/// long again.
 nonisolated let roomFurnitureSecondsToWaitForALook = 45.0
 
 /// Where furniture's model render stands for one placement: still being made (or the model search still runs), ready, or

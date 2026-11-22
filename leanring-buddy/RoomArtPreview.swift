@@ -1354,9 +1354,10 @@ final class RoomArtPreviewController: ObservableObject {
                 furnitureWaitRanOut = true
                 showTheFurnitureFallbackIfItIsDue()
             }
-        case .couldNotDraw:
-            // The loop stays and the camera keeps running, so a click on the floor arranges the piece again.
-            environment.speak(roomFurnitureNotDrawnLine, true)
+        case .couldNotDraw(_, _, _, let retryFailure):
+            // The loop stays and the camera keeps running, so a click on the floor arranges the piece again. After a failed
+            // retry Clicky says why it failed, such as a depth service that is down.
+            environment.speak(retryFailure?.spokenLine ?? roomFurnitureNotDrawnLine, true)
         case .waitingForAFloorClick:
             // The camera keeps running, so the learner can tilt the screen down and click the floor.
             guard !floorNotFoundWasSaid else { return }
