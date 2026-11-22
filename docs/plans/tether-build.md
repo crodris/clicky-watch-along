@@ -105,12 +105,12 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 7 Menu bar | Merged: [#86](https://github.com/crodris/clicky-watch-along/pull/86) |
 | 5 Approval card | Merged: [#84](https://github.com/crodris/clicky-watch-along/pull/84) |
 | 9 Cursor and ring | Merged: [#83](https://github.com/crodris/clicky-watch-along/pull/83) |
-| 10 Quiz, scenes, edges | Merged: [#85](https://github.com/crodris/clicky-watch-along/pull/85). The quiz states and the summary Card are not yet seen in the app, since Chrome's "Allow JavaScript from Apple Events" was off. |
+| 10 Quiz, scenes, edges | Merged: [#85](https://github.com/crodris/clicky-watch-along/pull/85). The quiz summary Card was seen in the app during PR 15's check |
 | 11 Instant replay | Open: [#88](https://github.com/crodris/clicky-watch-along/pull/88) |
 | 8 Panel, onboarding, keyboard | Merged: [#95](https://github.com/crodris/clicky-watch-along/pull/95). The approval banner and the quiz line are not yet seen live |
 | 13 Theme Studio designs motion | Merged: [#92](https://github.com/crodris/clicky-watch-along/pull/92). The Debug app check and the motion recording are still owed, since Xcode would not load the project |
 | 14 The loop carries background work | Open: [#97](https://github.com/crodris/clicky-watch-along/pull/97) |
-| 15 End-of-video recap | Building |
+| 15 End-of-video recap | Merged: [#93](https://github.com/crodris/clicky-watch-along/pull/93) |
 | 16 Pause every agent by voice | Open: [#94](https://github.com/crodris/clicky-watch-along/pull/94). CI and review pass, and the Debug app check waits for Xcode to load the project |
 | 17 Scrub by voice | Starts when PR 11 merges |
 | 18 Share themes as files | Building |
@@ -134,3 +134,4 @@ Left open by PR 9, for PR 19: a ring dot crosses about 3 points into a status li
 Left open by PR 10: the panel header's quiz progress line (PR 8), and for PR 19, Escape during the summary Card's 0.42 second glide-in shows the whole Card for 0.05 seconds (needs a carrier option), a video pause stays held when a scene build is cancelled on the quiz tab and a jump back to a question then fails, and an experiment built on the Sonnet scene model took 63 seconds, past the app's 60 second wait. The flaky test PR takes the two timing tests that failed under load.
 Left open by PR 8, for PR 19: a double flight when the agent list is open under a disc and that agent's chip is picked in the panel, the spec's red menu bar badge for the permission-off and offline banners, a full-name pill wider than its card for a long theme name, and a live look at the approval banner and the quiz line.
 Left open by PR 11, for PR 19: under PR 13's slowest theme a long replay flight leaves about 0.72 seconds of dwell at a stop instead of 1.0.
+Left open by PR 15, for PR 19: an open menu bar panel does not count as busy for the recap, keyboard focus can reach a hidden disc while the recap Card is open, the gather is unchecked in the app under Reduce Motion, a press, Escape, or a scene during its 0.5 seconds, and on a second display, and the Escape-order paragraph in `AGENTS.md` lacks the gather step. Known limits: the recap covers only the last quiz, and a playlist that ends can be missed.
