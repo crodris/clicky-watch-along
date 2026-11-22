@@ -281,13 +281,8 @@ struct BundledThemeTests {
         try removeTestDefaultsSuite(named: suiteName)
         #expect(testDefaults.string(forKey: CompanionThemeSettings.userDefaultsKey) == nil)
 
-        // cfprefsd may still be flushing, so the file gets a short while to be gone.
+        // removeTestDefaultsSuite synchronizes cfprefsd before it deletes the file, so the file is already gone here.
         let preferencesFileURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences/\(suiteName).plist")
-        var waitedSeconds = 0.0
-        while FileManager.default.fileExists(atPath: preferencesFileURL.path) && waitedSeconds < 2 {
-            Thread.sleep(forTimeInterval: 0.05)
-            waitedSeconds += 0.05
-        }
         #expect(!FileManager.default.fileExists(atPath: preferencesFileURL.path))
     }
 
