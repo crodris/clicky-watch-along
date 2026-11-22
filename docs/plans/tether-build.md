@@ -113,14 +113,14 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 15 End-of-video recap | Merged: [#93](https://github.com/crodris/clicky-watch-along/pull/93) |
 | 16 Pause every agent by voice | Merged: [#94](https://github.com/crodris/clicky-watch-along/pull/94) |
 | 17 Scrub by voice | Starts when PR 11 merges |
-| 18 Share themes as files | Building |
+| 18 Share themes as files | Open: [#102](https://github.com/crodris/clicky-watch-along/pull/102) |
 | 19 Tether polish | After the build order: what earlier PRs left open that no later PR owns |
 
 Deferred from PR 1, to fold into later PRs: the Chrome control row hides after onboarding (PR 8), a hover that shows only after the next mouse move on a still pointer (PR 8), the dimmed No button's low contrast (PR 5), a pop-out label's leader line that can point off screen after a resize (PR 10), and the menu bar icon not found beside the notch (PR 7).
 
 Left open by PR 2, folded into PR 7: the serve has no still ring under Reduce Motion, the tether fades for about 200 ms after a disc covers its slot, and the flush is unchecked through a real Apple Event stall. PR 6 writes the first Glide caller.
 
-Deferred from PR 3: the "Add theme?" card shown before an install (done in PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18).
+Deferred from PR 3: the "Add theme?" card shown before an install (done in PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18, which closed it: an install opens the package folder once and walks each file's path from it with `openat` and `O_NOFOLLOW`, so the package folder is resolved once per read and every name below it is looked up from a folder already open).
 
 Left open by PR 4: a push-to-talk press during a narration leaves the bubble with a rise instead of shrinking it into the cursor (PR 11).
 PR 19 takes the rest, plus PR 7's leftovers: Bring back's drop to the cursor can cross the video, no unit test pins the tether cut when a disc slides, the right-click menu's quiz check, or the press-handler order, and the app icon's cursor points down and right while the app's cursor points up and left. PR 4's leftovers in PR 19: stacked chips (a new chip pushes the old one up, which needs a second panel), the speech underline at exactly 2 points, and the `start_background_task` description that still says "a chip under the cursor", with its three fixtures and recorded evals.
