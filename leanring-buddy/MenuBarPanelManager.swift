@@ -337,7 +337,7 @@ final class MenuBarPanelManager: NSObject {
     // MARK: - Click Outside Dismissal
 
     /// Installs a global event monitor that hides the panel when the user clicks
-    /// anywhere outside it — the same transient dismissal behavior as NSPopover.
+    /// anywhere outside it - the same transient dismissal behavior as NSPopover.
     /// Uses a short delay so that system permission dialogs (triggered by Grant
     /// buttons in the panel) don't immediately dismiss the panel when they appear.
     private func installClickOutsideMonitor() {
@@ -372,7 +372,7 @@ final class MenuBarPanelManager: NSObject {
                 guard panel.isVisible else { return }
 
                 // If permissions aren't all granted yet, a system dialog
-                // may have focus — don't dismiss during onboarding.
+                // may have focus - don't dismiss during onboarding.
                 if !self.companionManager.allPermissionsGranted && !NSApp.isActive {
                     return
                 }
