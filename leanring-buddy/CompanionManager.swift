@@ -3716,8 +3716,19 @@ final class CompanionManager: ObservableObject {
     /// A task agent's tool waits for the learner to allow it. Nothing is spoken, since the learner is usually watching a
     /// video: "Pop" plays once and the agent list opens next to the mouse with the request in its agent's row.
     private func showTheApprovalRequest(_ approvalRequest: HarnessApprovalRequest) {
-        themeSettings.shownTheme.sounds.needsYourOK.play()
-        agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
+        // A request the harness sent just before its pause_task arrived waits in the desk, and its sound and the list wait
+        // for "go ahead", so nothing opens during the pause. The desk's own timeout still runs meanwhile.
+        guard backgroundAgentStore.agentsArePaused else {
+            themeSettings.shownTheme.sounds.needsYourOK.play()
+            agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
+            return
+        }
+        print("Agents: holding an approval request's card until the learner resumes")
+        Task {
+            await self.backgroundAgentStore.waitWhileAgentsArePaused()
+            guard self.agentHarness.approvalDesk.waitingRequests.contains(where: { $0.approvalID == approvalRequest.approvalID }) else { return }
+            self.showTheApprovalRequest(approvalRequest)
+        }
     }
 
     /// Keeps the chip in step with the approval desk, after each arrival and answer.
@@ -3774,7 +3785,8 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Pausing every agent
 
-    /// "Hold on" and "go ahead". The store holds the Swift agents' next steps and results (`waitWhileAgentsArePaused`), and
+    /// "Hold on" and "go ahead". The Swift agents read the Mac at once and wait before their Worker call and their ending
+    /// (`waitWhileAgentsArePaused`), and
     /// each running task agent's harness task gets `pause_task` or `resume_task`, so no model turn or tool call starts for
     /// it. Push-to-talk and the voice brain never pause.
     private func setEveryAgentIsPaused(_ agentsArePaused: Bool) -> VoiceToolOutcome {
@@ -3838,10 +3850,7 @@ final class CompanionManager: ObservableObject {
             spokenLine = "Your experiment is still building."
         case .startBuilding:
             _ = startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment)
-            // During a pause the new experiment waits too, so the line says when it starts.
-            spokenLine = backgroundAgentStore.agentsArePaused
-                ? "Sure, I'll build that once you say go ahead."
-                : "Sure, I'll build that while you watch."
+            spokenLine = experimentStartedSpokenLine(agentsArePaused: backgroundAgentStore.agentsArePaused)
         }
         currentResponseTask = Task {
             // The experiment agent serves its token from the cursor first, and the line plays after it lands.

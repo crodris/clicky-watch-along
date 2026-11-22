@@ -212,6 +212,11 @@ struct AgentPauseTests {
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, backgroundAgentsArePaused: true, phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: false))
     }
 
+    @Test func anExperimentStartedDuringAPauseSaysItWaitsForGoAhead() {
+        #expect(experimentStartedSpokenLine(agentsArePaused: false) == "Sure, I'll build that while you watch.")
+        #expect(experimentStartedSpokenLine(agentsArePaused: true) == "Sure, I'll build that once you say go ahead.")
+    }
+
     @Test func theChipsAndTheSceneStateSayWhatHappenedToTheAgents() {
         #expect(VoiceToolCall(id: "1", name: "pause_agents", input: [:]).chipPhrase == "Holding every agent")
         #expect(VoiceToolCall(id: "2", name: "resume_agents", input: [:]).chipPhrase == "Back to work")

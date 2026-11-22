@@ -59,6 +59,12 @@ enum AgentTokenGather {
     }
 }
 
+/// What Clicky says when "let me try it" starts an experiment. During a pause the new experiment waits for "go ahead" too,
+/// so the line says when it starts.
+func experimentStartedSpokenLine(agentsArePaused: Bool) -> String {
+    agentsArePaused ? "Sure, I'll build that once you say go ahead." : "Sure, I'll build that while you watch."
+}
+
 /// The running agents a pause holds, which the paused disc's badge and peek count. A finished agent whose result waits
 /// folds into the disc too, but nothing of it is held.
 func pausedAgentCount(of agents: [BackgroundAgent]) -> Int {
