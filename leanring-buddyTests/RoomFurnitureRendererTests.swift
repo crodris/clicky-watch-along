@@ -165,7 +165,7 @@ struct RoomFurniturePaintedCompositeTests {
         return try #require(context.makeImage())
     }
 
-    private func layers(paintedFromRow topRow: Int) throws -> (layers: RoomFurnitureKeyframeLayers?, paintedHeightRatio: Double?) {
+    private func layers(paintedFromRow topRow: Int) throws -> (layers: RoomFurnitureKeyframeLayers?, paintedHeightRatio: Double?, paintedRows: ClosedRange<Int>?) {
         let keyframe = try #require(roomFurnitureTestKeyframe())
         let maskPNG = try #require(furnitureCompositeMaskPNG(projectedCorners: projectedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
         return RoomFurniturePaintedComposite.itemLayers(painted: try painting(topRow: topRow, over: keyframe), keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
@@ -220,6 +220,26 @@ struct RoomFurniturePaintedCompositeTests {
     @Test func aPaintingShorterThanTheBoxsFrontIsRefused() throws {
         // 80 rows, under 85 percent of the 100 row front.
         #expect(try chairLayers(paintedFromRow: 420) == nil)
+    }
+
+    /// The test painting with one more filled band, `color` from `topRow` to `bottomRow` between columns 460 and 740.
+    private func painting(topRow: Int, over keyframe: CGImage, andBandFromRow bandTopRow: Int, toRow bandBottomRow: Int, color: CGColor) throws -> CGImage {
+        let context = try #require(CGContext(data: nil, width: keyframe.width, height: keyframe.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(try painting(topRow: topRow, over: keyframe), in: CGRect(x: 0, y: 0, width: keyframe.width, height: keyframe.height))
+        context.setFillColor(color)
+        context.fill(CGRect(x: 460, y: keyframe.height - bandBottomRow, width: 280, height: bandBottomRow - bandTopRow))
+        return try #require(context.makeImage())
+    }
+
+    @Test func theShadowAndFloorPaintedBelowTheBoxDoNotCountAsTheItem() throws {
+        // The live check's paintings darkened the floor for 40 to 50 rows under the piece's feet, inside the pasted region.
+        let keyframe = try #require(roomFurnitureTestKeyframe())
+        let maskPNG = try #require(furnitureCompositeMaskPNG(projectedCorners: projectedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        let painted = try painting(topRow: 310, over: keyframe, andBandFromRow: 500, toRow: 548, color: CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        let result = RoomFurniturePaintedComposite.itemLayers(painted: painted, keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
+        #expect(result.paintedRows == 310...500)
+        #expect(result.layers != nil)
     }
 
     @Test func aPaintingFarTallerThanTheMeasuredBoxIsRefused() throws {

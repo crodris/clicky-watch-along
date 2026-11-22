@@ -875,8 +875,8 @@ final class RoomArtPreviewController: ObservableObject {
                     nonisolated(unsafe) let paintedImage = painted, keyframeImage = keyframe
                     return await Task.detached(priority: .userInitiated) { () -> RoomFurnitureKeyframeLayers? in
                         let composite = RoomFurniturePaintedComposite.itemLayers(painted: paintedImage, keyframe: keyframeImage, maskPNG: maskPNG, projectedBox: projectedBox)
-                        if let ratio = composite.paintedHeightRatio {
-                            print(String(format: "Room furniture: the painted item is %.0f%% of the measured box's outline", ratio * 100))
+                        if let ratio = composite.paintedHeightRatio, let rows = composite.paintedRows {
+                            print(String(format: "Room furniture: the painted item is %.0f%% of the measured box's outline (%@)", ratio * 100, roomFurniturePaintedRowsAgainstTheBox(rows, projectedBox)))
                         }
                         return composite.layers
                     }.value

@@ -11,13 +11,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		AA00BB192F6500190039DA55 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = AA00BB102F6500100039DA55;
-			remoteInfo = ClickyThemeQuickLook;
-		};
 		28F22CCD2F56440300A0FC59 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
@@ -31,6 +24,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 28F22CBE2F56440300A0FC59;
 			remoteInfo = "leanring-buddy";
+		};
+		AA00BB192F6500190039DA55 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA00BB102F6500100039DA55;
+			remoteInfo = ClickyThemeQuickLook;
 		};
 /* End PBXContainerItemProxy section */
 
