@@ -290,7 +290,11 @@ struct RoomFurnitureRoomCheckTests {
             for column in Int(renderedBox.minX)..<Int(renderedBox.maxX) { wallLuminances.append(keyframePixels[column, row]) }
         }
         let wallBrighterHalf = wallLuminances.sorted().suffix(max(wallLuminances.count / 2, 1))
-        let wallWhite = wallBrighterHalf.reduce(0, +) / Double(max(wallBrighterHalf.count, 1))
+        let nearWallWhite = wallBrighterHalf.reduce(0, +) / Double(max(wallBrighterHalf.count, 1))
+        // The wall's lit white is the near wall's, unless that wall is in shade: then the share of the frame's own lit
+        // white (its 95th percentile) the renderer holds to, which is a power of 1 / 2.4 in sRGB of the linear share.
+        let frameLitWhite = keyframePixels.values.sorted()[Int(Double(keyframePixels.values.count) * 0.95)]
+        let wallWhite = max(nearWallWhite, frameLitWhite * pow(RoomFurnitureRenderer.shareOfTheFramesLitWhite, 1 / 2.4))
         let whiteRatio = itemWhite / max(wallWhite, 1e-6)
 
         let itemSigma = itemEdgeSigma(itemPixels)
@@ -306,7 +310,7 @@ struct RoomFurnitureRoomCheckTests {
             "lowestPointMillimeters": lowestHeightAboveTheFloor * 1000,
             "nearShadowDarkening": nearDarkening ?? -1,
             "farShadowDarkening": farDarkening ?? -1,
-            "itemWhite": itemWhite, "wallWhite": wallWhite, "whiteRatio": whiteRatio,
+            "itemWhite": itemWhite, "wallWhite": wallWhite, "nearWallWhite": nearWallWhite, "frameLitWhite": frameLitWhite, "whiteRatio": whiteRatio,
             "itemEdgeSigma": itemSigma ?? -1, "frameEdgeSigma": frameSigma ?? -1, "softnessRatio": softnessRatio ?? -1,
             "worstTrackingErrorPixels": trackingError,
             // The model's own width, height, and depth in centimeters once scaled to the page's height, to compare with

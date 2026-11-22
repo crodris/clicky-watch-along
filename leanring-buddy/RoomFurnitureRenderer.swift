@@ -53,12 +53,15 @@ nonisolated struct RoomFurnitureRenderReport: Equatable, Sendable {
     /// The per-channel gains, in linear light, that toned the render's white card to the wall's lit white.
     let whiteGains: SIMD3<Double>
     let wallWhite: SIMD3<Double>
+    /// What the white card rendered as, in linear light, which the gains are measured against.
+    let cardWhite: SIMD3<Double>
     let renderMilliseconds: Double
 
     var logLine: String {
         let turnedWords = fit.wasTurnedAQuarter ? ", turned a quarter" : ""
-        return String(format: "Room furniture: rendered in %.0f ms, %.2f m per model unit, width and depth within %.0f%%%@, white gains %.2f %.2f %.2f",
-                      renderMilliseconds, fit.scale, fit.worstSideMismatch * 100, turnedWords, whiteGains.x, whiteGains.y, whiteGains.z)
+        return String(format: "Room furniture: rendered in %.0f ms, %.2f m per model unit, width and depth within %.0f%%%@, white gains %.2f %.2f %.2f, wall white %.2f, card white %.2f",
+                      renderMilliseconds, fit.scale, fit.worstSideMismatch * 100, turnedWords, whiteGains.x, whiteGains.y, whiteGains.z,
+                      simd_dot(wallWhite, RoomFurnitureRoomLight.luminanceWeights), simd_dot(cardWhite, RoomFurnitureRoomLight.luminanceWeights))
     }
 }
 
@@ -146,6 +149,8 @@ nonisolated final class RoomFurnitureRenderer: @unchecked Sendable {
     static let cameraBlurPixels = 0.7
     /// The brightest part of the render (its 95th percentile) is held to this share of the wall's lit white, in linear light.
     static let brightestShareOfTheWallWhite = 0.92
+    /// The share of the frame's lit white (its 95th percentile luminance) that the highlight hold never goes under.
+    static let shareOfTheFramesLitWhite = 0.75
     /// How much of the wall's color tint the item takes, as a power of each channel's gain relative to their average.
     static let shareOfTheWallsTint = 0.5
     /// The model renders at this many times the keyframe's size and is scaled down, for antialiased edges.
@@ -240,7 +245,9 @@ nonisolated final class RoomFurnitureRenderer: @unchecked Sendable {
         // A white top facing the sky catches more light than the card, and a camera never records furniture brighter than
         // the lit wall behind it, so the brightest part of the toned render is held just under the wall's white.
         if let brightestLuminance = brightLuminance(of: CIImage(cgImage: modelRender), gains: whiteGains, within: projectedBox, frameHeight: Double(frameHeight)) {
-            let wallLuminance = simd_dot(wallWhite, RoomFurnitureRoomLight.luminanceWeights)
+            // The wall near a spot at the frame's edge can be in shade or in the lens's vignette, and a white top holds more
+            // light than a wall in shade, so the hold is the brighter of the near wall and a share of the frame's lit white.
+            let wallLuminance = max(simd_dot(wallWhite, RoomFurnitureRoomLight.luminanceWeights), roomLight.frameLitWhiteLuminance * Self.shareOfTheFramesLitWhite)
             let highestAllowedLuminance = wallLuminance * Self.brightestShareOfTheWallWhite
             if brightestLuminance > highestAllowedLuminance { whiteGains *= highestAllowedLuminance / brightestLuminance }
         }
@@ -278,6 +285,7 @@ nonisolated final class RoomFurnitureRenderer: @unchecked Sendable {
             fit: fit,
             whiteGains: whiteGains,
             wallWhite: wallWhite,
+            cardWhite: cardWhite,
             renderMilliseconds: Date().timeIntervalSince(startedAt) * 1000
         )
         return (layers, report)
@@ -359,7 +367,18 @@ nonisolated final class RoomFurnitureRenderer: @unchecked Sendable {
         renderer.autoenablesDefaultLighting = false
         let renderedImage = renderer.snapshot(atTime: 0, with: CGSize(width: width, height: height), antialiasingMode: .multisampling4X)
         var proposedRect = CGRect(x: 0, y: 0, width: width, height: height)
-        return renderedImage.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
+        guard let snapshotImage = renderedImage.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else { return nil }
+        // Inside the app, on a display with extended range, the snapshot came back as a float image with values over 1,
+        // while the test process got 8 bits. The white card then read about four times brighter than the clamped model
+        // render, and the table rendered gray. Every snapshot is drawn into the same 8-bit sRGB bitmap at the asked
+        // pixel size, so the card and the model are measured and toned alike in every process.
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: sRGBColorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.interpolationQuality = .high
+        context.draw(snapshotImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()
     }
 
     /// The 95th percentile luminance, in linear light, of the render's opaque pixels after `gains`, over the box around the
@@ -531,6 +550,8 @@ nonisolated struct RoomFurnitureRoomLight: @unchecked Sendable {
     let environmentImage: CGImage?
     let brighterSideIsRight: Bool
     let cameraNoiseStandardDeviation: Double
+    /// The frame's lit white: the 95th percentile luminance of the whole keyframe, in linear light.
+    let frameLitWhiteLuminance: Double
     private let keyframe: CIImage
     private let ciContext: CIContext
     /// Linear light, where every color here is measured.
@@ -561,6 +582,7 @@ nonisolated struct RoomFurnitureRoomLight: @unchecked Sendable {
         brighterSideIsRight = averageLuminance(of: rightHalf) > averageLuminance(of: leftHalf)
 
         cameraNoiseStandardDeviation = Self.measuredNoise(in: keyframe, ciContext: ciContext, colorSpace: measuringColorSpace)
+        frameLitWhiteLuminance = Self.percentileLuminance(of: keyframe, percentile: 0.95, ciContext: ciContext, colorSpace: measuringColorSpace)
     }
 
     /// The wall's lit white above the box: the average of the brighter half of the pixels in a band just above the box's
@@ -603,6 +625,23 @@ nonisolated struct RoomFurnitureRoomLight: @unchecked Sendable {
     }
 
     static let luminanceWeights = SIMD3<Double>(0.2126, 0.7152, 0.0722)
+
+    /// A luminance percentile of the image, read from a 64 by 36 copy, which is plenty for the frame's overall light.
+    static func percentileLuminance(of image: CIImage, percentile: Double, ciContext: CIContext, colorSpace: CGColorSpace) -> Double {
+        let sampleWidth = 64, sampleHeight = 36
+        let extent = image.extent
+        let sample = image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+            .transformed(by: CGAffineTransform(scaleX: Double(sampleWidth) / extent.width, y: Double(sampleHeight) / extent.height))
+        var pixels = [Float](repeating: 0, count: sampleWidth * sampleHeight * 4)
+        ciContext.render(sample, toBitmap: &pixels, rowBytes: sampleWidth * 16, bounds: CGRect(x: 0, y: 0, width: sampleWidth, height: sampleHeight), format: .RGBAf, colorSpace: colorSpace)
+        var luminances: [Double] = []
+        for pixelIndex in 0..<(sampleWidth * sampleHeight) {
+            let color = SIMD3(Double(pixels[pixelIndex * 4]), Double(pixels[pixelIndex * 4 + 1]), Double(pixels[pixelIndex * 4 + 2]))
+            luminances.append(simd_dot(color, luminanceWeights))
+        }
+        let sortedLuminances = luminances.sorted()
+        return sortedLuminances[min(sortedLuminances.count - 1, Int(Double(sortedLuminances.count) * percentile))]
+    }
 
     static func averageColor(of image: CIImage, in rectangle: CGRect, ciContext: CIContext, colorSpace: CGColorSpace) -> SIMD3<Double> {
         let average = image.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: rectangle)])
