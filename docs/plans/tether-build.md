@@ -105,7 +105,7 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 11 Instant replay | Open: [#88](https://github.com/crodris/clicky-watch-along/pull/88) |
 | 8 Panel, onboarding, keyboard | Building |
 | 13 Theme Studio designs motion | Building |
-| 14 The loop carries background work | Building |
+| 14 The loop carries background work | Open: PR for `feature/tether-loop-work` |
 | 15 End-of-video recap | Building |
 | 16 Pause every agent by voice | Building |
 | 17 Scrub by voice | Starts when PR 11 merges |
