@@ -145,3 +145,9 @@ The Quick Look extension draws its own still cursor, a small copy of the triangl
 Left open by PR 14, for PR 19: no test covers the loop view passing the paused flag to an agent's spark.
 The recap watcher reads the front tab every 3 seconds on the main actor, so a spark may jump while an agent works on that video; this is not measured.
 "Let me try it" timed out at 60 seconds on the local Worker in both of PR 14's app runs, because Sonnet sometimes thinks for 3,000 to 7,000 tokens first; [#108](https://github.com/crodris/clicky-watch-along/pull/108) closed it, so PR 19 does not take it.
+
+PR 19b (speech, cursor, quiz, and replay) closes these leftovers:
+- PR 4: chips stack, with a second panel: a new chip pushes the one on screen up one step, and a third sends the oldest away at once. The speech underline is a bar of exactly 2 points on macOS 15 and later, drawn by a text renderer, and the system underline before that. The model-facing text that said "a chip under the cursor" was `make_study_guide`'s, not `start_background_task`'s; it now says above, in the app and both fixtures, with a new recorded brain eval run (264 of 264 on the harness backend).
+- PR 9: while a status line shows, the thinking dots orbit 17 points out instead of 24, so no dot reaches the Callout's body. `isAFailure` is required at every `speakLiveSceneLine` call.
+- PR 10: Escape during the summary Card's glide-in hides the carried Card at once (`landAtOnce(hidingTheCarriedView:)`). A go-back that fails after it cancelled a scene build, or cleared a requested scene, lets go of that pause and plays the video again.
+- PR 11: a replay stop's dwell starts when the cursor's flight ends, timed from the shown theme's Point move, so the slowest theme keeps the whole dwell. A brain eval case pins that "keep going" and "go ahead" reach `resume_agents` while a replay is open and agents are paused.
