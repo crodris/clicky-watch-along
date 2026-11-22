@@ -709,8 +709,8 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
     /// The front of the neck hole, top left origin, y down.
     let frontNeckPoint: CGPoint
     let frontNeckWasFound: Bool
-    /// The garment's base color, from a print-free band near the hem. It fills the learner's old shirt where the garment's
-    /// outline does not reach, at the waist and under the arms.
+    /// The garment's base color, the mean in linear light of a print-free band near the hem. It fills the learner's old
+    /// shirt where the garment's outline does not reach, at the waist, under the arms, and on the tops of the shoulders.
     let baseColor: ShirtRGB
     /// The product photo's white in linear light, per channel: its background, raised to the garment's own 98th percentile
     /// of luminance when the garment is brighter (a white shirt on a light gray sweep). The photo over this is the garment's
@@ -771,9 +771,12 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
         }
         // A hem band with no cloth in it (a cutout cut off above its hem) takes the garment's mean color instead.
         let meanBrightness = Float(garmentChannelSum / (3 * 255 * Double(garmentPixelCount)))
+        // The band's mean in linear light, encoded back: fine stripes or a heather seen from a step away blend to the
+        // mean of their light, where a median would pick one of the stripes.
         let baseChannels = bandChannels.map { channelValues -> Float in
             guard !channelValues.isEmpty else { return meanBrightness }
-            return Float(channelValues.sorted()[channelValues.count / 2]) / 255
+            let meanLinearValue = channelValues.reduce(Float(0)) { $0 + ShirtColorMath.linearValueOfEachByte[Int($1)] } / Float(channelValues.count)
+            return meanLinearValue <= 0.0031308 ? meanLinearValue * 12.92 : 1.055 * pow(meanLinearValue, 1 / 2.4) - 0.055
         }
         let photoWhite = photoWhite(backgroundChannels: backgroundChannels, garmentLuminances: garmentLuminances)
 

@@ -36,13 +36,11 @@ extension BodyTorso {
 }
 
 /// One sleeve as it was drawn: its side, where its quadrilateral landed (seam top, opening outer, opening inner, seam
-/// bottom, in camera pixels with y down), and where it shows, its warped alpha where the torso does not cover it, before the
-/// person mask.
-nonisolated struct ShirtDrawnSleeve: @unchecked Sendable {
-    // @unchecked because CIImage is immutable, so sharing one across queues is safe.
+/// bottom, in camera pixels with y down), and whether it lies along its arm or keeps the angle the whole garment gives it.
+nonisolated struct ShirtDrawnSleeve: Sendable {
     let side: ShirtSleeveSide
     let landing: [CGPoint]
-    let alpha: CIImage
+    let liesAlongTheArm: Bool
 
     /// From the middle of the seam to the middle of the opening.
     var axis: CGVector {
@@ -66,7 +64,8 @@ nonisolated struct ShirtTryOnComposition: @unchecked Sendable {
     let warpedGarmentColor: CIImage
     /// The body's torso corners the garment's torso landed on, top left first, in camera pixels with y down.
     let landedTorsoCorners: [CGPoint]
-    /// The sleeves drawn apart along the arms, image left first, empty when the garment was drawn whole.
+    /// The sleeves as drawn, image left first: along the arms, or at the whole garment's angle. Empty when the garment has
+    /// no sleeves apart or an elbow is not seen, when the garment is drawn in one piece.
     let sleeves: [ShirtDrawnSleeve]
 }
 
@@ -86,11 +85,16 @@ nonisolated private struct ShirtFrameAnalysisResult: @unchecked Sendable {
     let neckRow: Double?
     let oldShirtHemDistance: Double?
     let roomLight: ShirtRoomLight?
+    /// The old shirt's half widths at `ShirtFrameAnalysis.torsoWidthFractions` and its old sleeves, both in camera pixels
+    /// for `torso`.
+    let oldShirtHalfWidths: [[Double?]]
+    let oldSleeves: [ShirtOldSleeveExtent?]
 
     func numbered(_ runNumber: Int) -> ShirtFrameAnalysisResult {
         ShirtFrameAnalysisResult(
             runNumber: runNumber, torso: torso, masks: masks, oldShirtMedianLinearLuminance: oldShirtMedianLinearLuminance,
-            neckRow: neckRow, oldShirtHemDistance: oldShirtHemDistance, roomLight: roomLight
+            neckRow: neckRow, oldShirtHemDistance: oldShirtHemDistance, roomLight: roomLight,
+            oldShirtHalfWidths: oldShirtHalfWidths, oldSleeves: oldSleeves
         )
     }
 }
@@ -113,17 +117,14 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     /// few pixels wide where a fold read as not the old shirt, and leaves it grown by this much under the garment's edge,
     /// so the two meet with no gap.
     static let baseColorGrowthUnderTheGarmentInSmallPixels = 1.6
-    /// The base color fill stays this share of the frame's width inside the person mask's edge: about 4 camera pixels at
-    /// 1280, which keeps it off the room where the mask reaches past the arm.
-    static let baseColorFillPullInShareOfTheFrameWidth = 0.0025
-    /// How far the fill carries the garment's colors from its outline, in shoulder widths: about as far as an old shirt
-    /// reaches past a slimmer new one at the waist.
-    static let fillReachInShoulderWidths = 0.25
     /// The garment is drawn where the person mask is over the first of these and fully over the second. The mask's soft
     /// edge starts in the room, so a looser ramp would lay the bright garment over the wall as a light halo.
     static let personMaskRampForTheGarment = (from: 0.5, to: 0.9)
     /// How far the room's color is carried in under the person's outline, in half size pixels.
     static let roomBehindBlurSigmaAtHalfSize = 3.0
+    /// The room shows through under the garment's reach from a person mask of the first of these, fully from the second up to
+    /// where the garment draws, so the old shirt's dark blend with the wall outside the matte's 0.5 line goes too.
+    static let roomShowsThroughFromPersonMask = (from: 0.12, to: 0.3)
 
     // The light.
     /// Cloth is lit a little below the room's white: the white is read from walls and doors that face the light, and a
@@ -183,6 +184,23 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     static let sleeveOpeningShareOnTheArm = 0.8
     /// How far the opening's center moves from the line through the seam's middle toward the arm's own line.
     static let sleeveOpeningShareTowardTheArmLine = 0.5
+    /// A sleeve lengthened to cover the old one stops this share of the way to the elbow.
+    static let mostSleeveReachShareOfTheArm = 0.95
+    /// The sleeves are drawn apart along the arms once an arm turns out this far past its whole-garment sleeve, and go back
+    /// to the whole garment once both arms are back within `armPastTheSleeveToGoBackToTheWholeGarmentDegrees`.
+    static let armPastTheSleeveToDrawItApartDegrees = 10.0
+    static let armPastTheSleeveToGoBackToTheWholeGarmentDegrees = 4.0
+
+    // Covering the old shirt.
+    /// The garment's sides and sleeves reach this far past the old shirt they cover, in shoulder widths.
+    static let oldShirtCoverMarginInShoulderWidths = 0.03
+    /// The most a lower torso corner moves out to cover a looser old shirt, so a misread never turns the shirt into a tent.
+    static let mostHipWideningInShoulderWidths = 0.15
+    /// The fill covers the old shirt within this many shoulder widths of the center: over the old sleeves when the garment is
+    /// drawn in one piece, and only over the torso (its shoulder corners are 0.62 out) when the sleeves are drawn apart,
+    /// since each is then lengthened to cover its old sleeve itself, and a fill out there would hang under it as a tab.
+    static let oldShirtZoneHalfWidthWithTheGarmentWhole = 0.9
+    static let oldShirtZoneHalfWidthWithTheSleevesApart = 0.62
 
     private let ciContext: CIContext
     private let analysisRunsInTheBackground: Bool
@@ -211,6 +229,12 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     private var smoothedRoomWhite: Float?
     private var smoothedIlluminant = SIMD3<Float>(1, 1, 1)
     private var smoothedOldShirtMedianLinearLuminance: Float?
+    /// How far each lower torso corner, image left first, moves out to cover the old shirt, in shoulder widths.
+    private var smoothedHipWideningInShoulderWidths = [0.0, 0.0]
+    /// Each old sleeve, image left first, in shoulder widths.
+    private var smoothedOldSleevesInShoulderWidths: [ShirtOldSleeveExtent?] = [nil, nil]
+    private var lastFrameDrewTheSleevesApart = false
+    private var lastFrameLaidTheSleevesAlongTheArms = false
 
     /// `ciContext` reads the small frame back for the analysis. Pass the one that draws the frames. With
     /// `analysisRunsInTheBackground` (the panel's way), the first frames are drawn without the garment until the first
@@ -233,6 +257,10 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         smoothedRoomWhite = nil
         smoothedIlluminant = SIMD3(1, 1, 1)
         smoothedOldShirtMedianLinearLuminance = nil
+        smoothedHipWideningInShoulderWidths = [0, 0]
+        smoothedOldSleevesInShoulderWidths = [nil, nil]
+        lastFrameDrewTheSleevesApart = false
+        lastFrameLaidTheSleevesAlongTheArms = false
     }
 
     /// `frame` with `garment` drawn over the person's shirt. `personMask` is white where the person is (any size, it is scaled
@@ -254,7 +282,11 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         func torsoWithTheLearnedLength() -> BodyTorso {
             smoothedTorsoLengthInShoulderWidths.map { suppliedTorso.withTorsoLength($0 * suppliedTorso.shoulderWidth) } ?? suppliedTorso
         }
-        guard let analysis = analysisForThisFrame(frame: frame, personMask: personMask, torso: torsoWithTheLearnedLength()) else { return nil }
+        // While the sleeves are drawn apart, each is lengthened over its old sleeve, so the fill stays on the torso, where a
+        // tab of it hanging under a sleeve would show. The last frame says whether they were, since a sleeve that cannot land
+        // falls back to the garment in one piece, whose sleeves cover less of the old ones.
+        let oldShirtZoneHalfWidth = lastFrameDrewTheSleevesApart ? Self.oldShirtZoneHalfWidthWithTheSleevesApart : Self.oldShirtZoneHalfWidthWithTheGarmentWhole
+        guard let analysis = analysisForThisFrame(frame: frame, personMask: personMask, torso: torsoWithTheLearnedLength(), oldShirtZoneHalfWidth: oldShirtZoneHalfWidth) else { return nil }
         foldInTheNumbers(of: analysis)
         let torso = torsoWithTheLearnedLength()
         // How the body moved since the analysis ran, which moves its masks and its neck row with it.
@@ -262,7 +294,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
 
         // 2. Where the garment lands, with the necklines met.
         let sourceCorners = garment.torsoCorners.clockwiseFromTopLeft
-        var bodyCorners = Self.bodyTorsoCorners(of: torso)
+        var bodyCorners = Self.bodyTorsoCorners(of: torso, widenedHipsBy: smoothedHipWideningInShoulderWidths)
         guard let unshiftedHomography = perspectiveTransform(from: sourceCorners, to: bodyCorners) else { return nil }
         var rawNeckShift = 0.0
         if garment.frontNeckWasFound, let neckRowAtTheAnalysis = analysis.neckRow {
@@ -277,9 +309,12 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         bodyCorners = bodyCorners.map { CGPoint(x: $0.x, y: $0.y + smoothedNeckShift) }
         guard let homography = perspectiveTransform(from: sourceCorners, to: bodyCorners) else { return nil }
 
-        // 3. The garment warped onto the body: whole, or its torso and each sleeve along its arm when the elbows are seen.
-        // A garment much larger than its landing is scaled down first with Lanczos, since the warp samples bilinearly and
-        // would shimmer the print.
+        // 3. The garment warped onto the body: in one piece when an elbow is not seen, or its torso with each sleeve drawn on
+        // its own. While an arm hangs below its sleeve, the sleeve keeps the whole garment's angle, which stands off a hanging
+        // arm as a worn short sleeve does and covers the old sleeve and shoulder, where a sleeve laid along the hanging arm
+        // left the old one showing outside it, and it is lengthened over the old sleeve's hem. Once an arm rises past its
+        // sleeve (`wholeGarmentSleevesHoldTheArms`), the sleeves lie along the arms. A garment much larger than its landing
+        // is scaled down first with Lanczos, since the warp samples bilinearly and would shimmer the print.
         let landedTorsoWidth = hypot(bodyCorners[1].x - bodyCorners[0].x, bodyCorners[1].y - bodyCorners[0].y)
         let garmentTorsoWidth = max(garment.torsoCorners.topRight.x - garment.torsoCorners.topLeft.x, 1)
         let preScale = min(1, landedTorsoWidth / garmentTorsoWidth * 1.15)
@@ -289,17 +324,21 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         let clearFrame = CIImage(color: .clear).cropped(to: frameExtent)
         let wholeGarmentBox = CGRect(origin: .zero, size: garment.size)
         var warpedGarment: CIImage
+        let wholeGarmentSleeves = Self.wholeGarmentSleeveLandings(of: garment, torso: torso, torsoHomography: homography)
+        let sleevesHoldTheArms = Self.wholeGarmentSleevesHoldTheArms(
+            wholeGarmentSleeves, torso: torso,
+            pastTheSleeveDegrees: lastFrameLaidTheSleevesAlongTheArms ? Self.armPastTheSleeveToGoBackToTheWholeGarmentDegrees : Self.armPastTheSleeveToDrawItApartDegrees
+        )
         var drawnSleeves: [ShirtDrawnSleeve] = []
-        if let sleeveLayers = warpedSleeves(of: garment, torso: torso, torsoHomography: homography, landedTorsoWidth: landedTorsoWidth, frameExtent: frameExtent),
+        if let sleeveLayers = warpedSleeves(
+            of: garment, torso: torso, torsoHomography: homography, landedTorsoWidth: landedTorsoWidth, frameExtent: frameExtent, alongTheArms: !sleevesHoldTheArms
+        ),
            let torsoWithoutSleeves = garment.torsoWithoutSleeves,
            let warpedTorso = Self.warped(preScaled(torsoWithoutSleeves), lyingIn: wholeGarmentBox, by: homography, frameExtent: frameExtent) {
             // The sleeves go under the torso, which covers their tucked-in strip at the seam.
             let sleevesUnderneath = sleeveLayers.reduce(clearFrame) { layers, sleeve in sleeve.image.composited(over: layers) }
             warpedGarment = warpedTorso.composited(over: sleevesUnderneath).cropped(to: frameExtent)
-            let uncoveredByTheTorso = Self.inverted(Self.channel(warpedTorso.composited(over: clearFrame).cropped(to: frameExtent), 3))
-            drawnSleeves = sleeveLayers.map { sleeve in
-                ShirtDrawnSleeve(side: sleeve.side, landing: sleeve.landing, alpha: Self.multiplied(Self.channel(sleeve.image.composited(over: clearFrame).cropped(to: frameExtent), 3), uncoveredByTheTorso))
-            }
+            drawnSleeves = sleeveLayers.map { ShirtDrawnSleeve(side: $0.side, landing: $0.landing, liesAlongTheArm: !sleevesHoldTheArms) }
         } else {
             guard let warpedWhole = Self.warped(preScaled(garment.cutout), lyingIn: wholeGarmentBox, by: homography, frameExtent: frameExtent) else { return nil }
             warpedGarment = warpedWhole.composited(over: clearFrame).cropped(to: frameExtent)
@@ -319,19 +358,17 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         let oldShirtForTheShading = Self.channel(movedMasks, 2)
 
         let alphaOfTheGarment = Self.multiplied(Self.multiplied(Self.channel(warpedGarment, 3), personOpacity), Self.inverted(neckCut))
-        // The old shirt the garment's outline misses (the waist, under the arms) takes the garment's base color. The fill
-        // grows a little under the garment's edge, so no gap of the old shirt shows between them, and it stays inside the
-        // person mask pulled in from its edge, since the mask's edge is soft and a fill out to it would spill onto the room.
-        let bodyInsideItsEdge = Self.ramp(
-            scaledPersonMask.applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: frameWidth * Self.baseColorFillPullInShareOfTheFrameWidth]),
-            from: Self.personMaskRampForTheGarment.from, to: Self.personMaskRampForTheGarment.to
-        )
+        // The old shirt the garment's outline misses (the waist, under the arms, the tops of the shoulders) takes the
+        // garment's base color. The fill grows a little under the garment's edge, so no gap of the old shirt shows between
+        // them, and reaches the person's edge as the garment does, where the room shows through under it (step 6), so the
+        // old shirt's outline at the silhouette is covered too.
         let growthRadius = cameraPixelsPerSmallPixel * Self.baseColorGrowthUnderTheGarmentInSmallPixels
         let grownUncoveredOldShirt = uncoveredOldShirt
             .applyingFilter("CIMorphologyMaximum", parameters: [kCIInputRadiusKey: 2 * growthRadius])
             .applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: growthRadius])
             .cropped(to: frameExtent)
-        let baseColorCoverage = Self.multiplied(Self.multiplied(grownUncoveredOldShirt, bodyInsideItsEdge), Self.inverted(neckCut))
+        let fillReach = Self.multiplied(grownUncoveredOldShirt, Self.inverted(neckCut))
+        let baseColorCoverage = Self.multiplied(fillReach, personOpacity)
         // The garment is drawn over the base color, so their alphas join the way two layers do: a + (1 - a) b, which is the
         // screen blend. Where the garment's softened edge meets the fill, the two together cover the old shirt with no
         // notch between them, where the larger of the two would leave a dip. Core Image's addition filter adds the gray
@@ -341,22 +378,10 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         // 5. The color, in Core Image's linear working space. The garment lies over the base color by its own alpha, so its
         // softened edge fades into the fill and not into the old shirt.
         let baseColor = CIColor(red: CGFloat(garment.baseColor.red), green: CGFloat(garment.baseColor.green), blue: CGFloat(garment.baseColor.blue), colorSpace: sRGBColorSpace) ?? .white
-        // Beyond the garment's outline the fill continues its own colors: its rows smeared sideways, so a stripe runs on into
-        // the fill instead of stopping at a gray panel, and the base color is left only where no row of the garment reaches.
-        let fillReach = Self.fillReachInShoulderWidths * shoulderWidth
-        let halfExtent = CGRect(x: 0, y: 0, width: (frameExtent.width / 2).rounded(), height: (frameExtent.height / 2).rounded())
-        let halfSizeGarment = Self.scaled(warpedGarment, toFill: halfExtent)
-        // A smear's own colors, made opaque (a color matrix works on unpremultiplied colors), over `background` wherever the
-        // smear has gathered enough of the garment to trust them.
-        func smeared(angle: Double, over background: CIImage) -> CIImage {
-            let smear = halfSizeGarment.applyingFilter("CIMotionBlur", parameters: [kCIInputRadiusKey: fillReach / 2, kCIInputAngleKey: angle]).cropped(to: halfExtent)
-            let colorsMadeOpaque = Self.withBias(smear, parameters: [
-                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0), "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 1),
-            ])
-            let smearIsTrusted = Self.ramp(Self.channel(smear, 3), from: 0.05, to: 0.3)
-            return colorsMadeOpaque.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: background, kCIInputMaskImageKey: smearIsTrusted])
-        }
-        let fillColors = Self.scaled(smeared(angle: 0, over: CIImage(color: baseColor).cropped(to: halfExtent)), toFill: frameExtent)
+        // Beyond the garment's outline the fill is the cloth's base color, which the shading then lights like the garment. Rows
+        // of the garment smeared sideways into it read as a glitch on a striped shirt, and the lower torso is widened to cover
+        // a looser old shirt, so little fill is left.
+        let fillColors = CIImage(color: baseColor).cropped(to: frameExtent)
         let garmentWithBaseColor = warpedGarment.composited(over: fillColors)
         // Albedo times the room's light: the photo over its own white, times the cloth's share of the room's white, tinted.
         let roomWhite = smoothedRoomWhite ?? Self.roomWhiteWhenUnmeasured
@@ -380,18 +405,22 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
                 "inputColorSpace": linearColorSpace,
             ])
 
-        // 6. The garment over the frame, where the total alpha says. Inside the person matte's soft edge the frame there is the
-        // old shirt blended with the room, so a light garment drawn partly over it would keep a dark outline of the old shirt.
-        // Where the garment reaches, that edge shows the room behind the person instead, and only inside the matte, so
-        // nothing outside the person changes.
-        let roomBehindThePerson = roomBehindThePersonImage(frame: frame, scaledPersonMask: scaledPersonMask, frameExtent: frameExtent)
+        // 6. The garment over the frame, where the total alpha says. In the person matte's soft edge the frame is the old shirt
+        // blended with the room, so a light garment drawn partly over it, or drawn up to it, would keep a dark outline of the
+        // old shirt. Where the garment reaches, that edge shows the room behind the person instead, from a person mask of
+        // `roomShowsThroughFromPersonMask` in, and only where enough of the room is near to know its color.
+        let roomBehind = roomBehindThePersonImage(frame: frame, scaledPersonMask: scaledPersonMask, frameExtent: frameExtent)
+        let roomBehindThePerson = roomBehind.room
         let garmentReach = Self.multiplied(Self.channel(warpedGarment, 3), Self.inverted(neckCut))
-        let insideTheMatte = Self.ramp(scaledPersonMask, from: Self.personMaskRampForTheGarment.from - 0.05, to: Self.personMaskRampForTheGarment.from)
-        let roomShowsThrough = Self.multiplied(Self.multiplied(garmentReach, Self.inverted(personOpacity)), insideTheMatte)
+            .applyingFilter("CIScreenBlendMode", parameters: [kCIInputBackgroundImageKey: fillReach])
+        let inTheMattesEdge = Self.ramp(scaledPersonMask, from: Self.roomShowsThroughFromPersonMask.from, to: Self.roomShowsThroughFromPersonMask.to)
+        let roomShowsThrough = Self.multiplied(Self.multiplied(Self.multiplied(garmentReach, Self.inverted(personOpacity)), inTheMattesEdge), roomBehind.isKnown)
         let underneath = roomBehindThePerson.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: frame, kCIInputMaskImageKey: roomShowsThrough])
         let image = worn
             .applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: underneath, kCIInputMaskImageKey: totalAlpha])
             .cropped(to: frameExtent)
+        lastFrameDrewTheSleevesApart = !drawnSleeves.isEmpty
+        lastFrameLaidTheSleevesAlongTheArms = drawnSleeves.contains(where: \.liesAlongTheArm)
         return ShirtTryOnComposition(
             image: image, garmentAlpha: alphaOfTheGarment, totalAlpha: totalAlpha, warpedGarmentColor: garmentWithBaseColor,
             landedTorsoCorners: bodyCorners, sleeves: drawnSleeves
@@ -454,8 +483,9 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     }
 
     /// The room behind the person near their outline: the frame off the person, blurred with the person's pixels left out
-    /// (a normalized blur, as the shading's), so the wall's color reaches a few pixels in under the person's edge.
-    private func roomBehindThePersonImage(frame: CIImage, scaledPersonMask: CIImage, frameExtent: CGRect) -> CIImage {
+    /// (a normalized blur, as the shading's), so the wall's color reaches a few pixels in under the person's edge, and a gray
+    /// image that is 1 where enough of the room was near to know that color, and 0 deep in a crease between arm and body.
+    private func roomBehindThePersonImage(frame: CIImage, scaledPersonMask: CIImage, frameExtent: CGRect) -> (room: CIImage, isKnown: CIImage) {
         let halfExtent = CGRect(x: 0, y: 0, width: (frameExtent.width / 2).rounded(), height: (frameExtent.height / 2).rounded())
         let roomWeight = Self.inverted(Self.ramp(Self.scaled(scaledPersonMask, toFill: halfExtent), from: 0.1, to: 0.3))
         let weightedRoom = Self.multiplied(Self.scaled(frame, toFill: halfExtent), roomWeight)
@@ -465,7 +495,9 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         )
         let blurredRoom = weightedRoom.clampedToExtent().applyingGaussianBlur(sigma: Self.roomBehindBlurSigmaAtHalfSize).cropped(to: halfExtent)
         // The divide blend divides its background by its input, per channel.
-        return Self.scaled(blurredWeight.applyingFilter("CIDivideBlendMode", parameters: [kCIInputBackgroundImageKey: blurredRoom]), toFill: frameExtent)
+        let room = Self.scaled(blurredWeight.applyingFilter("CIDivideBlendMode", parameters: [kCIInputBackgroundImageKey: blurredRoom]), toFill: frameExtent)
+        let isKnown = Self.scaled(Self.ramp(blurredWeight, from: 0.05, to: 0.25), toFill: frameExtent)
+        return (room, isKnown)
     }
 
     /// A gray image that is 1 inside the cloth and darkens toward its edge: the cloth's alpha blurred, so it falls toward
@@ -508,12 +540,12 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
 
     /// The analysis this frame uses. Starts a new run when one is due. With nothing in yet, the background way returns nil and
     /// the first run's result reaches a later frame.
-    private func analysisForThisFrame(frame: CIImage, personMask: CIImage, torso: BodyTorso) -> ShirtFrameAnalysisResult? {
+    private func analysisForThisFrame(frame: CIImage, personMask: CIImage, torso: BodyTorso, oldShirtZoneHalfWidth: Double) -> ShirtFrameAnalysisResult? {
         framesSinceAnAnalysisStarted += 1
         guard analysisRunsInTheBackground else {
             framesSinceAnAnalysisStarted = 0
             let generation = analysisState.withLock { $0.generation }
-            runTheAnalysis(frame: frame, personMask: personMask, torso: torso, generation: generation)
+            runTheAnalysis(frame: frame, personMask: personMask, torso: torso, oldShirtZoneHalfWidth: oldShirtZoneHalfWidth, generation: generation)
             return analysisState.withLock { $0.latestResult }
         }
         let generationToRun: Int? = analysisState.withLock { state in
@@ -527,16 +559,16 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
             nonisolated(unsafe) let frameToRead = frame
             nonisolated(unsafe) let personMaskToRead = personMask
             analysisQueue.async {
-                self.runTheAnalysis(frame: frameToRead, personMask: personMaskToRead, torso: torso, generation: generationToRun)
+                self.runTheAnalysis(frame: frameToRead, personMask: personMaskToRead, torso: torso, oldShirtZoneHalfWidth: oldShirtZoneHalfWidth, generation: generationToRun)
             }
         }
         return analysisState.withLock { $0.latestResult }
     }
 
     /// Reads the small copy back, asks the per-frame questions, and keeps the answer, unless a reset came in between.
-    private func runTheAnalysis(frame: CIImage, personMask: CIImage, torso: BodyTorso, generation: Int) {
+    private func runTheAnalysis(frame: CIImage, personMask: CIImage, torso: BodyTorso, oldShirtZoneHalfWidth: Double, generation: Int) {
         let previousColor = analysisState.withLock { $0.smoothedOldShirtColor }
-        let outcome = analyze(frame: frame, personMask: personMask, torso: torso, previousOldShirtColor: previousColor)
+        let outcome = analyze(frame: frame, personMask: personMask, torso: torso, oldShirtZoneHalfWidth: oldShirtZoneHalfWidth, previousOldShirtColor: previousColor)
         analysisState.withLock { state in
             state.runIsInFlight = false
             guard state.generation == generation, let outcome else { return }
@@ -546,7 +578,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         }
     }
 
-    private func analyze(frame: CIImage, personMask: CIImage, torso: BodyTorso, previousOldShirtColor: SIMD3<Float>?) -> (result: ShirtFrameAnalysisResult, oldShirtColor: SIMD3<Float>)? {
+    private func analyze(frame: CIImage, personMask: CIImage, torso: BodyTorso, oldShirtZoneHalfWidth: Double, previousOldShirtColor: SIMD3<Float>?) -> (result: ShirtFrameAnalysisResult, oldShirtColor: SIMD3<Float>)? {
         let frameExtent = frame.extent
         let analysisScale = min(1, Self.analysisFrameWidth / frameExtent.width)
         let smallWidth = max(3, Int((frameExtent.width * analysisScale).rounded())), smallHeight = max(3, Int((frameExtent.height * analysisScale).rounded()))
@@ -555,7 +587,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         // The old shirt's color is smoothed over runs, so one run's hand or fold never moves it.
         guard let measuredColor = smallFrame.measureOldShirtColor() ?? previousOldShirtColor else { return nil }
         let oldShirtColor = previousOldShirtColor.map { $0 + (measuredColor - $0) * 0.5 } ?? measuredColor
-        let frameAnalysis = ShirtFrameAnalysis(frame: smallFrame, oldShirtColor: oldShirtColor)
+        let frameAnalysis = ShirtFrameAnalysis(frame: smallFrame, oldShirtColor: oldShirtColor, oldShirtZoneHalfWidthInShoulderWidths: oldShirtZoneHalfWidth)
         let masks = CIImage(
             bitmapData: Data(frameAnalysis.maskPixels), bytesPerRow: smallWidth * 4, size: CGSize(width: smallWidth, height: smallHeight), format: .RGBA8, colorSpace: nil
         )
@@ -563,7 +595,11 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
             runNumber: 0, torso: torso, masks: masks, oldShirtMedianLinearLuminance: frameAnalysis.oldShirtMedianLinearLuminance,
             neckRow: smallFrame.bodyNeckRow(oldShirtColor: oldShirtColor).map { $0 / analysisScale },
             oldShirtHemDistance: frameAnalysis.oldShirtHemDistance.map { $0 / analysisScale },
-            roomLight: ShirtRoomLight.measure(in: smallFrame)
+            roomLight: ShirtRoomLight.measure(in: smallFrame),
+            oldShirtHalfWidths: frameAnalysis.oldShirtHalfWidths.map { side in side.map { $0.map { $0 / analysisScale } } },
+            oldSleeves: frameAnalysis.oldSleeves.map { sleeve in
+                sleeve.map { ShirtOldSleeveExtent(reachAlongTheArm: $0.reachAlongTheArm / analysisScale, outward: $0.outward / analysisScale, inward: $0.inward / analysisScale) }
+            }
         )
         return (result, oldShirtColor)
     }
@@ -590,6 +626,28 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
             let measuredLength = hemDistance / Self.garmentBottomInTorsoLengths / analysis.torso.shoulderWidth
             smoothedTorsoLengthInShoulderWidths = smoothedTorsoLengthInShoulderWidths.map { $0 + (measuredLength - $0) * 0.2 } ?? measuredLength
         }
+        // The old shirt's width and its sleeves, in shoulder widths, so they apply to the torso of every later frame. The first
+        // run's numbers are taken whole, and an old sleeve not found this run keeps its last extent, since a hand can hide it.
+        let isTheFirstRun = analysis.runNumber == 1
+        let measuredWidening = Self.hipWidening(of: analysis.torso, toCover: analysis.oldShirtHalfWidths)
+        for side in 0..<2 {
+            let previous = smoothedHipWideningInShoulderWidths[side]
+            smoothedHipWideningInShoulderWidths[side] = isTheFirstRun ? measuredWidening[side] : previous + (measuredWidening[side] - previous) * Double(share)
+            guard let measuredSleeve = analysis.oldSleeves[side] else { continue }
+            let shoulderWidth = analysis.torso.shoulderWidth
+            let measured = ShirtOldSleeveExtent(
+                reachAlongTheArm: measuredSleeve.reachAlongTheArm / shoulderWidth, outward: measuredSleeve.outward / shoulderWidth, inward: measuredSleeve.inward / shoulderWidth
+            )
+            if let previousSleeve = smoothedOldSleevesInShoulderWidths[side], !isTheFirstRun {
+                func eased(_ from: Double, _ to: Double) -> Double { from + (to - from) * Double(share) }
+                smoothedOldSleevesInShoulderWidths[side] = ShirtOldSleeveExtent(
+                    reachAlongTheArm: eased(previousSleeve.reachAlongTheArm, measured.reachAlongTheArm),
+                    outward: eased(previousSleeve.outward, measured.outward), inward: eased(previousSleeve.inward, measured.inward)
+                )
+            } else {
+                smoothedOldSleevesInShoulderWidths[side] = measured
+            }
+        }
     }
 
     // MARK: Geometry
@@ -598,15 +656,59 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     /// (12 percent of the shoulder width) and a little above them, and its hem a little below the hips. Top left, top right,
     /// bottom right, bottom left.
     static func bodyTorsoCorners(of torso: BodyTorso) -> [CGPoint] {
+        bodyTorsoCorners(of: torso, widenedHipsBy: [0, 0])
+    }
+
+    /// The body's torso corners with each lower corner, image left first, moved out along the shoulder line by its share of
+    /// the shoulder width, so the garment's sides cover a looser old shirt at the waist.
+    static func bodyTorsoCorners(of torso: BodyTorso, widenedHipsBy hipWideningInShoulderWidths: [Double]) -> [CGPoint] {
         let shoulderSpan = CGPoint(x: torso.imageRightShoulder.x - torso.imageLeftShoulder.x, y: torso.imageRightShoulder.y - torso.imageLeftShoulder.y)
         let outward = CGPoint(x: shoulderSpan.x * 0.12, y: shoulderSpan.y * 0.12)
         let hemDrop = CGPoint(x: torso.hipMidpoint.x - torso.shoulderMidpoint.x, y: torso.hipMidpoint.y - torso.shoulderMidpoint.y)
         return [
             CGPoint(x: torso.imageLeftShoulder.x - outward.x - hemDrop.x * 0.04, y: torso.imageLeftShoulder.y - outward.y - hemDrop.y * 0.04),
             CGPoint(x: torso.imageRightShoulder.x + outward.x - hemDrop.x * 0.04, y: torso.imageRightShoulder.y + outward.y - hemDrop.y * 0.04),
-            CGPoint(x: torso.imageRightHip.x + outward.x * 0.6 + hemDrop.x * 0.08, y: torso.imageRightHip.y + outward.y * 0.6 + hemDrop.y * 0.08),
-            CGPoint(x: torso.imageLeftHip.x - outward.x * 0.6 + hemDrop.x * 0.08, y: torso.imageLeftHip.y - outward.y * 0.6 + hemDrop.y * 0.08),
+            CGPoint(
+                x: torso.imageRightHip.x + outward.x * 0.6 + hemDrop.x * 0.08 + shoulderSpan.x * hipWideningInShoulderWidths[1],
+                y: torso.imageRightHip.y + outward.y * 0.6 + hemDrop.y * 0.08 + shoulderSpan.y * hipWideningInShoulderWidths[1]
+            ),
+            CGPoint(
+                x: torso.imageLeftHip.x - outward.x * 0.6 + hemDrop.x * 0.08 - shoulderSpan.x * hipWideningInShoulderWidths[0],
+                y: torso.imageLeftHip.y - outward.y * 0.6 + hemDrop.y * 0.08 - shoulderSpan.y * hipWideningInShoulderWidths[0]
+            ),
         ]
+    }
+
+    /// How far each lower torso corner, image left first, must move out, in shoulder widths, for the garment's side to reach
+    /// `oldShirtCoverMarginInShoulderWidths` past the old shirt at each fraction of `ShirtFrameAnalysis.torsoWidthFractions`
+    /// where `halfWidths` (camera pixels from the torso's center line) found it. A side runs straight from its shoulder corner
+    /// to its hip corner, so the hip corner moves out by however much the widest shortfall needs along that line, at most
+    /// `mostHipWideningInShoulderWidths`.
+    static func hipWidening(of torso: BodyTorso, toCover halfWidths: [[Double?]]) -> [Double] {
+        let corners = bodyTorsoCorners(of: torso)
+        let shoulderMidpoint = SIMD2(Double(torso.shoulderMidpoint.x), Double(torso.shoulderMidpoint.y))
+        let hipMidpoint = SIMD2(Double(torso.hipMidpoint.x), Double(torso.hipMidpoint.y))
+        let torsoLength = simd_length(hipMidpoint - shoulderMidpoint), shoulderWidth = torso.shoulderWidth
+        guard torsoLength > 1, shoulderWidth > 1, halfWidths.count == 2 else { return [0, 0] }
+        let torsoAxis = (hipMidpoint - shoulderMidpoint) / torsoLength
+        let alongTheShoulders = SIMD2(Double(torso.imageRightShoulder.x - torso.imageLeftShoulder.x), Double(torso.imageRightShoulder.y - torso.imageLeftShoulder.y)) / shoulderWidth
+        return (0..<2).map { side in
+            let outwardSign = side == 0 ? -1.0 : 1.0
+            let top = SIMD2(Double(corners[side == 0 ? 0 : 1].x), Double(corners[side == 0 ? 0 : 1].y))
+            let bottom = SIMD2(Double(corners[side == 0 ? 3 : 2].x), Double(corners[side == 0 ? 3 : 2].y))
+            func fraction(_ point: SIMD2<Double>) -> Double { simd_dot(point - shoulderMidpoint, torsoAxis) / torsoLength }
+            func outward(_ point: SIMD2<Double>) -> Double { outwardSign * simd_dot(point - shoulderMidpoint, alongTheShoulders) }
+            var widening = 0.0
+            for (index, torsoFraction) in ShirtFrameAnalysis.torsoWidthFractions.enumerated() {
+                guard index < halfWidths[side].count, let halfWidth = halfWidths[side][index] else { continue }
+                let shareDownTheSide = (torsoFraction - fraction(top)) / (fraction(bottom) - fraction(top))
+                guard shareDownTheSide > 0.05, shareDownTheSide <= 1.05 else { continue }
+                let wanted = halfWidth + oldShirtCoverMarginInShoulderWidths * shoulderWidth
+                let wantedAtTheBottom = outward(top) + (wanted - outward(top)) / shareDownTheSide
+                widening = max(widening, (wantedAtTheBottom - outward(bottom)) / shoulderWidth)
+            }
+            return min(widening, mostHipWideningInShoulderWidths)
+        }
     }
 
     /// Where a sleeve's quadrilateral (`ShirtSleeveGeometry.quadrilateral`) lands on the body, or nil when either of its two
@@ -615,8 +717,13 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     /// opening across the arm, as wide as it lies on the arm, and its outer end on the side away from the body. A sleeve wraps
     /// the arm but is wider than it, so its opening hangs between the line through the seam's middle and the arm's own line
     /// (`sleeveOpeningShareTowardTheArmLine`). `garmentToBodyScale` is camera pixels per photo pixel at the torso.
+    ///
+    /// With `oldSleeve` (camera pixels, already grown by its margin), the opening moves down the arm and widens until it covers
+    /// the old sleeve's reach and width, so the learner's own sleeve never shows under the new one. The drawn sleeve may then
+    /// be longer than the product's.
     static func sleeveLanding(
-        of sleeve: ShirtSleeveGeometry, torsoHomography: simd_double3x3, shoulder: CGPoint, elbow: CGPoint, bodyCenter: CGPoint, garmentToBodyScale: Double
+        of sleeve: ShirtSleeveGeometry, torsoHomography: simd_double3x3, shoulder: CGPoint, elbow: CGPoint, bodyCenter: CGPoint, garmentToBodyScale: Double,
+        oldSleeve: ShirtOldSleeveExtent? = nil
     ) -> [CGPoint]? {
         let seamTop = applyingPerspective(torsoHomography, to: sleeve.seamTop), seamBottom = applyingPerspective(torsoHomography, to: sleeve.seamBottom)
         let seamCenter = SIMD2((seamTop.x + seamBottom.x) / 2, (seamTop.y + seamBottom.y) / 2)
@@ -627,9 +734,18 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         if simd_dot(awayFromTheBody, seamCenter - SIMD2(bodyCenter.x, bodyCenter.y)) < 0 { awayFromTheBody = -awayFromTheBody }
         let shoulderPoint = SIMD2(Double(shoulder.x), Double(shoulder.y))
         let seamCenterOffTheArmLine = simd_dot(seamCenter - shoulderPoint, awayFromTheBody)
-        let openingCenter = seamCenter + armDirection * sleeve.length * garmentToBodyScale
+        var openingCenter = seamCenter + armDirection * sleeve.length * garmentToBodyScale
             - awayFromTheBody * seamCenterOffTheArmLine * sleeveOpeningShareTowardTheArmLine
-        let halfOpening = sleeve.openingWidth * garmentToBodyScale * sleeveOpeningShareOnTheArm / 2
+        var halfOpening = sleeve.openingWidth * garmentToBodyScale * sleeveOpeningShareOnTheArm / 2
+        if let oldSleeve {
+            let downTheArm = simd_dot(openingCenter - shoulderPoint, armDirection)
+            let wantedDownTheArm = min(max(downTheArm, oldSleeve.reachAlongTheArm), mostSleeveReachShareOfTheArm * simd_length(armVector))
+            openingCenter += armDirection * (wantedDownTheArm - downTheArm)
+            let centerOut = simd_dot(openingCenter - shoulderPoint, awayFromTheBody)
+            let innerEnd = min(centerOut - halfOpening, -oldSleeve.inward), outerEnd = max(centerOut + halfOpening, oldSleeve.outward)
+            openingCenter += awayFromTheBody * ((innerEnd + outerEnd) / 2 - centerOut)
+            halfOpening = (outerEnd - innerEnd) / 2
+        }
         let openingOuter = openingCenter + awayFromTheBody * halfOpening, openingInner = openingCenter - awayFromTheBody * halfOpening
         let landing = [seamTop, CGPoint(x: openingOuter.x, y: openingOuter.y), CGPoint(x: openingInner.x, y: openingInner.y), seamBottom]
         let source = sleeve.quadrilateral
@@ -644,11 +760,12 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         return landing
     }
 
-    /// Each sleeve laid along its arm, image left first, or nil when the garment has no sleeves apart, an elbow is not seen,
-    /// or a sleeve cannot be mapped, when the garment is drawn whole. Each half of a sleeve takes the affine map of its own
+    /// Each sleeve drawn on its own, image left first: laid along its arm (`alongTheArms`), or at the whole garment's angle
+    /// and lengthened to cover the old sleeve. Nil when the garment has no sleeves apart, an elbow is not seen, or a sleeve
+    /// cannot be mapped, when the garment is drawn in one piece. Each half of a sleeve takes the affine map of its own
     /// triangle (see `ShirtGarmentSleeve`), and the inner half is drawn over the outer half's strip past the diagonal.
     private func warpedSleeves(
-        of garment: ShirtGarment, torso: BodyTorso, torsoHomography: simd_double3x3, landedTorsoWidth: Double, frameExtent: CGRect
+        of garment: ShirtGarment, torso: BodyTorso, torsoHomography: simd_double3x3, landedTorsoWidth: Double, frameExtent: CGRect, alongTheArms: Bool
     ) -> [(side: ShirtSleeveSide, landing: [CGPoint], image: CIImage)]? {
         guard garment.sleeves.count == 2, let imageLeftElbow = torso.imageLeftElbow, let imageRightElbow = torso.imageRightElbow else { return nil }
         let garmentToBodyScale = landedTorsoWidth / max(garment.torsoCorners.topRight.x - garment.torsoCorners.topLeft.x, 1)
@@ -656,11 +773,30 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         var layers: [(side: ShirtSleeveSide, landing: [CGPoint], image: CIImage)] = []
         for sleeve in garment.sleeves {
             let isImageLeft = sleeve.geometry.side == .imageLeft
-            guard let landing = Self.sleeveLanding(
-                of: sleeve.geometry, torsoHomography: torsoHomography,
-                shoulder: isImageLeft ? torso.imageLeftShoulder : torso.imageRightShoulder, elbow: isImageLeft ? imageLeftElbow : imageRightElbow,
-                bodyCenter: bodyCenter, garmentToBodyScale: garmentToBodyScale
-            ) else { return nil }
+            let shoulderWidth = torso.shoulderWidth, margin = Self.oldShirtCoverMarginInShoulderWidths
+            let oldSleeve = smoothedOldSleevesInShoulderWidths[isImageLeft ? 0 : 1].map {
+                ShirtOldSleeveExtent(
+                    reachAlongTheArm: ($0.reachAlongTheArm + margin) * shoulderWidth, outward: ($0.outward + margin) * shoulderWidth, inward: ($0.inward + margin) * shoulderWidth
+                )
+            }
+            let shoulder = isImageLeft ? torso.imageLeftShoulder : torso.imageRightShoulder, elbow = isImageLeft ? imageLeftElbow : imageRightElbow
+            let landingResult: [CGPoint]?
+            if alongTheArms {
+                // Covering the old sleeve's inner side can push the opening's inner end under the torso, which would turn the
+                // sleeve's inner triangle over, so the landing tries the whole cover, then the cover without its inner side,
+                // then the sleeve as the product shows it.
+                let oldSleeveWithoutItsInnerSide = oldSleeve.map { ShirtOldSleeveExtent(reachAlongTheArm: $0.reachAlongTheArm, outward: $0.outward, inward: -Double.infinity) }
+                landingResult = [oldSleeve, oldSleeveWithoutItsInnerSide, nil].lazy.compactMap { cover in
+                    Self.sleeveLanding(
+                        of: sleeve.geometry, torsoHomography: torsoHomography, shoulder: shoulder, elbow: elbow,
+                        bodyCenter: bodyCenter, garmentToBodyScale: garmentToBodyScale, oldSleeve: cover
+                    )
+                }.first
+            } else {
+                let wholeGarmentLanding = sleeve.geometry.quadrilateral.map { applyingPerspective(torsoHomography, to: $0) }
+                landingResult = Self.wholeGarmentSleeveLanding(wholeGarmentLanding, lengthenedToCover: oldSleeve, shoulder: shoulder, elbow: elbow, bodyCenter: bodyCenter)
+            }
+            guard let landing = landingResult else { return nil }
             let geometry = sleeve.geometry
             guard let outerMap = Self.affineTransform(from: [geometry.seamTop, geometry.openingOuter, geometry.openingInner], to: [landing[0], landing[1], landing[2]]),
                   let innerMap = Self.affineTransform(from: [geometry.seamTop, geometry.openingInner, geometry.seamBottom], to: [landing[0], landing[2], landing[3]]) else { return nil }
@@ -669,6 +805,76 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
             layers.append((geometry.side, landing, innerHalf.composited(over: outerHalf)))
         }
         return layers
+    }
+
+    /// A sleeve at the whole garment's angle (`landing`: seam top, opening outer, opening inner, seam bottom, in camera
+    /// pixels) with its opening moved further along the sleeve's own axis, until the old sleeve's hem, its reach down the arm
+    /// from its inner side to its outer side, lies on the seam's side of the opening. A product's short sleeve is often
+    /// shorter than the shirt the person wears, whose sleeve would hang out under it. The sleeve grows to at most twice its
+    /// own length, so a misread old sleeve never makes a long one.
+    static func wholeGarmentSleeveLanding(
+        _ landing: [CGPoint], lengthenedToCover oldSleeve: ShirtOldSleeveExtent?, shoulder: CGPoint, elbow: CGPoint, bodyCenter: CGPoint
+    ) -> [CGPoint] {
+        func vector(_ point: CGPoint) -> SIMD2<Double> { SIMD2(Double(point.x), Double(point.y)) }
+        guard let oldSleeve, landing.count == 4 else { return landing }
+        let armVector = vector(elbow) - vector(shoulder)
+        guard simd_length(armVector) > 1 else { return landing }
+        let armDirection = simd_normalize(armVector)
+        let seamCenter = (vector(landing[0]) + vector(landing[3])) / 2, openingCenter = (vector(landing[1]) + vector(landing[2])) / 2
+        var awayFromTheBody = SIMD2(-armDirection.y, armDirection.x)
+        if simd_dot(awayFromTheBody, seamCenter - vector(bodyCenter)) < 0 { awayFromTheBody = -awayFromTheBody }
+        let sleeveLength = simd_length(openingCenter - seamCenter)
+        guard sleeveLength > 1 else { return landing }
+        let sleeveAxis = (openingCenter - seamCenter) / sleeveLength
+        let opening = vector(landing[1]) - vector(landing[2])
+        var openingNormal = simd_normalize(SIMD2(-opening.y, opening.x))
+        if simd_dot(openingNormal, sleeveAxis) < 0 { openingNormal = -openingNormal }
+        let axisAcrossTheOpening = simd_dot(sleeveAxis, openingNormal)
+        guard axisAcrossTheOpening > 0.2 else { return landing }
+        let hemReach = vector(shoulder) + armDirection * oldSleeve.reachAlongTheArm
+        let hemEnds = [hemReach + awayFromTheBody * oldSleeve.outward, hemReach - awayFromTheBody * oldSleeve.inward]
+        let wanted = hemEnds.map { simd_dot($0 - openingCenter, openingNormal) / axisAcrossTheOpening }.max() ?? 0
+        let lengthening = min(max(wanted, 0), sleeveLength)
+        let shift = sleeveAxis * lengthening
+        return [landing[0], CGPoint(x: landing[1].x + shift.x, y: landing[1].y + shift.y), CGPoint(x: landing[2].x + shift.x, y: landing[2].y + shift.y), landing[3]]
+    }
+
+    /// Where each sleeve of the whole garment lands, image left first, through the torso's homography, or empty when the
+    /// garment has no sleeves apart or an elbow is not seen.
+    static func wholeGarmentSleeveLandings(of garment: ShirtGarment, torso: BodyTorso, torsoHomography: simd_double3x3) -> [(side: ShirtSleeveSide, landing: [CGPoint])] {
+        guard garment.sleeves.count == 2, torso.imageLeftElbow != nil, torso.imageRightElbow != nil else { return [] }
+        return garment.sleeves.map { sleeve in
+            (sleeve.geometry.side, sleeve.geometry.quadrilateral.map { applyingPerspective(torsoHomography, to: $0) })
+        }
+    }
+
+    /// How far `direction` turns out from the body's down direction, from the shoulders' middle to the hips' middle, toward
+    /// its own side, in degrees: 0 straight down, 90 straight out, past 90 raised, below 0 across the body.
+    static func outwardAngleFromTheBodysDown(of direction: CGVector, side: ShirtSleeveSide, torso: BodyTorso) -> Double {
+        let down = SIMD2(torso.hipMidpoint.x - torso.shoulderMidpoint.x, torso.hipMidpoint.y - torso.shoulderMidpoint.y)
+        let towardTheSide = side == .imageLeft
+            ? SIMD2(torso.imageLeftShoulder.x - torso.imageRightShoulder.x, torso.imageLeftShoulder.y - torso.imageRightShoulder.y)
+            : SIMD2(torso.imageRightShoulder.x - torso.imageLeftShoulder.x, torso.imageRightShoulder.y - torso.imageLeftShoulder.y)
+        let vector = SIMD2(Double(direction.dx), Double(direction.dy))
+        return atan2(simd_dot(vector, simd_normalize(towardTheSide)), simd_dot(vector, simd_normalize(down))) * 180 / .pi
+    }
+
+    /// Whether every sleeve of the whole garment holds its arm: the arm turns out from the body no more than
+    /// `pastTheSleeveDegrees` past the sleeve. A short sleeve stands off a hanging arm, so the product's flat sleeves look
+    /// right on any arm below them; an arm raised past its sleeve would come out of the cloth, and then the sleeves are
+    /// drawn apart along the arms. Callers pass a smaller angle while the sleeves are drawn apart, so an arm near the limit
+    /// does not switch the drawing back and forth from frame to frame.
+    static func wholeGarmentSleevesHoldTheArms(_ sleeves: [(side: ShirtSleeveSide, landing: [CGPoint])], torso: BodyTorso, pastTheSleeveDegrees: Double) -> Bool {
+        sleeves.allSatisfy { sleeve in
+            let isImageLeft = sleeve.side == .imageLeft
+            guard let elbow = isImageLeft ? torso.imageLeftElbow : torso.imageRightElbow else { return true }
+            let shoulder = isImageLeft ? torso.imageLeftShoulder : torso.imageRightShoulder
+            let sleeveAxis = ShirtDrawnSleeve(side: sleeve.side, landing: sleeve.landing, liesAlongTheArm: false).axis
+            let armAxis = CGVector(dx: elbow.x - shoulder.x, dy: elbow.y - shoulder.y)
+            let armPastTheSleeve = outwardAngleFromTheBodysDown(of: armAxis, side: sleeve.side, torso: torso)
+                - outwardAngleFromTheBodysDown(of: sleeveAxis, side: sleeve.side, torso: torso)
+            return armPastTheSleeve <= pastTheSleeveDegrees
+        }
     }
 
     /// The affine transform that carries three points onto three others, or nil when the first three are on one line.
