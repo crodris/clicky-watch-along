@@ -352,7 +352,7 @@ final class InstantReplayController: ObservableObject {
     }
 
     /// Escape, and a new explanation, end an open replay first, and leave the pop-out on screen with the camera and the
-    /// cursor where they stopped. False when no replay was open, so Escape goes on to the scene.
+    /// cursor where they stopped. False when no replay was open.
     @discardableResult
     func endIfOpen() -> Bool {
         guard isOpen else { return false }

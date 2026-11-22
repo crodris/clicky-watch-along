@@ -58,8 +58,16 @@ struct FrameGrabFormatTests {
     @MainActor
     @Test func theScriptReplyRefusesAGrabInAnotherFormatBeforeAnyDecode() throws {
         let pngBytes = try base64Image(encodedAs: .png)
-        #expect(throws: (any Error).self) { try VideoQuizSession.frameGrab(inTheScriptReply: scriptReply(holding: pngBytes)) }
-        #expect(throws: (any Error).self) { try VideoQuizSession.frameGrab(inTheScriptReply: "no-video") }
+        let pngFailure = #expect(throws: VideoQuizFailure.self) { try VideoQuizSession.frameGrab(inTheScriptReply: scriptReply(holding: pngBytes)) }
+        guard case .chromeScriptFailed = pngFailure else {
+            Issue.record("A PNG grab should be refused as not a JPEG, not \(String(describing: pngFailure))")
+            return
+        }
+        let noVideoFailure = #expect(throws: VideoQuizFailure.self) { try VideoQuizSession.frameGrab(inTheScriptReply: "no-video") }
+        guard case .noVideoOnThePage = noVideoFailure else {
+            Issue.record("A no-video reply should say the page has no video, not \(String(describing: noVideoFailure))")
+            return
+        }
     }
 
     @Test func aFrameGrabThatIsNotBase64OrNotAnImageIsRefused() {
