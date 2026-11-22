@@ -123,6 +123,29 @@ nonisolated let furnitureCompositePasteFeatherPixels: Double = 4
 /// How wide the ring of room just outside the paste is, where the reply's tone is compared with the keyframe's.
 nonisolated let furnitureCompositeToneMatchBandPixels: Double = 96
 
+// The edit also repaints the room around the piece a little: on the live check (2026-11-22) the wall beside a chair, a
+// sofa, and a table came back a few levels lighter, with a new grain, inside the pasted region only. One gain and offset
+// cannot follow light that varies across the region, so the pasted region showed as a faint lighter patch next to the
+// piece. The paste therefore keeps the reply only where it changed the keyframe strongly, which the piece does and the
+// repainted room does not (`furniturePieceWeights`), and everywhere else it keeps the keyframe's own pixels.
+
+/// The piece's shape is worked out on cells of this many pixels on a side, since it is smooth (closed over 20 pixels and
+/// softened), and a full-size frame's worth of passes took seconds in a Debug build, which the app runs in while it is
+/// developed. The weights are scaled back up with a bilinear read.
+nonisolated let furniturePieceCellPixels = 4
+/// A cell counts as changed when the reply, after the tone fit, differs from the keyframe by more than this many levels in
+/// some channel, averaged over the cell. The repainted room measured up to about 8 levels, and the piece's cloth, legs, and
+/// shadow measured 20 or more.
+nonisolated let furniturePieceChangeThresholdLevels: Float = 14
+/// The changed cells are closed before they weigh the paste: grown by `furniturePieceClosingGrowCells`, then shrunk by
+/// `furniturePieceClosingShrinkCells`. The difference is the margin kept around the piece (so its anti-aliased edge and its
+/// soft shadow are not cut), and a gap in the piece narrower than twice the grow, such as a cushion seam or a part that
+/// matches the wall, closes, so the keyframe never shows through the piece.
+nonisolated let furniturePieceClosingGrowCells = 5
+nonisolated let furniturePieceClosingShrinkCells = 3
+/// The closed shape's edge is softened with this many cells of average on each side, three times over.
+nonisolated let furniturePieceEdgeSoftnessCells = 1
+
 /// A gain and an offset for one color channel, in sRGB byte values: `corrected = gain * reply + offset`.
 nonisolated struct ChannelToneFit: Equatable {
     var gain: Double
@@ -222,13 +245,135 @@ nonisolated func grownMaskImage(_ mask: CGImage, frameExtent: CGRect, radiusPixe
     return context.createCGImage(outputImage.cropped(to: frameExtent), from: frameExtent, format: .L8, colorSpace: CGColorSpaceCreateDeviceGray())
 }
 
+/// One pass of a moving average along every row (or, with the strides swapped, every column) of an image. A pixel's window
+/// is the `radius` pixels either side of it, cut at the image's edge, and a window part outside the image is not counted.
+/// Running sums make the cost independent of the radius, and the raw buffers keep a Debug build, which the app runs in
+/// while it is developed, from spending seconds on a frame's worth of bounds checks.
+private nonisolated func movingAverage(
+    _ input: UnsafePointer<Float>, into output: UnsafeMutablePointer<Float>,
+    lineCount: Int, lineLength: Int, lineStride: Int, stepStride: Int, radius: Int
+) {
+    let runningSums = UnsafeMutablePointer<Float>.allocate(capacity: lineLength + 1)
+    defer { runningSums.deallocate() }
+    for line in 0..<lineCount {
+        let lineStart = line * lineStride
+        runningSums[0] = 0
+        for step in 0..<lineLength { runningSums[step + 1] = runningSums[step] + input[lineStart + step * stepStride] }
+        for step in 0..<lineLength {
+            let windowStart = max(0, step - radius)
+            let windowEnd = min(lineLength, step + radius + 1)
+            output[lineStart + step * stepStride] = (runningSums[windowEnd] - runningSums[windowStart]) / Float(windowEnd - windowStart)
+        }
+    }
+}
+
+/// `values` averaged over the square window of `radius` pixels around each pixel, over `width` by `height` pixels.
+nonisolated func boxAveraged(_ values: [Float], width: Int, height: Int, radius: Int) -> [Float] {
+    var acrossRows = [Float](repeating: 0, count: values.count)
+    var output = [Float](repeating: 0, count: values.count)
+    values.withUnsafeBufferPointer { valuesPointer in
+        acrossRows.withUnsafeMutableBufferPointer { acrossRowsPointer in
+            movingAverage(valuesPointer.baseAddress!, into: acrossRowsPointer.baseAddress!, lineCount: height, lineLength: width, lineStride: width, stepStride: 1, radius: radius)
+            output.withUnsafeMutableBufferPointer { outputPointer in
+                movingAverage(UnsafePointer(acrossRowsPointer.baseAddress!), into: outputPointer.baseAddress!, lineCount: width, lineLength: height, lineStride: 1, stepStride: width, radius: radius)
+            }
+        }
+    }
+    return output
+}
+
+/// A binary image (0 or 1 per pixel) with each pixel set when any pixel (`keepsAnyHit`) or every pixel (otherwise) of the
+/// square window of `radius` around it is set. Window parts outside the image are ignored.
+nonisolated func binaryWindowFiltered(_ pixels: [Float], width: Int, height: Int, radius: Int, keepsAnyHit: Bool) -> [Float] {
+    guard radius > 0 else { return pixels }
+    // A square window is a row window and then a column window, with the result of the first made binary again.
+    func filteredAlong(_ input: [Float], lineCount: Int, lineLength: Int, lineStride: Int, stepStride: Int) -> [Float] {
+        var averaged = [Float](repeating: 0, count: input.count)
+        input.withUnsafeBufferPointer { inputPointer in
+            averaged.withUnsafeMutableBufferPointer { averagedPointer in
+                movingAverage(inputPointer.baseAddress!, into: averagedPointer.baseAddress!, lineCount: lineCount, lineLength: lineLength, lineStride: lineStride, stepStride: stepStride, radius: radius)
+            }
+        }
+        // An average of 0/1 values is above 0 when any is set, and exactly 1 only when all are (sums of whole numbers are exact).
+        return averaged.map { average in keepsAnyHit ? (average > 0 ? 1 : 0) : (average >= 1 ? 1 : 0) }
+    }
+    let acrossRows = filteredAlong(pixels, lineCount: height, lineLength: width, lineStride: width, stepStride: 1)
+    return filteredAlong(acrossRows, lineCount: width, lineLength: height, lineStride: 1, stepStride: width)
+}
+
+/// How much of the reply each pixel keeps, 0 to 1: 1 on and around the piece, 0 on the room the edit only repainted.
+/// A cell is part of the piece when the reply, after the tone fit, differs strongly from the keyframe in it
+/// (`furniturePieceChangeThresholdLevels`). That shape is closed and softened as the constants above describe, then read
+/// back at each pixel. Both pixel arrays are RGBA bytes of `width` by `height`.
+nonisolated func furniturePieceWeights(keyframePixels: [UInt8], correctedReplyPixels: [UInt8], width: Int, height: Int) -> [Float] {
+    let cellPixels = furniturePieceCellPixels
+    let cellColumns = (width + cellPixels - 1) / cellPixels
+    let cellRows = (height + cellPixels - 1) / cellPixels
+    var changeSums = [Float](repeating: 0, count: cellColumns * cellRows)
+    keyframePixels.withUnsafeBufferPointer { keyframeBytes in
+        correctedReplyPixels.withUnsafeBufferPointer { replyBytes in
+            changeSums.withUnsafeMutableBufferPointer { sums in
+                for row in 0..<height {
+                    let cellRowStart = (row / cellPixels) * cellColumns
+                    for column in 0..<width {
+                        let byteIndex = (row * width + column) * 4
+                        let redChange = abs(Int(replyBytes[byteIndex]) - Int(keyframeBytes[byteIndex]))
+                        let greenChange = abs(Int(replyBytes[byteIndex + 1]) - Int(keyframeBytes[byteIndex + 1]))
+                        let blueChange = abs(Int(replyBytes[byteIndex + 2]) - Int(keyframeBytes[byteIndex + 2]))
+                        sums[cellRowStart + column / cellPixels] += Float(max(redChange, greenChange, blueChange))
+                    }
+                }
+            }
+        }
+    }
+    // Edge cells hold fewer pixels, so each cell is averaged over the pixels it has.
+    var changedCells = [Float](repeating: 0, count: cellColumns * cellRows)
+    for cellRow in 0..<cellRows {
+        let pixelRows = min(cellPixels, height - cellRow * cellPixels)
+        for cellColumn in 0..<cellColumns {
+            let pixelColumns = min(cellPixels, width - cellColumn * cellPixels)
+            let averageChange = changeSums[cellRow * cellColumns + cellColumn] / Float(pixelRows * pixelColumns)
+            changedCells[cellRow * cellColumns + cellColumn] = averageChange > furniturePieceChangeThresholdLevels ? 1 : 0
+        }
+    }
+    let grownCells = binaryWindowFiltered(changedCells, width: cellColumns, height: cellRows, radius: furniturePieceClosingGrowCells, keepsAnyHit: true)
+    let closedCells = binaryWindowFiltered(grownCells, width: cellColumns, height: cellRows, radius: furniturePieceClosingShrinkCells, keepsAnyHit: false)
+    var softenedCells = closedCells
+    for _ in 0..<3 { softenedCells = boxAveraged(softenedCells, width: cellColumns, height: cellRows, radius: furniturePieceEdgeSoftnessCells) }
+
+    // Each pixel reads the cells around it, with the cell centers at the middle of their cells.
+    var pieceWeights = [Float](repeating: 0, count: width * height)
+    softenedCells.withUnsafeBufferPointer { cells in
+        pieceWeights.withUnsafeMutableBufferPointer { weights in
+            let halfCell = Float(cellPixels) / 2
+            for row in 0..<height {
+                let cellRowPosition = min(Float(cellRows - 1), max(0, (Float(row) + 0.5 - halfCell) / Float(cellPixels)))
+                let upperCellRow = Int(cellRowPosition)
+                let lowerCellRow = min(cellRows - 1, upperCellRow + 1)
+                let rowShare = cellRowPosition - Float(upperCellRow)
+                for column in 0..<width {
+                    let cellColumnPosition = min(Float(cellColumns - 1), max(0, (Float(column) + 0.5 - halfCell) / Float(cellPixels)))
+                    let leftCellColumn = Int(cellColumnPosition)
+                    let rightCellColumn = min(cellColumns - 1, leftCellColumn + 1)
+                    let columnShare = cellColumnPosition - Float(leftCellColumn)
+                    let upperValue = cells[upperCellRow * cellColumns + leftCellColumn] * (1 - columnShare) + cells[upperCellRow * cellColumns + rightCellColumn] * columnShare
+                    let lowerValue = cells[lowerCellRow * cellColumns + leftCellColumn] * (1 - columnShare) + cells[lowerCellRow * cellColumns + rightCellColumn] * columnShare
+                    weights[row * width + column] = upperValue * (1 - rowShare) + lowerValue * rowShare
+                }
+            }
+        }
+    }
+    return pieceWeights
+}
+
 /// The keyframe with `generated` pasted in only where the mask, grown by `slackPixels` and feathered by
 /// `featherPixels`, allows. The edit re-renders the whole frame, and pixels away from the piece come back slightly changed
 /// (a window's view, the light on a wall), so everything past the grown mask stays exactly as filmed. Before the paste,
 /// the reply's tone is matched to the keyframe on a ring `toneMatchBandPixels` wide just outside the paste
-/// (`toneFitsMatchingTheReplyToTheKeyframe`), so the pasted region does not show as a lighter or darker patch. A
-/// `generated` of another size, which the Worker returns for a keyframe size OpenAI does not take, is scaled to the
-/// keyframe first.
+/// (`toneFitsMatchingTheReplyToTheKeyframe`), so the pasted region does not show as a lighter or darker patch. Inside the
+/// region, only the piece keeps the reply: the room the edit repainted a few levels lighter, which one global fit cannot
+/// follow, keeps the keyframe's own pixels (`furniturePieceWeights`). A `generated` of another size, which the Worker
+/// returns for a keyframe size OpenAI does not take, is scaled to the keyframe first.
 nonisolated func furnitureCompositePasted(
     keyframe: CGImage,
     generated: CGImage,
@@ -254,13 +399,34 @@ nonisolated func furnitureCompositePasted(
     }
     let toneFits = toneFitsMatchingTheReplyToTheKeyframe(keyframePixels: keyframePixels, replyPixels: replyPixels, sampleIsInTheRing: sampleIsInTheRing)
 
+    var correctedReplyPixels = replyPixels
+    correctedReplyPixels.withUnsafeMutableBufferPointer { correctedBytes in
+        for pixelIndex in 0..<(width * height) {
+            for channel in 0..<3 {
+                let byteIndex = pixelIndex * 4 + channel
+                let corrected = toneFits[channel].gain * Double(correctedBytes[byteIndex]) + toneFits[channel].offset
+                correctedBytes[byteIndex] = UInt8(min(255, max(0, corrected)).rounded())
+            }
+        }
+    }
+    let pieceWeights = furniturePieceWeights(keyframePixels: keyframePixels, correctedReplyPixels: correctedReplyPixels, width: width, height: height)
+
     var pastedPixels = keyframePixels
-    for pixelIndex in 0..<(width * height) {
-        let pasteWeight = Double(pasteWeights[pixelIndex]) / 255
-        for channel in 0..<3 {
-            let byteIndex = pixelIndex * 4 + channel
-            let correctedReplyValue = min(255, max(0, toneFits[channel].gain * Double(replyPixels[byteIndex]) + toneFits[channel].offset))
-            pastedPixels[byteIndex] = UInt8((Double(keyframePixels[byteIndex]) * (1 - pasteWeight) + correctedReplyValue * pasteWeight).rounded())
+    pastedPixels.withUnsafeMutableBufferPointer { pastedBytes in
+        correctedReplyPixels.withUnsafeBufferPointer { correctedBytes in
+            pasteWeights.withUnsafeBufferPointer { pasteWeightBytes in
+                pieceWeights.withUnsafeBufferPointer { pieceWeightValues in
+                    for pixelIndex in 0..<(width * height) {
+                        let replyShare = Float(pasteWeightBytes[pixelIndex]) / 255 * pieceWeightValues[pixelIndex]
+                        guard replyShare > 0 else { continue }
+                        for channel in 0..<3 {
+                            let byteIndex = pixelIndex * 4 + channel
+                            let blended = Float(pastedBytes[byteIndex]) * (1 - replyShare) + Float(correctedBytes[byteIndex]) * replyShare
+                            pastedBytes[byteIndex] = UInt8(blended.rounded())
+                        }
+                    }
+                }
+            }
         }
     }
 

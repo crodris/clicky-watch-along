@@ -348,6 +348,78 @@ struct RoomFurnitureMaskTests {
         }
     }
 
+    /// The paste tests for a room the edit repainted: a 400 by 300 gray room, and a reply that is the same room with a
+    /// left-to-right brightness ramp (100 at the left edge, 140 at the right), as when the edit lights one side of the wall.
+    /// `pieceRectangle` is painted dark (60) in the reply over the room, and `paleHoleRectangle` inside it is painted 8
+    /// levels above the room, a part of the piece that nearly matches the wall.
+    private func repaintedRoomPaste(pieceRectangle: CGRect, paleHoleRectangle: CGRect? = nil) throws -> (pasted: PixelReader, reply: PixelReader, keyframe: PixelReader) {
+        let width = 400, height = 300
+        let roomLevel: UInt8 = 120
+        func image(levelAt: (Int, Int) -> UInt8) -> CGImage {
+            var pixelBytes = [UInt8](repeating: 255, count: width * height * 4)
+            for row in 0..<height {
+                for column in 0..<width {
+                    let level = levelAt(column, row)
+                    pixelBytes.replaceSubrange(((row * width + column) * 4)..<((row * width + column) * 4 + 3), with: [level, level, level])
+                }
+            }
+            let context = CGContext(
+                data: &pixelBytes, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )!
+            return context.makeImage()!
+        }
+        let keyframe = image { _, _ in roomLevel }
+        let reply = image { column, row in
+            let point = CGPoint(x: column, y: row)
+            if paleHoleRectangle?.contains(point) ?? false { return roomLevel + 8 }
+            if pieceRectangle.contains(point) { return 60 }
+            return UInt8(100 + 40 * column / width)
+        }
+        let mask = try #require(decodedImage(from: rectangleMaskPNG(width: width, height: height, whiteRectangle: pieceRectangle)))
+        let pasted = try #require(furnitureCompositePasted(keyframe: keyframe, generated: reply, mask: mask, context: CIContext()))
+        return (PixelReader(pasted), PixelReader(reply), PixelReader(keyframe))
+    }
+
+    @Test func aRepaintedRoomBesideThePieceKeepsTheKeyframeSoNoStepShowsWhereThePastedRegionEnds() throws {
+        let pieceRectangle = CGRect(x: 150, y: 110, width: 100, height: 80)
+        let (pasted, reply, keyframe) = try repaintedRoomPaste(pieceRectangle: pieceRectangle)
+
+        // Along a row through the piece, from the left edge of the pasted region (the mask grown by 24 pixels) outward,
+        // the room is the keyframe's from 20 pixels beside the piece (the piece's margin fades out over that), so the
+        // reply's ramp, up to 7 levels off here, leaves no step where the pasted region ends.
+        for x in 100...130 {
+            #expect(abs(pasted.rgb(x: x, y: 150).red - keyframe.rgb(x: x, y: 150).red) <= 1, "x \(x) beside the piece")
+        }
+        for x in 270...300 {
+            #expect(abs(pasted.rgb(x: x, y: 150).red - keyframe.rgb(x: x, y: 150).red) <= 1, "x \(x) beside the piece")
+        }
+        // And the reply's own ramp really differed there, so the check can fail.
+        #expect(abs(reply.rgb(x: 130, y: 150).red - keyframe.rgb(x: 130, y: 150).red) >= 5)
+    }
+
+    @Test func aRepaintedRoomLeavesThePiecesOwnPixelsAndEdgeAsTheReplyDrewThem() throws {
+        let pieceRectangle = CGRect(x: 150, y: 110, width: 100, height: 80)
+        let (pasted, reply, _) = try repaintedRoomPaste(pieceRectangle: pieceRectangle)
+
+        // Inside the piece and on its first and last pixels, the paste is the reply to within 6 levels, with no
+        // halo of the keyframe (60 against the keyframe's 120 would show as a step of many levels).
+        for (x, y) in [(200, 150), (150, 110), (249, 189), (150, 150), (249, 150), (200, 110), (200, 189)] {
+            #expect(abs(pasted.rgb(x: x, y: y).red - reply.rgb(x: x, y: y).red) <= 6, "(\(x), \(y)) on the piece")
+        }
+    }
+
+    @Test func aPartOfThePieceThatNearlyMatchesTheRoomIsStillThePiece() throws {
+        let pieceRectangle = CGRect(x: 150, y: 110, width: 100, height: 80)
+        let paleHoleRectangle = CGRect(x: 185, y: 135, width: 30, height: 30)
+        let (pasted, reply, keyframe) = try repaintedRoomPaste(pieceRectangle: pieceRectangle, paleHoleRectangle: paleHoleRectangle)
+
+        // The pale part differs from the keyframe by 8 levels, below the change threshold, but it sits inside the piece,
+        // so it stays the reply's and the keyframe's wall does not show through the piece.
+        #expect(pasted.rgb(x: 200, y: 150).red == reply.rgb(x: 200, y: 150).red)
+        #expect(pasted.rgb(x: 200, y: 150).red != keyframe.rgb(x: 200, y: 150).red)
+    }
+
     @Test func theCacheKeyChangesWithThePagePictureOrTheTitleAndNeverJoinsThem() {
         let pagePicture = Data([1, 2, 3])
 
