@@ -148,6 +148,7 @@ No path is resolved twice, so a hostile network volume that swaps a folder for a
 **Sharing themes as files**: dragging a theme card out of the menu bar panel makes a `.clickytheme` file where it lands, such as the desktop (`ThemeFileDrag`).
 The card's `onDrag` hands over an `NSItemProvider` file promise for `<name>.clickytheme`, whose handler writes the package only when a drop asks for it, into `Clicky theme exports` under the temporary directory, which each drag empties first, and the system copies it to the drop's place.
 The file name is the theme's name with a slash, a colon, a control character, or a leading dot turned into a hyphen (`CustomThemeStore.exportedPackageFileName`).
+A drag session takes the mouse, so the card never hears the mouse leave, and it drops its hover when the drag starts.
 `CustomThemeStore.exportPackage(of:toPackageAt:)` writes a folder it creates, never one already there: `theme.json`, `picture.jpg` when the theme uses it, and the roster portraits a saved theme ships in its own folder, read with `plainFileData`.
 A bundled theme never exports its roster portraits, since the schools' portraits are local wiki art and not Clicky's to give away, so its file names every player and the faces show initials, and a saved theme's portrait missing from its folder is left out the same way.
 A Theme Studio idea is never exported, and a saved theme whose picture is gone is refused.
