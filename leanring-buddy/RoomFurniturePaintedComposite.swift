@@ -53,9 +53,11 @@ nonisolated enum RoomFurniturePaintedComposite {
     /// The painted item's height may differ from the measured box's projected height by at most this share; a painting the
     /// model drew at the wrong size is worse than the flat cutout at the right one.
     static let mostHeightDifference = 0.15
-    /// A pixel counts as painted when its luminance changed by more than this, which a shadow on a dark floor seldom does,
-    /// so the painted shadow does not stretch the item's height.
-    static let paintedLuminanceChange = 0.08
+    /// A pixel counts as painted when its luminance changed by more than this, which the painted shadow on a floor and the
+    /// service redrawing the wall inside the mask seldom reach, so neither stretches the item's measured height.
+    static let paintedLuminanceChange = 0.2
+    /// A row counts as part of the item when at least this share of the pasted region's pixels in it changed.
+    static let shareOfARowThatMustChange = 0.1
 
     /// The painted item as keyframe layers, or nil when the painting is not the keyframe's size, the mask does not read, or
     /// the painted item is off the projected height by more than `mostHeightDifference`. Also returns the measured height
@@ -106,8 +108,8 @@ nonisolated enum RoomFurniturePaintedComposite {
         return (layers, paintedHeightRatio)
     }
 
-    /// The number of rows between the highest and the lowest row where the painting changed at least 3 percent of the mask's
-    /// pixels in that row, or nil when no row did.
+    /// The number of rows between the highest and the lowest row where the painting changed at least
+    /// `shareOfARowThatMustChange` of the pasted region's pixels in that row, or nil when no row did.
     private static func paintedHeight(painted: CIImage, keyframe: CIImage, mask: CIImage, frameRectangle: CGRect, ciContext: CIContext) -> Double? {
         let width = Int(frameRectangle.width), height = Int(frameRectangle.height)
         let difference = painted.applyingFilter("CIDifferenceBlendMode", parameters: [kCIInputBackgroundImageKey: keyframe])
@@ -126,7 +128,7 @@ nonisolated enum RoomFurniturePaintedComposite {
                 maskPixels += 1
                 if differenceBytes[row * width + column] > changeThreshold { changedPixels += 1 }
             }
-            guard maskPixels > 0, Double(changedPixels) >= Double(maskPixels) * 0.03 else { continue }
+            guard maskPixels > 0, Double(changedPixels) >= Double(maskPixels) * shareOfARowThatMustChange else { continue }
             firstPaintedRow = firstPaintedRow ?? row
             lastPaintedRow = row
         }

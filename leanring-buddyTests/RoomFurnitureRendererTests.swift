@@ -145,3 +145,49 @@ struct RoomFurnitureRendererTests {
         #expect(abs(layers.basePointInTheKeyframe.x - frontBottomMiddle.x) < 1e-6)
     }
 }
+
+/// The painted composite's layer: kept when the painted item stands at the measured box's height, refused when it does not.
+struct RoomFurniturePaintedCompositeTests {
+    /// A box whose projected outline spans rows 300 to 500, between columns 500 and 700.
+    private let projectedBox = [
+        CGPoint(x: 500, y: 300), CGPoint(x: 700, y: 300), CGPoint(x: 700, y: 500), CGPoint(x: 500, y: 500),
+        CGPoint(x: 520, y: 310), CGPoint(x: 680, y: 310), CGPoint(x: 680, y: 480), CGPoint(x: 520, y: 480),
+    ]
+
+    /// The keyframe with a white item painted from `topRow` to row 500, the base the box stands on.
+    private func painting(topRow: Int, over keyframe: CGImage) throws -> CGImage {
+        let context = try #require(CGContext(data: nil, width: keyframe.width, height: keyframe.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(keyframe, in: CGRect(x: 0, y: 0, width: keyframe.width, height: keyframe.height))
+        context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        // Core Graphics' y grows up from the bottom.
+        context.fill(CGRect(x: 520, y: keyframe.height - 500, width: 160, height: 500 - topRow))
+        return try #require(context.makeImage())
+    }
+
+    private func layers(paintedFromRow topRow: Int) throws -> (layers: RoomFurnitureKeyframeLayers?, paintedHeightRatio: Double?) {
+        let keyframe = try #require(roomFurnitureTestKeyframe())
+        let maskPNG = try #require(furnitureCompositeMaskPNG(projectedCorners: projectedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        return RoomFurniturePaintedComposite.itemLayers(painted: try painting(topRow: topRow, over: keyframe), keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
+    }
+
+    @Test func aPaintingAtTheMeasuredHeightIsKeptAsTheItemLayer() throws {
+        let result = try layers(paintedFromRow: 310)
+        let paintedHeightRatio = try #require(result.paintedHeightRatio)
+        #expect(abs(paintedHeightRatio - 0.955) < 0.03)
+        let itemLayer = try #require(result.layers?.itemLayer)
+        let pixels = RoomFurnitureTestPixels(itemLayer)
+        // Opaque on the painted item, clear far outside the pasted region.
+        #expect(pixels.alpha(atColumn: 600, row: 400) == 255)
+        #expect(pixels.alpha(atColumn: 100, row: 100) == 0)
+        #expect(result.layers?.look == .paintedComposite)
+    }
+
+    @Test func aPaintingFarTallerThanTheMeasuredBoxIsRefused() throws {
+        // A painted item from row 220 is 1.4 times the box's 200 rows. Only the pasted region, the mask grown by the
+        // client's slack, is measured, since the client pasted nothing past it, so the ratio reads lower but still fails.
+        let result = try layers(paintedFromRow: 220)
+        #expect(result.layers == nil)
+        #expect((result.paintedHeightRatio ?? 0) > 1 + RoomFurniturePaintedComposite.mostHeightDifference)
+    }
+}

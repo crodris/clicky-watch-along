@@ -933,13 +933,13 @@ final class RoomArtPreviewController: ObservableObject {
 
     // MARK: The furniture's looks
 
-    /// Where the search for the furniture's best look stands: the store's model, then a generated one, then a painted
-    /// composite. The flat cutout shows meanwhile.
+    /// Where the search for a model of the furniture stands: the store's model, else a generated one, else none, when the
+    /// painted composite is the only step. The flat cutout shows meanwhile.
     private enum FurnitureLookSearch {
         case searching
         case found(RoomFurnitureLoadedModel)
         case paintTheComposite
-        /// Every look failed, so the flat cutout stays.
+        /// Nothing more to try, so the flat cutout stays.
         case keepTheCutout
     }
     private var furnitureLookSearch: FurnitureLookSearch?
@@ -952,6 +952,8 @@ final class RoomArtPreviewController: ObservableObject {
     private var furniturePlacementShowing: (furniture: RoomFurniture, keyframe: RoomArtKeyframe, floor: FloorPlane)?
     /// The product photo the page read used, which the generation service works from.
     private var productPhotoJPEG: Data?
+    /// The composite service said it is not set up, so no later placement in this panel asks it again.
+    private var compositeServiceIsUnavailable = false
 
     /// The loop's line as the panel draws it this moment, in panel points, or nil before there is a keyframe, a torso, or a
     /// camera frame.
@@ -1092,6 +1094,7 @@ final class RoomArtPreviewController: ObservableObject {
         furniturePlacementShowing = nil
         keyframeOfTheLatestMeasurement = nil
         productPhotoJPEG = nil
+        compositeServiceIsUnavailable = false
         frameSource?.stop()
         frameSource = nil
         frameProcessor.endTheSession()
@@ -1385,73 +1388,81 @@ extension RoomArtPreviewController {
         }
     }
 
-    /// Renders or paints the best look found so far for the furniture showing now, and hands it to the frame processor,
-    /// which crossfades from the cutout. While the search runs, the search calls this again when it ends.
+    /// Shows the best look found so far for the furniture showing now. A model (the store's or a generated one) is rendered
+    /// first, which takes under a second, and then the painted composite is asked for, which takes 15 to 20 seconds and
+    /// looked more real than the render on the same frame (a real contact shadow and the room's own light), so it replaces
+    /// the render when it stands at the measured height. With no model, the composite is the only step. The frame processor
+    /// crossfades each step. While the search runs, the search calls this again when it ends.
     fileprivate func showTheFurnituresBestLook() {
         guard let placementShowing = furniturePlacementShowing, let furnitureLookSearch else { return }
         furnitureUpgradeTask?.cancel()
         let thisOpening = openingNumber
         let furniture = placementShowing.furniture, keyframe = placementShowing.keyframe, floor = placementShowing.floor
+        let modelToRender: RoomFurnitureLoadedModel?
         switch furnitureLookSearch {
-        case .searching, .keepTheCutout:
+        case .searching, .keepTheCutout: return
+        case .found(let model): modelToRender = model
+        case .paintTheComposite: modelToRender = nil
+        }
+        furnitureUpgradeTask = Task {
+            guard let keyframeImage = decodedKeyframe(keyframe) else { return }
+            if let modelToRender {
+                await renderTheModel(modelToRender, furniture: furniture, keyframe: keyframe, keyframeImage: keyframeImage, floor: floor, thisOpening: thisOpening)
+            }
+            guard !Task.isCancelled, thisOpening == openingNumber, !compositeServiceIsUnavailable else { return }
+            await paintTheComposite(furniture: furniture, keyframe: keyframe, keyframeImage: keyframeImage, floor: floor, thisOpening: thisOpening)
+        }
+    }
+
+    private func renderTheModel(
+        _ model: RoomFurnitureLoadedModel, furniture: RoomFurniture, keyframe: RoomArtKeyframe, keyframeImage: CGImage, floor: FloorPlane, thisOpening: Int
+    ) async {
+        guard let placement = RoomFurniturePlacement(floor: floor, widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters) else { return }
+        let layers = await environment.renderTheFurniture(RoomFurnitureRenderRequest(
+            modelRootNode: model.rootNode,
+            placement: placement,
+            focalLengthPixels: floor.focalLengthPixels,
+            principalPoint: floor.principalPoint,
+            keyframeImage: keyframeImage,
+            look: model.look
+        ))
+        guard !Task.isCancelled, thisOpening == openingNumber else { return }
+        guard let layers else {
+            print("Room furniture: the \(model.look.rawValue) did not render, so the composite is next")
             return
-        case .found(let model):
-            furnitureUpgradeTask = Task {
-                guard let keyframeImage = decodedKeyframe(keyframe),
-                      let placement = RoomFurniturePlacement(floor: floor, widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters) else { return }
-                let layers = await environment.renderTheFurniture(RoomFurnitureRenderRequest(
-                    modelRootNode: model.rootNode,
-                    placement: placement,
-                    focalLengthPixels: floor.focalLengthPixels,
-                    principalPoint: floor.principalPoint,
-                    keyframeImage: keyframeImage,
-                    look: model.look
-                ))
-                guard !Task.isCancelled, thisOpening == openingNumber else { return }
-                guard let layers else {
-                    // A model that does not render falls back to the painted composite.
-                    print("Room furniture: the \(model.look.rawValue) did not render, so the composite is next")
-                    self.furnitureLookSearch = .paintTheComposite
-                    showTheFurnituresBestLook()
-                    return
-                }
-                frameProcessor.showTheFurnitureLayers(layers, keyframeNumber: keyframe.keyframeNumber)
-                print("Room furniture: showing the \(model.look.rawValue) from \(model.originForTheLog)")
+        }
+        frameProcessor.showTheFurnitureLayers(layers, keyframeNumber: keyframe.keyframeNumber)
+        print("Room furniture: showing the \(model.look.rawValue) from \(model.originForTheLog)")
+    }
+
+    private func paintTheComposite(furniture: RoomFurniture, keyframe: RoomArtKeyframe, keyframeImage: CGImage, floor: FloorPlane, thisOpening: Int) async {
+        guard let productPhotoJPEG,
+              let projectedBox = floor.keyframeBoxCorners(widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters),
+              let maskPNG = environment.compositeMaskPNG(projectedBox, keyframeImage.width, keyframeImage.height, Self.compositeShadowMarginPixels) else { return }
+        do {
+            let painted = try await environment.furnitureGeneration.paintTheItemIntoTheKeyframe(
+                keyframeJPEG: keyframe.measurementRequest.keyframeJPEGData,
+                keyframeWidth: keyframeImage.width,
+                keyframeHeight: keyframeImage.height,
+                productJPEG: productPhotoJPEG,
+                maskPNG: maskPNG,
+                itemTitle: furniture.title,
+                itemSizeWords: furniture.sizeInWords
+            )
+            guard !Task.isCancelled, thisOpening == openingNumber else { return }
+            guard let layers = await environment.paintedItemLayers(painted, keyframeImage, maskPNG, projectedBox) else {
+                print("Room furniture: the painted item is not the measured height, so the look before it stays")
+                return
             }
-        case .paintTheComposite:
-            guard let productPhotoJPEG else { return }
-            furnitureUpgradeTask = Task {
-                guard let keyframeImage = decodedKeyframe(keyframe),
-                      let projectedBox = floor.keyframeBoxCorners(widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters),
-                      let maskPNG = environment.compositeMaskPNG(projectedBox, keyframeImage.width, keyframeImage.height, Self.compositeShadowMarginPixels) else {
-                    self.furnitureLookSearch = .keepTheCutout
-                    return
-                }
-                do {
-                    let painted = try await environment.furnitureGeneration.paintTheItemIntoTheKeyframe(
-                        keyframeJPEG: keyframe.measurementRequest.keyframeJPEGData,
-                        keyframeWidth: keyframeImage.width,
-                        keyframeHeight: keyframeImage.height,
-                        productJPEG: productPhotoJPEG,
-                        maskPNG: maskPNG,
-                        itemTitle: furniture.title,
-                        itemSizeWords: furniture.sizeInWords
-                    )
-                    guard !Task.isCancelled, thisOpening == openingNumber else { return }
-                    guard let layers = await environment.paintedItemLayers(painted, keyframeImage, maskPNG, projectedBox) else {
-                        print("Room furniture: the painted item is not the measured height, so the cutout stays")
-                        return
-                    }
-                    guard !Task.isCancelled, thisOpening == openingNumber else { return }
-                    frameProcessor.showTheFurnitureLayers(layers, keyframeNumber: keyframe.keyframeNumber)
-                    print("Room furniture: showing the painted composite")
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    // A service that is not set up stays that way for this panel, so later placements keep the cutout.
-                    print("Room furniture: no painted composite: \(error)")
-                    if thisOpening == openingNumber { self.furnitureLookSearch = .keepTheCutout }
-                }
-            }
+            guard !Task.isCancelled, thisOpening == openingNumber else { return }
+            frameProcessor.showTheFurnitureLayers(layers, keyframeNumber: keyframe.keyframeNumber)
+            print("Room furniture: showing the painted composite")
+        } catch {
+            guard !Task.isCancelled, thisOpening == openingNumber else { return }
+            print("Room furniture: no painted composite: \(error)")
+            // A Worker with no OpenAI key stays that way for this panel, so later placements do not ask again. Any other
+            // failure may pass, so the next placement asks again.
+            if case RoomFurnitureGenerationError.serviceIsNotSetUp = error { compositeServiceIsUnavailable = true }
         }
     }
 

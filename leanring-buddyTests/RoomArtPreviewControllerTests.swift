@@ -315,8 +315,6 @@ private final class CutoutStub {
 /// The furniture's better looks, answered from the test: the store's model, the generation service, and the render.
 @MainActor
 private final class FurnitureLookStub: RoomFurnitureGenerating {
-    struct ServiceNotSetUp: Error {}
-
     var storeModel: RoomFurnitureLoadedModel?
     var generatedModelData: Data?
     var maskPNG: Data? = Data([7])
@@ -331,7 +329,7 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
 
     func generateAModel(productJPEG: Data, itemTitle: String) async throws -> Data {
         modelsGenerated += 1
-        guard let generatedModelData else { throw ServiceNotSetUp() }
+        guard let generatedModelData else { throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "") }
         return generatedModelData
     }
 
@@ -339,7 +337,7 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
         keyframeJPEG: Data, keyframeWidth: Int, keyframeHeight: Int, productJPEG: Data, maskPNG: Data, itemTitle: String, itemSizeWords: String
     ) async throws -> CGImage {
         paintings += 1
-        guard let paintedImage else { throw ServiceNotSetUp() }
+        guard let paintedImage else { throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "") }
         return paintedImage
     }
 
@@ -916,8 +914,25 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.storeModel])
         #expect(harness.frameProcessor.furnitureLayersShown.map(\.keyframeNumber) == [1])
         #expect(looks.storeModelSearches == [storePageTab.url])
-        // A store model needs no generation service.
-        #expect(looks.modelsGenerated == 0 && looks.paintings == 0)
+        // A store model needs no generated model, and the composite is still asked for, which this service refuses.
+        try await waitFor("the composite to be asked for") { looks.paintings == 1 }
+        #expect(looks.modelsGenerated == 0)
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.storeModel])
+        harness.controller.close()
+    }
+
+    @Test func thePaintedCompositeReplacesTheStoresModelWhenItStandsAtTheMeasuredHeight() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.storeModel = FurnitureLookStub.model(.storeModel)
+        looks.paintedImage = furnitureCutoutImage()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the render and then the composite") { harness.frameProcessor.furnitureLayersShown.count == 2 }
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.storeModel, .paintedComposite])
         harness.controller.close()
     }
 
@@ -931,8 +946,8 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
 
         try await waitFor("the generated model to replace the cutout") { !harness.frameProcessor.furnitureLayersShown.isEmpty }
+        try await waitFor("the composite to be asked for") { looks.paintings == 1 }
         #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.generatedModel])
-        #expect(looks.paintings == 0)
         harness.controller.close()
     }
 
