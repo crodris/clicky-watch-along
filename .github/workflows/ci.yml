@@ -82,6 +82,11 @@ jobs:
       - run: bash ../.claude/skills/verify-clicky/verify-clicky.test.sh
       # Every PNG the AppIcon set names must have its exact size and transparent corners, or macOS shows a black square behind the icon.
       - run: python3 -I ../tools/app-icon/check-app-icon.py
+      # The Icon Composer file is written by the icon script, so a shape changed in the script must be written to it too.
+      - run: |
+          python3 -I ../tools/app-icon/render-app-icon.py --icon-file-only
+          git diff --exit-code -- ../leanring-buddy/AppIcon.icon
+          test -z "$(git status --porcelain -- ../leanring-buddy/AppIcon.icon)"
 
   # Says whether a pull request or a push to main changes anything the app build or its tests read, so a bench,
   # worker, or docs change does not wait in line for a Mac runner.
