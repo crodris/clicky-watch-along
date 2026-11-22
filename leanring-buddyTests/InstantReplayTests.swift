@@ -15,6 +15,10 @@ private final class RecordingReplayStage {
     /// Each sleep waits here until the test lets it go, so a test decides when a dwell ends.
     var pendingSleeps: [CheckedContinuation<Void, Error>] = []
     var labelPointReads = 0
+    /// What each flight of the cursor takes, as the app works it out from the theme and the distance.
+    var cursorFlightSeconds: TimeInterval = 0.9
+    /// How long each sleep was asked to wait, in order.
+    var sleepSeconds: [Double] = []
     var lastControlVersion = 0
     /// When true, each label read waits here until the test lets it go, as the page does while the camera turns.
     var holdsLabelReads = false
@@ -36,12 +40,14 @@ private final class RecordingReplayStage {
         },
         pointTheCursor: { [unowned self] labelScreenPoint, sentence in
             self.calls.append("point \(labelScreenPoint.label): \(sentence)")
+            return self.cursorFlightSeconds
         },
         freezeTheCursor: { [unowned self] in self.calls.append("freeze") },
         releaseTheCursor: { [unowned self] in self.calls.append("release") },
         clearTheFocus: { [unowned self] in self.calls.append("clearFocus") },
         reduceMotionIsOn: { [unowned self] in self.reduceMotionIsOn },
-        sleep: { [unowned self] _ in
+        sleep: { [unowned self] seconds in
+            self.sleepSeconds.append(seconds)
             try await withCheckedThrowingContinuation { continuation in self.pendingSleeps.append(continuation) }
         },
         showControl: { [unowned self] controlVersion in
@@ -241,6 +247,26 @@ struct InstantReplayTests {
         #expect(InstantReplayPhase.playingThrough(stopIndex: 1).afterTheStopDwelt(stopCount: 3) == .playingThrough(stopIndex: 2))
         #expect(InstantReplayPhase.playingThrough(stopIndex: 2).afterTheStopDwelt(stopCount: 3) == .notOpen)
         #expect(InstantReplayPhase.playingThrough(stopIndex: 1).afterTheTravelStopped == .stoppedAt(stopIndex: 1))
+    }
+
+    @Test func underTheSlowestThemeALongFlightStillLeavesTheWholeDwellAtTheStop() async throws {
+        // The slowest Point move a theme may set (a response of 0.6) and a flight across a wide screen: the longest one, 1.68 s.
+        var slowestSprings = ThemeMoveSprings.standard
+        slowestSprings.pointResponse = ThemeMoveSprings.pointResponseLimits.upperBound
+        let longestFlightSeconds = replayCursorFlightSeconds(from: .zero, to: CGPoint(x: 2400, y: 0), pointMoveCurve: DS.Move.point.curve(using: slowestSprings))
+        #expect(abs(longestFlightSeconds - 1.68) < 0.001)
+        let recorder = RecordingReplayStage()
+        recorder.cursorFlightSeconds = longestFlightSeconds
+        let replay = InstantReplayController(stage: recorder.stage)
+        replay.offer(threeStops, sceneNumber: 4)
+        replay.playFromTheStart()
+        await letTheReplayRun()
+        let firstSleepSeconds = try #require(recorder.sleepSeconds.first)
+        // The chain's sentence is six words, so it dwells 1.8 seconds, all of them after the cursor lands.
+        let dwellAfterTheLanding = firstSleepSeconds - longestFlightSeconds
+        #expect(abs(dwellAfterTheLanding - replayStopDwellSeconds(for: threeStops[0].sentence)) < 0.001)
+        #expect(dwellAfterTheLanding >= 1.0)
+        _ = replay.endIfOpen()
     }
 
     @Test func eachStopDwellsTheLargerOfOneAndAHalfSecondsAndAThirdOfASecondAWord() {

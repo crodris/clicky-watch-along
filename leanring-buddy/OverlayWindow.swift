@@ -132,6 +132,8 @@ struct BlueCursorView: View {
     /// The loop around the video or image Clicky is looking at. It is the thinking light while it shows, so it is
     /// observed here to redraw the ring and the loop together.
     @ObservedObject private var cursorLoopController: CursorLoopController
+    /// Whether a status line's Callout is on screen above the cursor, which pulls the thinking dots' orbit in under it.
+    @ObservedObject private var statusLinePresence: TetherCalloutPresence
     /// The slide along a video's progress bar before a voice seek.
     @ObservedObject private var cursorScrubController: CursorScrubController
     /// The scrub this screen's buddy is playing, from the flight to the bar until it is back at the mouse.
@@ -145,6 +147,7 @@ struct BlueCursorView: View {
         self.companionManager = companionManager
         self.themeSettings = companionManager.themeSettings
         self.cursorLoopController = companionManager.cursorLoopController
+        self.statusLinePresence = LiveSceneStatusLabel.shared.statusLabelModel.presence
         self.cursorScrubController = companionManager.cursorScrubController
 
         // Seed the cursor position from the current mouse location so the
@@ -430,7 +433,8 @@ struct BlueCursorView: View {
                     loopIsShowing: cursorLoopController.isShowingTheLoop(onScreenWithFrame: screenFrame)
                 ),
                 audioPowerLevel: companionManager.currentAudioPowerLevel,
-                color: themeSettings.shownTheme.cursorColor
+                color: themeSettings.shownTheme.cursorColor,
+                aStatusLineShows: statusLinePresence.isInTheViewTree
             )
                 .opacity(buddyIsVisibleOnThisScreen ? cursorOpacity * flightFadeOpacity : 0)
                 .position(cursorPosition)
@@ -1007,11 +1011,17 @@ struct BlueCursorView: View {
 
     /// Flies to the current time on the video's line, slides along it to the moment, tells the controller it arrived so the
     /// video seeks, holds there for a moment, and flies back to the mouse. With Reduce Motion on, it fades in at the moment
-    /// instead, with no travel. A scrub this buddy already plays, or one for another screen, changes nothing.
+    /// instead, with no travel. A scrub this buddy already plays, or one for another screen, changes nothing. During the
+    /// first-launch welcome the buddy does not fly, and the controller hears the refusal, so the seek runs at once.
     private func startScrubbing(_ scrubRequest: CursorScrubRequest) {
         guard playingScrubID != scrubRequest.scrubID,
-              targetDisplayIsThisScreen(scrubRequest.displayFrame),
-              !showWelcome || welcomeText.isEmpty else { return }
+              targetDisplayIsThisScreen(scrubRequest.displayFrame) else { return }
+        guard !showWelcome || welcomeText.isEmpty else {
+            // The welcome holds the buddy, so it does not fly, and the request clears now: while it is set, every screen
+            // hides its buddy.
+            cursorScrubController.overlayRefused(scrubID: scrubRequest.scrubID)
+            return
+        }
         // The buddy sits beside the point as it does beside a pointed element, so its tip touches the line, and stays 20
         // points inside the screen as a pointing does, for a line on the screen's bottom edge.
         func besideThePoint(_ screenPoint: CGPoint) -> CGPoint {

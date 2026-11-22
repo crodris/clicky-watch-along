@@ -334,8 +334,14 @@ final class CarrierFlight {
 
     /// Ends the move where it is, as a push-to-talk press does: the carried view jumps to its end, the tether goes, and
     /// `onLanded` runs at once.
-    func landAtOnce() {
+    /// - `hidingTheCarriedView`: the carried view goes from the screen at once instead of resting at its end for the landing's
+    ///   0.05 seconds, for a surface closed during its move, whose real surface will not show.
+    func landAtOnce(hidingTheCarriedView: Bool = false) {
         tetherLayer?.removeAllAnimations()
+        // Before the landed guard, so a close in the 0.05 seconds after a move landed on its own hides the carried view too.
+        if carriedViewHidesOnLanding(endOpacity: plan.poses.last?.opacity, closedDuringTheMove: hidingTheCarriedView) {
+            carriedView?.isHidden = true
+        }
         land()
     }
 
@@ -362,7 +368,9 @@ final class CarrierFlight {
         carriedView?.layer?.removeAllAnimations()
         // Without its animations the carried view rests in its frame at full size, which is the end of a Send or a Glide.
         // A Glide close ends hidden.
-        if plan.poses.last?.opacity == 0 { carriedView?.isHidden = true }
+        if carriedViewHidesOnLanding(endOpacity: plan.poses.last?.opacity, closedDuringTheMove: false) {
+            carriedView?.isHidden = true
+        }
         onLanded()
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.secondsTheCarriedViewStaysAfterLanding) { [self] in
             // Dropping the view stops any animation of its own, such as a token's ring.
@@ -442,4 +450,10 @@ final class CarrierFlight {
         lineLayer.add(fade, forKey: "tether.fade")
         return lineLayer
     }
+}
+
+/// Whether the carried view hides when its move lands. A Glide close ends hidden (an end opacity of 0), and so does a move
+/// whose surface closed during it, since a carried view resting at full size would show the whole surface for 0.05 seconds.
+nonisolated func carriedViewHidesOnLanding(endOpacity: CGFloat?, closedDuringTheMove: Bool) -> Bool {
+    closedDuringTheMove || endOpacity == 0
 }
