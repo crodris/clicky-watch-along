@@ -630,6 +630,7 @@ private struct PanelAgentsSection: View {
                         PanelAgentChip(
                             agent: agent,
                             isWaitingForApproval: store.agentIDsWaitingForApproval.contains(agent.id),
+                            approvalSettledMark: store.approvalSettledMarksByAgentID[agent.id],
                             accessibilityLabel: agentDiscAccessibilityLabel(
                                 agentName: agent.displayName,
                                 peekContent: agentTokenPeekContent(
@@ -702,6 +703,7 @@ private struct PanelAgentsSection: View {
 private struct PanelAgentChip: View {
     let agent: BackgroundAgent
     let isWaitingForApproval: Bool
+    let approvalSettledMark: AgentTokenApprovalSettledMark?
     let accessibilityLabel: String
     let isPicked: Bool
     let pick: () -> Void
@@ -714,7 +716,7 @@ private struct PanelAgentChip: View {
 
     var body: some View {
         Button(action: pick) {
-            AgentTokenDiscView(agent: agent, isWaitingForApproval: isWaitingForApproval, isHovered: isHovered)
+            AgentTokenDiscView(agent: agent, isWaitingForApproval: isWaitingForApproval, isHovered: isHovered, approvalSettledMark: approvalSettledMark)
                 // A paused agent's chip grays, as its disc in the menu bar does before it folds into the paused disc.
                 .grayscale(agent.pausedAt != nil ? 1 : 0)
                 .animation(.easeOut(duration: AgentTokenGather.graySeconds), value: agent.pausedAt != nil)

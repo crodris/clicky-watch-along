@@ -221,7 +221,8 @@ struct AgentTokenDiscContent: View {
                 AgentTokenDiscView(
                     agent: agent,
                     isWaitingForApproval: store.agentIDsWaitingForApproval.contains(agent.id),
-                    isHovered: discModel.isHovered
+                    isHovered: discModel.isHovered,
+                    approvalSettledMark: store.approvalSettledMarksByAgentID[agent.id]
                 )
             }
         case .overflow:
@@ -994,6 +995,14 @@ final class AgentTokenDockController {
         peekDelayTask = nil
         discIDOfThePeek = nil
         peekController.hide()
+    }
+
+    /// The center of an agent's own disc on a display, where an ended approval card Glides back into, or nil when the agent
+    /// has no disc showing there, such as one in "+N", one folded into the paused disc, or one the recap gathered.
+    func discCenter(ofTheAgent agentID: UUID, onDisplay displayID: CGDirectDisplayID) -> CGPoint? {
+        let agentDiscID = AgentTokenDiscID(displayID: displayID, tokenSlot: .agent(agentID))
+        guard let disc = discsByID[agentDiscID], disc.panel.isVisible, !recapGather.hides(agentDiscID) else { return nil }
+        return CGPoint(x: disc.panel.frame.midX, y: disc.panel.frame.midY)
     }
 
     // MARK: Keyboard focus from the panel

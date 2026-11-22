@@ -225,6 +225,26 @@ struct MenuBarAndDiscTests {
         #expect(content.hint == nil)
     }
 
+    @Test func aSettledRequestTurnsTheDiscsFaceIntoACheckOrAGrayDashAt2x() throws {
+        // A running disc's orbiting dot is an AppKit layer, which `ImageRenderer` does not draw, so a cancelled agent with no
+        // loop and no badge stands in for it.
+        var agent = runningAgent(kind: .task)
+        agent.phase = .cancelled
+        // Points from the disc's center, which is the render's center, since the padding is the same on every side.
+        func pixel(_ mark: AgentTokenApprovalSettledMark, pointsRightOfTheCenter x: CGFloat, pointsBelowTheCenter y: CGFloat) throws -> NSColor {
+            let pixels = try renderedPixels(of: AgentTokenDiscView(agent: agent, approvalSettledMark: mark).frame(width: AgentTokenMetrics.discDiameter, height: AgentTokenMetrics.discDiameter))
+            return try #require(pixels.colorAt(x: pixels.pixelsWide / 2 + Int(x * 2), y: pixels.pixelsHigh / 2 + Int(y * 2))?.usingColorSpace(.sRGB))
+        }
+        // The check's face is green near its top edge, above the white check.
+        let checkFace = try pixel(.allowed, pointsRightOfTheCenter: 0, pointsBelowTheCenter: -6)
+        #expect(checkFace.greenComponent > 0.5 && checkFace.greenComponent > checkFace.redComponent && checkFace.greenComponent > checkFace.blueComponent)
+        // The dash sits across the dark face's center in a mid gray, and the face above it stays dark.
+        let dash = try pixel(.notAllowed, pointsRightOfTheCenter: 0, pointsBelowTheCenter: 0)
+        #expect(abs(dash.redComponent - dash.greenComponent) < 0.1 && dash.brightnessComponent > 0.3)
+        let faceAboveTheDash = try pixel(.notAllowed, pointsRightOfTheCenter: 0, pointsBelowTheCenter: -5)
+        #expect(faceAboveTheDash.brightnessComponent < 0.3)
+    }
+
     @Test func aPausedAgentsChipSaysItIsPausedAndHowToLetItGoOn() {
         var agent = runningAgent()
         let pausedAt = Date()

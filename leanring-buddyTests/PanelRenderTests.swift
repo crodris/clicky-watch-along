@@ -183,6 +183,38 @@ struct PanelRenderTests {
 
     // MARK: - The approval badge on a light menu bar
 
+    @Test func theSettledMarksAndAPausedChipKeepTheirShapesInsideTheDisc() throws {
+        let startedAt = Date(timeIntervalSinceNow: -30)
+        var agent = BackgroundAgent(
+            id: UUID(), kind: .task, subject: "Booster", studyGuideVideoKey: nil, startedAt: startedAt,
+            currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0)
+        )
+        let allowedDisc = AgentTokenDiscView(agent: agent, approvalSettledMark: .allowed)
+        let notAllowedDisc = AgentTokenDiscView(agent: agent, approvalSettledMark: .notAllowed)
+        agent.pausedAt = Date()
+        let pausedChip = AgentTokenDiscView(agent: agent).grayscale(1)
+        let bitmap = try render(HStack(spacing: 12) { allowedDisc; notAllowedDisc; pausedChip }, named: "disc-settled-marks-and-paused-chip")
+        // Three 22 point discs, 12 points apart, inside the 24 point padding.
+        #expect(bitmap.size.width == 24 * 2 + 3 * AgentTokenMetrics.discDiameter + 2 * 12)
+    }
+
+    @Test func theProblemBadgeKeepsItsDarkRimAndIsRedOnALightAndADarkMenuBar() throws {
+        for (menuBarHex, foreground, fileName) in [("#F2F2F2", NSColor.black, "menu-icon-problem-light-bar"), ("#1E1E1E", NSColor.white, "menu-icon-problem-dark-bar")] {
+            let problemIcon = MenuBarIconArt.image(for: .idle, cursor: .triangle, badge: .problem, foreground: foreground)
+            let iconView = Image(nsImage: problemIcon).frame(width: MenuBarIconArt.size.width, height: MenuBarIconArt.size.height)
+            let bitmap = try render(iconView, named: fileName, background: Color(hex: menuBarHex))
+            let padding: CGFloat = 24
+            let pixelsPerPoint = scale(of: bitmap)
+            let badgeCenterX = Int((padding + MenuBarIconArt.badgeCenter.x) * pixelsPerPoint)
+            let badgeCenterY = Int((padding + MenuBarIconArt.badgeCenter.y) * pixelsPerPoint)
+            let badgePixel = try #require(bitmap.colorAt(x: badgeCenterX, y: badgeCenterY)?.usingColorSpace(.sRGB))
+            #expect(badgePixel.redComponent > 0.8 && badgePixel.greenComponent < 0.45 && badgePixel.blueComponent < 0.45)
+            let rimOffset = Int((MenuBarIconArt.badgeDiameter / 2 + 0.5) * pixelsPerPoint)
+            let rimPixel = try #require(bitmap.colorAt(x: badgeCenterX + rimOffset, y: badgeCenterY)?.usingColorSpace(.sRGB))
+            #expect(luminance(rimPixel) < 0.35)
+        }
+    }
+
     @Test func theApprovalBadgeKeepsItsDarkRimOnALightAndADarkMenuBar() throws {
         for (menuBarHex, foreground, fileName) in [("#F2F2F2", NSColor.black, "menu-icon-badge-light-bar"), ("#1E1E1E", NSColor.white, "menu-icon-badge-dark-bar")] {
             let badgedIcon = MenuBarIconArt.image(for: .idle, cursor: .triangle, badge: .needsYourOK, foreground: foreground)

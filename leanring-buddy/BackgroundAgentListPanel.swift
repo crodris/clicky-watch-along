@@ -326,6 +326,11 @@ final class AgentListPanelController {
     private var glideOrigin: GlideOrigin?
     /// The open Glide, held so a close before it lands can end it where it is.
     private var openingFlight: CarrierFlight?
+    /// Where the real list's approval card sits in its window, top-left origin, or nil while none shows.
+    private var approvalCardFrameInTheWindow: CGRect?
+    /// The center of an agent's disc on a display, which `CompanionManager` reads from the dock, so an ended approval card
+    /// can Glide back into it.
+    var discCenterOfTheAgent: (_ agentID: UUID, _ displayID: CGDirectDisplayID) -> CGPoint? = { _, _ in nil }
 
     private struct GlideOrigin {
         let point: CGPoint
@@ -493,11 +498,16 @@ final class AgentListPanelController {
             approvalDesk: approvalDesk,
             actions: actions,
             uiState: uiState,
-            entrance: entrance
-        ) { [weak self] contentSize in
-            guard reportsItsSize else { return }
-            self?.resizePanel(to: contentSize)
-        }
+            entrance: entrance,
+            onContentSizeChange: { [weak self] contentSize in
+                guard reportsItsSize else { return }
+                self?.resizePanel(to: contentSize)
+            },
+            onApprovalCardFrameChange: { [weak self] approvalCardFrameInTheWindow in
+                guard reportsItsSize else { return }
+                self?.approvalCardFrameInTheWindow = approvalCardFrameInTheWindow
+            }
+        )
     }
 
     /// The list as the carrier carries it: the same view at the window's size, which reports no size back to the panel.
@@ -524,6 +534,41 @@ final class AgentListPanelController {
             initiallyExpandedAgentID: agentID,
             glideOriginPoint: agentTokenServeStartPoint(mouseLocation: mouseLocation),
             screen: screen
+        )
+    }
+
+    /// An ended approval card's time ran out while it was the card on screen: a copy Glides from where it sat into its
+    /// agent's disc on the list's display, closing at 0.7x with the tether, the way the list closes into its origin. The
+    /// real card leaves the list at once. Nothing plays with Reduce Motion on, with the list closed or still opening, or
+    /// when the agent has no disc on that display, such as one in "+N", and the card then just leaves.
+    func glideTheEndedApprovalCardIntoItsDisc(_ endedCard: ShownApprovalCard) {
+        guard let panel, uiState.deskIsListening, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+              let approvalCardFrameInTheWindow, let screen = panel.screen,
+              let discCenter = discCenterOfTheAgent(endedCard.request.taskID, screen.displayID) else { return }
+        let cardScreenFrame = CGRect(
+            x: panel.frame.minX + approvalCardFrameInTheWindow.minX,
+            y: panel.frame.maxY - approvalCardFrameInTheWindow.maxY,
+            width: approvalCardFrameInTheWindow.width,
+            height: approvalCardFrameInTheWindow.height
+        )
+        let requestingAgent = store.agents.first { $0.id == endedCard.request.taskID }
+        print("Approval card: the ended card Glides into its agent's disc")
+        TetherCarrier.shared.play(
+            .glideClose(from: cardScreenFrame, into: discCenter),
+            carrying: ApprovalCardView(
+                shownCard: endedCard,
+                agentName: requestingAgent?.displayName ?? "An agent",
+                learnerWords: requestingAgent?.learnerWords,
+                wholeSummaryShownSince: nil,
+                answerApproval: { _, _, _ in },
+                summaryWasShownWhole: { _ in }
+            )
+            .frame(width: cardScreenFrame.width, height: cardScreenFrame.height)
+            .background(DS.Colors.cardSurfaceTop)
+            .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous)),
+            onDisplay: screen.displayID,
+            tetherColor: NSColor(requestingAgent?.displayColor.color ?? themeSettings.shownTheme.cursorColor),
+            onLanded: {}
         )
     }
 
@@ -835,6 +880,9 @@ private struct AgentListView: View {
     @ObservedObject var approvalDesk: HarnessApprovalDesk
     @ObservedObject var uiState: AgentListUIState
     let onContentSizeChange: (CGSize) -> Void
+    /// Where the approval card sits in the window, top-left origin, which only the real list reports, so an ended card can
+    /// Glide from there into its agent's disc. Nil while no card shows.
+    let onApprovalCardFrameChange: (CGRect?) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// False until the rows have risen, for the copy of the list that plays on the carrier.
@@ -851,7 +899,8 @@ private struct AgentListView: View {
         actions: AgentListActions,
         uiState: AgentListUIState,
         entrance: AgentListEntrance,
-        onContentSizeChange: @escaping (CGSize) -> Void
+        onContentSizeChange: @escaping (CGSize) -> Void,
+        onApprovalCardFrameChange: @escaping (CGRect?) -> Void = { _ in }
     ) {
         self.store = store
         self.themeSettings = themeSettings
@@ -859,6 +908,7 @@ private struct AgentListView: View {
         self.actions = actions
         self.uiState = uiState
         self.onContentSizeChange = onContentSizeChange
+        self.onApprovalCardFrameChange = onApprovalCardFrameChange
         _rowsHaveRisen = State(initialValue: entrance == .none)
     }
 
@@ -933,6 +983,8 @@ private struct AgentListView: View {
                 )
                 // A new request gets a new card, so its summary is measured from the top.
                 .id(shownCard.request.approvalID)
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { onApprovalCardFrameChange($0) }
+                .onDisappear { onApprovalCardFrameChange(nil) }
 
                 Rectangle()
                     .fill(DS.Colors.borderSubtle)
@@ -956,6 +1008,7 @@ private struct AgentListView: View {
                                 resultsMayBeDeliveredNow: agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: store.aVideoQuizQuestionIsOpen),
                                 isExpanded: uiState.expandedAgentID == agent.id,
                                 approvalState: approvalState,
+                                approvalSettledMark: store.approvalSettledMarksByAgentID[agent.id],
                                 onToggle: {
                                     withAnimation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)) {
                                         uiState.expandedAgentID = uiState.expandedAgentID == agent.id ? nil : agent.id
@@ -1011,6 +1064,8 @@ private struct AgentRowView: View {
     let resultsMayBeDeliveredNow: Bool
     let isExpanded: Bool
     let approvalState: AgentListApprovalState
+    /// What the disc's "!" turned into after the agent's request was settled, for a moment.
+    let approvalSettledMark: AgentTokenApprovalSettledMark?
     let onToggle: () -> Void
     let actions: AgentListActions
 
@@ -1098,7 +1153,7 @@ private struct AgentRowView: View {
     /// not scaled, since the disc's orbiting dot and approval pulse are Core Animation layers pinned to the disc's size, which
     /// a SwiftUI scale does not reach.
     private var rowDisc: some View {
-        AgentTokenDiscView(agent: agent, isWaitingForApproval: approvalState != .none)
+        AgentTokenDiscView(agent: agent, isWaitingForApproval: approvalState != .none, approvalSettledMark: approvalSettledMark)
             .frame(width: Self.discSlotDiameter, height: Self.discSlotDiameter)
     }
 

@@ -253,6 +253,14 @@ final class CompanionManager: ObservableObject {
             guard let self else { return false }
             return self.agentListPanelController.isOpen || self.menuPanelShowsTheApprovalCard()
         }
+        // Once a request is settled, its agent's disc turns the "!" into a check or a gray dash for a moment, and the ended
+        // card Glides back into that disc when its time in the list runs out.
+        agentHarness.approvalDesk.onACardEnded = { [weak self] endedCard, ending in
+            self?.showTheApprovalSettledMark(agentTokenApprovalSettledMark(for: ending), onTheDiscOf: endedCard.request.taskID)
+        }
+        agentHarness.approvalDesk.onAnEndedCardLeft = { [weak self] endedCard in
+            self?.agentListPanelController.glideTheEndedApprovalCardIntoItsDisc(endedCard)
+        }
         agentHarness.approvalDesk.onOldestRequestNeedsShowing = { [weak self] approvalRequest in
             self?.agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
         }
@@ -621,6 +629,10 @@ final class CompanionManager: ObservableObject {
         }
         videoQuizSession.onQuizEnded = { [weak self] _ in
             self?.showTheVideoQuizSummary()
+        }
+        // An ended approval card Glides back into its agent's disc, which only the dock knows.
+        agentListPanelController.discCenterOfTheAgent = { [weak self] agentID, displayID in
+            self?.agentTokenDockController.discCenter(ofTheAgent: agentID, onDisplay: displayID)
         }
         // The discs a video's end gathered at the cursor go back when the Card closes, however it closes.
         videoQuizSummaryPanelController.onClosed = { [weak self] glideOrigin in
@@ -4584,6 +4596,20 @@ final class CompanionManager: ObservableObject {
         // The panel's banner already shows the card, so the list does not open over it.
         guard !menuPanelShowsTheApprovalCard() else { return }
         agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
+    }
+
+    /// Which showing of each agent's settled mark is the latest, so an older one's timer never removes a newer mark.
+    private var approvalSettledMarkShowingIDs: [UUID: UUID] = [:]
+
+    private func showTheApprovalSettledMark(_ mark: AgentTokenApprovalSettledMark, onTheDiscOf agentID: UUID) {
+        let showingID = UUID()
+        approvalSettledMarkShowingIDs[agentID] = showingID
+        backgroundAgentStore.approvalSettledMarksByAgentID[agentID] = mark
+        DispatchQueue.main.asyncAfter(deadline: .now() + agentTokenApprovalSettledMarkSeconds) { [weak self] in
+            guard let self, self.approvalSettledMarkShowingIDs[agentID] == showingID else { return }
+            self.approvalSettledMarkShowingIDs[agentID] = nil
+            self.backgroundAgentStore.approvalSettledMarksByAgentID[agentID] = nil
+        }
     }
 
     /// Keeps the chip in step with the approval desk, after each arrival and answer.
