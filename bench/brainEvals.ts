@@ -854,6 +854,7 @@ export const handOffToolNames = new Set([
   "show_ready_model",
   "hear_task_answer",
   "design_theme",
+  "show_art_in_my_room",
   "replay_explanation",
   "replay_step",
 ]);

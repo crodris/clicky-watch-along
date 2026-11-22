@@ -124,10 +124,25 @@ struct TetherCalloutTests {
         #expect(TetherCalloutPresence.secondsToLeave(.recall, reduceMotionIsOn: true) == DS.Move.fadeSeconds)
     }
 
-    @Test func aCalloutStaysInTheTreeWhileItLeavesThenLeavesTheTree() async throws {
-        let presence = TetherCalloutPresence()
+    /// Records each removal a presence schedules and fires one only when a test says, so no test waits on a clock.
+    private final class ScheduledRemovals {
+        private(set) var afterSeconds: [Double] = []
+        private var removals: [() -> Void] = []
+
+        func schedule(_ seconds: Double, _ removal: @escaping () -> Void) {
+            afterSeconds.append(seconds)
+            removals.append(removal)
+        }
+
+        func fire(_ index: Int) { removals[index]() }
+    }
+
+    @Test func aCalloutStaysInTheTreeWhileItLeavesThenLeavesTheTree() {
+        let scheduledRemovals = ScheduledRemovals()
+        let presence = TetherCalloutPresence(scheduleTheRemoval: scheduledRemovals.schedule)
         presence.leave(.recall, reduceMotionIsOn: false)
         #expect(!presence.isInTheViewTree && presence.leavingExit == nil, "nothing leaves that is not on screen")
+        #expect(scheduledRemovals.afterSeconds.isEmpty)
 
         presence.appear()
         #expect(presence.isInTheViewTree && presence.leavingExit == nil)
@@ -136,20 +151,27 @@ struct TetherCalloutTests {
         // A Recall takes over a fade-rise under way.
         presence.leave(.recall, reduceMotionIsOn: false)
         #expect(presence.leavingExit == .recall)
+        #expect(scheduledRemovals.afterSeconds == [
+            TetherCalloutPresence.secondsToLeave(.fadeRise, reduceMotionIsOn: false),
+            TetherCalloutPresence.secondsToLeave(.recall, reduceMotionIsOn: false),
+        ])
 
-        // Waiting on the removal itself, since a main actor busy with other tests ran a 3 second wall clock wait out.
-        await presence.waitForTheLeaveToPlay()
+        // The fade-rise's removal was replaced by the Recall's, so it removes nothing.
+        scheduledRemovals.fire(0)
+        #expect(presence.isInTheViewTree && presence.leavingExit == .recall)
+        scheduledRemovals.fire(1)
         #expect(!presence.isInTheViewTree && presence.leavingExit == nil)
     }
 
-    @Test func aCalloutThatAppearsDuringItsLeaveIsNotRemovedByThatLeave() async throws {
-        let presence = TetherCalloutPresence()
+    @Test func aCalloutThatAppearsDuringItsLeaveIsNotRemovedByThatLeave() {
+        let scheduledRemovals = ScheduledRemovals()
+        let presence = TetherCalloutPresence(scheduleTheRemoval: scheduledRemovals.schedule)
         presence.appear()
         presence.leave(.recall, reduceMotionIsOn: false)
         presence.appear()
         #expect(presence.isInTheViewTree && presence.leavingExit == nil)
-        // The removal that was waiting has been cancelled, so once it has run the Callout is still up.
-        await presence.waitForTheLeaveToPlay()
+        // The removal that was waiting has been cancelled by the appear.
+        scheduledRemovals.fire(0)
         #expect(presence.isInTheViewTree && presence.leavingExit == nil)
     }
 

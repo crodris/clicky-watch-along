@@ -7,7 +7,7 @@
   ],
   "contexts": {
     "nothing": {
-      "description": "Nothing on screen and no video in front. The offered tools are the ones the app should offer here, with animate_picture added.",
+      "description": "Nothing on screen and no video in front. The offered tools are the ones the app should offer here, with animate_picture and show_art_in_my_room added.",
       "sceneState": {
         "page": "none",
         "videoQuizIsRunning": false
@@ -18,7 +18,8 @@
         "build_simulation",
         "pop_out",
         "animate_picture",
-        "start_background_task"
+        "start_background_task",
+        "show_art_in_my_room"
       ]
     },
     "video": {
@@ -548,6 +549,33 @@
         "answer_with_screen"
       ],
       "why": "A question, which goes to the screen answer path."
+    },
+    {
+      "id": "nothing-art-in-my-room",
+      "context": "nothing",
+      "say": "how would this look in my room",
+      "accept": [
+        "show_art_in_my_room"
+      ],
+      "why": "The request the room art panel exists for: a store page is in front and the learner wants it on their wall."
+    },
+    {
+      "id": "nothing-print-on-my-wall",
+      "context": "nothing",
+      "say": "can you show me this print on my wall",
+      "accept": [
+        "show_art_in_my_room"
+      ],
+      "why": "\"show me\" usually builds a scene, but \"on my wall\" asks for the camera panel."
+    },
+    {
+      "id": "nothing-whats-on-my-wall",
+      "context": "nothing",
+      "say": "what kind of art would go well on my wall",
+      "accept": [
+        "answer_with_screen"
+      ],
+      "why": "A question about taste, not a request to see the item in the room."
     },
     {
       "id": "nothing-research",
