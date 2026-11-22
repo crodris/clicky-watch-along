@@ -751,8 +751,12 @@ final class HoverAndPointerNSView: NSView {
     }
 
     /// Reports a hover from where the mouse is, in this view's coordinates, with no mouse event needed.
+    ///
+    /// A view that does not clip to its bounds, as SwiftUI's hosted views do not, has a visible rect that reaches past its
+    /// own bounds, as far as the window when nothing above it clips. So the check is the visible part of the bounds, or a
+    /// re-layout under a still pointer, such as the theme grid after a delete, would mark every card that moved as hovered.
     func reportTheHover(atMouseLocationInTheView mouseLocationInTheView: CGPoint) {
-        reportTheHover(visibleRect.contains(mouseLocationInTheView))
+        reportTheHover(visibleRect.intersection(bounds).contains(mouseLocationInTheView))
         if reportedHover { NSCursor.pointingHand.set() }
     }
 

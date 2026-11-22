@@ -123,8 +123,8 @@ final class ThemeStudioPanelController {
             tetherColor: NSColor(studio.themeSettings.shownTheme.cursorColor),
             onLanded: { [weak self, weak cardPanel] in
                 // A card closed before the landing is no longer this panel.
+                // The flight is kept after it lands, so a close in the carried copy's 0.05 second rest can still hide it.
                 guard let self, let cardPanel, self.panel === cardPanel else { return }
-                self.openingFlight = nil
                 cardPanel.orderFrontRegardless()
             }
         )
@@ -157,16 +157,26 @@ final class ThemeStudioPanelController {
         let cursorCenterInTheWindow = highlightedTileCursorCenterInTheWindow
         panel = nil
         highlightedTileCursorCenterInTheWindow = nil
-        flightToEnd?.landAtOnce()
+        // The opening Glide lands at once with its carried copy hidden: during the Glide the real card will not show, and in
+        // the 0.05 seconds the copy rests after landing it would draw whole over the closing card.
+        flightToEnd?.landAtOnce(hidingTheCarriedView: true)
         guard let closingPanel else { return }
         // The card stays on screen for the stamp and the flight, and a click on it then must not reach its buttons.
         closingPanel.ignoresMouseEvents = true
 
-        switch reason {
-        case .dismissed:
+        switch themeStudioCardExit(
+            realCardHasShown: closingPanel.isVisible,
+            reduceMotionIsOn: reduceMotionIsOn,
+            savedTileCursorIsKnown: cursorCenterInTheWindow != nil,
+            reason: reason
+        ) {
+        case .atOnce:
+            closingPanel.orderOut(nil)
+            closingPanel.contentView = nil
+        case .fadeOrGlideIntoTheCursor:
             closeIntoTheCursor(closingPanel, studio: studio)
-        case .saved(let savedIdea, let pictureJPEG):
-            guard !reduceMotionIsOn, let cursorCenterInTheWindow else {
+        case .savedCursorFliesThenGlide:
+            guard case .saved(let savedIdea, let pictureJPEG) = reason, let cursorCenterInTheWindow else {
                 closeIntoTheCursor(closingPanel, studio: studio)
                 return
             }
@@ -244,6 +254,29 @@ final class ThemeStudioPanelController {
         )
         panel.setFrame(AgentListWindowMargins.windowFrame(cardTopLeft: anchorTopLeft, windowSize: windowSize, visibleFrame: visibleFrame), display: true)
     }
+}
+
+/// How the Theme Studio card leaves when the studio closes.
+enum ThemeStudioCardExit: Equatable {
+    /// The real card never showed, since it was closed while it still Glided in out of the cursor, so it leaves with no move,
+    /// as the video quiz summary Card does. A Glide close would draw the whole card from its full frame for a card the
+    /// learner never saw.
+    case atOnce
+    /// The Glide close into the cursor, or with Reduce Motion on, a fade in place (`closeIntoTheCursor`).
+    case fadeOrGlideIntoTheCursor
+    /// A save: the saved idea's cursor flies from its tile into the real cursor, and then the card closes into it.
+    case savedCursorFliesThenGlide
+}
+
+func themeStudioCardExit(
+    realCardHasShown: Bool,
+    reduceMotionIsOn: Bool,
+    savedTileCursorIsKnown: Bool,
+    reason: ThemeStudioCardClosing
+) -> ThemeStudioCardExit {
+    guard realCardHasShown else { return .atOnce }
+    guard case .saved = reason, !reduceMotionIsOn, savedTileCursorIsKnown else { return .fadeOrGlideIntoTheCursor }
+    return .savedCursorFliesThenGlide
 }
 
 // MARK: - Card

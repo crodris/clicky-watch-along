@@ -64,6 +64,15 @@ Preconditions:
 - **Picker.** The panel's buttons have no accessibility names, so press one with the real mouse: `swift demo/scripts/mouse/mouse.swift click <x> <y>` at a button's center in global points, read from a `$V shot` of the open panel.
   `defaults read com.crodris.clicky-watch-along companionTheme` shows the new value, the cursor changes at once, and the menu bar icon stays the Clicky cursor.
 - **Install.** Copy `themes/02-school-nekoma.clickytheme` to `$RUN/Shared.clickytheme`, run `open -a "<the Debug Clicky.app>" "$RUN/Shared.clickytheme"`, `$V shot add-theme-card` (the "Add theme?" card near the top of the screen), click Add theme with the real mouse (read its point from the shot), and `$V shot installed`: the "Theme added · Nekoma" chip and the red ball. The log says `Themes: installed Shared.clickytheme as nekoma-<4 hex>`. Delete that folder from `~/Library/Application Support/Clicky/Themes` when done.
+- **Finder thumbnail.** After `$V build`, run `pluginkit -m -v -i com.crodris.clicky-watch-along.theme-thumbnail` and check that the path it prints is inside the Debug app `$V build` printed.
+  Every Debug build registers the same ID, so an older build's extension can answer.
+  When it names another build, run `pluginkit -a "<the Debug Clicky.app>/Contents/PlugIns/ClickyThemeThumbnail.appex"` and the `pluginkit -m` line again.
+  Never remove another build's registration with `pluginkit -r`, since the everyday Clicky's extension has the same ID.
+  Run `qlmanage -t -x -s 256 -o "$RUN" themes/02-school-nekoma.clickytheme`: `$RUN` gets a PNG of the red ball on its disc over the theme's swatches, filling the square.
+  `qlmanage -t` without `-x` hangs on an extension.
+  The per-user `com.apple.quicklook.ThumbnailsAgent` keeps the extension list it read when it started.
+  So when `qlmanage` prints `No thumbnail created`, run `pkill -U "$USER" -f com.apple.quicklook.ThumbnailsAgent` and run `qlmanage` again.
+  For a picture cursor, drag a saved picture theme's card out of the panel into a Finder window on `$RUN` (`ThemeFileDrag`), and run the same command on that file: the picture shows inside its outline.
 - Write back the value `defaults read` showed before the run when done, or delete the key if there was none, since the everyday app reads it too.
 
 ## Gotchas
