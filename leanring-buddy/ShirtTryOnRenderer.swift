@@ -90,8 +90,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
 
         // Where the old shirt really ends, when the hips were only estimated. The garment's hem lands there, so it never
         // draws over trousers, and this frame's garment already uses it.
-        if suppliedTorso.hipsWereEstimated, let hemDistance = analysis.oldShirtHemDistance.map({ $0 / analysisScale }),
-           hemDistance >= 0.9 * shoulderWidth, hemDistance <= 2.0 * shoulderWidth {
+        if suppliedTorso.hipsWereEstimated, let hemDistance = analysis.oldShirtHemDistance.map({ $0 / analysisScale }) {
             let measuredLength = hemDistance / Self.garmentBottomInTorsoLengths / shoulderWidth
             smoothedTorsoLengthInShoulderWidths = smoothedTorsoLengthInShoulderWidths.map { $0 + (measuredLength - $0) * 0.2 } ?? measuredLength
         }

@@ -112,9 +112,9 @@ nonisolated struct BodyTorso: Equatable, Sendable {
             )
             return
         }
-        // The body's down direction is across the shoulder line, toward the bottom of the image.
-        var downDirection = CGPoint(x: -shoulderSpan.y / shoulderSpanLength, y: shoulderSpan.x / shoulderSpanLength)
-        if downDirection.y < 0 { downDirection = CGPoint(x: -downDirection.x, y: -downDirection.y) }
+        // The body's down direction is across the shoulder line, toward the bottom of the image. The shoulders are sorted by x,
+        // so the span points right and this perpendicular always points down.
+        let downDirection = CGPoint(x: -shoulderSpan.y / shoulderSpanLength, y: shoulderSpan.x / shoulderSpanLength)
         let torsoLength = Self.torsoLengthInShoulderWidths * shoulderSpanLength
         let hipInset = Self.estimatedHipInsetShare
         self.init(

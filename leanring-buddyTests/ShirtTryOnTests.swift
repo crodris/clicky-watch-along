@@ -331,6 +331,16 @@ struct ShirtGarmentTests {
         #expect(garment.frontNeckPoint == CGPoint(x: 199, y: 60))
     }
 
+    @Test func aStraySpeckInTheCutoutDoesNotStretchTheGarment() throws {
+        // The torso ends at row 449 and a speck sits at row 499. Without dropping the speck the garment would be 50 rows taller.
+        let (photo, mask) = tShirtPhotoAndMask()
+        var pixels = mask.pixels
+        for row in 450..<500 { for column in 0..<400 { pixels[row * 400 + column] = 0 } }
+        pixels[499 * 400 + 10] = 255
+        let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: ShirtCutoutMask(width: 400, height: 500, pixels: pixels)))
+        #expect(garment.torsoCorners.bottomLeft.y == 449)
+    }
+
     @Test func noGarmentWhenTheCutoutIsTinyOrTheSizesDiffer() {
         let (photo, mask) = tShirtPhotoAndMask()
         var tinyPixels = [UInt8](repeating: 0, count: 400 * 500)
@@ -384,6 +394,55 @@ struct ShirtFrameAnalysisTests {
         // The old shirt's collar edge, just above the neck base, is the old shirt's color and so is not cut, so the new shirt
         // covers it. The neck base is 10 percent of the 40 pixel shoulder width above the midpoint: row 68.
         #expect(!isCut(column: 80, row: 70))
+    }
+
+    @Test func everythingAboveTheShouldersIsCutWhateverItsColorAndWhicheverSideTheShouldersAreListedOn() {
+        // Old shirt colored pixels 20 rows above the shoulder line, which is above 30 percent of the shoulder width over the
+        // neck base, are cut even though they look like the old shirt. A room pixel to the side of the head, above the shoulder
+        // line and outside the neck's width, is cut too.
+        let person = smallFrameOfAPerson(shirtBottomRow: 100)
+        var canvas = ShirtTestCanvas(width: 160, height: 120, color: (0, 0, 0))
+        canvas.bytes = person.rgba
+        canvas.fill(columns: 120..<140, rows: 40..<60, color: (30, 60, 150))
+        let withBlueAbove = ShirtSmallFrame(width: 160, height: 120, rgba: canvas.bytes, personMask: person.personMask, torso: person.torso)
+        let analysis = ShirtFrameAnalysis(frame: withBlueAbove, oldShirtColor: SIMD3(30, 60, 150))
+        func isCut(_ analysis: ShirtFrameAnalysis, column: Int, row: Int) -> Bool { analysis.maskPixels[(row * 160 + column) * 4] == 255 }
+        #expect(isCut(analysis, column: 130, row: 50))
+        #expect(isCut(analysis, column: 58, row: 60))
+        // The same torso with the shoulders listed the other way round cuts the same pixels.
+        let swapped = BodyTorso(
+            imageLeftShoulder: person.torso.imageRightShoulder, imageRightShoulder: person.torso.imageLeftShoulder,
+            imageLeftHip: person.torso.imageRightHip, imageRightHip: person.torso.imageLeftHip, hipsWereEstimated: true, shouldersAreSeen: true
+        )
+        let swappedAnalysis = ShirtFrameAnalysis(frame: ShirtSmallFrame(width: 160, height: 120, rgba: canvas.bytes, personMask: person.personMask, torso: swapped), oldShirtColor: SIMD3(30, 60, 150))
+        #expect(isCut(swappedAnalysis, column: 58, row: 60))
+        #expect(!isCut(swappedAnalysis, column: 80, row: 90))
+    }
+
+    @Test func oldShirtColoredClothBelowTheHipsIsNotTheOldShirt() {
+        // The hips are at row 105, 33 below the shoulder midpoint, so the shirt's zone ends at 1.1 * 33 + 2 = 38 pixels down,
+        // row 110. Trousers of the shirt's color at rows 112 to 119 are below it and must keep their own color.
+        var canvas = ShirtTestCanvas(width: 160, height: 120, color: (128, 128, 128))
+        canvas.fill(columns: 50..<110, rows: 70..<120, color: (30, 60, 150))
+        var person = [UInt8](repeating: 0, count: 160 * 120)
+        for row in 16..<120 { for column in 50..<110 { person[row * 160 + column] = 255 } }
+        let torso = BodyTorso(
+            imageLeftShoulder: CGPoint(x: 60, y: 72), imageRightShoulder: CGPoint(x: 100, y: 72),
+            imageLeftHip: CGPoint(x: 63, y: 105), imageRightHip: CGPoint(x: 97, y: 105), hipsWereEstimated: false, shouldersAreSeen: true
+        )
+        let analysis = ShirtFrameAnalysis(frame: ShirtSmallFrame(width: 160, height: 120, rgba: canvas.bytes, personMask: person, torso: torso), oldShirtColor: SIMD3(30, 60, 150))
+        #expect(analysis.maskPixels[(90 * 160 + 80) * 4 + 1] == 255)
+        #expect(analysis.maskPixels[(116 * 160 + 80) * 4 + 1] == 0)
+    }
+
+    @Test func aLoneOldShirtColoredPixelInsideTheTrousersIsASpeckNotShirt() {
+        let person = smallFrameOfAPerson(shirtBottomRow: 100)
+        var canvas = ShirtTestCanvas(width: 160, height: 120, color: (0, 0, 0))
+        canvas.bytes = person.rgba
+        canvas.fill(columns: 80..<81, rows: 110..<111, color: (30, 60, 150))
+        let withSpeck = ShirtSmallFrame(width: 160, height: 120, rgba: canvas.bytes, personMask: person.personMask, torso: person.torso)
+        let analysis = ShirtFrameAnalysis(frame: withSpeck, oldShirtColor: SIMD3(30, 60, 150))
+        #expect(analysis.maskPixels[(110 * 160 + 80) * 4 + 1] == 0)
     }
 
     @Test func theOldShirtBeyondTheGarmentIsMarkedAsUncoveredButNotTheTrousers() {
@@ -537,10 +596,11 @@ struct ShirtTryOnRendererTests {
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
         let context = CIContext()
         let result = renderedCanvas(of: ShirtTryOnRenderer(ciContext: context).composite(frame: frame.ciImage, personMask: personMask, torso: torso, garment: garment), context: context)
-        // The garment's torso runs from its shoulder line (row 49.9) to its hem (row 499), and lands from about row 179.6 to
-        // the hem at 1.08 torso lengths below the shoulders. The green band at 25 to 35 percent of the garment's height, rows
-        // 125 to 175, is a third of the way down that run, about row 245. The neck shift and the hem fit move it a little.
-        let printRow = 245
+        // The garment's torso runs from its shoulder line (row 49.9) to its hem (row 499), and lands from row 179.6 to the hem
+        // at 1.08 torso lengths below the shoulders, row 471.9. The body's torso narrows toward the hips, so the perspective map
+        // stretches the top of the garment: the green band at 25 to 35 percent of the garment's height, rows 125 to 175, lands
+        // on rows 238 to 274, and its middle is row 256.
+        let printRow = 256
         let print = result.pixel(column: 320, row: printRow)
         #expect(print.green > print.red && print.green > print.blue, "the green print should be at row \(printRow), got \(print)")
         // Above the print, at the shoulders, and below it, near the bottom of the frame, the garment is red.
@@ -607,9 +667,53 @@ struct ShirtTryOnRendererTests {
         #expect(aboveTheHem.red > aboveTheHem.blue + 40, "the garment should reach the old hem, got \(aboveTheHem)")
     }
 
+    @Test func theGarmentKeepsTheHipsTheyGaveWhenTheyWereSeen() throws {
+        // The same frame as the hem test, but the hips were seen, so the garment reaches them and the old shirt's hem does not
+        // move them.
+        var (frame, personMask, torso) = personFrame(shoulderRow: 100, shirtTopRow: 95, shirtBottomRow: 300)
+        torso = BodyTorso(
+            imageLeftShoulder: torso.imageLeftShoulder, imageRightShoulder: torso.imageRightShoulder,
+            imageLeftHip: torso.imageLeftHip, imageRightHip: torso.imageRightHip, hipsWereEstimated: false, shouldersAreSeen: true
+        )
+        let (photo, mask) = tShirtPhotoAndMask()
+        let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
+        let context = CIContext()
+        let result = renderedCanvas(of: ShirtTryOnRenderer(ciContext: context).composite(frame: frame.ciImage, personMask: personMask, torso: torso, garment: garment), context: context)
+        let overTheTrousers = result.pixel(column: 320, row: 335)
+        #expect(overTheTrousers.red > overTheTrousers.blue + 40, "the garment should reach the seen hips, got \(overTheTrousers)")
+    }
+
+    @Test func aNeckScanThatFindsSomethingFarFromTheGarmentsNeckIsIgnored() throws {
+        // The learner's shirt starts at row 245, far under the shoulders, so the patch the old shirt's color comes from is
+        // skin, and the scan finds the skin of the neck far above the garment's neck. Moving the garment that far is wrong, so
+        // the print stays where it is, rows 238 to 274.
+        let (frame, personMask, torso) = personFrame(shirtTopRow: 245)
+        let (photo, mask) = tShirtPhotoAndMask()
+        let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
+        let context = CIContext()
+        let result = renderedCanvas(of: ShirtTryOnRenderer(ciContext: context).composite(frame: frame.ciImage, personMask: personMask, torso: torso, garment: garment), context: context)
+        let print = result.pixel(column: 320, row: 244)
+        #expect(print.green > print.red + 20, "the print should not have moved, got \(print)")
+    }
+
+    @Test func aGarmentWithNoNeckHoleIsNotMovedToMeetTheNecklines() throws {
+        // The cutout has no neck hole, so its neck point is only a guess at the shoulder line. The learner's shirt starts at row
+        // 205, which would move a garment that knew its neck, and this one stays: the print is still at rows 238 to 274.
+        let (frame, personMask, torso) = personFrame(shirtTopRow: 205)
+        let (photo, mask) = tShirtPhotoAndMask(withNeckHole: false)
+        let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
+        #expect(!garment.frontNeckWasFound)
+        let context = CIContext()
+        let result = renderedCanvas(of: ShirtTryOnRenderer(ciContext: context).composite(frame: frame.ciImage, personMask: personMask, torso: torso, garment: garment), context: context)
+        let stillThere = result.pixel(column: 320, row: 244)
+        #expect(stillThere.green > stillThere.red + 20, "the print should not have moved, got \(stillThere)")
+        let notMoved = result.pixel(column: 320, row: 286)
+        #expect(notMoved.green < notMoved.red, "the print should not reach row 286, got \(notMoved)")
+    }
+
     @Test func theNecklinesMeetSoALowerCollarPullsTheGarmentDown() throws {
         // The learner's shirt starts at row 205, not 185, so the garment's front neck, which would land near row 186, moves
-        // down about 19 rows. The print, a band from row 231 to 260 without the move, covers rows 250 to 279 with it.
+        // down about 19 rows. The print, a band from row 238 to 274 without the move, covers rows 257 to 293 with it.
         let (frame, personMask, torso) = personFrame(shirtTopRow: 205)
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
