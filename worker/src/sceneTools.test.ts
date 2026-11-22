@@ -9,7 +9,12 @@ type ToolCallResult = { ok: boolean; error?: string; state: Record<string, unkno
 function loadSceneTools(
   liveScene: Record<string, unknown>,
   fakeDocument: Record<string, unknown> = { body: null, querySelectorAll: () => [] },
-  timers: { setTimeout?: (callback: () => void, milliseconds: number) => unknown; setInterval?: (callback: () => void, milliseconds: number) => unknown } = {},
+  timers: {
+    setTimeout?: (callback: () => void, milliseconds: number) => unknown;
+    setInterval?: (callback: () => void, milliseconds: number) => unknown;
+    requestAnimationFrame?: (callback: (now: number) => void) => unknown;
+    reducedMotion?: boolean;
+  } = {},
 ) {
   const postedEvents: string[] = [];
   const fakeWindow: Record<string, unknown> = {
@@ -30,9 +35,9 @@ function loadSceneTools(
   )(
     fakeWindow,
     fakeDocument,
-    () => ({ matches: true }),
+    () => ({ matches: timers.reducedMotion ?? true }),
     { now: () => 0 },
-    () => 0,
+    timers.requestAnimationFrame ?? (() => 0),
     timers.setInterval ?? (() => 0),
     () => {},
     timers.setTimeout ?? (() => 0),
@@ -608,9 +613,9 @@ describe("scene-tools.js simulation tools", () => {
       const { clickyTools, postedEvents } = loadSceneTools(page, fakeDocument);
       clickyTools.simulation.guessHeard();
       for (let trial = 0; trial < warmTimes.length; trial += 1) await finishARun(clickyTools, postedEvents);
-      // The table's cells are the only elements styled with an ellipsis, 3 to a row (trial, control, measurement).
+      // The table's cells are the only elements with the trial cell class, 3 to a row (trial, control, measurement).
       const tableRowCount = Math.min(warmTimes.length, 5) + 1;
-      const tableCells = createdElements.filter((element) => String((element.style as { cssText?: string }).cssText).includes("text-overflow:ellipsis"));
+      const tableCells = createdElements.filter((element) => String(element.className ?? "").split(" ").includes("clicky-trial-cell"));
       return tableCells.slice(-tableRowCount * 3).filter((_, cellIndex) => cellIndex % 3 === 2).map((element) => element.textContent);
     };
 
@@ -653,6 +658,45 @@ describe("scene-tools.js simulation tools", () => {
     expect(latestReadoutValue()).toBe("40.8 m");
   });
 
+  it("counts a finished run's readouts up from the run before's, and shows them at once with Reduce Motion", async () => {
+    const readoutValuesAfterTwoRuns = async (reducedMotion: boolean) => {
+      const createdElements: Array<Record<string, unknown>> = [];
+      const fakeDocument = {
+        body: {},
+        documentElement: { append: () => {} },
+        createElement: () => {
+          const element: Record<string, unknown> = { style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {}, addEventListener: () => {} };
+          createdElements.push(element);
+          return element;
+        },
+        querySelectorAll: () => [],
+      };
+      const animationFrames: Array<(now: number) => void> = [];
+      let landingDistance = 20;
+      const page = simulationPage({ getState: () => ({ readouts: [{ label: "Landing distance", value: landingDistance, unit: "m" }] }) });
+      const { clickyTools, postedEvents } = loadSceneTools(page, fakeDocument, { reducedMotion, requestAnimationFrame: (callback) => animationFrames.push(callback) });
+      clickyTools.simulation.guessHeard();
+      const shownValue = () => createdElements.filter((element) => element.className === "clicky-readout-value").at(-1)?.textContent;
+      const runFrame = (now: number) => animationFrames.splice(0).forEach((callback) => callback(now));
+      await finishARun(clickyTools, postedEvents);
+      runFrame(600);
+      landingDistance = 40;
+      await finishARun(clickyTools, postedEvents);
+      const values = [shownValue()];
+      runFrame(300);
+      values.push(shownValue());
+      // A new run that starts while the values count up keeps its "…", since the count is still the run before's.
+      page.run = vi.fn(() => new Promise<void>(() => {}));
+      clickyTools.call("run_simulation", {});
+      runFrame(600);
+      values.push(shownValue());
+      return values;
+    };
+    // Halfway through the 600 ms the ease-out cubic has covered seven eighths of the way from 20 to 40.
+    expect(await readoutValuesAfterTwoRuns(false)).toEqual(["20 m", "38 m", "…"]);
+    expect(await readoutValuesAfterTwoRuns(true)).toEqual(["40 m", "40 m", "…"]);
+  });
+
   it("shows the hypothesis in the panel while Clicky waits for the guess", () => {
     const createdElements: Array<Record<string, unknown>> = [];
     const fakeDocument = {
@@ -670,10 +714,55 @@ describe("scene-tools.js simulation tools", () => {
 
     clickyTools.simulation.showQuestion("Will 30 or 60 degrees send the ball farther?");
 
-    const questionLine = createdElements.find((element) => element.textContent === "Will 30 or 60 degrees send the ball farther?");
-    expect(questionLine?.style).toMatchObject({ display: "block" });
+    const stageText = createdElements.find((element) => element.textContent === " Will 30 or 60 degrees send the ball farther?");
+    expect(stageText).toBeDefined();
     clickyTools.simulation.guessHeard();
-    expect(questionLine?.style).toMatchObject({ display: "none" });
+    expect(stageText?.textContent).not.toContain("30 or 60 degrees");
+  });
+
+  it("names the lesson's stage in the panel, and a challenge try's distance from the target and which way it missed", async () => {
+    const createdElements: Array<Record<string, unknown>> = [];
+    const fakeDocument = {
+      body: {},
+      documentElement: { append: () => {} },
+      createElement: () => {
+        const element: Record<string, unknown> = { style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {}, addEventListener: () => {} };
+        createdElements.push(element);
+        return element;
+      },
+      querySelectorAll: () => [],
+    };
+    let landingDistance = 27.5;
+    const { clickyTools, postedEvents } = loadSceneTools(simulationPage({
+      challenge: rangeChallenge,
+      getState: () => ({ readouts: [{ label: "Landing distance", value: landingDistance, unit: "m" }] }),
+    }), fakeDocument);
+    clickyTools.simulation.showQuestion("Will 60 degrees land farther than 45?");
+    // The stage line is three spans made right after the panel: the stage's name, its words, and a challenge outcome.
+    const panelElement = createdElements.find((element) => element.id === "clicky-simulation-panel");
+    const [stageName, stageText, stageOutcome] = createdElements.slice(createdElements.indexOf(panelElement!) + 2, createdElements.indexOf(panelElement!) + 5);
+    const runButton = createdElements.find((element) => String(element.className ?? "").includes("clicky-run-button"));
+    const stageLine = () => `${stageName.textContent}${stageText.textContent}${stageOutcome.textContent}`;
+
+    expect(stageLine()).toBe("Guess first: Will 60 degrees land farther than 45?");
+    expect(runButton).toMatchObject({ textContent: "Say your guess", className: "clicky-run-button locked" });
+
+    clickyTools.simulation.guessHeard();
+    expect(stageLine()).toMatch(/^Try it: /);
+    expect(runButton).toMatchObject({ textContent: "Run", className: "clicky-run-button" });
+
+    await finishARun(clickyTools, postedEvents);
+    clickyTools.simulation.startChallenge();
+    expect(stageLine()).toBe("Challenge: Can you land the ball in the ring? (0 tries so far)");
+
+    await finishARun(clickyTools, postedEvents);
+    expect(stageLine()).toBe("Challenge: Can you land the ball in the ring? (1 try so far) Missed by 2.5 m, under the target.");
+    expect(stageOutcome.className).toBe("clicky-stage-outcome-miss");
+
+    landingDistance = 30.4;
+    await finishARun(clickyTools, postedEvents);
+    expect(stageLine()).toBe("Challenge: you did it in 2 tries. Hit, 0.4 m from the target.");
+    expect(stageOutcome.className).toBe("clicky-stage-outcome-hit");
   });
 
   it("draws the panel when the app shows the question, even if the page never set __tourFinished", () => {
@@ -727,8 +816,8 @@ describe("scene-tools.js simulation tools", () => {
   });
 
   it.each([
-    { panelHeight: 92, lift: 158 },
-    { panelHeight: 340, lift: 178 },
+    { panelHeight: 92, lift: 193 },
+    { panelHeight: 400, lift: 208 },
   ])("moves the camera's view up by half the panel's full height from the start, so the scene stays still as rows arrive (panel $panelHeight)", ({ panelHeight, lift }) => {
     const fakeElement = (): Record<string, unknown> => ({
       style: {},
@@ -752,7 +841,7 @@ describe("scene-tools.js simulation tools", () => {
 
     clickyTools.call("set_control", { name: "angle", value: 30 });
 
-    // Reduce Motion is on in this harness, so the lift jumps straight to half of the full-table height, 300, or of a
+    // Reduce Motion is on in this harness, so the lift jumps straight to half of the full-table height, 370, or of a
     // taller panel, plus its 16 point margin.
     expect(setViewOffset).toHaveBeenLastCalledWith(800, 450, 0, lift, 800, 450);
   });

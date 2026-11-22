@@ -126,6 +126,8 @@ final class CompanionManager: ObservableObject {
     @Published var detectedElementBubbleText: String?
     /// How long the buddy stays on the detected element. A 3D scene part holds until its narration ends.
     @Published var detectedElementPointingHold: BuddyPointingHold = .briefly
+    /// The cursor's latest nod, shake, or hop, which BlueCursorView plays. Set only through `playCursorEmote`.
+    @Published private(set) var cursorEmoteRequest: CursorEmoteRequest?
 
     // MARK: - Onboarding Video State (shared across all screen overlays)
 
@@ -305,10 +307,11 @@ final class CompanionManager: ObservableObject {
                 speak: { [weak self] line in
                     // A failed design is also a red Callout, so the failure never rests on the voice alone. While the card stays
                     // open with its old ideas, the card's own red Callout says it, so the chip would say it twice.
-                    if line == ThemeStudioController.couldNotDesignLine, self?.themeStudioController.showsTheDesignFailedNotice != true {
+                    let lineIsAFailure = line == ThemeStudioController.couldNotDesignLine
+                    if lineIsAFailure, self?.themeStudioController.showsTheDesignFailedNotice != true {
                         VoiceToolCallChip.shared.show("Couldn't design that one", sender: .failure)
                     }
-                    self?.speakAThemeStudioLine(line)
+                    self?.speakAThemeStudioLine(line, isAFailure: lineIsAFailure)
                 },
                 stopSpeaking: { [weak self] in self?.stopTheThemeStudioSpeech() },
                 playSound: { sound in sound.play() },
@@ -390,6 +393,8 @@ final class CompanionManager: ObservableObject {
     /// What Clicky says after a run. A newer run's line replaces it.
     private var simulationRunNarrationTask: Task<Void, Never>?
 
+    /// The Card that sums up a quiz when it ends.
+    private let videoQuizSummaryPanelController = VideoQuizSummaryPanelController()
     private lazy var videoQuizSession = VideoQuizSession(
         workerBaseURL: Self.workerBaseURL,
         canAskQuestionNow: { [weak self] in
@@ -405,8 +410,8 @@ final class CompanionManager: ObservableObject {
         askQuestion: { [weak self] quiz, framePopout in
             self?.askVideoQuizQuestion(quiz, framePopout: framePopout)
         },
-        speakLine: { [weak self] line in
-            self?.speakVideoQuizLine(line)
+        speakLine: { [weak self] line, isAFailure in
+            self?.speakVideoQuizLine(line, isAFailure: isAFailure)
         }
     )
     /// True from the moment a video quiz question is asked until its explanation
@@ -519,9 +524,17 @@ final class CompanionManager: ObservableObject {
         }
         LiveSceneOverlay.shared.onASceneStartedToShow = { [weak self] in
             self?.cursorLoopController.end(because: .aSceneStartedToShow)
+            // A scene rises over the video the quiz summary sits on, so the Card goes back into the video.
+            self?.videoQuizSummaryPanelController.close(animated: true)
         }
         LiveSceneOverlay.shared.onPartTapped = { [weak self] untrustedTappedLabel in
             self?.explainTheTappedPart(untrustedTappedLabel: untrustedTappedLabel)
+        }
+        videoQuizSession.onQuizEnded = { [weak self] summary in
+            self?.showTheVideoQuizSummary(summary)
+        }
+        LiveSceneOverlay.shared.accentHexForTheNextPage = { [weak self] in
+            self?.themeSettings.shownTheme.cursorColorHex ?? DS.Colors.overlayCursorBlueHex
         }
         LiveSceneOverlay.shared.onPageError = { [weak self] pageErrorText in
             self?.handleLiveScenePageError(pageErrorText)
@@ -642,6 +655,11 @@ final class CompanionManager: ObservableObject {
                 self?.onboardingMusicFadeTimer = nil
             }
         }
+    }
+
+    /// Asks the cursor to nod (a command was heard), shake (a failure or a first wrong answer), or hop (a right answer).
+    func playCursorEmote(_ emote: CursorEmote) {
+        cursorEmoteRequest = CursorEmoteRequest(emote: emote, sequenceNumber: (cursorEmoteRequest?.sequenceNumber ?? 0) + 1)
     }
 
     func clearDetectedElementLocation() {
@@ -1285,6 +1303,8 @@ final class CompanionManager: ObservableObject {
     /// the buddy to fly to that element on screen.
     private func sendTranscriptToClaudeWithScreenshot(transcript: String, pushToTalkPressCount pressCountOfTheTranscript: Int) {
         let transcriptReadyAt = Date()
+        // A transcript with words is a command Clicky heard.
+        playCursorEmote(.nod)
         // This transcript takes the read of its own press before any branch below returns, so no later transcript can use it,
         // and a press that gets a transcript leaves no read behind. The read is dropped when the page it describes is gone.
         let screenReadAtRelease = screenReadForTheTranscript(
@@ -1940,7 +1960,7 @@ final class CompanionManager: ObservableObject {
               let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.shownTheme),
               LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
             liveScenePhase = .idle
-            await speakLiveSceneLine(failureLine)
+            await speakLiveSceneLine(failureLine, isAFailure: true)
             voiceState = .idle
             // No scene opened, so nothing will clear it and resume the video.
             // A previous pop-out cleared for this request may still be landing back in its frame.
@@ -1969,7 +1989,7 @@ final class CompanionManager: ObservableObject {
         guard !Task.isCancelled else { return }
         if let spokenLine = pictureFlowsOutcome?.spokenLineWhenNotShowing {
             if pictureFlowsOutcome == .failed { VoiceToolCallChip.shared.show("Couldn't animate that one", sender: .failure) }
-            await speakLiveSceneLine(spokenLine)
+            await speakLiveSceneLine(spokenLine, isAFailure: pictureFlowsOutcome == .failed)
         }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
@@ -2006,7 +2026,7 @@ final class CompanionManager: ObservableObject {
         voiceState = .idle
         if let spokenLine = pictureFlowsOutcome.spokenLineWhenNotShowing {
             if pictureFlowsOutcome == .failed { VoiceToolCallChip.shared.show("Couldn't animate that one", sender: .failure) }
-            await speakLiveSceneLine(spokenLine)
+            await speakLiveSceneLine(spokenLine, isAFailure: pictureFlowsOutcome == .failed)
         }
         guard !Task.isCancelled else { return }
         scheduleTransientHideIfNeeded()
@@ -2247,6 +2267,7 @@ final class CompanionManager: ObservableObject {
                 if case .hit = challengeOutcome {
                     self.simulationLesson?.challengeIsRunning = false
                     self.themeSettings.shownTheme.sounds.correct.play()
+                    self.playCursorEmote(.hop)
                 }
                 await self.speakSimulationLine(simulationChallengeSpokenLine(for: challengeOutcome))
             } else {
@@ -2517,7 +2538,7 @@ final class CompanionManager: ObservableObject {
         scheduleTransientHideIfNeeded()
     }
 
-    /// The first wrong answer keeps the model's sentence, which does not give the answer away.
+    /// The first wrong answer keeps the model's sentence, which does not give the answer away, and offers a hint.
     /// A second wrong answer uses the closing line, so the learner hears what the part does.
     private func applyJudgedLiveSceneAnswer(
         grade: LiveSceneQuizGrade,
@@ -2527,6 +2548,7 @@ final class CompanionManager: ObservableObject {
     ) -> String {
         let revealOutcome = LiveSceneRevealOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount)
         LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome, correctAnswerSound: themeSettings.shownTheme.sounds.correct)
+        if let emoteForTheAnswer = cursorEmote(forAnswerOutcome: revealOutcome) { playCursorEmote(emoteForTheAnswer) }
         // After a first wrong answer the question is still open, so its bubble stays for the learner to read again.
         if !(grade == .wrong && wrongAnswerCount == 0) {
             releaseTheBuddyFromTheQuizQuestion()
@@ -2548,7 +2570,7 @@ final class CompanionManager: ObservableObject {
         case .wrong:
             if wrongAnswerCount == 0 {
                 liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
-                return judgeSpokenReply
+                return firstWrongAnswerSpokenLine(judgeSpokenReply: judgeSpokenReply)
             }
             liveScenePhase = .allLabelsShowing
             return spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
@@ -2645,6 +2667,7 @@ final class CompanionManager: ObservableObject {
         let spokenLine: String
         switch videoQuizCommand {
         case .start:
+            videoQuizSummaryPanelController.close(animated: true)
             videoQuizSession.start()
             spokenLine = "Sure, let me read through this video."
         case .stop:
@@ -2688,13 +2711,13 @@ final class CompanionManager: ObservableObject {
 
     /// Speaks a line from the video quiz after whatever Clicky is already saying,
     /// so a quick failure does not cut off "Let me read through this video."
-    private func speakVideoQuizLine(_ line: String) {
+    private func speakVideoQuizLine(_ line: String, isAFailure: Bool) {
         let previousSpokenLineTask = currentResponseTask
         currentResponseTask = Task {
             await previousSpokenLineTask?.value
             await self.waitUntilTheVoiceAnswerIsQuiet()
             guard !Task.isCancelled else { return }
-            await self.speakLiveSceneLine(line)
+            await self.speakLiveSceneLine(line, isAFailure: isAFailure)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -2762,7 +2785,7 @@ final class CompanionManager: ObservableObject {
     private func sayTheSceneCouldNotBeBuilt() async {
         liveScenePhase = .idle
         VoiceToolCallChip.shared.show("Couldn't build that one", sender: .failure)
-        await speakLiveSceneLine("Sorry, I couldn't build that one.")
+        await speakLiveSceneLine("Sorry, I couldn't build that one.", isAFailure: true)
         voiceState = .idle
         // A pop-out whose page failed may still be landing back in its frame.
         await LiveSceneOverlay.shared.waitForReturnToFinish()
@@ -2788,7 +2811,8 @@ final class CompanionManager: ObservableObject {
 
     /// Escape only cancels a text field being edited in Clicky's own window, such as a saved theme's rename field, when one
     /// is, only cancels the settings dial when it is open, only closes the agent list when that is open, and then closes the
-    /// Theme Studio card when that is open, keeping the old theme. Otherwise it ends the scene and anything Clicky is still saying about it.
+    /// Theme Studio card when that is open, keeping the old theme, then answers an "Add theme?" card with a no, then closes the
+    /// quiz summary Card. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
@@ -2813,6 +2837,11 @@ final class CompanionManager: ObservableObject {
         }
         // An "Add theme?" card is answered with a no.
         if themeInstallConfirmation.cancelOnEscape() {
+            return
+        }
+        // With the quiz summary open, Escape closes it.
+        if videoQuizSummaryPanelController.isShowing {
+            videoQuizSummaryPanelController.close(animated: true)
             return
         }
         // A second Escape while a pop-out lands in its frame hides it at once.
@@ -2862,6 +2891,74 @@ final class CompanionManager: ObservableObject {
         voiceState = .idle
         scheduleTransientHideIfNeeded()
         print("Escape: stopped the reply")
+    }
+
+    /// Shows the Card that sums up a quiz that just ended, out of the quiz video when its tab is in front.
+    private func showTheVideoQuizSummary(_ summary: VideoQuizSummary) {
+        let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? 0
+        let videoRect = videoQuizSession.quizVideoIsTheTabInFront()
+            ? ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTab().map { appKitRect(of: $0, mainDisplayHeight: mainDisplayHeight) }
+            : nil
+        videoQuizSummaryPanelController.show(
+            summary: summary,
+            videoRect: videoRect,
+            accentColor: themeSettings.shownTheme.cursorColor,
+            goBackToTheMissedQuestion: { [weak self] missedQuestion in
+                self?.goBackToTheMissedQuizQuestion(missedQuestion)
+            }
+        )
+    }
+
+    /// A click on a question in the quiz summary: the video goes back there and its pop-out shows again, with every label
+    /// named and the narration a requested pop-out has. Clearing it resumes the video.
+    private func goBackToTheMissedQuizQuestion(_ missedQuestion: VideoQuizMissedQuestion) {
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        // A scene still building would replace the pop-out when it finishes, so it is cancelled as "stop the quiz" cancels one.
+        if case .buildingScene = liveScenePhase {
+            liveSceneRequestTask?.cancel()
+            liveSceneRequestTask = nil
+            liveSceneRequestGeneration += 1
+            LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
+            liveScenePhase = .idle
+        }
+        // The video is about to move back to the question, so a scene on screen goes without its "back to the video".
+        clearFinishedLiveScene(resumesTheVideo: false)
+        let framePopout: VideoFramePopout
+        switch videoQuizSession.goBackToTheMissedQuestion(missedQuestion) {
+        case .showsItsPopout(let popoutOfTheQuestion):
+            framePopout = popoutOfTheQuestion
+        case .playsFromBeforeIt:
+            return
+        case .couldNotGoBack:
+            currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
+            return
+        }
+        guard let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
+              let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.shownTheme),
+              LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
+            // No pop-out opened, so nothing will clear it and resume the video the go-back paused.
+            videoQuizSession.resumeVideoAfterRequestedScene()
+            currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
+            return
+        }
+        liveScenePhase = .touring(quizToAskAfterTour: nil)
+        liveScenePageOnScreen = .framePopout(framePopout)
+        voiceState = .idle
+        currentResponseTask = Task {
+            await self.narrateTheFramePopout(framePopout, narrationTrigger: .afterTour)
+            guard !Task.isCancelled else { return }
+            self.voiceState = .idle
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    private func sayTheQuizQuestionCouldNotBeShownAgain() async {
+        VoiceToolCallChip.shared.show("Couldn't go back to that question", sender: .failure)
+        await speakLiveSceneLine("Sorry, I couldn't go back to that question.")
+        guard !Task.isCancelled else { return }
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
     }
 
     private func skipTheVideoQuizQuestion() {
@@ -3577,7 +3674,7 @@ final class CompanionManager: ObservableObject {
     /// the line waits for another. The press counts tell the studio's own design apart from a request the learner made
     /// after it started, since both hold the thinking state.
     /// It has its own task, since a push-to-talk press cancels the reply task and must not drop a line the card is waiting on.
-    private func speakAThemeStudioLine(_ line: String) {
+    private func speakAThemeStudioLine(_ line: String, isAFailure: Bool) {
         themeStudioSpeechTask?.cancel()
         themeStudioSpeechTask = Task {
             while !Task.isCancelled && !themeStudioLineMayStart(
@@ -3592,7 +3689,7 @@ final class CompanionManager: ObservableObject {
             }
             guard !Task.isCancelled else { return }
             // A line that did not start keeps the previous token, which matches nothing once that line has ended.
-            if let lineToken = await self.speakLiveSceneLineAndReturnItsToken(line) {
+            if let lineToken = await self.speakLiveSceneLineAndReturnItsToken(line, isAFailure: isAFailure) {
                 self.themeStudioLineToken = lineToken
             }
             await self.waitForClickyToFinishSpeaking()
@@ -3699,6 +3796,7 @@ final class CompanionManager: ObservableObject {
             }
             print("Task agent: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The task could not be finished. Ask again to try once more.")
+            playCursorEmote(.shake)
             bringBackTheEndingChip(ofAgent: agentID) {
                 VoiceToolCallChip.shared.show("Couldn't finish the task", sender: .failure, secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
             }
@@ -4019,6 +4117,7 @@ final class CompanionManager: ObservableObject {
             }
             print("\(agentKind.displayName): failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
+            playCursorEmote(.shake)
             bringBackTheEndingChip(ofAgent: agentID) {
                 VoiceToolCallChip.shared.show(
                     "Couldn't build the \(agentKind.builtThingName)",
@@ -4340,6 +4439,7 @@ final class CompanionManager: ObservableObject {
             }
             print("Study guide: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
+            playCursorEmote(.shake)
             bringBackTheEndingChip(ofAgent: agentID) {
                 VoiceToolCallChip.shared.show(
                     studyGuideFailureLine(for: error),
@@ -4694,13 +4794,15 @@ final class CompanionManager: ObservableObject {
     @discardableResult
     private func speakTheGaveUpLine() async -> Bool {
         VoiceToolCallChip.shared.show("Couldn't do that one", sender: .failure)
-        return await speakLiveSceneLine(voiceCommandGaveUpLine)
+        return await speakLiveSceneLine(voiceCommandGaveUpLine, isAFailure: true)
     }
 
     /// Returns true once the line's own audio has started, and false on a cancel or when the credits fallback plays instead.
+    /// `isAFailure` says the line reports something that went wrong, so the cursor shakes as Clicky says it. The caller says
+    /// so, since a failure line can start with any words ("I couldn't find a YouTube video open in Chrome.").
     @discardableResult
-    private func speakLiveSceneLine(_ line: String) async -> Bool {
-        await speakLiveSceneLineAndReturnItsToken(line) != nil
+    private func speakLiveSceneLine(_ line: String, isAFailure: Bool = false) async -> Bool {
+        await speakLiveSceneLineAndReturnItsToken(line, isAFailure: isAFailure) != nil
     }
 
     /// `speakLiveSceneLine` for a line whose audio may already be fetching, such as a voice command's line fetched while its
@@ -4711,11 +4813,12 @@ final class CompanionManager: ObservableObject {
 
     /// Like `speakLiveSceneLine`, but returns the token of the line once its own audio has started, for a caller that must
     /// stop that exact line later. Nil on a cancel or when the credits fallback plays instead.
-    private func speakLiveSceneLineAndReturnItsToken(_ line: String) async -> SpokenLineToken? {
-        await speakTheFetchedLineAndReturnItsToken(elevenLabsTTSClient.startFetching(line))
+    private func speakLiveSceneLineAndReturnItsToken(_ line: String, isAFailure: Bool = false) async -> SpokenLineToken? {
+        await speakTheFetchedLineAndReturnItsToken(elevenLabsTTSClient.startFetching(line), isAFailure: isAFailure)
     }
 
-    private func speakTheFetchedLineAndReturnItsToken(_ lineFetch: SpokenLineFetch) async -> SpokenLineToken? {
+    private func speakTheFetchedLineAndReturnItsToken(_ lineFetch: SpokenLineFetch, isAFailure: Bool = false) async -> SpokenLineToken? {
+        if isAFailure { playCursorEmote(.shake) }
         do {
             let lineToken = try await elevenLabsTTSClient.play(lineFetch)
             voiceState = .responding
@@ -4927,6 +5030,7 @@ final class CompanionManager: ObservableObject {
     /// or reply request fails. Uses NSSpeechSynthesizer so it works even when
     /// ElevenLabs is down.
     private func speakCreditsErrorFallback() {
+        playCursorEmote(.shake)
         let utterance = "Sorry, I lost my voice for a second. Please try that again."
         let synthesizer = NSSpeechSynthesizer()
         synthesizer.startSpeaking(utterance)
