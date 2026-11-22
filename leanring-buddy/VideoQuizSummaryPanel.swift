@@ -205,12 +205,8 @@ final class VideoQuizSummaryPanelController {
             ?? NSScreen.main
         guard let screen else { return }
         let cardFrame = videoQuizSummaryCardFrame(cardSize: cardSize, videoRect: videoRect, visibleFrame: screen.visibleFrame)
-        let windowFrame = CGRect(
-            x: cardFrame.minX - AgentListWindowMargins.leading,
-            y: cardFrame.minY - AgentListWindowMargins.bottom,
-            width: windowSize.width,
-            height: windowSize.height
-        )
+        let windowTopLeft = AgentListWindowMargins.windowTopLeft(forCardTopLeft: CGPoint(x: cardFrame.minX, y: cardFrame.maxY))
+        let windowFrame = CGRect(x: windowTopLeft.x, y: windowTopLeft.y - windowSize.height, width: windowSize.width, height: windowSize.height)
         let summaryPanel = NonKeyFloatingPanel(contentRect: windowFrame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         summaryPanel.isOpaque = false
         summaryPanel.backgroundColor = .clear
