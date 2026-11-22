@@ -9,11 +9,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -71,9 +69,16 @@ func TestMain(m *testing.M) {
 				logFile.Close()
 			}
 		}
-		// A server that starts slowly, such as one npx downloads first, keeps every task waiting on the connect.
-		if delayMilliseconds, err := strconv.Atoi(os.Getenv("CLICKY_TEST_MCP_START_DELAY_MS")); err == nil {
-			time.Sleep(time.Duration(delayMilliseconds) * time.Millisecond)
+		// A server that starts slowly, such as one npx downloads first, keeps every task waiting on the connect. It
+		// stays stopped until the test opens the named pipe for writing, so the test decides when it starts and no
+		// timing is involved. The open blocks until a writer opens the pipe.
+		if startGatePath := os.Getenv("CLICKY_TEST_MCP_START_GATE"); startGatePath != "" {
+			startGate, err := os.Open(startGatePath)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "fixture server:", err)
+				os.Exit(1)
+			}
+			startGate.Close()
 		}
 		if err := newFixtureServer(record).Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 			fmt.Fprintln(os.Stderr, "fixture server:", err)
