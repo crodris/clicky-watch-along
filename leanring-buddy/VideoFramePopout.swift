@@ -34,6 +34,15 @@ struct VideoFrameGrab: Decodable {
     }
 }
 
+/// Whether `base64JPEG` decodes to a JPEG. A YouTube frame grab comes from a script in the page (canvas.toDataURL), so its
+/// bytes can be in any format. ImageIO decodes every format it knows, and some of those decoders have had memory bugs.
+/// This app holds the camera, Screen Recording, and Accessibility. So the check reads only the first 3 bytes, which every
+/// JPEG starts with (FF D8 FF), and hands nothing to ImageIO.
+nonisolated func frameGrabHoldsAJPEG(base64JPEG: String) -> Bool {
+    guard let frameGrabData = Data(base64Encoded: base64JPEG) else { return false }
+    return frameGrabData.starts(with: [0xFF, 0xD8, 0xFF])
+}
+
 struct VideoFramePopout {
     struct SubjectBox: Decodable {
         let left: Int

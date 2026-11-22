@@ -1091,10 +1091,13 @@ final class RoomArtPreviewController: ObservableObject {
         }
     }
 
+    /// Escape reaches the panel when it is open, or when a request still reads the page and its picture.
+    var takesEscape: Bool { isOpen || anOpeningIsUnderway }
+
     /// Escape closes the panel when it is open, or stops a request still reading the page and its picture, ahead of any
     /// scene behavior.
     func closeOnEscape() -> Bool {
-        guard isOpen || anOpeningIsUnderway else { return false }
+        guard takesEscape else { return false }
         close()
         return true
     }
