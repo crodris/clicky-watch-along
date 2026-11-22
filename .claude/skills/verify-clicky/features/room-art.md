@@ -41,6 +41,10 @@ Preconditions:
 - **Checks before the camera.** Run `$V app-launch --no-app-secret "how would this look in my room"`: Clicky says "Clicky needs its app secret for this. See the README's Worker setup." and no panel opens.
   With an `http://` page in Chrome's front tab, it says "I can only read store pages served over https.".
 
+- **Worker not reachable.** Run `$V worker-down 8787` (only when no other session's Clicky uses that Worker), then `$V app-launch --room-camera-file <video of a room> "how would this look in my room"`.
+  The panel's status line shows "Couldn't reach Clicky's Worker", and Clicky says "I couldn't reach Clicky's Worker." once it is quiet.
+  Start the Worker again afterwards.
+
 ## Gotchas
 
 - Depth Pro takes about 14 s warm and about 100 s for its first load, so start the service before the run.
