@@ -100,7 +100,7 @@ struct TetherCalloutTests {
         #expect(TetherCalloutPresence.secondsToLeave(.recall, reduceMotionIsOn: true) == DS.Move.fadeSeconds)
     }
 
-    /// A presence whose removals wait in `scheduledRemovals` until a test fires one, so no test waits on a clock.
+    /// Records each removal a presence schedules and fires one only when a test says, so no test waits on a clock.
     private final class ScheduledRemovals {
         private(set) var afterSeconds: [Double] = []
         private var removals: [() -> Void] = []
