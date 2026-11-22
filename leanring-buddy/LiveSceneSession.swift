@@ -84,6 +84,15 @@ enum LiveSceneRevealOutcome: String, Equatable {
     }
 }
 
+/// A line Clicky speaks about a scene or quiz, with whether it reports something that went wrong, so the cursor shakes as it says it.
+nonisolated struct SpokenSceneLine: Equatable {
+    let text: String
+    let isAFailure: Bool
+
+    /// Said when a quiz question cannot be shown again, such as when its pop-out fails to open on the way back to it.
+    static let quizQuestionCouldNotBeShownAgain = SpokenSceneLine(text: "Sorry, I couldn't go back to that question.", isAFailure: true)
+}
+
 /// What Clicky says after a first wrong answer: the judge's sentence, which explains the mistake without the answer,
 /// then the offer of a hint. The offer names the word to say, since "give me a hint" reaches the judge as a hint request,
 /// while a bare "yes" to "Want a hint?" would be graded as a second answer and reveal the name.

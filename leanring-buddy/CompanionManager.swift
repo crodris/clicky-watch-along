@@ -3364,7 +3364,8 @@ final class CompanionManager: ObservableObject {
 
     private func sayTheQuizQuestionCouldNotBeShownAgain() async {
         VoiceToolCallChip.shared.show("Couldn't go back to that question", sender: .failure)
-        await speakLiveSceneLine("Sorry, I couldn't go back to that question.")
+        let lineToSpeak = SpokenSceneLine.quizQuestionCouldNotBeShownAgain
+        await speakLiveSceneLine(lineToSpeak.text, isAFailure: lineToSpeak.isAFailure)
         guard !Task.isCancelled else { return }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
@@ -5291,12 +5292,11 @@ final class CompanionManager: ObservableObject {
         if let themeStudioState = voiceCommandThemeStudioState(themeStudioController.state) {
             sceneStateFields["themeStudio"] = themeStudioState
         }
-        if let backgroundAgentsState = backgroundAgentsStateText(
+        sceneStateFields = sceneStateFieldsAddingBackgroundAgents(
+            to: sceneStateFields,
             runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count,
             agentsArePaused: backgroundAgentStore.agentsArePaused
-        ) {
-            sceneStateFields["backgroundAgents"] = .string(backgroundAgentsState)
-        }
+        )
         if let readyBackgroundScene {
             sceneStateFields["readyToShow"] = .string(readyToShowStateText(
                 isExperiment: readyBackgroundScene.agentKind == .experiment,
