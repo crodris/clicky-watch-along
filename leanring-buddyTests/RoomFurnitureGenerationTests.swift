@@ -458,6 +458,31 @@ struct RoomFurnitureMaskTests {
         #expect(weights[40 * width + 102] == 0, "the block outside the paste is not")
     }
 
+    @Test func aCellThePasteOnlyGrazesNeverCountsAsChanged() {
+        // The paste takes columns 0 to 64, so the cells of columns 64 to 67 hold 4 pasted pixels of 16. The reply differs by
+        // 100 levels in column 64 and in a block well inside the paste, and only the block is the piece.
+        let width = 120, height = 80
+        var keyframePixels = [UInt8](repeating: 255, count: width * height * 4)
+        var replyPixels = keyframePixels
+        var pasteWeights = [UInt8](repeating: 0, count: width * height)
+        for row in 0..<height {
+            for column in 0..<width {
+                let pixelIndex = row * width + column
+                if column <= 64 { pasteWeights[pixelIndex] = 255 }
+                for channel in 0..<3 {
+                    keyframePixels[pixelIndex * 4 + channel] = 120
+                    replyPixels[pixelIndex * 4 + channel] = 120
+                }
+                let isInTheBlock = (28..<52).contains(row) && (12..<36).contains(column)
+                if isInTheBlock || column == 64 { for channel in 0..<3 { replyPixels[pixelIndex * 4 + channel] = 20 } }
+            }
+        }
+        let weights = furniturePieceWeights(keyframePixels: keyframePixels, correctedReplyPixels: replyPixels, pasteWeights: pasteWeights, width: width, height: height)
+
+        #expect(weights[40 * width + 24] > 0.99, "the block is the piece")
+        #expect(weights[10 * width + 66] == 0, "a cell the paste only grazes is not")
+    }
+
     @Test func theCacheKeyChangesWithThePagePictureOrTheTitleAndNeverJoinsThem() {
         let pagePicture = Data([1, 2, 3])
 

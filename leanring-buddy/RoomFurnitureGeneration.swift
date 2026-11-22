@@ -134,7 +134,7 @@ nonisolated let furnitureCompositeToneMatchBandPixels: Double = 96
 /// developed. The weights are scaled back up with a bilinear read.
 nonisolated let furniturePieceCellPixels = 4
 /// A cell counts as changed when the reply, after the tone fit, differs from the keyframe by more than this many levels in
-/// some channel, averaged over the cell. The repainted room measured up to about 8 levels, and the piece's cloth, legs, and
+/// some channel, averaged over the pixels of the cell that the paste takes. The repainted room measured up to about 8 levels, and the piece's cloth, legs, and
 /// shadow measured 20 or more.
 nonisolated let furniturePieceChangeThresholdLevels: Float = 14
 /// The changed cells are closed before they weigh the paste: grown by `furniturePieceClosingGrowCells`, then shrunk by
@@ -371,12 +371,19 @@ nonisolated func furniturePieceWeights(keyframePixels: [UInt8], correctedReplyPi
             }
         }
     }
-    // Each cell is averaged over the pixels of it that the paste takes, so a cell the paste only grazes is not diluted, and
-    // a cell it does not reach is never changed.
+    // Each cell is averaged over the pixels of it that the paste takes. A cell the paste does not reach is never changed,
+    // and neither is a cell it only grazes (under half of the cell), since a few pixels of the feather's faint tail would
+    // then decide it.
     var changedCells = [Float](repeating: 0, count: cellColumns * cellRows)
-    for cellIndex in 0..<changedCells.count where pastedPixelCounts[cellIndex] > 0 {
-        let averageChange = changeSums[cellIndex] / Float(pastedPixelCounts[cellIndex])
-        changedCells[cellIndex] = averageChange > furniturePieceChangeThresholdLevels ? 1 : 0
+    for cellRow in 0..<cellRows {
+        let pixelRows = min(cellPixels, height - cellRow * cellPixels)
+        for cellColumn in 0..<cellColumns {
+            let cellIndex = cellRow * cellColumns + cellColumn
+            let pixelsInTheCell = pixelRows * min(cellPixels, width - cellColumn * cellPixels)
+            guard pastedPixelCounts[cellIndex] * 2 >= pixelsInTheCell else { continue }
+            let averageChange = changeSums[cellIndex] / Float(pastedPixelCounts[cellIndex])
+            changedCells[cellIndex] = averageChange > furniturePieceChangeThresholdLevels ? 1 : 0
+        }
     }
     let grownCells = binaryWindowFiltered(changedCells, width: cellColumns, height: cellRows, radius: furniturePieceClosingGrowCells, keepsAnyHit: true)
     let closedCells = binaryWindowFiltered(grownCells, width: cellColumns, height: cellRows, radius: furniturePieceClosingShrinkCells, keepsAnyHit: false)
