@@ -2,11 +2,12 @@
 //  RoomFurniturePaintedComposite.swift
 //  leanring-buddy
 //
-//  The two looks of a piece of furniture that a generation service makes when the store publishes no model: a generated 3D
-//  model, and a photo composite where the item is painted into the keyframe. `RoomFurnitureGenerating` is the seam to that
-//  service's client, so the controller and its tests never depend on the network. `RoomFurniturePaintedComposite` turns a
-//  painted keyframe into the layer the frame processor draws: the painted region inside the mask, feathered, kept only when
-//  the painted item stands as tall as the measured box says it should.
+//  The two looks of a piece of furniture that the generation service makes: a generated 3D model, and a photo composite
+//  where the item is painted into the keyframe. `RoomFurnitureGenerating` is the seam to that service's client
+//  (`RoomFurnitureGenerationClient`), so the controller and its tests never depend on the network.
+//  `RoomFurniturePaintedComposite` turns a painted keyframe into the layer the frame processor draws: the region the client
+//  pasted (the mask grown by `furnitureCompositePasteSlackPixels` with a `furnitureCompositePasteFeatherPixels` feather),
+//  kept only when the painted item stands as tall as the measured box says it should.
 //
 
 import CoreGraphics
@@ -32,22 +33,23 @@ protocol RoomFurnitureGenerating {
     ) async throws -> CGImage
 }
 
-/// The generation service when it is not wired in: every request says so, and the furniture keeps the looks it has.
-struct RoomFurnitureGenerationNotSetUp: RoomFurnitureGenerating {
-    struct NotSetUpError: Error {}
+extension RoomFurnitureGenerationClient: RoomFurnitureGenerating {}
 
-    func generateAModel(productJPEG: Data, itemTitle: String) async throws -> Data { throw NotSetUpError() }
+/// The generation service when none is wired in, which the controller's tests start from: every request says the service
+/// is not set up, as the Worker's 503 does, and the furniture keeps the looks it has.
+struct RoomFurnitureGenerationNotSetUp: RoomFurnitureGenerating {
+    func generateAModel(productJPEG: Data, itemTitle: String) async throws -> Data {
+        throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")
+    }
 
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data, keyframeWidth: Int, keyframeHeight: Int, productJPEG: Data, maskPNG: Data, itemTitle: String, itemSizeWords: String
     ) async throws -> CGImage {
-        throw NotSetUpError()
+        throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")
     }
 }
 
 nonisolated enum RoomFurniturePaintedComposite {
-    /// The painting's edge fades over about this many pixels, so its seam with the live frame never shows as a line.
-    static let featherPixels = 20.0
     /// The painted item's height may differ from the measured box's projected height by at most this share; a painting the
     /// model drew at the wrong size is worse than the flat cutout at the right one.
     static let mostHeightDifference = 0.15
@@ -70,8 +72,13 @@ nonisolated enum RoomFurniturePaintedComposite {
               let maskImage = CGImageSourceCreateImageAtIndex(maskSource, 0, nil) else { return (nil, nil) }
         let frameRectangle = CGRect(x: 0, y: 0, width: keyframe.width, height: keyframe.height)
         let paintedImage = CIImage(cgImage: painted)
-        let mask = CIImage(cgImage: maskImage)
-            .transformed(by: CGAffineTransform(scaleX: frameRectangle.width / Double(maskImage.width), y: frameRectangle.height / Double(maskImage.height)))
+        // The client pasted its painting inside the mask grown by its slack, with its feather, and left the rest of the
+        // keyframe as filmed, so the same grown mask is the item layer's alpha and the region where the painting is measured.
+        guard let pastedRegion = grownMaskImage(
+            maskImage, frameExtent: frameRectangle, radiusPixels: furnitureCompositePasteSlackPixels,
+            blurPixels: furnitureCompositePasteFeatherPixels, context: ciContext
+        ) else { return (nil, nil) }
+        let mask = CIImage(cgImage: pastedRegion)
 
         let paintedHeightRatio = paintedHeight(painted: paintedImage, keyframe: CIImage(cgImage: keyframe), mask: mask, frameRectangle: frameRectangle, ciContext: ciContext)
             .map { paintedRows in
@@ -80,11 +87,9 @@ nonisolated enum RoomFurniturePaintedComposite {
             }
         guard let paintedHeightRatio, abs(paintedHeightRatio - 1) <= mostHeightDifference else { return (nil, paintedHeightRatio) }
 
-        // A Gaussian's sigma of a third of the feather width fades the edge over about that many pixels.
-        let featheredMask = mask.clampedToExtent().applyingGaussianBlur(sigma: featherPixels / 3).cropped(to: frameRectangle)
         let itemLayer = paintedImage.applyingFilter("CIBlendWithMask", parameters: [
             kCIInputBackgroundImageKey: CIImage.empty(),
-            kCIInputMaskImageKey: featheredMask,
+            kCIInputMaskImageKey: mask,
         ]).cropped(to: frameRectangle)
         guard let itemLayerImage = ciContext.createCGImage(itemLayer, from: frameRectangle, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()) else {
             return (nil, paintedHeightRatio)

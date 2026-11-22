@@ -795,7 +795,7 @@ final class RoomArtPreviewController: ObservableObject {
         /// A model's GLB bytes loaded as a node tree, off the main actor, or nil when they do not load.
         var loadAGeneratedModel: (_ glbData: Data) async -> RoomFurnitureLoadedModel? = { _ in nil }
         /// The mask the painted composite is painted inside, from the item box's projected corners, as a PNG.
-        var compositeMaskPNG: (_ projectedCorners: [CGPoint], _ frameWidth: Int, _ frameHeight: Int, _ shadowMarginPixels: Int) -> Data? = { _, _, _, _ in nil }
+        var compositeMaskPNG: (_ projectedCorners: [CGPoint], _ frameWidth: Int, _ frameHeight: Int, _ shadowMarginPixels: Double) -> Data? = { _, _, _, _ in nil }
         /// Renders a model standing on the floor as keyframe layers, off the main actor, or nil when the render fails.
         var renderTheFurniture: (RoomFurnitureRenderRequest) async -> RoomFurnitureKeyframeLayers? = { _ in nil }
         /// Turns a painted keyframe into its item layer (`RoomFurniturePaintedComposite`), off the main actor.
@@ -838,8 +838,7 @@ final class RoomArtPreviewController: ObservableObject {
                 loopAccentColor: loopAccentColor,
                 endTheSpokenLine: endTheSpokenLine,
                 findTheStoreModel: { pageURL in await RoomFurnitureModelLoading.findTheStoreModel(onThePageAt: pageURL) },
-                // The generation branch's client takes this place once it is merged.
-                furnitureGeneration: RoomFurnitureGenerationNotSetUp(),
+                furnitureGeneration: RoomFurnitureGenerationClient(workerBaseURL: workerBaseURL),
                 loadAGeneratedModel: { glbData in
                     await Task.detached(priority: .userInitiated) { () -> RoomFurnitureLoadedModel? in
                         do {
@@ -850,6 +849,9 @@ final class RoomArtPreviewController: ObservableObject {
                             return nil
                         }
                     }.value
+                },
+                compositeMaskPNG: { projectedCorners, frameWidth, frameHeight, shadowMarginPixels in
+                    furnitureCompositeMaskPNG(projectedCorners: projectedCorners, frameWidth: frameWidth, frameHeight: frameHeight, shadowMarginPixels: shadowMarginPixels)
                 },
                 renderTheFurniture: { renderRequest in
                     await withCheckedContinuation { continuation in
@@ -1454,7 +1456,7 @@ extension RoomArtPreviewController {
     }
 
     /// The painted composite's mask reaches this far past the box, so the item's shadow on the floor is painted too.
-    fileprivate static let compositeShadowMarginPixels = 24
+    fileprivate static let compositeShadowMarginPixels = 24.0
 
     private func decodedKeyframe(_ keyframe: RoomArtKeyframe) -> CGImage? {
         guard let keyframeSource = CGImageSourceCreateWithData(keyframe.measurementRequest.keyframeJPEGData as CFData, nil) else { return nil }

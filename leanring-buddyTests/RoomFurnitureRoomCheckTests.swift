@@ -15,6 +15,10 @@
 //  ROOM_FURNITURE_ANCHOR=u,v moves the piece along the floor to the floor point under that pixel, and
 //  ROOM_FURNITURE_ITEM_IS_LIGHT says the piece is white or pale, so its whites are held to the wall's.
 //
+//  With ROOM_FURNITURE_WORKER (a local Worker's base URL), ROOM_FURNITURE_APP_SECRET, and ROOM_FURNITURE_PRODUCT_JPEG also
+//  set, a second check paints the same item into the same frame through the real composite client (about $0.045) and
+//  writes the render and the painted composite side by side, to judge which looks more real.
+//
 
 import AppKit
 import CoreImage
@@ -29,6 +33,67 @@ import simd
 private let roomCheckEnvironment = ProcessInfo.processInfo.environment
 private let roomCheckIsSetUp = ["ROOM_FURNITURE_FRAME", "ROOM_FURNITURE_FLOOR_REPLY", "ROOM_FURNITURE_MODEL", "ROOM_FURNITURE_SIZE_CM", "ROOM_FURNITURE_OUT"]
     .allSatisfy { roomCheckEnvironment[$0] != nil }
+private let sideBySideIsSetUp = roomCheckIsSetUp
+    && ["ROOM_FURNITURE_WORKER", "ROOM_FURNITURE_APP_SECRET", "ROOM_FURNITURE_PRODUCT_JPEG"].allSatisfy { roomCheckEnvironment[$0] != nil }
+
+/// What both checks start from: the keyframe, its floor (moved to `ROOM_FURNITURE_ANCHOR` when set), the page's size, and
+/// the loaded model.
+private struct RoomCheckInputs {
+    let keyframeImage: CGImage
+    let keyframeJPEG: Data
+    let floor: FloorPlane
+    let widthMeters: Double, heightMeters: Double, depthMeters: Double
+    let modelRootNode: SCNNode
+    let outputFolder: URL
+    let runName: String
+
+    init() throws {
+        let framePath = try #require(roomCheckEnvironment["ROOM_FURNITURE_FRAME"])
+        keyframeJPEG = try Data(contentsOf: URL(fileURLWithPath: framePath))
+        keyframeImage = try loadImage(framePath)
+        var floor = try FloorPlane(responseData: Data(contentsOf: URL(fileURLWithPath: try #require(roomCheckEnvironment["ROOM_FURNITURE_FLOOR_REPLY"]))))
+        if let anchorText = roomCheckEnvironment["ROOM_FURNITURE_ANCHOR"] {
+            // The floor point under another pixel: the same plane, met by that pixel's ray.
+            let anchorNumbers = anchorText.split(separator: ",").compactMap { Double($0) }
+            let ray = SIMD3((anchorNumbers[0] - floor.principalPoint.x) / floor.focalLengthPixels, (anchorNumbers[1] - floor.principalPoint.y) / floor.focalLengthPixels, 1)
+            let center = ray * (simd_dot(floor.center, floor.up) / simd_dot(ray, floor.up))
+            floor = FloorPlane(center: center, right: floor.right, up: floor.up, forward: floor.forward, focalLengthPixels: floor.focalLengthPixels,
+                               principalPoint: floor.principalPoint, distanceMeters: simd_length(center), floorTiltDegrees: floor.floorTiltDegrees, planeInlierShare: floor.planeInlierShare)
+        }
+        self.floor = floor
+        let sizeCentimeters = try #require(roomCheckEnvironment["ROOM_FURNITURE_SIZE_CM"]).split(separator: "x").compactMap { Double($0) }
+        try #require(sizeCentimeters.count == 3)
+        (widthMeters, heightMeters, depthMeters) = (sizeCentimeters[0] / 100, sizeCentimeters[1] / 100, sizeCentimeters[2] / 100)
+        let modelPath = try #require(roomCheckEnvironment["ROOM_FURNITURE_MODEL"])
+        let modelData = try Data(contentsOf: URL(fileURLWithPath: modelPath))
+        modelRootNode = try RoomFurnitureModelLoading.rootNode(fromFileData: modelData, kind: try #require(RoomFurnitureModelFileKind.sniff(modelData)))
+        outputFolder = URL(fileURLWithPath: try #require(roomCheckEnvironment["ROOM_FURNITURE_OUT"]), isDirectory: true)
+        try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
+        runName = URL(fileURLWithPath: modelPath).deletingPathExtension().lastPathComponent
+    }
+
+    func placement() throws -> RoomFurniturePlacement {
+        try #require(RoomFurniturePlacement(floor: floor, widthMeters: widthMeters, heightMeters: heightMeters, depthMeters: depthMeters))
+    }
+
+    func render() throws -> (layers: RoomFurnitureKeyframeLayers, report: RoomFurnitureRenderReport) {
+        try #require(RoomFurnitureRenderer().render(RoomFurnitureRenderRequest(
+            modelRootNode: modelRootNode, placement: try placement(), focalLengthPixels: floor.focalLengthPixels,
+            principalPoint: floor.principalPoint, keyframeImage: keyframeImage, look: .storeModel
+        )))
+    }
+
+    /// The keyframe with the layers drawn as the panel draws them, with no tracking motion.
+    func composed(_ layers: RoomFurnitureKeyframeLayers, withShadow: Bool = true) throws -> CGImage {
+        let keyframe = CIImage(cgImage: keyframeImage)
+        let image = RoomFurnitureComposition.frameWithTheFurniture(
+            frame: keyframe, itemLayer: CIImage(cgImage: layers.itemLayer),
+            shadowLayer: withShadow ? layers.shadowLayer.map { CIImage(cgImage: $0) } : nil,
+            keyframeToCurrent: .identity, grainStandardDeviation: layers.cameraNoiseStandardDeviation, grainOffset: .zero
+        )
+        return try #require(CIContext().createCGImage(image, from: keyframe.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()))
+    }
+}
 
 /// A gray image's pixels from 0 to 1, rows from the top.
 private struct GrayPixels {
@@ -119,48 +184,16 @@ private func frameEdgeSigma(_ frame: GrayPixels) -> Double? {
 struct RoomFurnitureRoomCheckTests {
     @Test(.enabled(if: roomCheckIsSetUp, "Set ROOM_FURNITURE_FRAME, _FLOOR_REPLY, _MODEL, _SIZE_CM, and _OUT"))
     func aRealModelStandsInARecordedRoom() throws {
-        let keyframeImage = try loadImage(try #require(roomCheckEnvironment["ROOM_FURNITURE_FRAME"]))
-        var floor = try FloorPlane(responseData: Data(contentsOf: URL(fileURLWithPath: try #require(roomCheckEnvironment["ROOM_FURNITURE_FLOOR_REPLY"]))))
-        if let anchorText = roomCheckEnvironment["ROOM_FURNITURE_ANCHOR"] {
-            // The floor point under another pixel: the same plane, met by that pixel's ray.
-            let anchorNumbers = anchorText.split(separator: ",").compactMap { Double($0) }
-            let ray = SIMD3((anchorNumbers[0] - floor.principalPoint.x) / floor.focalLengthPixels, (anchorNumbers[1] - floor.principalPoint.y) / floor.focalLengthPixels, 1)
-            let center = ray * (simd_dot(floor.center, floor.up) / simd_dot(ray, floor.up))
-            floor = FloorPlane(center: center, right: floor.right, up: floor.up, forward: floor.forward, focalLengthPixels: floor.focalLengthPixels,
-                               principalPoint: floor.principalPoint, distanceMeters: simd_length(center), floorTiltDegrees: floor.floorTiltDegrees, planeInlierShare: floor.planeInlierShare)
-        }
-        let sizeCentimeters = try #require(roomCheckEnvironment["ROOM_FURNITURE_SIZE_CM"]).split(separator: "x").compactMap { Double($0) }
-        try #require(sizeCentimeters.count == 3)
-        let (widthMeters, heightMeters, depthMeters) = (sizeCentimeters[0] / 100, sizeCentimeters[1] / 100, sizeCentimeters[2] / 100)
-        let modelPath = try #require(roomCheckEnvironment["ROOM_FURNITURE_MODEL"])
-        let modelData = try Data(contentsOf: URL(fileURLWithPath: modelPath))
-        let modelKind = try #require(RoomFurnitureModelFileKind.sniff(modelData))
-        let modelRootNode = try RoomFurnitureModelLoading.rootNode(fromFileData: modelData, kind: modelKind)
-        let outputFolder = URL(fileURLWithPath: try #require(roomCheckEnvironment["ROOM_FURNITURE_OUT"]), isDirectory: true)
-        try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
-        let runName = URL(fileURLWithPath: modelPath).deletingPathExtension().lastPathComponent
-
-        let placement = try #require(RoomFurniturePlacement(floor: floor, widthMeters: widthMeters, heightMeters: heightMeters, depthMeters: depthMeters))
-        let rendered = try #require(RoomFurnitureRenderer().render(RoomFurnitureRenderRequest(
-            modelRootNode: modelRootNode, placement: placement, focalLengthPixels: floor.focalLengthPixels,
-            principalPoint: floor.principalPoint, keyframeImage: keyframeImage, look: .storeModel
-        )))
+        let inputs = try RoomCheckInputs()
+        let (keyframeImage, floor, modelRootNode, outputFolder, runName) = (inputs.keyframeImage, inputs.floor, inputs.modelRootNode, inputs.outputFolder, inputs.runName)
+        let (widthMeters, heightMeters, depthMeters) = (inputs.widthMeters, inputs.heightMeters, inputs.depthMeters)
+        let placement = try inputs.placement()
+        let rendered = try inputs.render()
         print(rendered.report.logLine)
 
         // The frame as the panel draws it, with no tracking motion, and the same with no shadow.
-        let ciContext = CIContext()
-        let sRGB = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-        let keyframe = CIImage(cgImage: keyframeImage)
-        func composed(withShadow: Bool) throws -> CGImage {
-            let image = RoomFurnitureComposition.frameWithTheFurniture(
-                frame: keyframe, itemLayer: CIImage(cgImage: rendered.layers.itemLayer),
-                shadowLayer: withShadow ? rendered.layers.shadowLayer.map { CIImage(cgImage: $0) } : nil,
-                keyframeToCurrent: .identity, grainStandardDeviation: rendered.layers.cameraNoiseStandardDeviation, grainOffset: .zero
-            )
-            return try #require(ciContext.createCGImage(image, from: keyframe.extent, format: .RGBA8, colorSpace: sRGB))
-        }
-        let compositeImage = try composed(withShadow: true)
-        let noShadowImage = try composed(withShadow: false)
+        let compositeImage = try inputs.composed(rendered.layers)
+        let noShadowImage = try inputs.composed(rendered.layers, withShadow: false)
         writePNG(compositeImage, to: outputFolder.appendingPathComponent("\(runName)-composite.png"))
         writePNG(noShadowImage, to: outputFolder.appendingPathComponent("\(runName)-no-shadow.png"))
         writePNG(rendered.layers.itemLayer, to: outputFolder.appendingPathComponent("\(runName)-item.png"))
@@ -302,6 +335,42 @@ struct RoomFurnitureRoomCheckTests {
             #expect((0.7...1.3).contains(softnessRatio), "the item's edges are within 30 percent of the frame's own")
         }
         #expect(trackingError < 2, "the tracker holds the piece's base within 2 pixels across the pan")
+    }
+
+    /// The same item on the same frame and floor, rendered from the model and painted by the composite service, written
+    /// side by side (render on the left) to judge which looks more real.
+    @MainActor
+    @Test(.enabled(if: sideBySideIsSetUp, "Set the room check's variables and ROOM_FURNITURE_WORKER, _APP_SECRET, and _PRODUCT_JPEG"))
+    func theRenderAndThePaintedCompositeSideBySide() async throws {
+        let inputs = try RoomCheckInputs()
+        let rendered = try inputs.render()
+        let renderedFrame = try inputs.composed(rendered.layers)
+
+        // The client reads the secret from this test process's own defaults, which are not the app's.
+        UserDefaults.standard.set(try #require(roomCheckEnvironment["ROOM_FURNITURE_APP_SECRET"]), forKey: ClickyAppSecret.defaultsKey)
+        let client = RoomFurnitureGenerationClient(workerBaseURL: try #require(roomCheckEnvironment["ROOM_FURNITURE_WORKER"]))
+        let projectedBox = try #require(inputs.floor.keyframeBoxCorners(widthMeters: inputs.widthMeters, heightMeters: inputs.heightMeters, depthMeters: inputs.depthMeters))
+        let maskPNG = try #require(furnitureCompositeMaskPNG(projectedCorners: projectedBox, frameWidth: inputs.keyframeImage.width, frameHeight: inputs.keyframeImage.height, shadowMarginPixels: 24))
+        let sizeWords = String(format: "%.0f cm wide, %.0f cm tall, %.0f cm deep", inputs.widthMeters * 100, inputs.heightMeters * 100, inputs.depthMeters * 100)
+        let paintingStartedAt = Date()
+        let painted = try await client.paintTheItemIntoTheKeyframe(
+            keyframeJPEG: inputs.keyframeJPEG, keyframeWidth: inputs.keyframeImage.width, keyframeHeight: inputs.keyframeImage.height,
+            productJPEG: try Data(contentsOf: URL(fileURLWithPath: try #require(roomCheckEnvironment["ROOM_FURNITURE_PRODUCT_JPEG"]))),
+            maskPNG: maskPNG, itemTitle: roomCheckEnvironment["ROOM_FURNITURE_TITLE"] ?? inputs.runName, itemSizeWords: sizeWords
+        )
+        let paintingSeconds = Date().timeIntervalSince(paintingStartedAt)
+        let painting = RoomFurniturePaintedComposite.itemLayers(painted: painted, keyframe: inputs.keyframeImage, maskPNG: maskPNG, projectedBox: projectedBox)
+        print(String(format: "Room furniture check: painted in %.1f s, painted height %.2f of the measured box", paintingSeconds, painting.paintedHeightRatio ?? -1))
+        let paintedFrame = try painting.layers.map { try inputs.composed($0) } ?? painted
+
+        let width = inputs.keyframeImage.width, height = inputs.keyframeImage.height
+        let sideBySide = try #require(CGContext(data: nil, width: width * 2, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        sideBySide.draw(renderedFrame, in: CGRect(x: 0, y: 0, width: width, height: height))
+        sideBySide.draw(paintedFrame, in: CGRect(x: width, y: 0, width: width, height: height))
+        writePNG(try #require(sideBySide.makeImage()), to: inputs.outputFolder.appendingPathComponent("\(inputs.runName)-render-and-painting.png"))
+        writePNG(paintedFrame, to: inputs.outputFolder.appendingPathComponent("\(inputs.runName)-painting.png"))
+        #expect(painting.layers != nil, "the painted item stands within 15 percent of the measured height")
     }
 
     /// Pans across the keyframe with a known turn and shift each frame (a crop of the keyframe enlarged by 1.3, turned up to

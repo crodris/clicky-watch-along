@@ -159,34 +159,15 @@ nonisolated let roomFurnitureLeastShareOfTheBoxInTheFrame = 1.0 / 3.0
 
 // MARK: - How much of the box the camera sees
 
-/// The share of the box's outline (the convex hull of its projected corners) that lies inside the frame, from 0 to 1. 0 when
-/// fewer than 3 corners are given or the outline has no area.
+/// The share of the box's outline (the convex hull of its projected corners, `convexHull(of:)` in
+/// RoomFurnitureGeneration.swift) that lies inside the frame, from 0 to 1. 0 when fewer than 3 corners are given or the
+/// outline has no area.
 nonisolated func shareOfTheBoxInsideTheFrame(projectedCorners: [CGPoint], frameSize: CGSize) -> Double {
     let outline = convexHull(of: projectedCorners)
     let outlineArea = polygonArea(outline)
     guard outline.count >= 3, outlineArea > 1e-9 else { return 0 }
     let insideTheFrame = clipped(outline, toRectangle: CGRect(origin: .zero, size: frameSize))
     return min(1, max(0, polygonArea(insideTheFrame) / outlineArea))
-}
-
-/// The convex hull in counterclockwise order (Andrew's monotone chain).
-nonisolated func convexHull(of points: [CGPoint]) -> [CGPoint] {
-    let sortedPoints = points.sorted { ($0.x, $0.y) < ($1.x, $1.y) }
-    guard sortedPoints.count >= 3 else { return sortedPoints }
-    func turn(_ origin: CGPoint, _ first: CGPoint, _ second: CGPoint) -> Double {
-        (first.x - origin.x) * (second.y - origin.y) - (first.y - origin.y) * (second.x - origin.x)
-    }
-    var lowerHull: [CGPoint] = []
-    for point in sortedPoints {
-        while lowerHull.count >= 2, turn(lowerHull[lowerHull.count - 2], lowerHull[lowerHull.count - 1], point) <= 0 { lowerHull.removeLast() }
-        lowerHull.append(point)
-    }
-    var upperHull: [CGPoint] = []
-    for point in sortedPoints.reversed() {
-        while upperHull.count >= 2, turn(upperHull[upperHull.count - 2], upperHull[upperHull.count - 1], point) <= 0 { upperHull.removeLast() }
-        upperHull.append(point)
-    }
-    return Array(lowerHull.dropLast()) + Array(upperHull.dropLast())
 }
 
 /// The polygon's area by the shoelace formula, whichever way it winds.
