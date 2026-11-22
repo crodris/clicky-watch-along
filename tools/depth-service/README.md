@@ -68,8 +68,8 @@ It keeps the last two depth maps by a hash of the JPEG and the focal hint, so a 
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `jpegBase64` | string | The camera frame as a base64 JPEG |
-| `maskPngBase64` | string, optional | A base64 PNG of the person mask at any size, white = person |
+| `jpegBase64` | string | The camera frame as a base64 JPEG, at most 4096 px on a side. Any other format is refused |
+| `maskPngBase64` | string, optional | A base64 PNG of the person mask, at most 4096 px on a side, white = person |
 | `anchor` | `{ u, v }` | The pixel in the frame to place the art at |
 | `focalPx` | number, optional | The camera's focal length in pixels, when known |
 
@@ -96,7 +96,7 @@ Points are `[x, y, z]` in meters, x right, y down, z forward.
 `planeInlierShare` is the share of sampled points within 2 cm of the plane.
 
 Errors are `{ "error": "..." }`.
-`400` is a bad body (invalid JSON, base64 or image, an anchor outside the frame, a bad `focalPx`).
+`400` is a bad body (invalid JSON, base64, a frame that is not a JPEG, an image or mask over 4096 px on a side, a mask that is not a PNG, an anchor outside the frame, a bad `focalPx`).
 `403` is a request with an `Origin` header, and `415` a body whose `Content-Type` is not `application/json`, so a web page in a browser on this Mac cannot reach the service. The Worker sends `application/json` and no `Origin`.
 `422` means under 200 bare wall points remain around the anchor, or the plane has a NaN or infinite number, such as a wall seen edge on.
 `500` is a model failure.
@@ -167,4 +167,4 @@ uv run pytest -q
 
 The tests build a synthetic tilted wall with noise and an object in front, and check the normal within 1 degree, the person mask, the center on the anchor's ray, a plane with a NaN refused, and that RANSAC on 42,000 points takes under 2 s.
 For the floor they build a floor seen from a camera 1.2 m high, pitched 15 degrees down, and check `up` within 2 degrees, the center on the anchor's ray and the floor, the orthonormal right, up, and forward with forward away from the camera, the rejection of a wall and of an anchor above the horizon, and the person mask.
-`test_server.py` runs the real HTTP handler on a free port with no Depth Pro loaded, and checks the `Origin` and `Content-Type` refusals on both routes, the 422 for a plane it cannot measure, and the reply shape of each route with a stand-in for Depth Pro.
+`test_server.py` runs the real HTTP handler on a free port with no Depth Pro loaded, and checks the `Origin` and `Content-Type` refusals on both routes, the 422 for a plane it cannot measure, the reply shape of each route with a stand-in for Depth Pro, and the 400 for a frame that is not a JPEG, an image or a mask over 4096 px on a side (refused from its header before any pixel is decoded), and a mask that is not a PNG.

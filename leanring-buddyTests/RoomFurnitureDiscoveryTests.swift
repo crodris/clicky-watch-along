@@ -4,8 +4,8 @@
 //
 //  How room art finds a store's own 3D model of a piece of furniture: the page scripts are safe to paste into an AppleScript
 //  string, the script's reply is parsed at the boundary (https and public hosts only, each URL once), the candidates are ranked
-//  (USDZ, then GLB, then unknown, with Draco and .gltf files left out), the downloaded bytes are sniffed as GLB or USDZ, and
-//  the download takes the first usable file against a stubbed host (a failed or oversized or wrong or Draco file is skipped,
+//  (GLB, then unknown, with Draco and .gltf files left out, and a USDZ never a candidate), the downloaded bytes are checked
+//  to be a GLB, and the download takes the first usable file against a stubbed host (a failed or oversized or wrong or Draco file is skipped,
 //  and at most 4 files are tried).
 //
 
@@ -71,25 +71,20 @@ private func littleEndianBytes(_ value: Int, byteCount: Int) -> [UInt8] {
     (0..<byteCount).map { byteIndex in UInt8((value >> (8 * byteIndex)) & 0xFF) }
 }
 
-/// One stored (uncompressed) ZIP entry, local file header and data, which is how a USDZ holds each file.
+/// One stored (uncompressed) ZIP entry, local file header and data, standing in for a download that is a ZIP and not a GLB.
 private func zipEntry(name: String, content: [UInt8]) -> Data {
     var entry: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
     entry += littleEndianBytes(20, byteCount: 2)  // version needed
     entry += littleEndianBytes(0, byteCount: 2)  // flags
     entry += littleEndianBytes(0, byteCount: 2)  // method: stored
     entry += littleEndianBytes(0, byteCount: 4)  // time and date
-    entry += littleEndianBytes(0, byteCount: 4)  // crc, which the sniff never checks
+    entry += littleEndianBytes(0, byteCount: 4)  // crc, which nothing checks
     entry += littleEndianBytes(content.count, byteCount: 4)  // stored size
     entry += littleEndianBytes(content.count, byteCount: 4)  // full size
     entry += littleEndianBytes(name.utf8.count, byteCount: 2)
     entry += littleEndianBytes(0, byteCount: 2)  // extra field size
     entry += Array(name.utf8) + content
     return Data(entry)
-}
-
-/// A USDZ in miniature: a ZIP whose first entry is a texture and whose second is the USD layer.
-private func tinyUSDZData(layerName: String = "model.usdc") -> Data {
-    zipEntry(name: "0/texture.jpg", content: [1, 2, 3]) + zipEntry(name: layerName, content: [4, 5, 6, 7])
 }
 
 /// A GLB in miniature: the 12 byte header and one JSON chunk holding `jsonText`.
@@ -206,12 +201,12 @@ struct RoomFurnitureDiscoveryTests {
 
     @Test func parseKeepsEachURLOnceInTheOrderTheScriptFoundIt() {
         let reply = """
-        [{"url":"https://models.example.com/b.usdz","source":"ar-link","type":""},
+        [{"url":"https://models.example.com/b.glb","source":"ar-link","type":""},
          {"url":"https://models.example.com/a.glb","source":"html","type":""},
-         {"url":"https://models.example.com/b.usdz","source":"resource","type":""}]
+         {"url":"https://models.example.com/b.glb","source":"resource","type":""}]
         """
         let candidates = RoomFurnitureModelCandidate.parse(discoveryScriptResult: reply)
-        #expect(candidates.map(\.url.lastPathComponent) == ["b.usdz", "a.glb"])
+        #expect(candidates.map(\.url.lastPathComponent) == ["b.glb", "a.glb"])
         #expect(candidates.first?.source == "ar-link")
     }
 
@@ -223,19 +218,31 @@ struct RoomFurnitureDiscoveryTests {
     @Test func parseReadsTheTypeFromTheURLBeforeTheStoresClaim() {
         let reply = """
         [{"url":"https://models.example.com/a.glb","source":"json-ld","type":"model/vnd.usdz+zip"},
-         {"url":"https://models.example.com/b.usdz","source":"html","type":""},
-         {"url":"https://models.example.com/c.gltf","source":"html","type":""}]
+         {"url":"https://models.example.com/b.gltf","source":"html","type":""}]
         """
-        #expect(RoomFurnitureModelCandidate.parse(discoveryScriptResult: reply).map(\.claimedType) == [.glb, .usdz, .gltf])
+        #expect(RoomFurnitureModelCandidate.parse(discoveryScriptResult: reply).map(\.claimedType) == [.glb, .gltf])
     }
 
     @Test func parseReadsAnExtensionlessURLsTypeFromItsQueryOrTheStoresClaim() {
         let reply = """
-        [{"url":"https://cdn.example.com/WKbnY0s?dl=sven-sofa.usdz","source":"html","type":""},
+        [{"url":"https://cdn.example.com/WKbnY0s?dl=sven-sofa.glb","source":"html","type":""},
          {"url":"https://cdn.example.com/abc123","source":"shopify","type":"glb model/gltf-binary"},
          {"url":"https://cdn.example.com/def456","source":"product-data-hint","type":""}]
         """
-        #expect(RoomFurnitureModelCandidate.parse(discoveryScriptResult: reply).map(\.claimedType) == [.usdz, .glb, .unknown])
+        #expect(RoomFurnitureModelCandidate.parse(discoveryScriptResult: reply).map(\.claimedType) == [.glb, .glb, .unknown])
+    }
+
+    @Test func aPageThatOffersOnlyAUSDZYieldsNoCandidateToTry() {
+        // USDZ is not read, so a file the URL's extension, its query, or the store's claim says is a USDZ never becomes a
+        // candidate, and a store such as Article that offers only one falls back to the generated model or the composite.
+        let reply = """
+        [{"url":"https://models.example.com/sofa.usdz","source":"ar-link","type":""},
+         {"url":"https://cdn.example.com/WKbnY0s?dl=sven-sofa.usdz","source":"html","type":""},
+         {"url":"https://cdn.example.com/abc123","source":"shopify","type":"usdz model/vnd.usdz+zip"}]
+        """
+        let candidates = RoomFurnitureModelCandidate.parse(discoveryScriptResult: reply)
+        #expect(candidates.isEmpty)
+        #expect(rankedModelCandidates(candidates).candidatesToTry.isEmpty)
     }
 
     @Test func parseFlagsAPathThatSaysDraco() {
@@ -248,15 +255,14 @@ struct RoomFurnitureDiscoveryTests {
 
     // MARK: Ranking
 
-    @Test func rankingPutsGLBFirstThenUSDZThenUnknownInTheScriptsOrder() {
+    @Test func rankingPutsGLBFirstThenUnknownInTheScriptsOrder() {
         let ranking = rankedModelCandidates([
             candidate("https://m.example.com/unknown-1", claimedType: .unknown),
             candidate("https://m.example.com/glb-1.glb", claimedType: .glb),
-            candidate("https://m.example.com/usdz-1.usdz", claimedType: .usdz),
+            candidate("https://m.example.com/unknown-2", claimedType: .unknown),
             candidate("https://m.example.com/glb-2.glb", claimedType: .glb),
-            candidate("https://m.example.com/usdz-2.usdz", claimedType: .usdz),
         ])
-        #expect(ranking.candidatesToTry.map(\.url.lastPathComponent) == ["glb-1.glb", "glb-2.glb", "usdz-1.usdz", "usdz-2.usdz", "unknown-1"])
+        #expect(ranking.candidatesToTry.map(\.url.lastPathComponent) == ["glb-1.glb", "glb-2.glb", "unknown-1", "unknown-2"])
     }
 
     @Test func rankingLeavesOutDracoFilesAndGltfFilesAndCountsThem() {
@@ -271,35 +277,25 @@ struct RoomFurnitureDiscoveryTests {
         #expect(ranking.droppedBecauseOfGltfCount == 1)
     }
 
-    // MARK: Sniffing
+    // MARK: Checking the bytes
 
-    @Test func sniffReadsGLBFromItsMagic() {
-        #expect(RoomFurnitureModelFileKind.sniff(tinyGLBData(jsonText: plainGLBJSON)) == .glb)
+    @Test func aGLBIsReadFromItsMagic() {
+        #expect(dataIsAGLB(tinyGLBData(jsonText: plainGLBJSON)))
     }
 
-    @Test func sniffReadsUSDZFromAZipWithAUSDLayer() {
-        #expect(RoomFurnitureModelFileKind.sniff(tinyUSDZData()) == .usdz)
-        #expect(RoomFurnitureModelFileKind.sniff(tinyUSDZData(layerName: "Scene.USDA")) == .usdz)
-    }
-
-    @Test func sniffRefusesAZipWithNoUSDLayer() {
-        let plainZip = zipEntry(name: "readme.txt", content: [1]) + zipEntry(name: "photo.jpg", content: [2, 3])
-        #expect(RoomFurnitureModelFileKind.sniff(plainZip) == nil)
-    }
-
-    @Test func sniffFindsTheUSDLayerInASliceOfLargerData() {
-        // `Data` slices keep their parent's indices, so the sniff must not assume the first byte is at index 0.
-        let paddedZip = Data([9, 9, 9]) + tinyUSDZData()
-        #expect(RoomFurnitureModelFileKind.sniff(paddedZip.dropFirst(3)) == .usdz)
+    @Test func aGLBIsFoundInASliceOfLargerData() {
+        // `Data` slices keep their parent's indices, so the check must not assume the first byte is at index 0.
+        let paddedGLB = Data([9, 9, 9]) + tinyGLBData(jsonText: plainGLBJSON)
+        #expect(dataIsAGLB(paddedGLB.dropFirst(3)))
     }
 
     @Test(arguments: ["", "<html>not found</html>", "glT", "PK"])
-    func sniffRefusesBytesThatAreNeitherModelFormat(text: String) {
-        #expect(RoomFurnitureModelFileKind.sniff(Data(text.utf8)) == nil)
+    func bytesThatAreNotAGLBAreRefused(text: String) {
+        #expect(!dataIsAGLB(Data(text.utf8)))
     }
 
-    @Test func sniffDoesNotTrustATruncatedZipHeader() {
-        #expect(RoomFurnitureModelFileKind.sniff(tinyUSDZData().prefix(20)) == nil)
+    @Test func aZipIsNotAGLB() {
+        #expect(!dataIsAGLB(zipEntry(name: "model.usdc", content: [4, 5, 6, 7])))
     }
 
     // MARK: Draco
@@ -314,7 +310,7 @@ struct RoomFurnitureDiscoveryTests {
     }
 
     @Test func glbRequiresDracoIsFalseForBytesThatAreNotAReadableGLB() {
-        #expect(!glbRequiresDraco(tinyUSDZData()))
+        #expect(!glbRequiresDraco(zipEntry(name: "model.usdc", content: [4, 5, 6, 7])))
         #expect(!glbRequiresDraco(Data("glTF".utf8)))
         #expect(!glbRequiresDraco(tinyGLBData(jsonText: "not json")))
     }
@@ -348,11 +344,10 @@ struct RoomFurnitureDownloadTests {
     }
 
     @Test func downloadSkipsAFailedCandidateAndReturnsTheNextUsableOne() async {
-        let failing = stubbedCandidate(answeringWith: .status(404), fileNameSuffix: ".usdz", claimedType: .usdz)
-        let working = stubbedCandidate(answeringWith: .file(tinyUSDZData()), fileNameSuffix: ".usdz", claimedType: .usdz)
+        let failing = stubbedCandidate(answeringWith: .status(404), fileNameSuffix: ".glb", claimedType: .glb)
+        let working = stubbedCandidate(answeringWith: .file(tinyGLBData(jsonText: plainGLBJSON)), fileNameSuffix: ".glb", claimedType: .glb)
         let modelFile = await RoomFurnitureDiscovery.downloadTheFirstUsableModel(from: [failing, working], session: stubbedSession())
         #expect(modelFile?.url == working.url)
-        #expect(modelFile?.kind == .usdz)
         #expect(modelFile?.source == "html")
     }
 
@@ -375,7 +370,6 @@ struct RoomFurnitureDownloadTests {
             session: stubbedSession()
         )
         #expect(modelFile?.url == realGLB.url)
-        #expect(modelFile?.kind == .glb)
     }
 
     @Test func downloadRefusesAGLBNamedFileWhoseBytesAreNotAModel() async {
@@ -409,14 +403,6 @@ struct RoomFurnitureDownloadTests {
         let modelFile = await RoomFurnitureDiscovery.downloadTheFirstUsableModel(from: failing, session: stubbedSession())
         #expect(modelFile == nil)
         #expect(requestCount(for: failing) == RoomFurnitureDiscovery.mostDownloadsPerRequest)
-    }
-
-    @Test func downloadTriesGLBBeforeUSDZ() async {
-        let usdz = stubbedCandidate(answeringWith: .file(tinyUSDZData()), fileNameSuffix: ".usdz", claimedType: .usdz)
-        let glb = stubbedCandidate(answeringWith: .file(tinyGLBData(jsonText: plainGLBJSON)), fileNameSuffix: ".glb", claimedType: .glb)
-        let modelFile = await RoomFurnitureDiscovery.downloadTheFirstUsableModel(from: [usdz, glb], session: stubbedSession())
-        #expect(modelFile?.url == glb.url)
-        #expect(requestCount(for: [usdz]) == 0)
     }
 
     // MARK: Which hosts a page may offer
@@ -453,7 +439,7 @@ struct RoomFurnitureDownloadTests {
     }
 
     @Test func downloadStopsAtOnceWhenTheTaskIsCancelled() async {
-        let working = stubbedCandidate(answeringWith: .file(tinyUSDZData()), fileNameSuffix: ".usdz", claimedType: .usdz)
+        let working = stubbedCandidate(answeringWith: .file(tinyGLBData(jsonText: plainGLBJSON)), fileNameSuffix: ".glb", claimedType: .glb)
         let session = stubbedSession()
         let cancelledDownload = Task {
             withUnsafeCurrentTask { $0?.cancel() }

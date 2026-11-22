@@ -593,4 +593,12 @@ describe("imageSizeFromHeader", () => {
     expect(imageSizeFromHeader(jpegHeaderOfSize(10, 10).subarray(0, 22))).toBeUndefined();
     expect(imageSizeFromHeader(pngSignature)).toBeUndefined();
   });
+
+  it("reads nothing from a PNG whose first chunk is not IHDR", async () => {
+    const pngBytes = await pngWith({ width: 3, height: 2, pixelRows: [[0, 0, 0], [0, 0, 0]] });
+    const notIHDR = new Uint8Array(pngBytes);
+    notIHDR.set(new TextEncoder().encode("IDAT"), 12);
+
+    expect(imageSizeFromHeader(notIHDR)).toBeUndefined();
+  });
 });

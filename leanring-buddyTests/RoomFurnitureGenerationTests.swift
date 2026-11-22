@@ -348,15 +348,15 @@ struct RoomFurnitureMaskTests {
         }
     }
 
-    @Test func theCacheKeyChangesWithThePhotoOrTheTitleAndNeverJoinsThem() {
-        let photo = Data([1, 2, 3])
+    @Test func theCacheKeyChangesWithThePagePictureOrTheTitleAndNeverJoinsThem() {
+        let pagePicture = Data([1, 2, 3])
 
-        #expect(tryItModelCacheKey(productJPEG: photo, itemTitle: "Chair") == tryItModelCacheKey(productJPEG: photo, itemTitle: "Chair"))
-        #expect(tryItModelCacheKey(productJPEG: photo, itemTitle: "Chair") != tryItModelCacheKey(productJPEG: photo, itemTitle: "Sofa"))
-        #expect(tryItModelCacheKey(productJPEG: photo, itemTitle: "Chair") != tryItModelCacheKey(productJPEG: Data([1, 2, 4]), itemTitle: "Chair"))
-        // Without the lengths, photo "AB" with title "C" and photo "A" with title "BC" would hash the same bytes.
-        #expect(tryItModelCacheKey(productJPEG: Data("AB".utf8), itemTitle: "C") != tryItModelCacheKey(productJPEG: Data("A".utf8), itemTitle: "BC"))
-        #expect(tryItModelCacheKey(productJPEG: photo, itemTitle: "Chair").count == 64)
+        #expect(tryItModelCacheKey(cacheKeyData: pagePicture, itemTitle: "Chair") == tryItModelCacheKey(cacheKeyData: pagePicture, itemTitle: "Chair"))
+        #expect(tryItModelCacheKey(cacheKeyData: pagePicture, itemTitle: "Chair") != tryItModelCacheKey(cacheKeyData: pagePicture, itemTitle: "Sofa"))
+        #expect(tryItModelCacheKey(cacheKeyData: pagePicture, itemTitle: "Chair") != tryItModelCacheKey(cacheKeyData: Data([1, 2, 4]), itemTitle: "Chair"))
+        // Without the lengths, picture "AB" with title "C" and picture "A" with title "BC" would hash the same bytes.
+        #expect(tryItModelCacheKey(cacheKeyData: Data("AB".utf8), itemTitle: "C") != tryItModelCacheKey(cacheKeyData: Data("A".utf8), itemTitle: "BC"))
+        #expect(tryItModelCacheKey(cacheKeyData: pagePicture, itemTitle: "Chair").count == 64)
     }
 
     @Test func aTransparentCutoutComesOutWhiteWhereItWasTransparentAndKeepsItsPixelsElsewhere() throws {
@@ -429,6 +429,8 @@ struct RoomFurnitureGenerationClientTests {
 
     private let keyframeJPEG = encoded(solidImage(width: 200, height: 100, red: 1, green: 0, blue: 0), as: .jpeg)
     private let productJPEG = encoded(solidImage(width: 40, height: 40, red: 1, green: 1, blue: 1), as: .jpeg)
+    /// The page picture a model is cached by, which is not the cutout the Worker is sent.
+    private let pagePictureJPEG = encoded(solidImage(width: 50, height: 60, red: 0, green: 1, blue: 0), as: .jpeg)
     private let maskPNG = rectangleMaskPNG(width: 200, height: 100, whiteRectangle: CGRect(x: 80, y: 40, width: 40, height: 20))
 
     private func compositeReply(width: Int = 200, height: Int = 100, statedWidth: Int? = nil) -> Data {
@@ -481,7 +483,7 @@ struct RoomFurnitureGenerationClientTests {
             keyframeJPEG: keyframeJPEG, keyframeWidth: 200, keyframeHeight: 100, productJPEG: productJPEG,
             maskPNG: maskPNG, itemTitle: longTitle, itemSizeWords: "31.5 inches wide and 29.5 tall"
         )
-        _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: longTitle)
+        _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: longTitle, cacheKeyData: pagePictureJPEG)
 
         for route in ["room-furniture-composite", "try-it-model"] {
             let sentBody = try #require(requestBodies(of: route).first)
@@ -506,7 +508,7 @@ struct RoomFurnitureGenerationClientTests {
 
         await #expect(throws: RoomFurnitureGenerationError.serviceIsNotSetUp(body: #"{"error":"FAL_KEY is not set"}"#)) {
             if route == "try-it-model" {
-                _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Chair")
+                _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Chair", cacheKeyData: pagePictureJPEG)
             } else {
                 _ = try await paint(using: furnitureClient)
             }
@@ -523,7 +525,7 @@ struct RoomFurnitureGenerationClientTests {
             _ = try await paint(using: furnitureClient)
         }
         await #expect(throws: RoomFurnitureGenerationError.workerReturned(statusCode: statusCode, body: #"{"error":"x"}"#)) {
-            _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Chair")
+            _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Chair", cacheKeyData: pagePictureJPEG)
         }
     }
 
@@ -573,10 +575,10 @@ struct RoomFurnitureGenerationClientTests {
         let furnitureClient = client()
         defer { try? FileManager.default.removeItem(at: modelCacheFolder) }
 
-        let firstModel = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Field Lounge Chair")
-        let secondModel = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Field Lounge Chair")
+        let firstModel = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Field Lounge Chair", cacheKeyData: pagePictureJPEG)
+        let secondModel = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Field Lounge Chair", cacheKeyData: pagePictureJPEG)
         // A new client, as after a relaunch, reads the same file.
-        let modelAfterARelaunch = try await client().generateAModel(productJPEG: productJPEG, itemTitle: "Field Lounge Chair")
+        let modelAfterARelaunch = try await client().generateAModel(productJPEG: productJPEG, itemTitle: "Field Lounge Chair", cacheKeyData: pagePictureJPEG)
 
         #expect(firstModel == glbBytes)
         #expect(secondModel == glbBytes)
@@ -585,8 +587,31 @@ struct RoomFurnitureGenerationClientTests {
         let sentJSON = try #require(JSONSerialization.jsonObject(with: requestBodies(of: "try-it-model")[0]) as? [String: Any])
         #expect(sentJSON["productJPEGBase64"] as? String == productJPEG.base64EncodedString())
         #expect(sentJSON["itemTitle"] as? String == "Field Lounge Chair")
-        let cacheFile = modelCacheFolder.appendingPathComponent(tryItModelCacheKey(productJPEG: productJPEG, itemTitle: "Field Lounge Chair") + ".glb")
+        let cacheFile = modelCacheFolder.appendingPathComponent(tryItModelCacheKey(cacheKeyData: pagePictureJPEG, itemTitle: "Field Lounge Chair") + ".glb")
         #expect(FileManager.default.fileExists(atPath: cacheFile.path))
+    }
+
+    @Test func aCutoutThatShiftedByAPixelStillReadsTheModelFromTheCache() async throws {
+        answer("try-it-model", statusCode: 200, body: glbBytes)
+        let furnitureClient = client()
+        defer { try? FileManager.default.removeItem(at: modelCacheFolder) }
+        let shiftedCutoutJPEG = encoded(solidImage(width: 41, height: 40, red: 1, green: 1, blue: 1), as: .jpeg)
+
+        _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Field Lounge Chair", cacheKeyData: pagePictureJPEG)
+        _ = try await furnitureClient.generateAModel(productJPEG: shiftedCutoutJPEG, itemTitle: "Field Lounge Chair", cacheKeyData: pagePictureJPEG)
+
+        #expect(requestBodies(of: "try-it-model").count == 1)
+    }
+
+    @Test func anotherPagePicturePaysForItsOwnModel() async throws {
+        answer("try-it-model", statusCode: 200, body: glbBytes)
+        let furnitureClient = client()
+        defer { try? FileManager.default.removeItem(at: modelCacheFolder) }
+
+        _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Field Lounge Chair", cacheKeyData: pagePictureJPEG)
+        _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Field Lounge Chair", cacheKeyData: Data([7, 7, 7]))
+
+        #expect(requestBodies(of: "try-it-model").count == 2)
     }
 
     @Test func anotherProductPaysForItsOwnModel() async throws {
@@ -594,8 +619,8 @@ struct RoomFurnitureGenerationClientTests {
         let furnitureClient = client()
         defer { try? FileManager.default.removeItem(at: modelCacheFolder) }
 
-        _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Field Lounge Chair")
-        _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Amaroso Accent Chair")
+        _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Field Lounge Chair", cacheKeyData: pagePictureJPEG)
+        _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Amaroso Accent Chair", cacheKeyData: pagePictureJPEG)
 
         #expect(requestBodies(of: "try-it-model").count == 2)
     }
@@ -604,10 +629,10 @@ struct RoomFurnitureGenerationClientTests {
         answer("try-it-model", statusCode: 200, body: glbBytes)
         defer { try? FileManager.default.removeItem(at: modelCacheFolder) }
         try FileManager.default.createDirectory(at: modelCacheFolder, withIntermediateDirectories: true)
-        let cacheFile = modelCacheFolder.appendingPathComponent(tryItModelCacheKey(productJPEG: productJPEG, itemTitle: "Chair") + ".glb")
+        let cacheFile = modelCacheFolder.appendingPathComponent(tryItModelCacheKey(cacheKeyData: pagePictureJPEG, itemTitle: "Chair") + ".glb")
         try Data("half a download".utf8).write(to: cacheFile)
 
-        let model = try await client().generateAModel(productJPEG: productJPEG, itemTitle: "Chair")
+        let model = try await client().generateAModel(productJPEG: productJPEG, itemTitle: "Chair", cacheKeyData: pagePictureJPEG)
 
         #expect(model == glbBytes)
         #expect(requestBodies(of: "try-it-model").count == 1)
@@ -619,9 +644,9 @@ struct RoomFurnitureGenerationClientTests {
         defer { try? FileManager.default.removeItem(at: modelCacheFolder) }
 
         await #expect(throws: RoomFurnitureGenerationError.replyCouldNotBeRead(reason: "the reply is not a GLB")) {
-            _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Chair")
+            _ = try await furnitureClient.generateAModel(productJPEG: productJPEG, itemTitle: "Chair", cacheKeyData: pagePictureJPEG)
         }
-        let cacheFile = modelCacheFolder.appendingPathComponent(tryItModelCacheKey(productJPEG: productJPEG, itemTitle: "Chair") + ".glb")
+        let cacheFile = modelCacheFolder.appendingPathComponent(tryItModelCacheKey(cacheKeyData: pagePictureJPEG, itemTitle: "Chair") + ".glb")
         #expect(!FileManager.default.fileExists(atPath: cacheFile.path))
     }
 

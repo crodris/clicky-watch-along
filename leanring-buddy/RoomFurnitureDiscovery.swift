@@ -4,10 +4,12 @@
 //
 //  How "try it in my room" finds a store's own 3D model of a piece of furniture, and a fuller read of the product page.
 //
-//  A store page often carries a real 3D model (a GLB or USDZ file for its AR and 3D viewers), which stands in the room better
-//  than a flat cutout of the product photo. This file holds the page script that finds the candidate files (it runs in
-//  Chrome's front tab), the boundary that parses the script's reply, the ranking of the candidates, the sniff that tells a
-//  GLB or USDZ file from anything else, and the download. It also holds the two page scripts that read the product's size
+//  A store page often carries a real 3D model (a GLB file for its 3D viewer), which stands in the room better
+//  than a flat cutout of the product photo. Only a GLB is read: `GLBLoader` bounds-checks every read, and a USDZ would go through
+//  SceneKit's own reader, which this app does not trust with a store's file. A store that offers only a USDZ gets the generated
+//  model or the painted composite instead. This file holds the page script that finds the candidate files (it runs in
+//  Chrome's front tab), the boundary that parses the script's reply, the ranking of the candidates, the check that a file is
+//  a GLB, and the download. It also holds the two page scripts that read the product's size
 //  more completely than `document.body.innerText`: one opens the collapsed sections that hide a measurement, the other reads
 //  the page's text, its JSON-LD, and its framework data.
 //
@@ -22,14 +24,14 @@ import Foundation
 
 /// A page script that returns a JSON string `[{ url, source, type }]` of the files in the page that may be a 3D model of the
 /// product, at most 30, each URL under 2048 characters. It looks in:
-/// - the page's HTML, for https URLs ending in .glb, .gltf, or .usdz, with or without a query (source `html`);
+/// - the page's HTML, for https URLs ending in .glb or .gltf, with or without a query (source `html`);
 /// - the resource names the page already fetched, which catches a model a store's 3D viewer loaded (source `resource`);
-/// - `model-viewer` elements' `src` and `ios-src` (sources `model-viewer` and `model-viewer-ios`);
+/// - `model-viewer` elements' `src` (source `model-viewer`), and never its `ios-src`, which is a USDZ;
 /// - `a[rel=ar]` links (source `ar-link`);
 /// - JSON-LD objects of type 3DModel with a `contentUrl` or an `encoding` list, anywhere in the graph (source `json-ld`);
 /// - on a page with a `/products/<handle>` path (a Shopify store's, and the read is harmless on any other site), the `model3d` media of `/products/<handle>.js` from the page's own
 ///   origin, read with a synchronous request (source `shopify`);
-/// - the page's data, for a URL right after a key that says usdz, glb, or gltf, or a key such as `modelUrl` or `3dAsset`, since
+/// - the page's data, for a URL right after a key that says glb or gltf, or a key such as `modelUrl` or `3dAsset`, since
 ///   some stores name a model file with no extension (source `product-data-hint`, whose `type` is only what the key says).
 /// Each part is in its own try block, so a broken part never throws away the rest.
 nonisolated let roomFurnitureModelDiscoveryScript = [
@@ -53,17 +55,17 @@ nonisolated let roomFurnitureModelDiscoveryScript = [
     "return String(text).split(BACKSLASH + '/').join('/').split(BACKSLASH + 'u0026').join('&').split('&amp;').join('&').split(BACKSLASH).join(' ');",
     "}",
     "function scanTextForModelUrls(text, source) {",
-    "var pattern = new RegExp('https://[^' + STOP + ']+?[.](glb|gltf|usdz)(?![A-Za-z0-9_])([?][^' + STOP + ']*)?', 'ig');",
+    "var pattern = new RegExp('https://[^' + STOP + ']+?[.](glb|gltf)(?![A-Za-z0-9_])([?][^' + STOP + ']*)?', 'ig');",
     "var match; var guard = 0;",
     "while ((match = pattern.exec(text)) !== null && guard++ < 200) { addCandidate(match[0], source, ''); }",
     "}",
     "function scanTextForHintedUrls(text) {",
-    "var pattern = new RegExp('((?:usdz|glb|gltf)|(?:3d|model)[A-Za-z0-9_-]*?(?:url|src|file|path|link|href|asset))[A-Za-z0-9_-]*[^A-Za-z0-9]{1,8}(https://[^' + STOP + ']+)', 'ig');",
+    "var pattern = new RegExp('((?:glb|gltf)|(?:3d|model)[A-Za-z0-9_-]*?(?:url|src|file|path|link|href|asset))[A-Za-z0-9_-]*[^A-Za-z0-9]{1,8}(https://[^' + STOP + ']+)', 'ig');",
     "var match; var guard = 0; var added = 0;",
     "while ((match = pattern.exec(text)) !== null && guard++ < 400 && added < 8) {",
     "if (/[.](png|jpe?g|webp|gif|svg|avif|css|js|json|html?|woff2?|mp4|webm|ico|txt|xml)([?#]|$)/i.test(match[2])) { continue; }",
     "var before = found.length;",
-    "addCandidate(match[2], 'product-data-hint', /^usdz$/i.test(match[1]) ? 'usdz' : (/^glb$/i.test(match[1]) ? 'glb' : ''));",
+    "addCandidate(match[2], 'product-data-hint', /^glb$/i.test(match[1]) ? 'glb' : '');",
     "if (found.length > before) { added++; }",
     "}",
     "}",
@@ -73,7 +75,6 @@ nonisolated let roomFurnitureModelDiscoveryScript = [
     "var viewers = document.querySelectorAll('model-viewer');",
     "for (var viewerIndex = 0; viewerIndex < viewers.length; viewerIndex++) {",
     "addCandidate(viewers[viewerIndex].getAttribute('src'), 'model-viewer', '');",
-    "addCandidate(viewers[viewerIndex].getAttribute('ios-src'), 'model-viewer-ios', '');",
     "}",
     "} catch (error) {}",
     "try {",
@@ -115,7 +116,7 @@ nonisolated let roomFurnitureModelDiscoveryScript = [
     "for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {",
     "var modelSource = sources[sourceIndex];",
     "var format = String(modelSource.format || '') + ' ' + String(modelSource.mime_type || '');",
-    "if (media[mediaIndex].media_type === 'model' || /glb|gltf|usdz/i.test(format)) { addCandidate(modelSource.url, 'shopify', format); }",
+    "if (media[mediaIndex].media_type === 'model' || /glb|gltf/i.test(format)) { addCandidate(modelSource.url, 'shopify', format); }",
     "}",
     "}",
     "}",
@@ -130,7 +131,6 @@ nonisolated let roomFurnitureModelDiscoveryScript = [
 
 /// The kind of model file a URL or a store says a candidate is. Only the downloaded bytes say what it really is.
 nonisolated enum RoomFurnitureClaimedModelType: Equatable, Sendable {
-    case usdz
     case glb
     /// A `.gltf` file points at other files for its buffers and textures, so it cannot stand alone.
     case gltf
@@ -164,6 +164,7 @@ nonisolated struct RoomFurnitureModelCandidate: Equatable, Sendable {
         for replyEntry in replyEntries {
             guard let candidateURL = URL(string: replyEntry.url),
                   PageImageAnimation.mayDownload(candidateURL),
+                  !namesAUSDZFile(candidateURL, storeClaim: replyEntry.type ?? ""),
                   seenURLs.insert(candidateURL).inserted else { continue }
             candidates.append(RoomFurnitureModelCandidate(
                 url: candidateURL,
@@ -182,20 +183,28 @@ nonisolated struct RoomFurnitureModelCandidate: Equatable, Sendable {
         let type: String?
     }
 
+    /// True when the file is a USDZ, which this app does not read, so the candidate is left out and a store that offers only
+    /// a USDZ gets no store model. Like `claimedType`, the URL's own extension wins over the store's claim.
+    nonisolated private static func namesAUSDZFile(_ candidateURL: URL, storeClaim: String) -> Bool {
+        switch candidateURL.pathExtension.lowercased() {
+        case "usdz": return true
+        case "glb", "gltf": return false
+        default:
+            return (candidateURL.query?.lowercased().hasSuffix(".usdz") ?? false) || storeClaim.lowercased().contains("usdz")
+        }
+    }
+
     /// The URL's own extension wins over what a store claims, since a store's type text can be a MIME type or a loose word.
-    /// A store that serves the file from an id with no extension often names it in the query (`?dl=sofa.usdz`), which counts too.
+    /// A store that serves the file from an id with no extension often names it in the query (`?dl=sofa.glb`), which counts too.
     nonisolated private static func claimedType(ofURL candidateURL: URL, storeClaim: String) -> RoomFurnitureClaimedModelType {
         let lowercaseQuery = candidateURL.query?.lowercased() ?? ""
         switch candidateURL.pathExtension.lowercased() {
-        case "usdz": return .usdz
         case "glb": return .glb
         case "gltf": return .gltf
         default: break
         }
-        if lowercaseQuery.hasSuffix(".usdz") { return .usdz }
         if lowercaseQuery.hasSuffix(".glb") { return .glb }
         let lowercaseClaim = storeClaim.lowercased()
-        if lowercaseClaim.contains("usdz") { return .usdz }
         if lowercaseClaim.contains("glb") || lowercaseClaim.contains("gltf-binary") { return .glb }
         if lowercaseClaim.contains("gltf") { return .gltf }
         return .unknown
@@ -209,21 +218,17 @@ nonisolated struct RoomFurnitureCandidateRanking: Equatable, Sendable {
     let droppedBecauseOfGltfCount: Int
 }
 
-/// GLB first, since the app's own `GLBLoader` reads it with every read bounds-checked and every count capped. Then USDZ,
-/// which SceneKit's native USD parser reads, so a store's USDZ is used only when the page offers no GLB. Then a file whose
-/// type nobody names (the download's bytes decide). A GLB that looks Draco compressed is dropped, since SceneKit has no Draco
+/// GLB first, since the app's own `GLBLoader` reads it with every read bounds-checked and every count capped. Then a file
+/// whose type nobody names (the download's bytes decide). A GLB that looks Draco compressed is dropped, since SceneKit has no Draco
 /// decoder, and so is a `.gltf` file, since it needs the external buffers and textures it names and a lone download is empty.
 /// The order inside each group is the order the page script found them.
 nonisolated func rankedModelCandidates(_ candidates: [RoomFurnitureModelCandidate]) -> RoomFurnitureCandidateRanking {
-    var usdzCandidates: [RoomFurnitureModelCandidate] = []
     var glbCandidates: [RoomFurnitureModelCandidate] = []
     var unknownCandidates: [RoomFurnitureModelCandidate] = []
     var droppedBecauseOfDracoCount = 0
     var droppedBecauseOfGltfCount = 0
     for candidate in candidates {
         switch candidate.claimedType {
-        case .usdz:
-            usdzCandidates.append(candidate)
         case .gltf:
             droppedBecauseOfGltfCount += 1
         case .glb, .unknown:
@@ -237,7 +242,7 @@ nonisolated func rankedModelCandidates(_ candidates: [RoomFurnitureModelCandidat
         }
     }
     return RoomFurnitureCandidateRanking(
-        candidatesToTry: glbCandidates + usdzCandidates + unknownCandidates,
+        candidatesToTry: glbCandidates + unknownCandidates,
         droppedBecauseOfDracoCount: droppedBecauseOfDracoCount,
         droppedBecauseOfGltfCount: droppedBecauseOfGltfCount
     )
@@ -282,57 +287,6 @@ nonisolated private let multiLabelPublicSuffixes: Set<String> = [
 
 // MARK: - What a downloaded file is
 
-/// The file formats the room can stand. A download counts only when its first bytes say it is one of these, whatever its
-/// URL or the store said, since a URL with no extension, or one with the wrong extension, can be anything.
-nonisolated enum RoomFurnitureModelFileKind: Equatable, Sendable {
-    case glb
-    case usdz
-
-    /// `glb` for the ASCII magic `glTF`. `usdz` for a ZIP whose local file headers name an entry ending in `.usdc` or `.usda`,
-    /// since a USDZ is an uncompressed ZIP of USD layers and a plain ZIP can be anything. Nil for everything else.
-    static func sniff(_ data: Data) -> RoomFurnitureModelFileKind? {
-        let glbMagic: [UInt8] = [0x67, 0x6C, 0x54, 0x46]
-        if data.starts(with: glbMagic) { return .glb }
-        return zipHoldsAUSDLayer(data) ? .usdz : nil
-    }
-
-    /// Walks the ZIP's local file headers (signature, 30 fixed bytes, the name, an extra field, then the entry's data), which
-    /// a USDZ stores uncompressed. Stops at the first thing that is not a header, and gives up on an entry whose size a data
-    /// descriptor would give, since it cannot be skipped.
-    nonisolated private static func zipHoldsAUSDLayer(_ data: Data) -> Bool {
-        let localFileHeaderSignature: UInt32 = 0x0403_4B50
-        let fixedHeaderByteCount = 30
-        let mostEntriesToRead = 64
-        return data.withUnsafeBytes { (allBytes: UnsafeRawBufferPointer) -> Bool in
-            func littleEndianValue(at offset: Int, byteCount: Int) -> Int {
-                var value = 0
-                for byteIndex in 0..<byteCount { value |= Int(allBytes[offset + byteIndex]) << (8 * byteIndex) }
-                return value
-            }
-            var headerOffset = 0
-            for _ in 0..<mostEntriesToRead {
-                guard headerOffset + fixedHeaderByteCount <= allBytes.count,
-                      littleEndianValue(at: headerOffset, byteCount: 4) == Int(localFileHeaderSignature) else { return false }
-                let flags = littleEndianValue(at: headerOffset + 6, byteCount: 2)
-                let storedByteCount = littleEndianValue(at: headerOffset + 18, byteCount: 4)
-                let nameByteCount = littleEndianValue(at: headerOffset + 26, byteCount: 2)
-                let extraByteCount = littleEndianValue(at: headerOffset + 28, byteCount: 2)
-                let nameStart = headerOffset + fixedHeaderByteCount
-                guard nameStart + nameByteCount <= allBytes.count else { return false }
-                let entryName = String(
-                    decoding: UnsafeRawBufferPointer(rebasing: allBytes[nameStart..<(nameStart + nameByteCount)]),
-                    as: UTF8.self
-                ).lowercased()
-                if entryName.hasSuffix(".usdc") || entryName.hasSuffix(".usda") { return true }
-                let hasDataDescriptor = flags & 0x08 != 0
-                if hasDataDescriptor { return false }
-                headerOffset = nameStart + nameByteCount + extraByteCount + storedByteCount
-            }
-            return false
-        }
-    }
-}
-
 /// True when a GLB's JSON chunk lists `KHR_draco_mesh_compression` in `extensionsRequired` or `extensionsUsed`, which SceneKit
 /// cannot load. False for anything that is not a GLB with a readable JSON chunk.
 nonisolated func glbRequiresDraco(_ data: Data) -> Bool {
@@ -340,7 +294,7 @@ nonisolated func glbRequiresDraco(_ data: Data) -> Bool {
     // The first chunk is the glTF JSON, type 0x4E4F534A, which reads as the ASCII letters JSON.
     let glbHeaderByteCount = 12
     let jsonChunkTypeBytes: [UInt8] = [0x4A, 0x53, 0x4F, 0x4E]
-    guard RoomFurnitureModelFileKind.sniff(data) == .glb, data.count >= glbHeaderByteCount + 8 else { return false }
+    guard dataIsAGLB(data), data.count >= glbHeaderByteCount + 8 else { return false }
     let bytes = [UInt8](data.prefix(glbHeaderByteCount + 8))
     guard Array(bytes[16..<20]) == jsonChunkTypeBytes else { return false }
     let jsonByteCount = Int(bytes[12]) | Int(bytes[13]) << 8 | Int(bytes[14]) << 16 | Int(bytes[15]) << 24
@@ -356,10 +310,9 @@ nonisolated func glbRequiresDraco(_ data: Data) -> Bool {
 
 // MARK: - The download
 
-/// A model file from the store's own page, checked to be a GLB or USDZ that SceneKit can load.
+/// A model file from the store's own page, checked to be a GLB without Draco compression.
 nonisolated struct RoomFurnitureStoreModelFile: Equatable, Sendable {
     let data: Data
-    let kind: RoomFurnitureModelFileKind
     let url: URL
     /// Which part of the discovery script found it.
     let source: String
@@ -372,7 +325,7 @@ nonisolated enum RoomFurnitureDiscovery {
     static let downloadTimeoutSeconds: TimeInterval = 15
 
     /// Tries the ranked candidates one at a time, at most `mostDownloadsPerRequest` downloads, and returns the first file whose
-    /// bytes are a GLB without Draco compression or a USDZ. Every download is the shared safe one (https only including
+    /// bytes are a GLB without Draco compression. Every download is the shared safe one (https only including
     /// redirects, no cookies, no local or private host). The log names each candidate by host and outcome and never its URL
     /// query, since a store's URL may carry a token. Nil when nothing usable downloaded or the task was cancelled.
     @concurrent static func downloadTheFirstUsableModel(
@@ -395,16 +348,16 @@ nonisolated enum RoomFurnitureDiscovery {
                 print("Room furniture: \(host) (\(candidate.source)) did not download")
                 continue
             }
-            guard let fileKind = RoomFurnitureModelFileKind.sniff(downloadedData) else {
-                print("Room furniture: \(host) (\(candidate.source)) is not a GLB or USDZ file")
+            guard dataIsAGLB(downloadedData) else {
+                print("Room furniture: \(host) (\(candidate.source)) is not a GLB file")
                 continue
             }
-            if fileKind == .glb, glbRequiresDraco(downloadedData) {
+            if glbRequiresDraco(downloadedData) {
                 print("Room furniture: \(host) (\(candidate.source)) is a Draco compressed GLB, which SceneKit cannot load")
                 continue
             }
-            print("Room furniture: \(host) (\(candidate.source)) is a usable \(fileKind) file of \(downloadedData.count) bytes")
-            return RoomFurnitureStoreModelFile(data: downloadedData, kind: fileKind, url: candidate.url, source: candidate.source)
+            print("Room furniture: \(host) (\(candidate.source)) is a usable GLB of \(downloadedData.count) bytes")
+            return RoomFurnitureStoreModelFile(data: downloadedData, url: candidate.url, source: candidate.source)
         }
         return nil
     }

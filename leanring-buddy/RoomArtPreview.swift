@@ -863,7 +863,7 @@ final class RoomArtPreviewController: ObservableObject {
                 loadAGeneratedModel: { glbData in
                     await Task.detached(priority: .userInitiated) { () -> RoomFurnitureLoadedModel? in
                         do {
-                            let rootNode = try RoomFurnitureModelLoading.rootNode(fromFileData: glbData, kind: .glb)
+                            let rootNode = try RoomFurnitureModelLoading.rootNode(fromGLBData: glbData)
                             return RoomFurnitureLoadedModel(rootNode: rootNode, look: .generatedModel, originForTheLog: "generated")
                         } catch {
                             print("Room furniture: the generated model did not load: \(error)")
@@ -1198,7 +1198,12 @@ final class RoomArtPreviewController: ObservableObject {
             // Both generation services get the cutout over white and never the raw page picture, so the search for the
             // better looks starts once the cutout exists. It then runs while the floor is measured, which takes seconds.
             furnitureCutoutJPEG = roomFurnitureCutoutJPEG(cutoutImage)
-            startSearchingForTheFurnituresBestLook(itemTitle: furnitureReading.title, pageURL: pageRequest.pageURL, thisOpening: thisOpening)
+            if furnitureCutoutJPEG == nil {
+                print("Room furniture: the cutout could not be encoded, so only the store's model is searched")
+            }
+            startSearchingForTheFurnituresBestLook(
+                itemTitle: furnitureReading.title, pageURL: pageRequest.pageURL, pagePictureJPEG: pageRequest.picture.jpegData, thisOpening: thisOpening
+            )
             itemIsReady(.furniture(RoomFurniture(
                 title: furnitureReading.title,
                 widthMeters: size.widthCentimeters / 100,
@@ -1426,7 +1431,8 @@ extension RoomArtPreviewController {
     /// Searches for the furniture's best look while the cutout shows: the store's own model in the page, else a model the
     /// generation service makes, else the painted composite. The result is shown on the placement showing then, and on
     /// every placement after it.
-    fileprivate func startSearchingForTheFurnituresBestLook(itemTitle: String, pageURL: String, thisOpening: Int) {
+    /// `pagePictureJPEG` is the page's picture, which a generated model is cached by.
+    fileprivate func startSearchingForTheFurnituresBestLook(itemTitle: String, pageURL: String, pagePictureJPEG: Data, thisOpening: Int) {
         furnitureLookSearch = .searching
         furnitureLookSearchTask?.cancel()
         let furnitureCutoutJPEG = furnitureCutoutJPEG
@@ -1436,7 +1442,9 @@ extension RoomArtPreviewController {
                 print("Room furniture: found the store's own model at \(foundModel.originForTheLog)")
             } else if let furnitureCutoutJPEG {
                 do {
-                    let glbData = try await environment.furnitureGeneration.generateAModel(productJPEG: furnitureCutoutJPEG, itemTitle: itemTitle)
+                    let glbData = try await environment.furnitureGeneration.generateAModel(
+                        productJPEG: furnitureCutoutJPEG, itemTitle: itemTitle, cacheKeyData: pagePictureJPEG
+                    )
                     guard !Task.isCancelled else { return }
                     foundModel = await environment.loadAGeneratedModel(glbData)
                 } catch {

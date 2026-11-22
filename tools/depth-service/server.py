@@ -4,8 +4,8 @@ GET  /health -> {"ok": true}
 POST /wall   -> { jpegBase64, maskPngBase64?, anchor: { u, v }, focalPx? }
                 200 { center, right, up, focalPx, principal, distanceMeters, wallAngleDegrees,
                       planeInlierShare, inferenceSeconds, seconds }
-                400 { error } for a bad body (an image or mask side over 4096 pixels included, read from the
-                header before any pixel is decoded), 422 { error } when under 200 bare wall points remain
+                400 { error } for a bad body (a frame that is not a JPEG, or an image or mask side over 4096 pixels,
+                included, the size read from the header before any pixel is decoded), 422 { error } when under 200 bare wall points remain
                 or the plane is not finite.
 POST /floor  -> the same body, where anchor is the pixel the furniture's front-bottom center stands on.
                 200 { center, right, up, forward, focalPx, principal, distanceMeters,
@@ -147,7 +147,9 @@ def parse_plane_request(body):
     if not isinstance(body, dict):
         raise BadRequestError("The body must be a JSON object")
     try:
-        frame_image = Image.open(io.BytesIO(decode_base64(body.get("jpegBase64"), "jpegBase64")))
+        # Only JPEG is allowed: Pillow opens any format it has a plugin for, and some (EPS with Ghostscript installed) run
+        # other programs. The mask is read by OpenCV after its PNG header is checked, so Pillow never sees it.
+        frame_image = Image.open(io.BytesIO(decode_base64(body.get("jpegBase64"), "jpegBase64")), formats=["JPEG"])
         # `size` comes from the header, so a file that declares a huge image is refused before its pixels are decoded.
         refuse_an_image_over_the_side_limit("jpegBase64", *frame_image.size)
         frame_rgb = np.array(frame_image.convert("RGB"))
@@ -155,7 +157,7 @@ def parse_plane_request(body):
         # Pillow's own guard for an image of many times this limit, which it refuses while opening.
         raise BadRequestError(f"jpegBase64 spans far more than {MAX_IMAGE_SIDE} x {MAX_IMAGE_SIDE} pixels")
     except (UnidentifiedImageError, OSError):
-        raise BadRequestError("jpegBase64 is not a readable image")
+        raise BadRequestError("jpegBase64 is not a readable JPEG")
     image_height, image_width = frame_rgb.shape[:2]
 
     anchor = body.get("anchor")

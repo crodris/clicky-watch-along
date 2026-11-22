@@ -18,7 +18,7 @@
  *   POST /room-wall    → the local depth service (tools/depth-service) at DEPTH_SERVICE_URL, which measures the wall plane in a photo of the learner's room
  *   POST /room-floor   → the local depth service at DEPTH_SERVICE_URL, which measures the floor plane under an anchor in a photo of the learner's room, for standing furniture
  *   POST /room-furniture-composite → OpenAI image edits (gpt-image-2.6-sunburst draws a furniture product into a camera frame of the learner's room, inside a mask)
- *   POST /try-it-model → fal.ai's queue (TRELLIS 2 by default, or TRY_IT_MODEL_ENDPOINT), which turns a furniture product photo into a GLB the Worker downloads and returns
+ *   POST /try-it-model → fal.ai's queue (TRELLIS 2 by default, or TRY_IT_MODEL_ENDPOINT), which turns the furniture's cutout over white into a GLB the Worker downloads and returns
  *   POST /voice-command → Anthropic Messages API (Haiku picks the app's tools for a spoken follow-up command)
  *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)
  *   POST /theme-ideas  → Anthropic Messages API (Sonnet writes three cursor theme ideas for the theme studio, optionally from a picture)

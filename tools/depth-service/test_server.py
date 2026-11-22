@@ -171,6 +171,18 @@ def test_an_image_over_4096_pixels_on_a_side_is_refused_before_its_pixels_are_de
         server.parse_plane_request(body)
 
 
+def test_a_frame_that_is_not_a_jpeg_is_refused_with_400(depth_service_port):
+    # A PNG is a readable image, but only a JPEG frame is accepted, since Pillow opens any format it has a plugin for.
+    body = {**frame_body({"u": 1, "v": 1}), "jpegBase64": base64_of(png_bytes_of_size(32, 18))}
+
+    with pytest.raises(server.BadRequestError, match="jpegBase64 is not a readable JPEG"):
+        server.parse_plane_request(body)
+
+    status, reply = post_to_route(depth_service_port, "/wall", {"Content-Type": "application/json"}, json.dumps(body).encode())
+    assert status == 400
+    assert reply == {"error": "jpegBase64 is not a readable JPEG"}
+
+
 def test_an_image_at_the_side_limit_is_read():
     buffer = io.BytesIO()
     Image.fromarray(np.full((8, server.MAX_IMAGE_SIDE, 3), 128, np.uint8)).save(buffer, "JPEG")

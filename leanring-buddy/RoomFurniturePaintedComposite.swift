@@ -20,8 +20,9 @@ import UniformTypeIdentifiers
 /// keyframe inside a mask. Either throws when the service is not set up (the Worker answers 503 without its key) or fails,
 /// and the furniture then falls back to the next look.
 protocol RoomFurnitureGenerating {
-    /// GLB bytes of a model of the product in the photo.
-    func generateAModel(productJPEG: Data, itemTitle: String) async throws -> Data
+    /// GLB bytes of a model of the product in `productJPEG`, the furniture's cutout over white. `cacheKeyData` is what the
+    /// model is cached by, the page picture's JPEG bytes.
+    func generateAModel(productJPEG: Data, itemTitle: String, cacheKeyData: Data) async throws -> Data
     /// The keyframe with the item painted in where the mask is white, at the keyframe's size.
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data,
@@ -39,7 +40,7 @@ extension RoomFurnitureGenerationClient: RoomFurnitureGenerating {}
 /// The generation service when none is wired in, which the controller's tests start from: every request says the service
 /// is not set up, as the Worker's 503 does, and the furniture keeps the looks it has.
 struct RoomFurnitureGenerationNotSetUp: RoomFurnitureGenerating {
-    func generateAModel(productJPEG: Data, itemTitle: String) async throws -> Data {
+    func generateAModel(productJPEG: Data, itemTitle: String, cacheKeyData: Data) async throws -> Data {
         throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")
     }
 

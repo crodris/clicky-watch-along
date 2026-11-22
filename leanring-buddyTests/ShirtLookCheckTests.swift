@@ -129,8 +129,8 @@ private func cieLab(linearRed: Double, linearGreen: Double, linearBlue: Double) 
     let tristimulusY = 0.2126729 * linearRed + 0.7151522 * linearGreen + 0.0721750 * linearBlue
     let tristimulusZ = (0.0193339 * linearRed + 0.1191920 * linearGreen + 0.9503041 * linearBlue) / 1.08883
     func curve(_ value: Double) -> Double { value > 0.008856 ? cbrt(value) : 7.787 * value + 16 / 116 }
-    let fx = curve(tristimulusX), fy = curve(tristimulusY), fz = curve(tristimulusZ)
-    return SIMD3(116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz))
+    let curvedTristimulusX = curve(tristimulusX), curvedTristimulusY = curve(tristimulusY), curvedTristimulusZ = curve(tristimulusZ)
+    return SIMD3(116 * curvedTristimulusY - 16, 500 * (curvedTristimulusX - curvedTristimulusY), 200 * (curvedTristimulusY - curvedTristimulusZ))
 }
 
 /// An image read back as RGBA bytes, top row first.

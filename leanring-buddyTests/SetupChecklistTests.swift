@@ -128,6 +128,9 @@ struct SetupChecklistTests {
         for roomArtWords in ["camera", "depth service", "fal.ai"] {
             #expect(setupCaptureDisclosure.contains(roomArtWords))
         }
+        // The shirt try-on uses the camera too, and its frames never leave this Mac.
+        #expect(setupCaptureDisclosure.contains("Showing art, furniture, or a shirt uses your camera."))
+        #expect(setupCaptureDisclosure.contains("A shirt's camera frames stay on this Mac."))
         // macOS keeps speech recognition on the Mac only where the Mac supports it, so the step never promises it.
         #expect(!SetupStep.speechRecognition.purpose.lowercased().contains("on-device"))
         #expect(!SetupStep.speechRecognition.purpose.lowercased().contains("on your mac"))

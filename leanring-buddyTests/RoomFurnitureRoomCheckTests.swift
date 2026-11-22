@@ -2,7 +2,7 @@
 //  RoomFurnitureRoomCheckTests.swift
 //  leanring-buddyTests
 //
-//  Renders a real model (a store's GLB or USDZ) into a recorded room frame with the real floor measurement, and writes what
+//  Renders a real model (a store's GLB) into a recorded room frame with the real floor measurement, and writes what
 //  the panel would show as PNGs plus a metrics JSON: the model's size against the page's, its projected height, its lowest
 //  point against the floor, how much the shadow darkens the floor around the footprint and whether it fades outward, its
 //  whites against the wall's lit white, its edge softness against the frame's own edges, and the tracker's error at the
@@ -16,7 +16,7 @@
 //  to the spot the app picks, `roomFurnitureSpotWhereTheWholePieceFits`), and
 //  ROOM_FURNITURE_ITEM_IS_LIGHT says the piece is white or pale, so its whites are held to the wall's.
 //
-//  With ROOM_FURNITURE_WORKER (a local Worker's base URL), ROOM_FURNITURE_APP_SECRET, and ROOM_FURNITURE_PRODUCT_JPEG also
+//  With ROOM_FURNITURE_WORKER (a local Worker's base URL), ROOM_FURNITURE_APP_SECRET, and ROOM_FURNITURE_PRODUCT_JPEG (the furniture's cutout over white) also
 //  set, a second check paints the same item into the same frame through the real composite client (about $0.045) and
 //  writes the render and the painted composite side by side, to judge which looks more real. ROOM_FURNITURE_PAINTING judges a
 //  painting an earlier run wrote (its `-painting.png` when the check refused it) instead of asking for a new one.
@@ -74,7 +74,7 @@ private struct RoomCheckInputs {
         self.floor = floor
         let modelPath = try #require(roomCheckEnvironment["ROOM_FURNITURE_MODEL"])
         let modelData = try Data(contentsOf: URL(fileURLWithPath: modelPath))
-        modelRootNode = try RoomFurnitureModelLoading.rootNode(fromFileData: modelData, kind: try #require(RoomFurnitureModelFileKind.sniff(modelData)))
+        modelRootNode = try RoomFurnitureModelLoading.rootNode(fromGLBData: modelData)
         outputFolder = URL(fileURLWithPath: try #require(roomCheckEnvironment["ROOM_FURNITURE_OUT"]), isDirectory: true)
         try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
         runName = URL(fileURLWithPath: modelPath).deletingPathExtension().lastPathComponent

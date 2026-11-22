@@ -340,9 +340,12 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
     private(set) var renders: [RoomFurnitureLook] = []
     /// The product image each generation service was sent, which must be the furniture's cutout and never the page picture.
     private(set) var productJPEGsSent: [Data] = []
+    /// What the model was asked to be cached by, which must be the page picture.
+    private(set) var modelCacheKeysSent: [Data] = []
 
-    func generateAModel(productJPEG: Data, itemTitle: String) async throws -> Data {
+    func generateAModel(productJPEG: Data, itemTitle: String, cacheKeyData: Data) async throws -> Data {
         productJPEGsSent.append(productJPEG)
+        modelCacheKeysSent.append(cacheKeyData)
         modelsGenerated += 1
         guard let generatedModelData else { throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "") }
         return generatedModelData
@@ -1016,6 +1019,10 @@ struct RoomArtPreviewControllerTests {
             #expect(sentImage.width == 60 && sentImage.height == 45)
         }
         #expect(looks.productJPEGsSent[0] == looks.productJPEGsSent[1])
+        // The model is cached by the page picture, which is stable between requests, and not by the cutout.
+        let cacheKeyData = try #require(looks.modelCacheKeysSent.first)
+        let cacheKeyImage = try #require(decodedImage(from: cacheKeyData))
+        #expect(looks.modelCacheKeysSent.count == 1 && cacheKeyImage.width == 400 && cacheKeyImage.height == 500)
         harness.controller.close()
     }
 

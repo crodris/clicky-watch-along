@@ -49,8 +49,8 @@ nonisolated enum ShirtColorMath {
         let tristimulusY = 0.2126729 * linearRed + 0.7151522 * linearGreen + 0.0721750 * linearBlue
         let tristimulusZ = (0.0193339 * linearRed + 0.1191920 * linearGreen + 0.9503041 * linearBlue) / 1.088754
         func labCurve(_ value: Float) -> Float { value > 0.008856 ? cbrt(value) : 7.787 * value + 16 / 116 }
-        let fx = labCurve(tristimulusX), fy = labCurve(tristimulusY), fz = labCurve(tristimulusZ)
-        return SIMD3((116 * fy - 16) * 255 / 100, 500 * (fx - fy) + 128, 200 * (fy - fz) + 128)
+        let curvedTristimulusX = labCurve(tristimulusX), curvedTristimulusY = labCurve(tristimulusY), curvedTristimulusZ = labCurve(tristimulusZ)
+        return SIMD3((116 * curvedTristimulusY - 16) * 255 / 100, 500 * (curvedTristimulusX - curvedTristimulusY) + 128, 200 * (curvedTristimulusY - curvedTristimulusZ) + 128)
     }
 
     /// The Lab of every color with each channel cut to its top 5 bits (32,768 colors, each at the middle of its cell), so a

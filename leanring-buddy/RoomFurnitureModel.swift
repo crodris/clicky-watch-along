@@ -224,7 +224,7 @@ nonisolated private func crossingAtY(_ y: Double, _ start: CGPoint, _ end: CGPoi
 // MARK: - Fitting a model to the page's size
 
 /// How a model is turned and scaled so it stands at the page's size. A store's or a generated model's units and up axis are
-/// never trusted: glTF says y up in meters, but USDZ files arrive in centimeters or z up, and a generated model has no
+/// never trusted: glTF says y up in meters, but a file can arrive in centimeters or z up, and a generated model has no
 /// units at all. The axis whose share of the model best matches the page's shape is up, the model is scaled uniformly to
 /// the page's height, and when its width and depth come out swapped by more than `swapMismatch` it is turned 90 degrees
 /// about up, since its front is then on the other side axis.
@@ -247,7 +247,7 @@ nonisolated struct RoomFurnitureModelFit: Equatable, Sendable {
     static let swapMismatch = 0.15
 
     /// The fit for a model whose bounding box is `modelExtent` (its size along x, y, and z in its own units). Up is the
-    /// glTF y unless another axis fits the page's shape clearly better (a z up USDZ), and the width runs along the model's
+    /// glTF y unless another axis fits the page's shape clearly better (a z up file), and the width runs along the model's
     /// own right unless that leaves width and depth off by more than 15 percent while the swap fits. Nil for an extent or
     /// size that is not positive.
     static func fit(modelExtent: SIMD3<Double>, widthMeters: Double, heightMeters: Double, depthMeters: Double) -> RoomFurnitureModelFit? {

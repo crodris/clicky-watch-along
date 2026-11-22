@@ -1,10 +1,11 @@
 /**
  * POST /try-it-model.
  *
- * The app sends the furniture's product photo cut out on white, and the Worker turns it into a 3D model (a GLB) with
+ * The app sends the furniture's cutout over white, and the Worker turns it into a 3D model (a GLB) with
  * fal.ai's hosted image-to-3D, TRELLIS 2 unless `TRY_IT_MODEL_ENDPOINT` names another fal model. This gives a turnable
  * model for any furniture page with a photo, where only a few pages publish one. The Worker caches nothing: the app keeps
- * each model on disk by a hash of its inputs, so the same product is never paid for twice.
+ * each model on disk by a hash of the page's picture and the title, not of the cutout (which is cropped afresh each
+ * request and can differ by a pixel), so the same product is never paid for twice.
  *
  * fal runs a request through its queue: submit, poll the status until it is COMPLETED, read the result, then download
  * the GLB from the URL the result names (https://fal.ai/docs/model-apis/model-endpoints/queue).

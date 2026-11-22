@@ -1,7 +1,7 @@
 /**
  * POST /room-furniture-composite.
  *
- * The app sends a keyframe from the learner's camera, the furniture's product photo cut out on white, and a mask that
+ * The app sends a keyframe from the learner's camera, the furniture's cutout over white, and a mask that
  * marks where the piece stands at its real size (the projected box of the item plus a margin for its contact shadow).
  * OpenAI's image edit draws that exact product into the room inside the mask, from the camera's viewpoint, lit by the
  * room's light. This works for any furniture page with a photo and a size, where a 3D model works only for the few pages
@@ -337,12 +337,15 @@ export function maskBounds(grayMask: GrayMask): MaskBounds | undefined {
 }
 
 /**
- * The width and height an image's own header states, for a PNG (the IHDR chunk) or a JPEG (the first start-of-frame
+ * The width and height an image's own header states, for a PNG (its first chunk, which must be IHDR) or a JPEG (the first start-of-frame
  * marker). Undefined for anything else or a header that is cut short. Nothing is decoded.
  */
 export function imageSizeFromHeader(imageBytes: Uint8Array): ImageEditSize | undefined {
   const view = new DataView(imageBytes.buffer, imageBytes.byteOffset, imageBytes.byteLength);
   if (imageBytes.length >= 24 && pngSignature.every((byte, index) => imageBytes[index] === byte)) {
+    // The size sits in the IHDR chunk, whose type is bytes 12 to 16, so a PNG that starts with another chunk reads nothing.
+    const chunkType = String.fromCharCode(imageBytes[12], imageBytes[13], imageBytes[14], imageBytes[15]);
+    if (chunkType !== "IHDR") return undefined;
     return { width: view.getUint32(16), height: view.getUint32(20) };
   }
   if (imageBytes.length >= 4 && imageBytes[0] === 0xff && imageBytes[1] === 0xd8) {

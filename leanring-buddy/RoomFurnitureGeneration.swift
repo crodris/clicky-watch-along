@@ -4,10 +4,12 @@
 //
 //  The app's side of the two generation services behind the furniture try-on, which work for any furniture page with a
 //  photo and a size, not only the few that publish a 3D model:
+//  Both services get the furniture's cutout over white and the cut title, never the raw page picture.
 //  - `POST /room-furniture-composite`: OpenAI's image edit draws the product into a camera keyframe of the learner's room,
 //    inside a mask of the item's real size, lit by the room. The client pastes the reply back only inside that mask.
-//  - `POST /try-it-model`: fal.ai turns the product photo into a GLB. The client keeps each GLB on disk by a hash of its
-//    inputs, so the same product is never paid for twice.
+//  - `POST /try-it-model`: fal.ai turns the cutout into a GLB. The client keeps each GLB on disk by a hash of the page's
+//    picture and the title, not of the cutout, since the cutout is cropped from a fresh read of the page each request and a
+//    one pixel shift would pay for the same product again.
 //
 
 import CoreGraphics
@@ -20,7 +22,7 @@ import UniformTypeIdentifiers
 
 /// Why a generation call failed, so the panel can say "this is not set up" apart from "this failed".
 nonisolated enum RoomFurnitureGenerationError: Error, Equatable {
-    /// The Worker answered 503: the service has no key (`FAL_KEY` for the 3D model), so asking again will not help.
+    /// The Worker answered 503: the service has no key (`FAL_KEY` for the model, `OPENAI_API_KEY` for the composite), so asking again will not help.
     case serviceIsNotSetUp(body: String)
     /// Any other status that is not 200. 401 is a missing or wrong app secret, 504 a model that took too long, 502 a
     /// failed or refused generation, and 400 a request the Worker refused.
@@ -322,11 +324,13 @@ nonisolated func dataIsAGLB(_ modelData: Data) -> Bool {
     modelData.prefix(4) == Data("glTF".utf8)
 }
 
-/// The cache file's name for a model: a SHA-256 of the photo and the title, so a changed photo or title pays again and
-/// the same product never does. Each part is written with its length first, so two inputs can never join to the same bytes.
-nonisolated func tryItModelCacheKey(productJPEG: Data, itemTitle: String) -> String {
+/// The cache file's name for a model: a SHA-256 of `cacheKeyData` (the page picture's JPEG bytes) and the title, so a
+/// changed picture or title pays again and the same product never does. The cutout the Worker is sent is not in the key,
+/// since it is cropped to corners from a fresh `/try-it-item` call each request and differs by a pixel between requests.
+/// Each part is written with its length first, so two inputs can never join to the same bytes.
+nonisolated func tryItModelCacheKey(cacheKeyData: Data, itemTitle: String) -> String {
     var hasher = SHA256()
-    for part in [productJPEG, Data(itemTitle.utf8)] {
+    for part in [cacheKeyData, Data(itemTitle.utf8)] {
         withUnsafeBytes(of: UInt64(part.count).bigEndian) { lengthBytes in hasher.update(bufferPointer: lengthBytes) }
         hasher.update(data: part)
     }
@@ -447,12 +451,14 @@ final class RoomFurnitureGenerationClient {
         return pasted
     }
 
-    /// The product as a GLB, from the cache when this photo and title were made into a model before. A cache that cannot
-    /// be read or written only costs a new model, so its errors never fail the call.
-    func generateAModel(productJPEG: Data, itemTitle fullItemTitle: String) async throws -> Data {
+    /// The product as a GLB, from the cache when this page picture and title were made into a model before. `productJPEG`
+    /// is the furniture's cutout over white, which the Worker is sent, and `cacheKeyData` is the page picture's JPEG bytes,
+    /// which the cache is keyed on (see `tryItModelCacheKey`). A cache that cannot be read or written only costs a new
+    /// model, so its errors never fail the call.
+    func generateAModel(productJPEG: Data, itemTitle fullItemTitle: String, cacheKeyData: Data) async throws -> Data {
         // The key and the request use the same cut title, so what is cached is what the Worker was asked for.
         let itemTitle = roomFurnitureTitleForTheWorker(fullItemTitle)
-        let cacheFile = modelCacheFolder.appendingPathComponent(tryItModelCacheKey(productJPEG: productJPEG, itemTitle: itemTitle) + ".glb")
+        let cacheFile = modelCacheFolder.appendingPathComponent(tryItModelCacheKey(cacheKeyData: cacheKeyData, itemTitle: itemTitle) + ".glb")
         if let cachedModel = try? Data(contentsOf: cacheFile), dataIsAGLB(cachedModel) {
             return cachedModel
         }
