@@ -194,3 +194,106 @@ struct RoomFurnitureOcclusionTests {
         #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 650, personLowestRow: nil))
     }
 }
+
+struct RoomFurnitureSpotTests {
+    private let frameSize = CGSize(width: 1280, height: 720)
+
+    /// A floor 1.1 m below a camera tilted 16 degrees down, measured at a pixel near the frame's right edge, where the
+    /// bare spot search often lands.
+    private func floorMeasuredNearTheRightEdge() throws -> FloorPlane {
+        let up = simd_normalize(SIMD3<Double>(0, -0.96, -0.28))
+        let right = SIMD3<Double>(1, 0, 0)
+        let floor = FloorPlane(center: SIMD3(0, 1.1, 3.5), right: right, up: up, forward: simd_cross(up, right),
+                               focalLengthPixels: 1100, principalPoint: SIMD2(640, 360), distanceMeters: 3.7, floorTiltDegrees: 16, planeInlierShare: 1)
+        return try #require(floor.moved(toAnchorPixel: CGPoint(x: 1230, y: 600)))
+    }
+
+    private func cornersAreInsideTheMargins(_ corners: [CGPoint]) -> Bool {
+        let insideTheMargins = CGRect(origin: .zero, size: frameSize).insetBy(dx: frameSize.width * roomFurnitureFrameMarginShare, dy: frameSize.height * roomFurnitureFrameMarginShare)
+        return corners.allSatisfy { insideTheMargins.contains($0) }
+    }
+
+    @Test func theLoopsSpotIsTheMiddleOfThePiecesFootprint() throws {
+        // A 0.9 m wide, 0.8 m tall, 0.6 m deep chair: the loop goes around the floor it stands on, not its front face.
+        let floor = try #require(try floorMeasuredNearTheRightEdge().moved(toAnchorPixel: CGPoint(x: 640, y: 600)))
+        let placement = try #require(RoomFurniturePlacement(floor: floor, widthMeters: 0.9, heightMeters: 0.8, depthMeters: 0.6))
+        let footprintCenterPixel = try #require(pinholeProjection(of: placement.footprintCenter, focalLengthPixels: 1100, principalPoint: SIMD2(640, 360)))
+        let loopCenter = try #require(roomFurnitureFootprintCenterInTheKeyframe(floor: floor, widthMeters: 0.9, heightMeters: 0.8, depthMeters: 0.6))
+        // The mean of the four projected corners is within a few pixels of the projected middle at this distance.
+        #expect(hypot(loopCenter.x - footprintCenterPixel.x, loopCenter.y - footprintCenterPixel.y) < 4)
+    }
+
+    @Test func aFloorMovedToAPixelMeetsThatPixelsRayOnTheSamePlane() throws {
+        let floor = try floorMeasuredNearTheRightEdge()
+        let moved = try #require(floor.moved(toAnchorPixel: CGPoint(x: 400, y: 650)))
+        let pixel = try #require(pinholeProjection(of: moved.center, focalLengthPixels: 1100, principalPoint: SIMD2(640, 360)))
+        #expect(abs(pixel.x - 400) < 1e-6 && abs(pixel.y - 650) < 1e-6)
+        #expect(abs(simd_dot(moved.center - floor.center, floor.up)) < 1e-9)
+        // A pixel high above the horizon never meets the floor in front of the camera.
+        #expect(floor.moved(toAnchorPixel: CGPoint(x: 640, y: 0)) == nil)
+    }
+
+    @Test func aSpotWhereTheBoxWouldLeaveTheFrameIsRefused() throws {
+        let measuredFloor = try floorMeasuredNearTheRightEdge()
+        let measuredBox = try #require(measuredFloor.keyframeBoxCorners(widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55))
+        #expect(!cornersAreInsideTheMargins(measuredBox))
+
+        let spot = roomFurnitureSpotWhereTheWholePieceFits(measuredFloor: measuredFloor, widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55, frameSize: frameSize, texture: nil)
+        #expect(spot.wholePieceFits)
+        let chosenBox = try #require(spot.floor.keyframeBoxCorners(widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55))
+        #expect(cornersAreInsideTheMargins(chosenBox))
+        // On the same plane, near the lower middle.
+        #expect(abs(simd_dot(spot.floor.center - measuredFloor.center, measuredFloor.up)) < 1e-9)
+        let anchor = try #require(pinholeProjection(of: spot.floor.center, focalLengthPixels: 1100, principalPoint: SIMD2(640, 360)))
+        #expect(abs(anchor.x - 640) < 120)
+    }
+
+    @Test func aSpotIsNeverFartherBackThanTheMeasuredOne() throws {
+        // Far enough back, a 6 m sofa would fit, but the room ends at a wall the plane does not know about.
+        let measuredFloor = try floorMeasuredNearTheRightEdge()
+        let spot = roomFurnitureSpotWhereTheWholePieceFits(measuredFloor: measuredFloor, widthMeters: 6, heightMeters: 0.85, depthMeters: 1, frameSize: frameSize, texture: nil)
+        #expect(simd_dot(spot.floor.center, measuredFloor.forward) <= simd_dot(measuredFloor.center, measuredFloor.forward) + farthestBeyondTheMeasuredSpotMeters + 1e-9)
+    }
+
+    @Test func aPieceThatFitsOnlyWithoutTheMarginDoesNotCountAsWhole() throws {
+        // The widest piece whose box fits the bare frame at some spot, which the 4 percent margin then refuses.
+        let measuredFloor = try floorMeasuredNearTheRightEdge()
+        var widthThatFitsOnlyTheBareFrame: Double?
+        for widthCentimeters in stride(from: 200, through: 600, by: 5) {
+            let width = Double(widthCentimeters) / 100
+            let fitsTheBareFrame = (0...36).contains { rowIndex in
+                (0...48).contains { columnIndex in
+                    let anchor = CGPoint(x: 1280 * Double(columnIndex) / 48, y: 720 * (0.35 + 0.65 * Double(rowIndex) / 36))
+                    guard let floor = measuredFloor.moved(toAnchorPixel: anchor),
+                          simd_dot(floor.center, measuredFloor.forward) <= simd_dot(measuredFloor.center, measuredFloor.forward) + farthestBeyondTheMeasuredSpotMeters,
+                          let corners = floor.keyframeBoxCorners(widthMeters: width, heightMeters: 0.5, depthMeters: 0.5) else { return false }
+                    return corners.allSatisfy { CGRect(origin: .zero, size: frameSize).contains($0) }
+                }
+            }
+            let spot = roomFurnitureSpotWhereTheWholePieceFits(measuredFloor: measuredFloor, widthMeters: width, heightMeters: 0.5, depthMeters: 0.5, frameSize: frameSize, texture: nil)
+            if fitsTheBareFrame && !spot.wholePieceFits { widthThatFitsOnlyTheBareFrame = width; break }
+        }
+        #expect(widthThatFitsOnlyTheBareFrame != nil)
+    }
+
+    @Test func aPieceNoSpotShowsWholeStandsWhereMostOfItShows() throws {
+        let measuredFloor = try floorMeasuredNearTheRightEdge()
+        let spot = roomFurnitureSpotWhereTheWholePieceFits(measuredFloor: measuredFloor, widthMeters: 6, heightMeters: 2.5, depthMeters: 1.2, frameSize: frameSize, texture: nil)
+        #expect(!spot.wholePieceFits)
+        let measuredShare = shareOfTheBoxInsideTheFrame(projectedCorners: try #require(measuredFloor.keyframeBoxCorners(widthMeters: 6, heightMeters: 2.5, depthMeters: 1.2)), frameSize: frameSize)
+        let chosenShare = shareOfTheBoxInsideTheFrame(projectedCorners: try #require(spot.floor.keyframeBoxCorners(widthMeters: 6, heightMeters: 2.5, depthMeters: 1.2)), frameSize: frameSize)
+        #expect(chosenShare > measuredShare)
+    }
+
+    @Test func bareFloorWinsOverABusyPatchAtTheMiddle() throws {
+        // A texture map at a quarter of the frame's size that is busy everywhere but a bare patch left of the middle.
+        let mapWidth = 320, mapHeight = 180
+        var texture = [Float](repeating: 400, count: mapWidth * mapHeight)
+        for row in 100..<180 { for column in 70..<130 { texture[row * mapWidth + column] = 5 } }
+        let map = RoomFloorTextureMap(width: mapWidth, height: mapHeight, texture: texture, cameraPixelsPerMapPixel: 4)
+        let spot = roomFurnitureSpotWhereTheWholePieceFits(measuredFloor: try floorMeasuredNearTheRightEdge(), widthMeters: 0.4, heightMeters: 0.45, depthMeters: 0.4, frameSize: frameSize, texture: map)
+        let anchor = try #require(pinholeProjection(of: spot.floor.center, focalLengthPixels: 1100, principalPoint: SIMD2(640, 360)))
+        #expect(spot.wholePieceFits)
+        #expect((280.0...520.0).contains(anchor.x))
+    }
+}

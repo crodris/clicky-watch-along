@@ -59,10 +59,12 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     private var recordedGarmentWorn = false
     private var latestLoop: RoomArtLoopSnapshot?
     private var recordedFurnitureLayersShown: [(look: RoomFurnitureLook, keyframeNumber: Int)] = []
+    private var recordedLoopOutlines: [(point: CGPoint, keyframeNumber: Int)] = []
     private var keyframesTaken = 0
 
     /// Each furniture look the controller handed over, with the keyframe it was made for.
     var furnitureLayersShown: [(look: RoomFurnitureLook, keyframeNumber: Int)] { lock.withLock { recordedFurnitureLayersShown } }
+    var loopOutlines: [(point: CGPoint, keyframeNumber: Int)] { lock.withLock { recordedLoopOutlines } }
 
     var artHungCount: Int { lock.withLock { recordedSurfacesShownOn.count } }
     var surfacesShownOn: [RoomArtSurfaceKind] { lock.withLock { recordedSurfacesShownOn } }
@@ -119,6 +121,10 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
 
     func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int) {
         lock.withLock { recordedFurnitureLayersShown.append((layers.look, keyframeNumber)) }
+    }
+
+    func outlineTheLoop(around point: CGPoint, on surfaceKind: RoomArtSurfaceKind, inKeyframeNumber keyframeNumber: Int) {
+        lock.withLock { recordedLoopOutlines.append((point, keyframeNumber)) }
     }
 
     func putBackTheItemFromBeforeTheMove() {
@@ -242,8 +248,9 @@ private final class WorkerStub {
         center: SIMD3(-0.3, -0.2, 2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 500,
         principalPoint: SIMD2(320, 180), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 0.9
     ))
+    // The floor point 4 m out, inside the 640 by 360 frame, so a side table has a spot where all of it shows.
     var floorReply: Result<FloorPlane, Error> = .success(FloorPlane(
-        center: SIMD3(0.4, 0.9, 2.2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), forward: SIMD3(0, 0, 1), focalLengthPixels: 500,
+        center: SIMD3(0.4, 0.9, 4.0), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), forward: SIMD3(0, 0, 1), focalLengthPixels: 500,
         principalPoint: SIMD2(320, 180), distanceMeters: 2.4, floorTiltDegrees: 2, planeInlierShare: 0.9
     ))
     var secondsBeforeThePageReplies = 0.0
@@ -256,6 +263,8 @@ private final class WorkerStub {
     private(set) var pageRequests: [RoomArtPageRequest] = []
     private(set) var wallRequests: [RoomWallRequest] = []
     private(set) var floorRequests: [RoomWallRequest] = []
+    /// The center the floor reply measures, which a clicked spot keeps.
+    var floorRequestsReply: SIMD3<Double> { (try? floorReply.get())?.center ?? .zero }
 
     func readThePage(_ pageRequest: RoomArtPageRequest) async throws -> RoomArtPageReading {
         pageRequests.append(pageRequest)
@@ -319,8 +328,11 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
     var generatedModelData: Data?
     var maskPNG: Data? = Data([7])
     var paintedImage: CGImage?
-    /// What turning the painting into a layer gives back: nil stands for a painting at the wrong height.
-    var paintedLayersAreKept = true
+    /// The first painting whose layer is kept, counting from 1; the ones before it stand for paintings at the wrong
+    /// height, and nil keeps none.
+    var firstKeptPainting: Int? = 1
+    /// How many paintings fail with a 502 before the stub answers.
+    var failingPaintings = 0
     var renderSucceeds = true
     private(set) var storeModelSearches: [String] = []
     private(set) var modelsGenerated = 0
@@ -338,6 +350,7 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
     ) async throws -> CGImage {
         paintings += 1
         guard let paintedImage else { throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "") }
+        if paintings <= failingPaintings { throw RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "") }
         return paintedImage
     }
 
@@ -361,7 +374,10 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
             self.renders.append(renderRequest.look)
             return self.renderSucceeds ? Self.layers(renderRequest.look) : nil
         }
-        environment.paintedItemLayers = { _, _, _, _ in self.paintedLayersAreKept ? Self.layers(.paintedComposite) : nil }
+        environment.paintedItemLayers = { _, _, _, _ in
+            guard let firstKeptPainting = self.firstKeptPainting, self.paintings >= firstKeptPainting else { return nil }
+            return Self.layers(.paintedComposite)
+        }
     }
 }
 
@@ -979,21 +995,65 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
-    @Test func aPaintingAtTheWrongHeightKeepsTheCutout() async throws {
+    @Test func twoPaintingsAtTheWrongHeightKeepTheCutout() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)
         let looks = FurnitureLookStub()
         looks.paintedImage = furnitureCutoutImage()
-        looks.paintedLayersAreKept = false
+        looks.firstKeptPainting = nil
         let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
 
-        try await waitFor("the painting to be asked for") { looks.paintings == 1 }
+        try await waitFor("the second painting to be asked for") { looks.paintings == 2 }
         try await Task.sleep(for: .milliseconds(200))
+        #expect(looks.paintings == 2)
         #expect(harness.frameProcessor.furnitureLayersShown.isEmpty)
         #expect(harness.artIsShowing())
         harness.controller.close()
+    }
+
+    @Test func aPaintingAtTheWrongHeightIsAskedForOnceMore() async throws {
+        // With no model, a refused painting would leave the flat cutout, so the second painting replaces it.
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        looks.firstKeptPainting = 2
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the second painting to replace the cutout") { !harness.frameProcessor.furnitureLayersShown.isEmpty }
+        #expect(looks.paintings == 2)
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
+        harness.controller.close()
+    }
+
+    @Test func aFailedPaintingRequestIsAskedForOnceMore() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        looks.failingPaintings = 1
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the second painting after the 502") { !harness.frameProcessor.furnitureLayersShown.isEmpty }
+        #expect(looks.paintings == 2)
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
+        harness.controller.close()
+    }
+
+    @Test func onlyAPaintingFailureThatMayPassIsAskedForAgain() {
+        #expect(roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "")))
+        #expect(roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 504, body: "")))
+        #expect(roomFurniturePaintingIsWorthAskingForAgain(after: URLError(.timedOut)))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 401, body: "")))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 400, body: "")))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.inputCouldNotBeRead(reason: "")))
     }
 
     @Test func aModelThatDoesNotRenderFallsBackToThePainting() async throws {
@@ -1043,6 +1103,60 @@ struct RoomArtPreviewControllerTests {
         try await Task.sleep(for: .milliseconds(200))
         #expect(looks.paintings == 1)
         #expect(harness.frameProcessor.furnitureLayersShown.isEmpty)
+        harness.controller.close()
+    }
+
+    @Test func aPieceNoSpotShowsWholeAsksTheLearnerToStepBack() async throws {
+        let worker = WorkerStub()
+        // A 6 m sofa, the largest size the reader keeps, wider than the 640 by 360 frame shows at any spot no farther than
+        // the measured one.
+        worker.pageReading = .success(.furniture(RoomArtFurnitureReading(
+            title: "Long sofa",
+            chosenSize: RoomArtFurnitureSize(label: "600x85x95 cm", widthCentimeters: 600, heightCentimeters: 85, depthCentimeters: 95),
+            whyThisSize: "It is the only size.",
+            itemCorners: pictureCorners
+        )))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this sofa look in my room")
+
+        try await waitFor("the sofa and the step back line") { harness.spokenLines().count == 2 }
+        #expect(harness.spokenLines().last == roomFurnitureStepBackLine)
+        #expect(harness.recorder.spokenLineFailureFlags.last == false)
+        harness.controller.close()
+    }
+
+    @Test func aPieceThatFitsIsMovedIntoTheFrameButAClickedSpotIsKept() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the table to stand on the floor") { harness.artIsShowing() }
+        guard case .showing(_, .floor(let firstFloor), nil) = harness.controller.phase else {
+            Issue.record("The table is not on a floor: \(harness.controller.phase)")
+            return
+        }
+        // The stub floor's own point is off to the side, so the piece moved toward the lower middle, where all of it
+        // shows, and no step back line was said.
+        #expect(firstFloor.center != worker.floorRequestsReply)
+        #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
+        // The loop moved from the measured spot to the middle of the table's footprint, on the first keyframe.
+        let expectedLoopCenter = try #require(roomFurnitureFootprintCenterInTheKeyframe(floor: firstFloor, widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55))
+        let loopOutline = try #require(harness.frameProcessor.loopOutlines.first)
+        #expect(harness.frameProcessor.loopOutlines.count == 1)
+        #expect(hypot(loopOutline.point.x - expectedLoopCenter.x, loopOutline.point.y - expectedLoopCenter.y) < 1)
+        #expect(loopOutline.keyframeNumber == 1)
+
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 600, y: 340))
+        try await waitFor("the click's placement") { harness.frameProcessor.surfacesShownOn.count == 2 }
+        guard case .showing(_, .floor(let clickedFloor), nil) = harness.controller.phase else {
+            Issue.record("The table is not on a floor after the click: \(harness.controller.phase)")
+            return
+        }
+        #expect(clickedFloor.center == worker.floorRequestsReply)
+        // A click keeps its spot, so the loop stays where the learner clicked.
+        #expect(harness.frameProcessor.loopOutlines.count == 1)
         harness.controller.close()
     }
 

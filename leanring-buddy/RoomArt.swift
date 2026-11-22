@@ -519,11 +519,17 @@ nonisolated enum RoomArtBareFloorWindow {
     static let widthShareOfTheFrame = 0.3
     static let heightShareOfTheFrame = 0.18
     /// The lower part of the frame, where the floor shows when the screen is tilted down. The depth service fits the floor
-    /// in a window around and below the anchor, so the lowest rows are left for it.
-    static let centerRowShares = 0.62...0.86
+    /// in a window around and below the anchor, so the lowest rows are left for it. The window's bottom edge stays above
+    /// 0.9 of the height, where the panel's status line starts (`statusLineTopShareOfThePanel`), so the line Clicky's loop
+    /// draws around the window never runs behind "Measuring your floor…".
+    static let centerRowShares = 0.62...0.80
+    /// The share of the panel's height above its status line: 16 points of padding and a 33 point line on a 540 point panel.
+    static let statusLineTopShareOfThePanel = 0.9
     /// How much more a spot at the frame's side edge costs than one in the middle, as a share of its texture: furniture
-    /// standing at the edge is cut off by the frame, and the darkest, plainest floor is often a far corner.
-    static let costOfTheSideEdges = 1.0
+    /// standing at the edge is cut off by the frame, and the darkest, plainest floor is often a far corner. At 1.0 the
+    /// plain dark corner of room-floor.mp4's wood floor still won, so the loop outlined that corner while the piece then
+    /// stood in the middle (`roomFurnitureSpotWhereTheWholePieceFits`); at 2.0 the spot is the lower middle there.
+    static let costOfTheSideEdges = 2.0
 }
 
 /// The spot of the frame with the least texture, away from the person, in the upper part of the frame where art hangs, and
@@ -567,25 +573,7 @@ nonisolated private func quietestSpot(
     spotWhenNothingFits: CGPoint
 ) -> CGPoint {
     let width = grayscale.width, height = grayscale.height
-    let pixels = grayscale.pixels
-    // The Sobel gradient's size at each pixel.
-    var texture = [Float](repeating: 0, count: width * height)
-    if width >= 3 && height >= 3 {
-        for row in 1..<(height - 1) {
-            for column in 1..<(width - 1) {
-                let index = row * width + column
-                let alongX = (pixels[index - width + 1] + 2 * pixels[index + 1] + pixels[index + width + 1])
-                    - (pixels[index - width - 1] + 2 * pixels[index - 1] + pixels[index + width - 1])
-                let alongY = (pixels[index + width - 1] + 2 * pixels[index + width] + pixels[index + width + 1])
-                    - (pixels[index - width - 1] + 2 * pixels[index - width] + pixels[index - width + 1])
-                texture[index] = (alongX * alongX + alongY * alongY).squareRoot()
-            }
-        }
-    }
-    let personNearby = grownSquare(roomMask.map { $0 < 0.5 }, width: width, height: height, reach: 15)
-    for index in texture.indices where personNearby[index] {
-        texture[index] = 1_000
-    }
+    let texture = textureWithThePersonMarked(grayscale: grayscale, roomMask: roomMask)
 
     // A summed table, so each window's total is four lookups.
     var summed = [Double](repeating: 0, count: (width + 1) * (height + 1))
@@ -623,6 +611,31 @@ nonisolated private func quietestSpot(
         }
     }
     return bestSpot
+}
+
+/// The Sobel gradient's size at each pixel of `grayscale`, with every pixel within 15 of the person set to 1,000, the most
+/// texture there is, so a spot search stays off them.
+nonisolated func textureWithThePersonMarked(grayscale: RoomGrayscaleImage, roomMask: [Float]) -> [Float] {
+    let width = grayscale.width, height = grayscale.height
+    let pixels = grayscale.pixels
+    var texture = [Float](repeating: 0, count: width * height)
+    if width >= 3 && height >= 3 {
+        for row in 1..<(height - 1) {
+            for column in 1..<(width - 1) {
+                let index = row * width + column
+                let alongX = (pixels[index - width + 1] + 2 * pixels[index + 1] + pixels[index + width + 1])
+                    - (pixels[index - width - 1] + 2 * pixels[index - 1] + pixels[index + width - 1])
+                let alongY = (pixels[index + width - 1] + 2 * pixels[index + width] + pixels[index + width + 1])
+                    - (pixels[index - width - 1] + 2 * pixels[index - width] + pixels[index - width + 1])
+                texture[index] = (alongX * alongX + alongY * alongY).squareRoot()
+            }
+        }
+    }
+    let personNearby = grownSquare(roomMask.map { $0 < 0.5 }, width: width, height: height, reach: 15)
+    for index in texture.indices where personNearby[index] {
+        texture[index] = 1_000
+    }
+    return texture
 }
 
 /// Whether each pixel is within `reach` pixels (a square) of a marked pixel, by a row pass and a column pass.

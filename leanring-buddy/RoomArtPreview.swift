@@ -38,6 +38,8 @@ nonisolated struct RoomArtKeyframe: Sendable {
     var wallSpotAnchor: CGPoint? = nil
     /// Counts up with each keyframe the processor takes, so a render made for one keyframe is never drawn on another.
     var keyframeNumber = 0
+    /// The keyframe's texture with the person marked, which furniture's spot choice reads to prefer bare floor.
+    var floorTexture: RoomFloorTextureMap? = nil
 }
 
 // MARK: - Frame processor
@@ -69,6 +71,9 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     /// Replaces the furniture's flat cutout with layers rendered or painted for the keyframe numbered `keyframeNumber`, with
     /// a short crossfade. Layers for an older keyframe, such as one a click has replaced, are dropped.
     func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int)
+    /// Moves the loop to the window around `point` in the keyframe numbered `keyframeNumber`, such as the spot the furniture
+    /// moved to after its floor was measured. The loop glides there, and a newer keyframe's loop is left alone.
+    func outlineTheLoop(around point: CGPoint, on surfaceKind: RoomArtSurfaceKind, inKeyframeNumber keyframeNumber: Int)
     func putBackTheItemFromBeforeTheMove()
     /// Starts drawing a shirt instead of tracking a surface: each frame finds the torso, and `onTheFramingSettled` runs on
     /// the main actor each time the framing settles on a new kind (`ShirtFramingDebouncer`). The loop traces the torso.
@@ -592,7 +597,13 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             measurementRequest: RoomWallRequest(keyframeJPEGData: keyframeJPEGData, personMaskPNGData: personMaskPNGData, anchor: anchor),
             wallLight: keyframeWallLight,
             wallSpotAnchor: CGPoint(x: wallSpotInTrackPixels.x * cameraPixelsPerTrackPixel, y: wallSpotInTrackPixels.y * cameraPixelsPerTrackPixel),
-            keyframeNumber: keyframeNumber
+            keyframeNumber: keyframeNumber,
+            floorTexture: surfaceKind == .floor ? RoomFloorTextureMap(
+                width: latestTrackGrayscale.width,
+                height: latestTrackGrayscale.height,
+                texture: textureWithThePersonMarked(grayscale: latestTrackGrayscale, roomMask: latestTrackRoomMask),
+                cameraPixelsPerMapPixel: cameraPixelsPerTrackPixel
+            ) : nil
         )
     }
 
@@ -695,6 +706,15 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
     }
 
+    func outlineTheLoop(around point: CGPoint, on surfaceKind: RoomArtSurfaceKind, inKeyframeNumber keyframeNumber: Int) {
+        processingQueue.async {
+            guard keyframeNumber == self.keyframeNumber, self.loopKeyframeCorners != nil, let latestFrame = self.latestFrame else { return }
+            let frameSize = CGSize(width: CVPixelBufferGetWidth(latestFrame), height: CVPixelBufferGetHeight(latestFrame))
+            // The smoothed corners keep where the loop was, so it glides to the new window over the next frames.
+            self.loopKeyframeCorners = RoomArtLoopGeometry.keyframeCorners(around: point, frameSize: frameSize, on: surfaceKind)
+        }
+    }
+
     /// The loop where the surface or the torso last was, for the panel to draw or fade out.
     func currentLoop() -> RoomArtLoopSnapshot? {
         latestLoop.withLock { $0 }
@@ -794,8 +814,9 @@ final class RoomArtPreviewController: ObservableObject {
         var furnitureGeneration: RoomFurnitureGenerating = RoomFurnitureGenerationNotSetUp()
         /// A model's GLB bytes loaded as a node tree, off the main actor, or nil when they do not load.
         var loadAGeneratedModel: (_ glbData: Data) async -> RoomFurnitureLoadedModel? = { _ in nil }
-        /// The mask the painted composite is painted inside, from the item box's projected corners, as a PNG.
-        var compositeMaskPNG: (_ projectedCorners: [CGPoint], _ frameWidth: Int, _ frameHeight: Int, _ shadowMarginPixels: Double) -> Data? = { _, _, _, _ in nil }
+        /// The mask the painted composite is painted inside, from the item box's projected corners, as a PNG
+        /// (`roomFurnitureCompositeMaskPNG`).
+        var compositeMaskPNG: (_ projectedBox: [CGPoint], _ frameWidth: Int, _ frameHeight: Int, _ shadowMarginPixels: Double) -> Data? = { _, _, _, _ in nil }
         /// Renders a model standing on the floor as keyframe layers, off the main actor, or nil when the render fails.
         var renderTheFurniture: (RoomFurnitureRenderRequest) async -> RoomFurnitureKeyframeLayers? = { _ in nil }
         /// Turns a painted keyframe into its item layer (`RoomFurniturePaintedComposite`), off the main actor.
@@ -850,8 +871,8 @@ final class RoomArtPreviewController: ObservableObject {
                         }
                     }.value
                 },
-                compositeMaskPNG: { projectedCorners, frameWidth, frameHeight, shadowMarginPixels in
-                    furnitureCompositeMaskPNG(projectedCorners: projectedCorners, frameWidth: frameWidth, frameHeight: frameHeight, shadowMarginPixels: shadowMarginPixels)
+                compositeMaskPNG: { projectedBox, frameWidth, frameHeight, shadowMarginPixels in
+                    roomFurnitureCompositeMaskPNG(projectedBox: projectedBox, frameWidth: frameWidth, frameHeight: frameHeight, shadowMarginPixels: shadowMarginPixels)
                 },
                 renderTheFurniture: { renderRequest in
                     await withCheckedContinuation { continuation in
@@ -867,8 +888,8 @@ final class RoomArtPreviewController: ObservableObject {
                     nonisolated(unsafe) let paintedImage = painted, keyframeImage = keyframe
                     return await Task.detached(priority: .userInitiated) { () -> RoomFurnitureKeyframeLayers? in
                         let composite = RoomFurniturePaintedComposite.itemLayers(painted: paintedImage, keyframe: keyframeImage, maskPNG: maskPNG, projectedBox: projectedBox)
-                        if let ratio = composite.paintedHeightRatio {
-                            print(String(format: "Room furniture: the painted item is %.0f%% of the measured box's outline", ratio * 100))
+                        if let ratio = composite.paintedHeightRatio, let rows = composite.paintedRows {
+                            print(String(format: "Room furniture: the painted item is %.0f%% of the measured box's outline (%@)", ratio * 100, roomFurniturePaintedRowsAgainstTheBox(rows, projectedBox)))
                         }
                         return composite.layers
                     }.value
@@ -954,6 +975,9 @@ final class RoomArtPreviewController: ObservableObject {
     private var productPhotoJPEG: Data?
     /// The composite service said it is not set up, so no later placement in this panel asks it again.
     private var compositeServiceIsUnavailable = false
+    /// The latest furniture spot shows only part of the piece, so Clicky asks the learner to step back.
+    fileprivate var theWholePieceDoesNotShow = false
+    private var stepBackWasSaid = false
 
     /// The loop's line as the panel draws it this moment, in panel points, or nil before there is a keyframe, a torso, or a
     /// camera frame.
@@ -1095,6 +1119,8 @@ final class RoomArtPreviewController: ObservableObject {
         keyframeOfTheLatestMeasurement = nil
         productPhotoJPEG = nil
         compositeServiceIsUnavailable = false
+        theWholePieceDoesNotShow = false
+        stepBackWasSaid = false
         frameSource?.stop()
         frameSource = nil
         frameProcessor.endTheSession()
@@ -1251,7 +1277,7 @@ final class RoomArtPreviewController: ObservableObject {
                     print(String(format: "Room art: wall %.2f m away at %.0f degrees, %.0f%% of it fits the plane", wall.distanceMeters, wall.wallAngleDegrees, wall.planeInlierShare * 100))
                     surface = .wall(wall)
                 case .floor:
-                    let floor = try await measureTheFurnituresFloor(on: keyframe, for: measuringPhase.itemBeingMeasured)
+                    let floor = try await measureTheFurnituresFloor(on: keyframe, for: measuringPhase.itemBeingMeasured, anchorWasClicked: anchorInCameraPixels != nil)
                     print(String(format: "Room art: floor %.2f m away, tilted %.0f degrees, %.0f%% of it fits the plane%@", floor.distanceMeters, floor.floorTiltDegrees, floor.planeInlierShare * 100, floor.inferredFromTheWall ? ", inferred from the wall" : ""))
                     surface = .floor(floor)
                 }
@@ -1284,6 +1310,10 @@ final class RoomArtPreviewController: ObservableObject {
             guard let keyframeCorners = surface.keyframeCorners(of: item) else { return }
             frameProcessor.showTheItem(item.image, keyframeCorners: keyframeCorners, on: item.surfaceKind)
             sayHereItIsOnce(item.hereItIsLine)
+            if case .furniture = item, theWholePieceDoesNotShow, !stepBackWasSaid {
+                stepBackWasSaid = true
+                environment.speak(roomFurnitureStepBackLine, false)
+            }
             // Furniture's flat cutout is the placeholder: its best look is rendered or painted for this placement.
             if case .furniture(let furniture) = item, case .floor(let floor) = surface, let keyframe = keyframeOfTheLatestMeasurement {
                 furniturePlacementShowing = (furniture, keyframe, floor)
@@ -1323,7 +1353,7 @@ extension RoomArtPreviewController {
     /// with the wall (a desk or a bed) is not the floor. With no floor, a floor inferred from the wall stands the piece with
     /// its back on the wall, when at least a third of its box is in the frame. A depth service that is down or refuses the
     /// request fails as it is, with no wall measurement.
-    fileprivate func measureTheFurnituresFloor(on keyframe: RoomArtKeyframe, for item: RoomArtPlacedItem?) async throws -> FloorPlane {
+    fileprivate func measureTheFurnituresFloor(on keyframe: RoomArtKeyframe, for item: RoomArtPlacedItem?, anchorWasClicked: Bool) async throws -> FloorPlane {
         var measuredFloor: FloorPlane?
         var floorError: Error?
         do {
@@ -1333,6 +1363,8 @@ extension RoomArtPreviewController {
             floorError = error
         }
         guard !Task.isCancelled else { throw CancellationError() }
+        // The spot is chosen before the wall is measured, so the loop outlines it while the wall request runs.
+        let floorForThePiece = measuredFloor.map { floorWhereTheWholePieceShows($0, on: keyframe, for: item, anchorWasClicked: anchorWasClicked) }
         let wallRequest = RoomWallRequest(
             keyframeJPEGData: keyframe.measurementRequest.keyframeJPEGData,
             personMaskPNGData: keyframe.measurementRequest.personMaskPNGData,
@@ -1345,9 +1377,10 @@ extension RoomArtPreviewController {
             print("Room furniture: the wall behind the floor was not measured: \(error)")
             wall = nil
         }
-        if let measuredFloor {
-            guard let wall, !measuredFloor.agrees(withTheWall: wall) else { return measuredFloor }
+        if let measuredFloor, let floorForThePiece {
+            guard let wall, !measuredFloor.agrees(withTheWall: wall) else { return floorForThePiece }
             print("Room furniture: the measured floor is not level with the wall, so it is a desk or a bed, not the floor")
+            theWholePieceDoesNotShow = false
         }
         if let wall, case .furniture(let furniture) = item,
            let inferredFloor = FloorPlane.inferred(fromTheWall: wall, itemDepthMeters: furniture.depthMeters),
@@ -1358,6 +1391,32 @@ extension RoomArtPreviewController {
             if shareInTheFrame >= roomFurnitureLeastShareOfTheBoxInTheFrame { return inferredFloor }
         }
         throw floorError ?? RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"The floor is not level with the wall"}"#)
+    }
+
+    /// The floor anchored where the whole piece shows (`roomFurnitureSpotWhereTheWholePieceFits`), since the bare spot it was
+    /// measured at is often a corner where the frame cuts the piece off. A click keeps the spot the learner clicked, and a
+    /// piece no spot shows whole is placed where most of it shows, with the step back line said once after "Here it is".
+    private func floorWhereTheWholePieceShows(_ measuredFloor: FloorPlane, on keyframe: RoomArtKeyframe, for item: RoomArtPlacedItem?, anchorWasClicked: Bool) -> FloorPlane {
+        theWholePieceDoesNotShow = false
+        guard !anchorWasClicked, case .furniture(let furniture) = item else { return measuredFloor }
+        let spot = roomFurnitureSpotWhereTheWholePieceFits(
+            measuredFloor: measuredFloor,
+            widthMeters: furniture.widthMeters,
+            heightMeters: furniture.heightMeters,
+            depthMeters: furniture.depthMeters,
+            // The depth service's principal point is the frame's center.
+            frameSize: CGSize(width: measuredFloor.principalPoint.x * 2, height: measuredFloor.principalPoint.y * 2),
+            texture: keyframe.floorTexture
+        )
+        theWholePieceDoesNotShow = !spot.wholePieceFits
+        print("Room furniture: \(spot.wholePieceFits ? "moved the piece to where all of it shows" : "no spot shows the whole piece, so it stands where most of it shows")")
+        // The loop outlined the bare spot the floor was measured at, so it moves to where the piece will stand.
+        if let footprintCenter = roomFurnitureFootprintCenterInTheKeyframe(
+            floor: spot.floor, widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters
+        ) {
+            frameProcessor.outlineTheLoop(around: footprintCenter, on: .floor, inKeyframeNumber: keyframe.keyframeNumber)
+        }
+        return spot.floor
     }
 
     // MARK: The furniture's best look
@@ -1439,47 +1498,65 @@ extension RoomArtPreviewController {
         guard let productPhotoJPEG,
               let projectedBox = floor.keyframeBoxCorners(widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters),
               let maskPNG = environment.compositeMaskPNG(projectedBox, keyframeImage.width, keyframeImage.height, Self.compositeShadowMarginPixels) else { return }
-        do {
-            let painted = try await environment.furnitureGeneration.paintTheItemIntoTheKeyframe(
-                keyframeJPEG: keyframe.measurementRequest.keyframeJPEGData,
-                keyframeWidth: keyframeImage.width,
-                keyframeHeight: keyframeImage.height,
-                productJPEG: productPhotoJPEG,
-                maskPNG: maskPNG,
-                itemTitle: furniture.title,
-                itemSizeWords: furniture.sizeInWords
-            )
-            guard !Task.isCancelled, thisOpening == openingNumber else { return }
-            #if DEBUG
-            // Verification reads the painting the height check judged, kept or refused. Debug builds only.
-            writeThePaintingForVerification(painted)
-            #endif
-            guard let layers = await environment.paintedItemLayers(painted, keyframeImage, maskPNG, projectedBox) else {
-                print("Room furniture: the painted item is shorter than the box's front or taller than its outline, so the look before it stays")
-                return
+        // The service paints each request afresh, so a painting refused for its height, or a failed request, is asked for
+        // once more before the piece is left with the look before it, which with no model is the flat cutout.
+        for attempt in 1...Self.mostPaintingAttempts {
+            do {
+                let painted = try await environment.furnitureGeneration.paintTheItemIntoTheKeyframe(
+                    keyframeJPEG: keyframe.measurementRequest.keyframeJPEGData,
+                    keyframeWidth: keyframeImage.width,
+                    keyframeHeight: keyframeImage.height,
+                    productJPEG: productPhotoJPEG,
+                    maskPNG: maskPNG,
+                    itemTitle: furniture.title,
+                    itemSizeWords: furniture.sizeInWords
+                )
+                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                #if DEBUG
+                // Verification reads the painting the height check judged, kept or refused, with what it was judged
+                // against. Debug builds only.
+                writeThePaintingForVerification(painted, keyframeJPEG: keyframe.measurementRequest.keyframeJPEGData, maskPNG: maskPNG, projectedBox: projectedBox)
+                #endif
+                if let layers = await environment.paintedItemLayers(painted, keyframeImage, maskPNG, projectedBox) {
+                    guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                    frameProcessor.showTheFurnitureLayers(layers, keyframeNumber: keyframe.keyframeNumber)
+                    print("Room furniture: showing the painted composite")
+                    return
+                }
+                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                print("Room furniture: painting \(attempt) is shorter than the box's front, taller than its outline, or cut off, so it is not shown")
+            } catch {
+                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                print("Room furniture: no painted composite from painting \(attempt): \(error)")
+                // A Worker with no OpenAI key stays that way for this panel, so later placements do not ask again.
+                if case RoomFurnitureGenerationError.serviceIsNotSetUp = error { compositeServiceIsUnavailable = true }
+                guard roomFurniturePaintingIsWorthAskingForAgain(after: error) else { return }
             }
-            guard !Task.isCancelled, thisOpening == openingNumber else { return }
-            frameProcessor.showTheFurnitureLayers(layers, keyframeNumber: keyframe.keyframeNumber)
-            print("Room furniture: showing the painted composite")
-        } catch {
-            guard !Task.isCancelled, thisOpening == openingNumber else { return }
-            print("Room furniture: no painted composite: \(error)")
-            // A Worker with no OpenAI key stays that way for this panel, so later placements do not ask again. Any other
-            // failure may pass, so the next placement asks again.
-            if case RoomFurnitureGenerationError.serviceIsNotSetUp = error { compositeServiceIsUnavailable = true }
         }
+        print("Room furniture: no painting stood at the measured size, so the look before it stays")
     }
 
     #if DEBUG
-    private func writeThePaintingForVerification(_ painted: CGImage) {
-        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-room-furniture-painting-\(Int(Date().timeIntervalSince1970)).png")
+    private func writeThePaintingForVerification(_ painted: CGImage, keyframeJPEG: Data, maskPNG: Data, projectedBox: [CGPoint]) {
+        let stem = "clicky-room-furniture-painting-\(Int(Date().timeIntervalSince1970 * 1000))"
+        let folder = FileManager.default.temporaryDirectory
+        let fileURL = folder.appendingPathComponent("\(stem).png")
         guard let destination = CGImageDestinationCreateWithURL(fileURL as CFURL, "public.png" as CFString, 1, nil) else { return }
         CGImageDestinationAddImage(destination, painted, nil)
-        if CGImageDestinationFinalize(destination) { print("Room furniture: wrote the painting to \(fileURL.path)") }
+        guard CGImageDestinationFinalize(destination) else { return }
+        try? keyframeJPEG.write(to: folder.appendingPathComponent("\(stem)-keyframe.jpg"))
+        try? maskPNG.write(to: folder.appendingPathComponent("\(stem)-mask.png"))
+        let boxNumbers = projectedBox.flatMap { [Double($0.x), Double($0.y)] }
+        try? JSONSerialization.data(withJSONObject: boxNumbers).write(to: folder.appendingPathComponent("\(stem)-box.json"))
+        print("Room furniture: wrote the painting to \(fileURL.path), with its keyframe, mask, and box beside it")
     }
     #endif
 
-    /// The painted composite's mask reaches this far past the box, so the item's shadow on the floor is painted too.
+    /// How many paintings one placement asks for before it keeps the look before them.
+    fileprivate static let mostPaintingAttempts = 2
+
+    /// The painted composite's mask reaches this far past the box's floor footprint, so the item's shadow on the floor is
+    /// painted too.
     fileprivate static let compositeShadowMarginPixels = 24.0
 
     private func decodedKeyframe(_ keyframe: RoomArtKeyframe) -> CGImage? {

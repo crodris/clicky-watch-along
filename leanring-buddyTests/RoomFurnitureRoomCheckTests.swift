@@ -12,12 +12,14 @@
 //  ROOM_FURNITURE_SIZE_CM=55x45x55 ROOM_FURNITURE_OUT=out ROOM_FURNITURE_ITEM_IS_LIGHT=1 \
 //  tools/swift-check.sh --filter RoomFurnitureRoomCheck
 //
-//  ROOM_FURNITURE_ANCHOR=u,v moves the piece along the floor to the floor point under that pixel, and
+//  ROOM_FURNITURE_ANCHOR=u,v moves the piece along the floor to the floor point under that pixel (or ROOM_FURNITURE_ANCHOR=spot
+//  to the spot the app picks, `roomFurnitureSpotWhereTheWholePieceFits`), and
 //  ROOM_FURNITURE_ITEM_IS_LIGHT says the piece is white or pale, so its whites are held to the wall's.
 //
 //  With ROOM_FURNITURE_WORKER (a local Worker's base URL), ROOM_FURNITURE_APP_SECRET, and ROOM_FURNITURE_PRODUCT_JPEG also
 //  set, a second check paints the same item into the same frame through the real composite client (about $0.045) and
-//  writes the render and the painted composite side by side, to judge which looks more real.
+//  writes the render and the painted composite side by side, to judge which looks more real. ROOM_FURNITURE_PAINTING judges a
+//  painting an earlier run wrote (its `-painting.png` when the check refused it) instead of asking for a new one.
 //
 
 import AppKit
@@ -52,7 +54,16 @@ private struct RoomCheckInputs {
         keyframeJPEG = try Data(contentsOf: URL(fileURLWithPath: framePath))
         keyframeImage = try loadImage(framePath)
         var floor = try FloorPlane(responseData: Data(contentsOf: URL(fileURLWithPath: try #require(roomCheckEnvironment["ROOM_FURNITURE_FLOOR_REPLY"]))))
-        if let anchorText = roomCheckEnvironment["ROOM_FURNITURE_ANCHOR"] {
+        let sizeCentimeters = try #require(roomCheckEnvironment["ROOM_FURNITURE_SIZE_CM"]).split(separator: "x").compactMap { Double($0) }
+        try #require(sizeCentimeters.count == 3)
+        (widthMeters, heightMeters, depthMeters) = (sizeCentimeters[0] / 100, sizeCentimeters[1] / 100, sizeCentimeters[2] / 100)
+        if roomCheckEnvironment["ROOM_FURNITURE_ANCHOR"] == "spot" {
+            // The spot the app picks, with no texture map, so the check paints where the live panel stands the piece.
+            floor = roomFurnitureSpotWhereTheWholePieceFits(
+                measuredFloor: floor, widthMeters: widthMeters, heightMeters: heightMeters, depthMeters: depthMeters,
+                frameSize: CGSize(width: keyframeImage.width, height: keyframeImage.height), texture: nil
+            ).floor
+        } else if let anchorText = roomCheckEnvironment["ROOM_FURNITURE_ANCHOR"] {
             // The floor point under another pixel: the same plane, met by that pixel's ray.
             let anchorNumbers = anchorText.split(separator: ",").compactMap { Double($0) }
             let ray = SIMD3((anchorNumbers[0] - floor.principalPoint.x) / floor.focalLengthPixels, (anchorNumbers[1] - floor.principalPoint.y) / floor.focalLengthPixels, 1)
@@ -61,9 +72,6 @@ private struct RoomCheckInputs {
                                principalPoint: floor.principalPoint, distanceMeters: simd_length(center), floorTiltDegrees: floor.floorTiltDegrees, planeInlierShare: floor.planeInlierShare)
         }
         self.floor = floor
-        let sizeCentimeters = try #require(roomCheckEnvironment["ROOM_FURNITURE_SIZE_CM"]).split(separator: "x").compactMap { Double($0) }
-        try #require(sizeCentimeters.count == 3)
-        (widthMeters, heightMeters, depthMeters) = (sizeCentimeters[0] / 100, sizeCentimeters[1] / 100, sizeCentimeters[2] / 100)
         let modelPath = try #require(roomCheckEnvironment["ROOM_FURNITURE_MODEL"])
         let modelData = try Data(contentsOf: URL(fileURLWithPath: modelPath))
         modelRootNode = try RoomFurnitureModelLoading.rootNode(fromFileData: modelData, kind: try #require(RoomFurnitureModelFileKind.sniff(modelData)))
@@ -354,17 +362,24 @@ struct RoomFurnitureRoomCheckTests {
         UserDefaults.standard.set(try #require(roomCheckEnvironment["ROOM_FURNITURE_APP_SECRET"]), forKey: ClickyAppSecret.defaultsKey)
         let client = RoomFurnitureGenerationClient(workerBaseURL: try #require(roomCheckEnvironment["ROOM_FURNITURE_WORKER"]))
         let projectedBox = try #require(inputs.floor.keyframeBoxCorners(widthMeters: inputs.widthMeters, heightMeters: inputs.heightMeters, depthMeters: inputs.depthMeters))
-        let maskPNG = try #require(furnitureCompositeMaskPNG(projectedCorners: projectedBox, frameWidth: inputs.keyframeImage.width, frameHeight: inputs.keyframeImage.height, shadowMarginPixels: 24))
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: projectedBox, frameWidth: inputs.keyframeImage.width, frameHeight: inputs.keyframeImage.height, shadowMarginPixels: 24))
         let sizeWords = String(format: "%.0f cm wide, %.0f cm tall, %.0f cm deep", inputs.widthMeters * 100, inputs.heightMeters * 100, inputs.depthMeters * 100)
         let paintingStartedAt = Date()
-        let painted = try await client.paintTheItemIntoTheKeyframe(
-            keyframeJPEG: inputs.keyframeJPEG, keyframeWidth: inputs.keyframeImage.width, keyframeHeight: inputs.keyframeImage.height,
-            productJPEG: try Data(contentsOf: URL(fileURLWithPath: try #require(roomCheckEnvironment["ROOM_FURNITURE_PRODUCT_JPEG"]))),
-            maskPNG: maskPNG, itemTitle: roomCheckEnvironment["ROOM_FURNITURE_TITLE"] ?? inputs.runName, itemSizeWords: sizeWords
-        )
+        // ROOM_FURNITURE_PAINTING judges a painting an earlier run saved, with no new request.
+        let painted: CGImage
+        if let savedPaintingPath = roomCheckEnvironment["ROOM_FURNITURE_PAINTING"] {
+            painted = try loadImage(savedPaintingPath)
+        } else {
+            painted = try await client.paintTheItemIntoTheKeyframe(
+                keyframeJPEG: inputs.keyframeJPEG, keyframeWidth: inputs.keyframeImage.width, keyframeHeight: inputs.keyframeImage.height,
+                productJPEG: try Data(contentsOf: URL(fileURLWithPath: try #require(roomCheckEnvironment["ROOM_FURNITURE_PRODUCT_JPEG"]))),
+                maskPNG: maskPNG, itemTitle: roomCheckEnvironment["ROOM_FURNITURE_TITLE"] ?? inputs.runName, itemSizeWords: sizeWords
+            )
+        }
         let paintingSeconds = Date().timeIntervalSince(paintingStartedAt)
         let painting = RoomFurniturePaintedComposite.itemLayers(painted: painted, keyframe: inputs.keyframeImage, maskPNG: maskPNG, projectedBox: projectedBox)
-        print(String(format: "Room furniture check: painted in %.1f s, painted height %.2f of the measured box", paintingSeconds, painting.paintedHeightRatio ?? -1))
+        print(String(format: "Room furniture check: painted in %.1f s, painted height %.2f of the measured box (%@)", paintingSeconds, painting.paintedHeightRatio ?? -1,
+                     painting.paintedRows.map { roomFurniturePaintedRowsAgainstTheBox($0, projectedBox) } ?? "nothing painted"))
         let paintedFrame = try painting.layers.map { try inputs.composed($0) } ?? painted
 
         let width = inputs.keyframeImage.width, height = inputs.keyframeImage.height
