@@ -130,8 +130,12 @@ Sonnet loses to GPT-6.1 Sol on quality but ties Opus at less than half its cost 
 - **The app's 60 second timeout.** `LiveSceneClient` gives `/live-scene` 60 seconds, and Sonnet's median render is 36 s, so a fallback plus its one retry can pass it.
   The two background agents, the 3D model and the experiment, are not waited on by the learner, so their requests can take 120 seconds with no visible cost.
   Measure the fallback's p95 in the verify run, and raise the timeout for the background builds only if the p95 passes 60 s.
-- **A slow failure.** A bad key fails at once, but a 5xx or a hung request can arrive late (`LiveSceneClient.swift:38` gives 60 seconds in all).
-  A 5xx after 40 seconds leaves Sonnet too little time.
+  Done on 2026-11-22. A Sonnet experiment build took up to 99 seconds in one attempt.
+  Background builds now have a 240 second timeout (`LiveSceneBuildWait`), and a build the learner watches keeps 60 seconds.
+- **A slow failure.** A bad key fails at once.
+  A 5xx or a hung request can arrive late.
+  A build the learner watches has a 60 second timeout in all, and a background build has 240 seconds.
+  On a build the learner watches, a 5xx after 40 seconds leaves Sonnet too little time.
   This PR adds no cap on the GPT wait, since a cap would also cut GPT experiments that run long.
   The verify run records the time of each fallback, and open question 5 covers the timeout.
 - **Experiments on Sonnet are not measured.** The bakeoff judged 3D renders.
@@ -645,7 +649,9 @@ Check Haiku 5.5's minimum with the `claude-api` reference before PR 6 relies on 
 3. **"Always" scope (PR 1).** One task (recommended), or a narrower per-tool target such as a link's host.
 4. **Deleting the old path (PR 9).** After how many days of use, or keep `/voice-command` as a bench baseline.
    Deleting it also ends the no-secret fallback and router benchmarks on GPT and Gemini models.
-5. **PR 0's timeout.** Raise the app's `/live-scene` timeout for the background builds if the Sonnet fallback's p95 passes 60 seconds, or keep 60 and accept a failure on a slow fallback.
+5. **PR 0's timeout.** Decided on 2026-11-22. Background builds have a 240 second timeout, and a build the learner watches keeps 60 seconds.
+   The question was whether to raise the app's `/live-scene` timeout for the background builds if the Sonnet fallback's p95 passed 60 seconds.
+   The other option was to keep 60 seconds and accept a failure on a slow fallback.
    The same choice covers a slow OpenAI failure, which this plan does not cap.
 6. **PR 7's planner tool.** Decided: skipped, only the turn budget rule ships (see PR 7).
 7. **PR 7's cost ceiling.** The Sonnet turn runs only after 3 Haiku turns that still need the model, so no measured run reached it. Set a ceiling if a verify run shows it firing often.

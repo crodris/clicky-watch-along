@@ -1515,8 +1515,10 @@ final class CompanionManager: ObservableObject {
             // Every exit from this step, a "continue" included, stops standing in for the microphone.
             defer { rehearsalPartialTranscript = nil }
             if stepWaitsForTheBackgroundAgents {
-                // A guide takes about 15 seconds and a task agent about 25, so 3 minutes covers a long task and the Worker's retries.
-                for _ in 0..<720 where !backgroundAgentTasks.isEmpty || studyGuideRefreshesBeingChecked > 0 {
+                // A guide takes about 15 seconds and a task agent about 25.
+                // An experiment built on Sonnet can take the whole background build wait, so the loop waits that long plus a minute.
+                let quarterSecondsToWaitForTheAgents = Int((LiveSceneBuildWait.inTheBackground.timeoutSeconds + 60) * 4)
+                for _ in 0..<quarterSecondsToWaitForTheAgents where !backgroundAgentTasks.isEmpty || studyGuideRefreshesBeingChecked > 0 {
                     try? await Task.sleep(nanoseconds: 250_000_000)
                 }
                 await waitForTheLatestResponseTaskToFinish()
@@ -2768,7 +2770,8 @@ final class CompanionManager: ObservableObject {
             let liveScene = try await liveSceneClient.requestLiveScene(
                 question: question,
                 cursorScreenJPEGData: cursorScreenJPEGData,
-                sceneKind: sceneKind
+                sceneKind: sceneKind,
+                buildWait: .whileTheLearnerWatches
             )
             guard requestGeneration == liveSceneRequestGeneration else { return }
             // The rise starts from the cursor screen's screenshot, so the scene plays on that screen.
@@ -4748,7 +4751,7 @@ final class CompanionManager: ObservableObject {
             // asked about. Only the Worker call waits for "go ahead".
             try await holdWhileEveryAgentIsPaused("the \(agentKind.builtThingName)'s build")
             let sceneQuestion = heardText.isEmpty ? whatToBuild : "\(whatToBuild) The video just said: \(heardText)"
-            let liveScene = try await liveSceneClient.requestLiveScene(question: sceneQuestion, cursorScreenJPEGData: videoScreenJPEGData, sceneKind: sceneKind)
+            let liveScene = try await liveSceneClient.requestLiveScene(question: sceneQuestion, cursorScreenJPEGData: videoScreenJPEGData, sceneKind: sceneKind, buildWait: .inTheBackground)
             // A reply that arrives during a pause waits with the agent, and never rises over what the learner held still for.
             try await holdWhileEveryAgentIsPaused("the finished \(agentKind.builtThingName)")
             // A scene cancelled from the agent list never shows, even when the Worker had already replied.

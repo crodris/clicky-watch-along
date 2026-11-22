@@ -131,7 +131,7 @@ Left open by PR 6, for PR 19: the disc right-click menu has no "Try again" item,
 
 Left open by PR 5, for PR 19: the approval card should glide back into its agent disc when answered, and the disc's "!" should turn into a check.
 Left open by PR 9, for PR 19: a ring dot crosses about 3 points into a status line's Callout at the top of its orbit, the shake, hop, and Reduce Motion tints are checked only on rendered frames, and the failure flag `isAFailure` defaults to false, so make it required once the parallel PRs have merged.
-Left open by PR 10: the panel header's quiz progress line (PR 8), and for PR 19, Escape during the summary Card's 0.42 second glide-in shows the whole Card for 0.05 seconds (needs a carrier option), a video pause stays held when a scene build is cancelled on the quiz tab and a jump back to a question then fails, and an experiment built on the Sonnet scene model took 63 seconds, past the app's 60 second wait. The flaky test PR takes the two timing tests that failed under load.
+Left open by PR 10: the panel header's quiz progress line (PR 8), and for PR 19, Escape during the summary Card's 0.42 second glide-in shows the whole Card for 0.05 seconds (needs a carrier option), a video pause stays held when a scene build is cancelled on the quiz tab and a jump back to a question then fails, and an experiment built on the Sonnet scene model took 63 seconds, past the app's 60 second timeout. The experiment build timeout PR gave background builds a 240 second timeout. The flaky test PR takes the two timing tests that failed under load.
 Left open by PR 8, for PR 19: a double flight when the agent list is open under a disc and that agent's chip is picked in the panel, the spec's red menu bar badge for the permission-off and offline banners, a full-name pill wider than its card for a long theme name, and a live look at the approval banner and the quiz line.
 Left open by PR 11, for PR 19: under PR 13's slowest theme a long replay flight leaves about 0.72 seconds of dwell at a stop instead of 1.0.
 A lifted model wider than its video reaches over the page's sidebar, seen on the volcano video, so the camera pan clamp from the prototype findings does not hold for a wide model.
@@ -144,4 +144,5 @@ The Quick Look extension draws its own still cursor, a small copy of the triangl
 
 Left open by PR 14, for PR 19: no test covers the loop view passing the paused flag to an agent's spark.
 The recap watcher reads the front tab every 3 seconds on the main actor, so a spark may jump while an agent works on that video; this is not measured.
-"Let me try it" timed out at 60 seconds on the local Worker in both of PR 14's app runs, which no one has looked into yet.
+"Let me try it" timed out at 60 seconds on the local Worker in both of PR 14's app runs.
+Sonnet had thought for 3,000 to 7,000 tokens first, and the experiment build timeout PR gave background builds 240 seconds.
