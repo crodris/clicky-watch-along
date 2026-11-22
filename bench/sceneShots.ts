@@ -5,8 +5,8 @@
 // Chrome is driven over the DevTools protocol, since the command line can take one screenshot only and cannot wait for
 // the tour to end. A small local server serves the page and three.js, because Chrome refuses a module script from file://.
 
-import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -40,6 +40,75 @@ export type SceneShotOutcome = {
   /** Errors the page threw, which the judge reads as a broken page. */
   pageErrors: string[];
 };
+
+const scratchDirectoryPrefix = "scene-shots-";
+const ownerPidFileName = "owner-pid";
+/** A folder with no owner file is left alone this long, since a run writes the file right after it makes the folder. */
+const unclaimedFolderGraceMs = 60_000;
+
+/**
+ * The headless Chrome processes in `ps -axo pid=,command=` output that run on a scene-shots scratch folder's profile,
+ * with that folder. Helper processes carry the same flags, so one Chrome shows up several times, and killing every pid
+ * is harmless. A Chrome with a window, such as Chris's own, has no --headless flag and never matches.
+ */
+export function sceneShotsChromeProcesses(psOutput: string): { pid: number; scratchDirectory: string }[] {
+  return psOutput.split("\n").flatMap((line) => {
+    const match = /^\s*(\d+)\s.*--headless.*--user-data-dir=(\S*\/scene-shots-[^/\s]+)\/chrome-profile/.exec(line);
+    return match === null ? [] : [{ pid: Number(match[1]), scratchDirectory: match[2] }];
+  });
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means the process exists and belongs to someone else.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** True when no live run owns the folder: its owner process is gone, or it has no owner file and is not brand new. */
+export function sceneShotsFolderIsStale(ownerPidText: string | undefined, folderAgeMs: number, ownerIsAlive: (pid: number) => boolean): boolean {
+  const ownerPid = Number(ownerPidText?.trim());
+  if (ownerPidText === undefined || !Number.isInteger(ownerPid) || ownerPid <= 0) {
+    return folderAgeMs > unclaimedFolderGraceMs;
+  }
+  return !ownerIsAlive(ownerPid);
+}
+
+/**
+ * Kills the headless Chrome and deletes the scratch folder that an earlier run left behind when it was killed
+ * with SIGKILL, which no handler can catch. A Chrome like that has launchd as its parent, answers Apple Events
+ * sent to "Google Chrome" in place of the real Chrome, and fails them with "Executing JavaScript through AppleScript
+ * is turned off". A folder that a live run still owns is left alone, so two judge runs can overlap.
+ */
+export function removeStaleSceneShots() {
+  const staleFolders = readdirSync(tmpdir())
+    .filter((name) => name.startsWith(scratchDirectoryPrefix))
+    .map((name) => join(tmpdir(), name))
+    .filter((folder) => {
+      const ownerPidPath = join(folder, ownerPidFileName);
+      const ownerPidText = existsSync(ownerPidPath) ? readFileSync(ownerPidPath, "utf8") : undefined;
+      return sceneShotsFolderIsStale(ownerPidText, Date.now() - statSync(folder).mtimeMs, processIsAlive);
+    });
+  if (staleFolders.length === 0) {
+    return;
+  }
+  const processList = execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" });
+  for (const { pid, scratchDirectory } of sceneShotsChromeProcesses(processList)) {
+    if (staleFolders.some((folder) => folder === scratchDirectory)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // It exited on its own since ps ran.
+      }
+    }
+  }
+  for (const folder of staleFolders) {
+    rmSync(folder, { recursive: true, force: true });
+  }
+}
 
 const viewport = { width: 1280, height: 800 };
 const tourWaitMs = 20_000;
@@ -124,6 +193,34 @@ function compositePage(firstShotPath: string, secondShotPath: string, firstCapti
   </style></head><body>${figure(firstShotPath, firstCaption)}${figure(secondShotPath, secondCaption)}</body></html>`;
 }
 
+/**
+ * Chrome is a child process, so it outlives a node process that ends without closing the camera. Left running, a
+ * headless Chrome takes the Apple Events that Clicky's checks send to "Google Chrome" (see removeStaleSceneShots).
+ * This kills it, and deletes its scratch folder, when this process exits for any reason it can see: a normal exit,
+ * an uncaught error, process.exit, or SIGINT, SIGTERM, or SIGHUP, which have no default exit once a handler exists,
+ * so the handler exits with the shell's 128 plus the signal number. SIGKILL cannot be caught, so the next
+ * SceneCamera.open cleans up after it. Returns a function that removes the handlers.
+ */
+function killChromeWhenThisProcessEnds(chrome: ChildProcess, scratchDirectory: string): () => void {
+  const killChromeAndForgetItsFolder = () => {
+    chrome.kill("SIGKILL");
+    rmSync(scratchDirectory, { recursive: true, force: true });
+  };
+  const exitSignals = { SIGINT: 2, SIGTERM: 15, SIGHUP: 1 } as const;
+  const signalHandlers = Object.entries(exitSignals).map(([signalName, signalNumber]) => {
+    const handler = () => process.exit(128 + signalNumber);
+    process.once(signalName as keyof typeof exitSignals, handler);
+    return [signalName as keyof typeof exitSignals, handler] as const;
+  });
+  process.once("exit", killChromeAndForgetItsFolder);
+  return () => {
+    process.off("exit", killChromeAndForgetItsFolder);
+    for (const [signalName, handler] of signalHandlers) {
+      process.off(signalName, handler);
+    }
+  };
+}
+
 /** Headless Chrome and the local server, opened once for every page a judge run draws. */
 type SceneCameraParts = {
   chrome: ChildProcess;
@@ -132,6 +229,7 @@ type SceneCameraParts = {
   devToolsOrigin: string;
   scratchDirectory: string;
   pagesByPath: Map<string, string>;
+  stopWatchingForExit: () => void;
 };
 
 export class SceneCamera {
@@ -141,6 +239,7 @@ export class SceneCamera {
   private readonly devToolsOrigin: string;
   private readonly scratchDirectory: string;
   private readonly pagesByPath: Map<string, string>;
+  private readonly stopWatchingForExit: () => void;
 
   private constructor(parts: SceneCameraParts) {
     this.chrome = parts.chrome;
@@ -149,10 +248,13 @@ export class SceneCamera {
     this.devToolsOrigin = parts.devToolsOrigin;
     this.scratchDirectory = parts.scratchDirectory;
     this.pagesByPath = parts.pagesByPath;
+    this.stopWatchingForExit = parts.stopWatchingForExit;
   }
 
   static async open(threeAssetsDirectory: string): Promise<SceneCamera> {
-    const scratchDirectory = mkdtempSync(join(tmpdir(), "scene-shots-"));
+    removeStaleSceneShots();
+    const scratchDirectory = mkdtempSync(join(tmpdir(), scratchDirectoryPrefix));
+    writeFileSync(join(scratchDirectory, ownerPidFileName), String(process.pid));
     const pagesByPath = new Map<string, string>();
     const server = createServer((request, response) => {
       const path = new URL(request.url ?? "/", "http://localhost").pathname;
@@ -193,9 +295,13 @@ export class SceneCamera {
       ],
       { stdio: "ignore" },
     );
+    const stopWatchingForExit = killChromeWhenThisProcessEnds(chrome, scratchDirectory);
     const portFilePath = join(profileDirectory, "DevToolsActivePort");
     if (!(await waitFor(async () => existsSync(portFilePath) && readFileSync(portFilePath, "utf8").includes("\n"), 15_000))) {
-      chrome.kill();
+      stopWatchingForExit();
+      chrome.kill("SIGKILL");
+      server.close();
+      rmSync(scratchDirectory, { recursive: true, force: true });
       throw new Error("Chrome never opened its DevTools port");
     }
     const devToolsPort = readFileSync(portFilePath, "utf8").split("\n")[0];
@@ -206,6 +312,7 @@ export class SceneCamera {
       devToolsOrigin: `http://127.0.0.1:${devToolsPort}`,
       scratchDirectory,
       pagesByPath,
+      stopWatchingForExit,
     });
   }
 
@@ -265,6 +372,7 @@ export class SceneCamera {
     const chromeExited = new Promise((resolve) => this.chrome.once("exit", resolve));
     this.chrome.kill();
     await chromeExited;
+    this.stopWatchingForExit();
     await new Promise((resolve) => this.server.close(resolve));
     rmSync(this.scratchDirectory, { recursive: true, force: true });
   }

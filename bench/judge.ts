@@ -182,44 +182,48 @@ async function main() {
   // A live scene's notes are saved beside its PNG, so a rerun that reuses the PNG still has them.
   const sceneNotesByImageId = new Map<string, string>();
   let sceneCamera: SceneCamera | undefined;
-  for (const [imageId, { reply, context }] of repliesToDraw) {
-    if (context.kind === "liveScene") {
-      const pngPath = join(outDirectory, "images", `${imageId}.png`);
-      const notesPath = `${pngPath}.notes.json`;
-      const sceneHTML = (() => {
-        try {
-          const replyJSON: unknown = JSON.parse(reply.replyText);
-          return typeof replyJSON === "object" && replyJSON !== null && "html" in replyJSON && typeof replyJSON.html === "string" ? replyJSON.html : undefined;
-        } catch {
-          return undefined;
+  // The finally closes Chrome when drawing throws. sceneShots.ts also kills it if the process ends some other way.
+  try {
+    for (const [imageId, { reply, context }] of repliesToDraw) {
+      if (context.kind === "liveScene") {
+        const pngPath = join(outDirectory, "images", `${imageId}.png`);
+        const notesPath = `${pngPath}.notes.json`;
+        const sceneHTML = (() => {
+          try {
+            const replyJSON: unknown = JSON.parse(reply.replyText);
+            return typeof replyJSON === "object" && replyJSON !== null && "html" in replyJSON && typeof replyJSON.html === "string" ? replyJSON.html : undefined;
+          } catch {
+            return undefined;
+          }
+        })();
+        if (sceneHTML === undefined) {
+          overlayImages.set(imageId, undefined);
+          continue;
         }
-      })();
-      if (sceneHTML === undefined) {
+        if (!existsSync(pngPath) || !existsSync(notesPath)) {
+          sceneCamera ??= await SceneCamera.open(join(checkoutRoot, "leanring-buddy", "LiveSceneAssets"));
+          const outcome = await sceneCamera.shoot(sceneHTML, context.sceneKind, pngPath);
+          writeFileSync(notesPath, `${JSON.stringify(outcome)}\n`);
+          console.log(`screenshot ${reply.side} ${reply.caseId} run ${reply.runIndex + 1}: ${outcome.secondShot}${outcome.pageErrors.length > 0 ? `, ${outcome.pageErrors.length} page errors` : ""}`);
+        }
+        sceneNotesByImageId.set(imageId, sceneShotNotes(JSON.parse(readFileSync(notesPath, "utf8"))));
+        overlayImages.set(imageId, imageId);
+        continue;
+      }
+      const page = overlayPage(context, reply.replyText);
+      if (page === undefined) {
         overlayImages.set(imageId, undefined);
         continue;
       }
-      if (!existsSync(pngPath) || !existsSync(notesPath)) {
-        sceneCamera ??= await SceneCamera.open(join(checkoutRoot, "leanring-buddy", "LiveSceneAssets"));
-        const outcome = await sceneCamera.shoot(sceneHTML, context.sceneKind, pngPath);
-        writeFileSync(notesPath, `${JSON.stringify(outcome)}\n`);
-        console.log(`screenshot ${reply.side} ${reply.caseId} run ${reply.runIndex + 1}: ${outcome.secondShot}${outcome.pageErrors.length > 0 ? `, ${outcome.pageErrors.length} page errors` : ""}`);
+      const pngPath = join(outDirectory, "images", `${imageId}.png`);
+      if (!existsSync(pngPath)) {
+        renderOverlayToPNG(page.html, page.width, page.height, pngPath, outDirectory);
       }
-      sceneNotesByImageId.set(imageId, sceneShotNotes(JSON.parse(readFileSync(notesPath, "utf8"))));
       overlayImages.set(imageId, imageId);
-      continue;
     }
-    const page = overlayPage(context, reply.replyText);
-    if (page === undefined) {
-      overlayImages.set(imageId, undefined);
-      continue;
-    }
-    const pngPath = join(outDirectory, "images", `${imageId}.png`);
-    if (!existsSync(pngPath)) {
-      renderOverlayToPNG(page.html, page.width, page.height, pngPath, outDirectory);
-    }
-    overlayImages.set(imageId, imageId);
+  } finally {
+    await sceneCamera?.close();
   }
-  await sceneCamera?.close();
   console.log(`drew ${[...overlayImages.values()].filter((imageId) => imageId !== undefined).length} replies over their frames in ${join(outDirectory, "images")}`);
 
   /** The words the judge reads for a reply, with a live scene's screenshot notes after them. */

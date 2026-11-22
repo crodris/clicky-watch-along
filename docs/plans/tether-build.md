@@ -72,10 +72,10 @@ The 6 bigger ideas follow the build order as PRs 13 to 18: Theme Studio designs 
 
 Only one Clicky and one Worker on port 8787 can run at a time on this Mac, and other sessions use them too.
 
-1. Take the lock with `/bin/mkdir /tmp/clicky-app-check.lock` (plain `mkdir` is aliased to `mkdir -p` and never fails), and write your branch name into `/tmp/clicky-app-check.lock/owner`.
-   If it fails, another agent holds it: wait and retry every 60 seconds.
+1. Take the lock with `.claude/skills/verify-clicky/verify-clicky.sh lock-take <your branch name>`.
+   It names the owner in its error while another agent holds the lock: wait and retry every 60 seconds.
 2. Run `pgrep -fl "Clicky.app/Contents/MacOS/Clicky"`.
-   If any Clicky is running, release the lock, wait 5 minutes, and start again.
+   If any Clicky is running, run `lock-release <your branch name>`, wait 5 minutes, and start again.
 3. Build with `verify-clicky.sh build`.
 4. If Chris's Worker holds port 8787 (tmux session `clicky-worker-8787`, serving the main checkout's `worker/`), stop it with `tmux send-keys -t clicky-worker-8787 C-c` and wait for the port to free.
 5. Run `verify-clicky.sh worker-up 8787`, then `app-launch`, and take your evidence.
@@ -83,9 +83,10 @@ Only one Clicky and one Worker on port 8787 can run at a time on this Mac, and o
 7. Restart Chris's Worker in its tmux session with exactly:
    `tmux send-keys -t clicky-worker-8787 'WRANGLER_SEND_METRICS=false pnpm wrangler dev --port 8787 --ip 127.0.0.1 --var LIVE_SCENE_MODEL:sonnet 2>&1 | tee -a ~/Library/Logs/clicky-worker-8787.log' Enter`
    Then confirm `curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8787/judge-answer -H 'Content-Type: application/json' -d '{}'` prints 400, once at once and again a minute later.
-8. Release the lock with `rm -r /tmp/clicky-app-check.lock`.
+8. Release the lock with `verify-clicky.sh lock-release <your branch name>`.
 
 Hold the lock for at most 20 minutes.
+Never remove `/tmp/clicky-app-check.lock` by hand: `lock-release` refuses a lock that another owner holds and names that owner, and a lock you did not take is another agent's running check.
 Never change a system setting such as Reduce Motion; check Reduce Motion paths with renders and tests.
 
 ## Status
