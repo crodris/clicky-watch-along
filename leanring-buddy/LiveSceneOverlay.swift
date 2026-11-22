@@ -601,9 +601,9 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         return (pageResult as? [String]) ?? []
     }
 
-    /// Where each part label sits on screen, read with getBoundingClientRect once the camera has
-    /// finished gliding to the focused part, so the blue cursor can point at it. Only the bundled
-    /// frame pop-out answers. Any other page gives an empty list.
+    /// Where the blue cursor points for each part, read once the camera has finished gliding to the focused part:
+    /// the point on the model where the part's leader line ends, or the label's box (getBoundingClientRect) for a label
+    /// with no leader. Only the bundled frame pop-out answers. Any other page gives an empty list.
     func partLabelScreenPointsOnceTheCameraSettles() async -> [LiveScenePartScreenPoint] {
         guard let liveSceneWebView, pageHasFinishedLoading else { return [] }
         let pageResult = try? await liveSceneWebView.callAsyncJavaScript(
