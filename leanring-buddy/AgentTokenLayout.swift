@@ -47,10 +47,12 @@ func agentsWithTokens(from agents: [BackgroundAgent], at now: Date) -> [Backgrou
 
 // MARK: - Positions
 
-/// One disc beside the notch: an agent's token, or the "+N" disc after them.
+/// One disc beside the notch: an agent's token, the "+N" disc after them, or the one paused disc every token folds into
+/// while the learner has paused every agent (`agentTokenSlotsLeftToRight`).
 enum AgentTokenSlot: Hashable {
     case agent(UUID)
     case overflow
+    case paused
 }
 
 /// One disc on one display. The same agent has a disc on every display whose menu bar shows, so a display belongs to the

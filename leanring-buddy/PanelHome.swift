@@ -156,8 +156,17 @@ func panelProblemBannerWords(for banner: PanelBanner) -> PanelProblemBannerWords
 struct PanelAgentsSummary: Equatable {
     let workingCount: Int
     let resultsWaitingCount: Int
+    /// The learner paused every agent ("hold on"), so the running agents are held, not working.
+    let agentsArePaused: Bool
+    /// A request waits for the learner's OK. "Go ahead" would answer it with a yes, so the paused row asks for the answer
+    /// first, as the paused disc's peek does.
+    let anApprovalWaits: Bool
 
-    var mainText: String { workingCount == 0 ? "No agents working" : "\(workingCount) working" }
+    var mainText: String {
+        guard workingCount > 0 else { return "No agents working" }
+        guard agentsArePaused else { return "\(workingCount) working" }
+        return anApprovalWaits ? "\(workingCount) paused · answer the request first" : "\(workingCount) paused · say go ahead"
+    }
     var secondaryText: String? {
         switch resultsWaitingCount {
         case 0: return nil
@@ -168,11 +177,11 @@ struct PanelAgentsSummary: Equatable {
 }
 
 /// The row shows while any agent runs or any finished result still waits, even with nothing running.
-func panelAgentsSummary(agents: [BackgroundAgent], at now: Date) -> PanelAgentsSummary? {
+func panelAgentsSummary(agents: [BackgroundAgent], agentsArePaused: Bool, anApprovalWaits: Bool, at now: Date) -> PanelAgentsSummary? {
     let workingCount = agents.filter(\.isRunning).count
     let resultsWaitingCount = agents.filter { $0.tokenRank(at: now) == .waitingResult }.count
     guard workingCount + resultsWaitingCount > 0 else { return nil }
-    return PanelAgentsSummary(workingCount: workingCount, resultsWaitingCount: resultsWaitingCount)
+    return PanelAgentsSummary(workingCount: workingCount, resultsWaitingCount: resultsWaitingCount, agentsArePaused: agentsArePaused, anApprovalWaits: anApprovalWaits)
 }
 
 // MARK: - Theme cards

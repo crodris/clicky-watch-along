@@ -138,19 +138,19 @@ struct PanelHomeTests {
     }
 
     @Test func theAgentsRowCountsWorkingAgentsAndWaitingResultsAndHidesWithNeither() throws {
-        #expect(panelAgentsSummary(agents: [], at: now) == nil)
+        #expect(panelAgentsSummary(agents: [], agentsArePaused: false, anApprovalWaits: false, at: now) == nil)
         let running = agent(.running(completedStepCount: 0))
         let waitingAnswer = agent(.finished(.answer(spokenSummary: "It was caught", pageURL: nil)), endedSecondsAgo: 30, resultIsWaiting: true)
         let heardAnswer = agent(.finished(.answer(spokenSummary: "It was caught", pageURL: nil)), endedSecondsAgo: 30, resultIsWaiting: false)
         let expiredAnswer = agent(.finished(.answer(spokenSummary: "It was caught", pageURL: nil)), endedSecondsAgo: 11 * 60, resultIsWaiting: true)
-        let summary = try #require(panelAgentsSummary(agents: [running, running, waitingAnswer, heardAnswer, expiredAnswer], at: now))
+        let summary = try #require(panelAgentsSummary(agents: [running, running, waitingAnswer, heardAnswer, expiredAnswer], agentsArePaused: false, anApprovalWaits: false, at: now))
         #expect(summary.mainText == "2 working")
         #expect(summary.secondaryText == "1 result waiting")
         // The row stays while a result waits, even with nothing running.
-        let onlyAWaitingResult = panelAgentsSummary(agents: [waitingAnswer], at: now)
+        let onlyAWaitingResult = panelAgentsSummary(agents: [waitingAnswer], agentsArePaused: false, anApprovalWaits: false, at: now)
         #expect(onlyAWaitingResult?.mainText == "No agents working")
         #expect(onlyAWaitingResult?.secondaryText == "1 result waiting")
-        #expect(panelAgentsSummary(agents: [heardAnswer, expiredAnswer], at: now) == nil)
+        #expect(panelAgentsSummary(agents: [heardAnswer, expiredAnswer], agentsArePaused: false, anApprovalWaits: false, at: now) == nil)
     }
 
     // MARK: - Theme cards

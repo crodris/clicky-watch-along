@@ -477,6 +477,26 @@
       "readOnly": false
     },
     {
+      "name": "pause_agents",
+      "description": "Pause every background agent, the ones in the scene state's backgroundAgents: none starts its next step or shows its result until the learner says go ahead, and their discs fold into one paused disc. Use it when the learner says hold on, hold on a second, pause the agents, or hold everything. A bare hold on means the agents, never the video, even while a video plays. Do not use it when hold on only starts a question or another command, such as \"hold on, what is that\", which is that question or command, and use pause_video to pause the video. Your confirmation is a few plain words, such as \"holding them\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "resume_agents",
+      "description": "Let every paused background agent go on from where it stopped, and send their discs back to their places. Use it when the learner says go ahead, keep going, carry on, continue, or resume the agents. When go ahead only starts another command, such as \"go ahead and pop this out\", use that command's tool instead. Your confirmation is a few plain words, such as \"back to work\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
       "name": "record_guess",
       "description": "Record the learner's guess to the simulation's prediction question, the scene state's predictionQuestion, which unlocks the Run button and the dashed path. Use it for any answer to that question, even a short or unsure one, such as \"60 goes farther\", \"they tie\", or \"the first one\". Do not use it for a command such as changing a control or running it. Put the guess in guess, in the learner's words. Your confirmation is a few plain words, such as \"got it, now try it\".",
       "inputSchema": {
@@ -579,7 +599,7 @@
     },
     {
       "name": "show_art_in_my_room",
-      "description": "Hang the picture or wall art on Chrome's front tab on the learner's wall in their live camera view, at its real size from the page. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room'.",
+      "description": "Try the item on Chrome's front tab in the learner's room, in their live camera view. Wall art hangs on their wall at its real size from the page. Furniture and clothes are read too, but not placed yet, and the app says so. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room', also when the item is a chair or a shirt.",
       "inputSchema": {
         "type": "object",
         "properties": {},

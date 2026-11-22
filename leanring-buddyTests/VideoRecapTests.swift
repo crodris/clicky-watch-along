@@ -382,13 +382,27 @@ struct VideoRecapTests {
         let controller = VideoQuizSummaryPanelController()
         var closedWithGlideOrigins: [CGPoint] = []
         controller.onClosed = { closedWithGlideOrigins.append($0) }
+        // The video sits on the first screen, so the Card shows there whichever display the mouse is on.
+        let videoRect = CGRect(x: screen.frame.midX - 200, y: screen.frame.midY - 100, width: 400, height: 225)
         let landingPoint = CGPoint(x: screen.frame.midX + 7, y: screen.frame.midY + 3)
-        controller.show(recap: recap, moment: .videoEnded, cursorPoint: landingPoint, videoRect: nil, accentColor: Color(hex: "#3380FF"), goBackToTheMissedQuestion: { _ in }, openTheStudyGuide: {})
+        controller.show(recap: recap, moment: .videoEnded, cursorPoint: landingPoint, videoRect: videoRect, accentColor: Color(hex: "#3380FF"), goBackToTheMissedQuestion: { _ in }, openTheStudyGuide: {})
         #expect(controller.isShowing)
         controller.close(animated: false)
         // Closing a Card that is not showing reports nothing, so the discs are sent back once.
         controller.close(animated: false)
         #expect(closedWithGlideOrigins == [landingPoint])
+    }
+
+    @Test func theGlideOriginIsWhereTheDiscsLandedUnlessThatIsOffTheCardsDisplay() {
+        // Two displays side by side, with made-up frames, so the result never depends on this Mac's displays.
+        let cardScreenFrame = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let videoRect = CGRect(x: 200, y: 300, width: 800, height: 450)
+        let mouseLocation = CGPoint(x: 50, y: 60)
+        let landedOnTheCardsDisplay = CGPoint(x: 862, y: 556.5)
+        let landedOnTheOtherDisplay = CGPoint(x: 1922.5, y: 972.5)
+        #expect(videoRecapGlideOrigin(cursorPoint: landedOnTheCardsDisplay, cardScreenFrame: cardScreenFrame, videoRect: videoRect, mouseLocation: mouseLocation) == landedOnTheCardsDisplay)
+        #expect(videoRecapGlideOrigin(cursorPoint: landedOnTheOtherDisplay, cardScreenFrame: cardScreenFrame, videoRect: videoRect, mouseLocation: mouseLocation) == CGPoint(x: 600, y: 750))
+        #expect(videoRecapGlideOrigin(cursorPoint: nil, cardScreenFrame: cardScreenFrame, videoRect: nil, mouseLocation: mouseLocation) == mouseLocation)
     }
 
     @Test func aLandingPointOffTheCardsDisplayFallsBackToTheVideosTopEdge() throws {

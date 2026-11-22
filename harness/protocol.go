@@ -23,13 +23,15 @@ type inboundMessage interface {
 
 // startTaskMessage starts a task agent on the learner's goal. frontTabTitle and frontTabURL describe the page the learner
 // is watching, which "this" in the goal refers to. Both are nil when no tab was found. Skill, when present, names a
-// skill file (see skills.go) whose steps the task follows.
+// skill file (see skills.go) whose steps the task follows. StartsPaused is true for a task the app starts while the
+// learner has paused every agent, so its first turn waits for resume_task (see pause.go).
 type startTaskMessage struct {
 	TaskID        string  `json:"taskID"`
 	Goal          string  `json:"goal"`
 	FrontTabTitle *string `json:"frontTabTitle"`
 	FrontTabURL   *string `json:"frontTabURL"`
 	Skill         *string `json:"skill"`
+	StartsPaused  bool    `json:"startsPaused"`
 }
 
 // toolResultMessage answers one tool_call. Content is a JSON string or an array of content blocks, such as the image
@@ -125,6 +127,17 @@ type cancelTaskMessage struct {
 	RunningToolUseID string `json:"runningToolUseID,omitempty"`
 }
 
+// pauseTaskMessage holds a task agent's next turn and next tool call until resumeTaskMessage, when the learner says
+// "hold on". A turn or a call already in flight finishes, and a pending approval stays pending (see pause.go).
+type pauseTaskMessage struct {
+	TaskID string `json:"taskID"`
+}
+
+// resumeTaskMessage lets a paused task go on, when the learner says "go ahead".
+type resumeTaskMessage struct {
+	TaskID string `json:"taskID"`
+}
+
 // approvalResultMessage answers one approval_request. It names the request by approvalID alone, since the harness made
 // the ID and it is unique across tasks. Scope is "once" (this call only) or "always" (this tool at this capability, for
 // the rest of the task that asked). A "no" is never remembered, whatever its scope.
@@ -142,6 +155,8 @@ const (
 func (startTaskMessage) inboundMessage()           {}
 func (toolResultMessage) inboundMessage()          {}
 func (cancelTaskMessage) inboundMessage()          {}
+func (pauseTaskMessage) inboundMessage()           {}
+func (resumeTaskMessage) inboundMessage()          {}
 func (approvalResultMessage) inboundMessage()      {}
 func (voiceCommandMessage) inboundMessage()        {}
 func (resetSessionMessage) inboundMessage()        {}
@@ -213,6 +228,18 @@ func parseInboundMessage(line []byte) (inboundMessage, error) {
 		}
 		if message.TaskID == "" {
 			return nil, fmt.Errorf("cancel_task needs a taskID")
+		}
+		return message, nil
+	case "pause_task":
+		var message pauseTaskMessage
+		if err := json.Unmarshal(line, &message); err != nil || message.TaskID == "" {
+			return nil, fmt.Errorf("pause_task needs a taskID")
+		}
+		return message, nil
+	case "resume_task":
+		var message resumeTaskMessage
+		if err := json.Unmarshal(line, &message); err != nil || message.TaskID == "" {
+			return nil, fmt.Errorf("resume_task needs a taskID")
 		}
 		return message, nil
 	case "approval_result":
