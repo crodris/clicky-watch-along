@@ -135,6 +135,8 @@ final class CompanionManager: ObservableObject {
     @Published var detectedElementBubbleText: String?
     /// How long the buddy stays on the detected element. A 3D scene part holds until its narration ends.
     @Published var detectedElementPointingHold: BuddyPointingHold = .briefly
+    /// Counts up each time an instant replay stops the buddy where it is, which BlueCursorView observes.
+    @Published private(set) var buddyFreezeCount = 0
     /// The cursor's latest nod, shake, or hop, which BlueCursorView plays. Set only through `playCursorEmote`.
     @Published private(set) var cursorEmoteRequest: CursorEmoteRequest?
 
@@ -195,6 +197,35 @@ final class CompanionManager: ObservableObject {
     private let savedStudyGuides = SavedStudyGuides(userDefaults: .standard)
     /// The hold that keeps the blue cursor on a quiz question's "?" label, so only the end of that question releases it.
     private var quizQuestionPointingID: UUID?
+    /// The one hold an instant replay points the buddy with, so only the replay releases it.
+    private let instantReplayPointingID = UUID()
+    private let instantReplayPanelController = InstantReplayPanelController()
+    /// The pointing stops of the latest narration of the pop-out on screen, played again with no model call.
+    private lazy var instantReplay = InstantReplayController(stage: InstantReplayStage(
+        focusStop: { replayStop in LiveSceneOverlay.shared.focusReplayStop(replayStop) },
+        endFocus: { LiveSceneOverlay.shared.endFocus() },
+        showStopNumbers: { partLabels, pathReachesStop in
+            LiveSceneOverlay.shared.showReplayStopNumbers(partLabels: partLabels, pathReachesStop: pathReachesStop)
+        },
+        hideStopNumbers: { LiveSceneOverlay.shared.hideReplayStopNumbers() },
+        labelScreenPointOnceTheCameraSettles: { partLabel in
+            await LiveSceneOverlay.shared.partLabelScreenPointsOnceTheCameraSettles().first { labelScreenPoint in labelScreenPoint.label == partLabel }
+        },
+        pointTheCursor: { [unowned self] labelScreenPoint, sentence in
+            self.pointTheBuddyForTheReplay(at: labelScreenPoint, sentence: sentence)
+        },
+        freezeTheCursor: { [unowned self] in
+            // Only the replay's own pointing is stopped, so a cursor pointing for an answer keeps its own fly-back.
+            guard cursorPointsForTheReplay(pointingHold: self.detectedElementPointingHold, replayPointingID: self.instantReplayPointingID) else { return }
+            self.buddyFreezeCount += 1
+        },
+        releaseTheCursor: { [unowned self] in self.releaseTheBuddyTheReplayFroze() },
+        clearTheFocus: { LiveSceneOverlay.shared.highlightPart(labelText: "") },
+        reduceMotionIsOn: { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion },
+        sleep: { seconds in try await Task.sleep(for: .seconds(seconds)) },
+        showControl: { [unowned self] controlVersion in self.showTheInstantReplayControl(controlVersion: controlVersion) },
+        hideControl: { [unowned self] in self.instantReplayPanelController.hide() }
+    ))
     /// The Chrome tab each Notion page opened in, a guide's or a task agent's, so open_study_guide switches to it
     /// instead of opening the page twice.
     private var notionPageChromeTabIDsByPageURL: [URL: Int] = [:]
@@ -580,12 +611,21 @@ final class CompanionManager: ObservableObject {
         }
         LiveSceneOverlay.shared.onASceneStartedToShow = { [weak self] in
             self?.cursorLoopController.end(because: .aSceneStartedToShow)
+            // A new scene can replace one with no clear first, so the old scene's replay stops and control go with it.
+            self?.instantReplay.forget()
             // A scene rises over the video the quiz summary sits on, so the Card goes back into the video.
             self?.cancelTheVideoRecapGather()
             self?.videoQuizSummaryPanelController.close(animated: true)
         }
         LiveSceneOverlay.shared.onPartTapped = { [weak self] untrustedTappedLabel in
-            self?.explainTheTappedPart(untrustedTappedLabel: untrustedTappedLabel)
+            guard let self else { return }
+            // During a replay a click on a stop's label steps there, instead of starting a new, paid explanation.
+            if self.instantReplay.goToStop(partLabel: untrustedTappedLabel) { return }
+            self.explainTheTappedPart(untrustedTappedLabel: untrustedTappedLabel)
+        }
+        LiveSceneOverlay.shared.onReplayStopTapped = { [weak self] untrustedStopIndex in
+            guard let self, !self.videoQuizQuestionIsActive else { return }
+            self.instantReplay.goToStop(index: untrustedStopIndex)
         }
         videoQuizSession.onQuizEnded = { [weak self] _ in
             self?.showTheVideoQuizSummary()
@@ -719,6 +759,14 @@ final class CompanionManager: ObservableObject {
                 self?.onboardingMusicFadeTimer = nil
             }
         }
+    }
+
+    /// Whether the pointing bubble leaves by shrinking into the cursor, noted by a push-to-talk press and taken once by the overlay.
+    private var pointingBubbleExitRecord = PointingBubbleExitRecord()
+
+    /// The overlay asks this once, as it hides the pointing bubble.
+    func takeThePointingBubbleExit() -> TetherCalloutExit {
+        pointingBubbleExitRecord.takeTheExit()
     }
 
     /// Asks the cursor to nod (a command was heard), shake (a failure or a first wrong answer), or hop (a right answer).
@@ -1307,6 +1355,12 @@ final class CompanionManager: ObservableObject {
             // Cancel any in-progress response and TTS from a previous utterance
             currentResponseTask?.cancel()
             elevenLabsTTSClient.stopPlayback()
+            // A replay stops its camera and travel and stays open at its stop, so "next" and "back" still work.
+            instantReplay.stopTheTravelForAPress()
+            // The learner interrupted, so a narration's bubble shrinks into the cursor instead of fading up.
+            pointingBubbleExitRecord.noteThatTheLearnerInterrupted(
+                pointingHold: detectedElementScreenLocation == nil ? nil : detectedElementPointingHold
+            )
             clearDetectedElementLocation()
             // A cancelled narration or scene line returns without leaving the responding state, and the
             // dictation binding never replaces responding, so the listening ring would not show.
@@ -1671,6 +1725,10 @@ final class CompanionManager: ObservableObject {
             handleVideoQuizVoiceCommand(videoQuizCommand)
         case .putTheSceneBack:
             respondToTranscript(transcript: transcript, requestedSceneKind: nil)
+        case .replayTheExplanation:
+            // "Show me again" replays the recorded stops with no model call, so it never builds a paid scene.
+            print("Instant replay: replaying on request")
+            instantReplay.playFromTheStart()
         // "Animate this" and "let me try it" keep their keyword branches ahead of the router, so a demo never depends on
         // the model choosing them, unless the brain flag hands the utterance to the router.
         case .keywordBranch(.animatePicture):
@@ -1864,7 +1922,8 @@ final class CompanionManager: ObservableObject {
             taskAnswerIsReady: taskAnswerWaitsToBeHeard,
             approvalIsWaiting: approvalAtThePressStillWaiting != nil,
             backgroundAgentIsRunning: backgroundAgentStore.anAgentIsRunning,
-            backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused
+            backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused,
+            replayStopsAreRecorded: replayStopsAreRecordedForTheSceneOnScreen
         )
     }
 
@@ -1947,6 +2006,8 @@ final class CompanionManager: ObservableObject {
     /// screenshot answer. requestedSceneKind comes from the transcript's keywords, or from the voice
     /// command model when it decides the request needs a new scene.
     private func respondToTranscript(transcript: String, requestedSceneKind: LiveSceneKind?) {
+        // A new answer, scene, or pop-out takes the screen, so an open replay ends with its camera and cursor where they are.
+        instantReplay.endIfOpen()
         currentResponseTask?.cancel()
         liveSceneRequestTask?.cancel()
         liveSceneTourFinishedTask?.cancel()
@@ -2168,7 +2229,7 @@ final class CompanionManager: ObservableObject {
                 // until the audio actually starts playing, then switch to responding.
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     do {
-                        try await elevenLabsTTSClient.speakText(spokenText)
+                        try await speakTextEndingAnOpenReplay(spokenText)
                         // speakText returns once the first streamed audio is playing, so the voice state can switch now
                         voiceState = .responding
                     } catch is CancellationError {
@@ -2669,6 +2730,7 @@ final class CompanionManager: ObservableObject {
     /// cancelled narration can stay stuck reading label places from a page that is gone, so the clear releases it.
     /// The page's record and an experiment's lesson end here too, so the voice router never reads a question of a scene that is gone.
     func clearTheLiveSceneAndReleaseTheBuddy() {
+        instantReplay.forget()
         LiveSceneOverlay.shared.clear()
         liveScenePageOnScreen = nil
         simulationLesson = nil
@@ -2966,6 +3028,8 @@ final class CompanionManager: ObservableObject {
             videoQuizSession.start()
             spokenLine = "Sure, let me read through this video."
         case .stop:
+            // The quiz summary Card shows over the video when the quiz ends, so an open replay ends first and its control goes with it.
+            instantReplay.endAndForget()
             // A question's block below resets the phase, so whether a scene was building is read first.
             let aSceneWasBuilding: Bool
             if case .buildingScene = liveScenePhase { aSceneWasBuilding = true } else { aSceneWasBuilding = false }
@@ -3108,8 +3172,8 @@ final class CompanionManager: ObservableObject {
     /// is, does nothing more when the menu bar panel took it as its own close, only cancels the settings dial when it is
     /// open, only closes the agent list when that is open, and then closes the Theme Studio card when that is open, keeping
     /// the old theme, then answers an "Add theme?" card with a no, then closes the room art panel (or stops its page read),
-    /// then stops a recap's disc gather, then closes the quiz summary Card. Otherwise it ends the scene and anything Clicky
-    /// is still saying about it.
+    /// then stops a recap's disc gather, then closes the quiz summary Card, and then ends an open instant replay, leaving the
+    /// pop-out on screen. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
@@ -3154,6 +3218,11 @@ final class CompanionManager: ObservableObject {
         // With the quiz summary open, Escape closes it.
         if videoQuizSummaryPanelController.isShowing {
             videoQuizSummaryPanelController.close(animated: true)
+            return
+        }
+        // An open instant replay ends next, with the camera and the cursor stopped where they are and the pop-out
+        // still on screen, so a second Escape sends the pop-out back as before.
+        if instantReplay.endIfOpen() {
             return
         }
         // A second Escape while a pop-out lands in its frame hides it at once.
@@ -3521,7 +3590,9 @@ final class CompanionManager: ObservableObject {
             themeStudioIsOpen: themeStudioController.isOpen,
             themeStudioShowsIdeas: themeStudioController.state.isShowingIdeas,
             backgroundAgentIsRunning: backgroundAgentStore.anAgentIsRunning,
-            backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused
+            backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused,
+            replayStopsAreRecorded: replayStopsAreRecordedForTheSceneOnScreen,
+            replayIsOpen: replayStopsAreRecordedForTheSceneOnScreen && instantReplay.isOpen
         )
     }
 
@@ -3925,6 +3996,13 @@ final class CompanionManager: ObservableObject {
                     self.respondToTranscript(transcript: "what does the \(requestedLabel) do?", requestedSceneKind: nil)
                 }
             }
+        case .replayExplanation:
+            return .handOff { self.instantReplay.playFromTheStart() }
+        case .replayStep:
+            guard let replayStep = input["step"]?.stringValue.flatMap(InstantReplayStep.init(rawValue:)) else {
+                return .outcome(.failed(error: "step must be next, back, or end", state: nil))
+            }
+            return .handOff { self.instantReplay.step(replayStep) }
         case .pauseVideo:
             return .outcome(runLearnerVideoCommand(.pause))
         case .playVideo:
@@ -4056,6 +4134,8 @@ final class CompanionManager: ObservableObject {
         pushToTalkPressCountWhenTheThemeDesignStarted = pushToTalkPressCount
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
+        // The panel's Design one card starts a design with no press, so a replay still playing ends here, before the card opens.
+        instantReplay.endForAnotherAnswer()
         cancelTheSceneStillBuilding()
         if pictureChoice == .captureAgain {
             theRequestBecameALookAtTheMedia()
@@ -5289,6 +5369,9 @@ final class CompanionManager: ObservableObject {
            let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: agentHarness.approvalDesk.oldestWaitingRequest) {
             sceneStateFields["approvalWaiting"] = .string(approvalWaitingState)
         }
+        if replayStopsAreRecordedForTheSceneOnScreen {
+            sceneStateFields["replay"] = voiceCommandReplayState(phase: instantReplay.phase, stopCount: instantReplay.stops.count)
+        }
         if let themeStudioState = voiceCommandThemeStudioState(themeStudioController.state) {
             sceneStateFields["themeStudio"] = themeStudioState
         }
@@ -5355,7 +5438,7 @@ final class CompanionManager: ObservableObject {
         await waitForClickyToFinishSpeaking()
         guard !Task.isCancelled else { return }
         do {
-            try await elevenLabsTTSClient.speakText(status)
+            try await speakTextEndingAnOpenReplay(status)
             print("Live scene status spoken: \(status)")
         } catch is CancellationError {
             return
@@ -5364,6 +5447,21 @@ final class CompanionManager: ObservableObject {
         } catch {
             print("Live scene status line failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Every line Clicky says goes through here or through `playLineEndingAnOpenReplay`. A replay is silent, so a line
+    /// starting means another answer, and an open replay ends first, so it never moves the camera or the cursor under that
+    /// answer, whichever surface started it.
+    @discardableResult
+    private func speakTextEndingAnOpenReplay(_ text: String) async throws -> SpokenLineToken {
+        instantReplay.endForAnotherAnswer()
+        return try await elevenLabsTTSClient.speakText(text)
+    }
+
+    /// `speakTextEndingAnOpenReplay` for a line whose audio was fetched ahead, such as a voice command's line.
+    private func playLineEndingAnOpenReplay(_ lineFetch: SpokenLineFetch) async throws -> SpokenLineToken {
+        instantReplay.endForAnotherAnswer()
+        return try await elevenLabsTTSClient.play(lineFetch)
     }
 
     /// How far through `text` Clicky's voice is, from 0 to 1, or nil when Clicky is not speaking that line.
@@ -5402,7 +5500,7 @@ final class CompanionManager: ObservableObject {
     private func speakTheFetchedLineAndReturnItsToken(_ lineFetch: SpokenLineFetch, isAFailure: Bool = false) async -> SpokenLineToken? {
         if isAFailure { playCursorEmote(.shake) }
         do {
-            let lineToken = try await elevenLabsTTSClient.play(lineFetch)
+            let lineToken = try await playLineEndingAnOpenReplay(lineFetch)
             voiceState = .responding
             return lineToken
         } catch is CancellationError {
@@ -5423,8 +5521,22 @@ final class CompanionManager: ObservableObject {
     /// and the cursor points at nothing.
     private func narrateTheFramePopout(_ framePopout: VideoFramePopout, narrationTrigger: LiveSceneNarrationTrigger) async {
         let narrationID = UUID()
+        // Each part the cursor pointed at becomes an instant replay stop, offered once the narration ends, a cut-off one
+        // included, and only while the same scene is still on screen.
+        let sceneNumberOfThisNarration = LiveSceneOverlay.shared.scenesPlayedCount
+        var recordedReplayStops: [ReplayStop] = []
+        // A replay must not move the camera or the cursor over a narration, so an open one ends and the control hides now.
+        let replayNarrationNumber = instantReplay.narrationStarted()
         // Every exit, a cancelled one too, sends the buddy back to the mouse if it still points for this narration.
-        defer { releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID: narrationID) }
+        defer {
+            releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID: narrationID)
+            instantReplay.narrationEnded(
+                narrationNumber: replayNarrationNumber,
+                recordedStops: recordedReplayStops,
+                sceneNumber: sceneNumberOfThisNarration,
+                sceneIsStillOnScreen: LiveSceneOverlay.shared.isShowingAScene && LiveSceneOverlay.shared.scenesPlayedCount == sceneNumberOfThisNarration
+            )
+        }
         let knownPartLabels = framePopout.parts.map(\.label)
         var sourceImagesForNarration: [(data: Data, label: String)] = []
         if let sourceImageJPEGData = Data(base64Encoded: framePopout.frameGrab.jpeg) {
@@ -5448,11 +5560,13 @@ final class CompanionManager: ObservableObject {
         print("Frame pop-out narration: \(spokenParts.count) sentences for \(narrationTrigger)")
         for spokenPart in spokenParts {
             guard !Task.isCancelled else { return }
-            await speakLiveSceneNarrationSentence(
+            if let replayStop = await speakLiveSceneNarrationSentence(
                 spokenPart.spokenText,
                 aboutPartLabel: knownPartLabel(matching: spokenPart.partLabel, knownPartLabels: knownPartLabels),
                 narrationID: narrationID
-            )
+            ) {
+                recordedReplayStops = replayStops(recordedReplayStops, adding: replayStop)
+            }
         }
         guard !Task.isCancelled else { return }
         LiveSceneOverlay.shared.highlightPart(labelText: "")
@@ -5476,6 +5590,8 @@ final class CompanionManager: ObservableObject {
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         showTheCursorOverlayForThisInteraction()
+        // A new explanation replaces the replay's stops, so a replay still open ends first.
+        instantReplay.endIfOpen()
         // The mouse is on the clicked label, so the buddy flies back there while Claude writes the answer.
         if detectedElementPointingHold.holdsUntilReleased {
             clearDetectedElementLocation()
@@ -5492,7 +5608,8 @@ final class CompanionManager: ObservableObject {
     }
 
     /// A nil part label means the sentence names no part on the model, so nothing is highlighted or pointed at.
-    private func speakLiveSceneNarrationSentence(_ spokenText: String, aboutPartLabel partLabel: String?, narrationID: UUID) async {
+    /// Returns the instant replay stop of a sentence whose part the cursor pointed at, with the camera pose then.
+    private func speakLiveSceneNarrationSentence(_ spokenText: String, aboutPartLabel partLabel: String?, narrationID: UUID) async -> ReplayStop? {
         guard let partLabel else {
             await speakLiveSceneLine(spokenText)
             // The buddy stays on the last part it pointed at, and its bubble follows what Clicky says now.
@@ -5500,20 +5617,78 @@ final class CompanionManager: ObservableObject {
                 detectedElementBubbleText = spokenText
             }
             await waitForClickyToFinishSpeaking()
-            return
+            return nil
         }
         LiveSceneOverlay.shared.highlightPart(labelText: partLabel)
-        // The label's place is read once the camera stops gliding to the part, while the sentence starts playing.
+        // The label's place and the camera's pose are read once the camera stops gliding to the part, while the sentence starts playing.
         let settledLabelScreenPointsTask = Task {
-            await LiveSceneOverlay.shared.partLabelScreenPointsOnceTheCameraSettles()
+            let settledLabelScreenPoints = await LiveSceneOverlay.shared.partLabelScreenPointsOnceTheCameraSettles()
+            return (settledLabelScreenPoints, await LiveSceneOverlay.shared.cameraPoseForTheReplay())
         }
         await speakLiveSceneLine(spokenText)
-        let settledLabelScreenPoints = await settledLabelScreenPointsTask.value
+        let (settledLabelScreenPoints, settledCameraPose) = await settledLabelScreenPointsTask.value
+        var replayStop: ReplayStop?
         if !Task.isCancelled,
            let partScreenPoint = settledLabelScreenPoints.first(where: { labelScreenPoint in labelScreenPoint.label == partLabel }) {
             pointTheBuddy(atLiveScenePart: partScreenPoint, bubbleText: spokenText, narrationID: narrationID)
+            replayStop = ReplayStop(partLabel: partLabel, sentence: spokenText, cameraPose: settledCameraPose)
         }
         await waitForClickyToFinishSpeaking()
+        return replayStop
+    }
+
+    // MARK: - Instant replay
+
+    private var replayStopsAreRecordedForTheSceneOnScreen: Bool {
+        LiveSceneOverlay.shared.isShowingAScene && instantReplay.stopsAreRecorded(forSceneNumber: LiveSceneOverlay.shared.scenesPlayedCount)
+    }
+
+    /// The replay points the buddy with its own hold. A point equal to the one the buddy already has would not reach the
+    /// overlay's onChange, so it moves by a hundredth of a point, which a frozen buddy needs to fly again.
+    private func pointTheBuddyForTheReplay(at labelScreenPoint: LiveScenePartScreenPoint, sentence: String) {
+        showTheCursorOverlayForThisInteraction()
+        var pointToFlyTo = labelScreenPoint.globalPoint
+        if detectedElementScreenLocation == pointToFlyTo { pointToFlyTo.x += 0.01 }
+        pointTheBuddy(
+            atLiveScenePart: LiveScenePartScreenPoint(label: labelScreenPoint.label, globalPoint: pointToFlyTo),
+            bubbleText: sentence,
+            narrationID: instantReplayPointingID
+        )
+    }
+
+    /// The overlay calls this once the mouse moved away from a buddy the replay stopped, so it flies back to the mouse.
+    func releaseTheBuddyTheReplayFroze() {
+        releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID: instantReplayPointingID)
+        // A replay showed the overlay for its pointing, so with Show Clicky off it fades once the cursor is back.
+        scheduleTransientHideIfNeeded()
+    }
+
+    /// A click on the replay control takes over from an answer Clicky is still giving about the scene, as a press does.
+    private func stopWhatClickyIsSayingForTheReplayControl() {
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        if voiceState == .responding || voiceState == .processing {
+            voiceState = .idle
+        }
+    }
+
+    private func showTheInstantReplayControl(controlVersion: Int) {
+        Task {
+            // The media read waits on the page, and a narration that started meanwhile hid the control, so a stale show draws nothing.
+            guard let mediaRectOnScreen = await LiveSceneOverlay.shared.mediaRectOnScreen(),
+                  self.instantReplay.controlShowIsStillWanted(controlVersion: controlVersion),
+                  self.replayStopsAreRecordedForTheSceneOnScreen,
+                  let visibleFrame = NSScreen.screens.first(where: { screen in screen.frame.intersects(mediaRectOnScreen) })?.visibleFrame else {
+                return
+            }
+            self.instantReplayPanelController.show(
+                for: self.instantReplay,
+                stopWhatClickyIsSaying: { [weak self] in self?.stopWhatClickyIsSayingForTheReplayControl() },
+                accentHex: self.themeSettings.shownTheme.cursorColorHex,
+                mediaRectOnScreen: mediaRectOnScreen,
+                visibleFrame: visibleFrame
+            )
+        }
     }
 
     /// The buddy flies on its usual arc to the part's label and stays until the narration that pointed it

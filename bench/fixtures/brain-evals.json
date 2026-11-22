@@ -514,6 +514,116 @@
         "start_background_task",
         "answer_approval"
       ]
+    },
+    "popoutReplayOffered": {
+      "description": "A narrated frame pop-out is on screen over its paused YouTube video, and its narration recorded 3 stops that can be replayed. No replay is open.",
+      "sceneState": {
+        "explodeAmount": 0,
+        "focusedLabel": "",
+        "insideIsOpen": false,
+        "labels": [
+          "wing",
+          "tail",
+          "engine"
+        ],
+        "page": "framePopout",
+        "pitchDegrees": 10,
+        "tourFinished": true,
+        "videoQuizIsRunning": false,
+        "yawDegrees": 79,
+        "zoom": 0.4,
+        "video": {
+          "durationSeconds": 612,
+          "onYouTube": true,
+          "paused": true,
+          "playbackRate": 1,
+          "playing": false,
+          "seconds": 124,
+          "title": "How sharks float"
+        },
+        "replay": {
+          "stops": 3,
+          "open": false
+        }
+      },
+      "tools": [
+        "rotate_model",
+        "zoom",
+        "zoom_to_part",
+        "reset_view",
+        "answer_with_screen",
+        "build_new_scene",
+        "build_simulation",
+        "pop_out",
+        "animate_picture",
+        "close_scene",
+        "explain_part",
+        "replay_explanation",
+        "pause_video",
+        "play_video",
+        "seek_relative",
+        "seek_to_time",
+        "set_speed",
+        "find_moment",
+        "seek_to_moment",
+        "start_background_task"
+      ]
+    },
+    "popoutReplayOpen": {
+      "description": "The same pop-out with its instant replay open at stop 2 of 3.",
+      "sceneState": {
+        "explodeAmount": 0,
+        "focusedLabel": "tail",
+        "insideIsOpen": false,
+        "labels": [
+          "wing",
+          "tail",
+          "engine"
+        ],
+        "page": "framePopout",
+        "pitchDegrees": 10,
+        "tourFinished": true,
+        "videoQuizIsRunning": false,
+        "yawDegrees": 79,
+        "zoom": 0.4,
+        "video": {
+          "durationSeconds": 612,
+          "onYouTube": true,
+          "paused": true,
+          "playbackRate": 1,
+          "playing": false,
+          "seconds": 124,
+          "title": "How sharks float"
+        },
+        "replay": {
+          "stops": 3,
+          "open": true,
+          "atStop": 2
+        }
+      },
+      "tools": [
+        "rotate_model",
+        "zoom",
+        "zoom_to_part",
+        "reset_view",
+        "answer_with_screen",
+        "build_new_scene",
+        "build_simulation",
+        "pop_out",
+        "animate_picture",
+        "close_scene",
+        "explain_part",
+        "replay_explanation",
+        "replay_step",
+        "pause_video",
+        "play_video",
+        "seek_relative",
+        "seek_to_time",
+        "set_speed",
+        "find_moment",
+        "seek_to_moment",
+        "start_background_task"
+      ]
     }
   },
   "cases": [
@@ -1534,6 +1644,80 @@
         }
       },
       "why": "A pause leaves the request waiting, and a no still declines it."
+    },
+    {
+      "id": "replay-offered-again",
+      "context": "popoutReplayOffered",
+      "say": "can you go through that again",
+      "accept": [
+        "replay_explanation"
+      ],
+      "why": "A replay request in words the phrase match does not take. It needs no model call for the explanation."
+    },
+    {
+      "id": "replay-offered-one-more-time",
+      "context": "popoutReplayOffered",
+      "say": "walk me through those parts one more time",
+      "accept": [
+        "replay_explanation"
+      ],
+      "why": "A near miss with explain_part, which would pay for a new explanation."
+    },
+    {
+      "id": "replay-offered-back-ten",
+      "context": "popoutReplayOffered",
+      "say": "go back 10 seconds",
+      "accept": [
+        "seek_relative"
+      ],
+      "input": {
+        "seek_relative": {
+          "seconds": -10
+        }
+      },
+      "why": "With no replay open, back means the video."
+    },
+    {
+      "id": "replay-open-back",
+      "context": "popoutReplayOpen",
+      "say": "back",
+      "accept": [
+        "replay_step"
+      ],
+      "input": {
+        "replay_step": {
+          "step": "back"
+        }
+      },
+      "why": "During a replay, back is a step, never a seek."
+    },
+    {
+      "id": "replay-open-next",
+      "context": "popoutReplayOpen",
+      "say": "next one",
+      "accept": [
+        "replay_step"
+      ],
+      "input": {
+        "replay_step": {
+          "step": "next"
+        }
+      },
+      "why": "Easy. The step the tool names."
+    },
+    {
+      "id": "replay-open-stop",
+      "context": "popoutReplayOpen",
+      "say": "stop",
+      "accept": [
+        "replay_step"
+      ],
+      "input": {
+        "replay_step": {
+          "step": "end"
+        }
+      },
+      "why": "During a replay, stop ends it, never close_scene."
     }
   ]
 }

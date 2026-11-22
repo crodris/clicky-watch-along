@@ -148,18 +148,59 @@ struct TetherCalloutPresenceEffect: ViewModifier {
     }
 }
 
+/// How the pointing bubble leaves once its narration lets the cursor go. A push-to-talk press during the narration is an
+/// interruption, so the bubble shrinks into the cursor (`.recall`), and every other release fades and rises.
+/// CompanionManager notes the press, and the overlay takes the note once, when it hides the bubble.
+struct PointingBubbleExitRecord: Equatable {
+    private var learnerInterruptedThePointing = false
+
+    /// A press while the cursor points, with that pointing's hold, or nil when nothing is pointed at. Only a held pointing
+    /// reaches the overlay's release, which takes the note, so a brief one, such as an answer's, leaves no note behind.
+    mutating func noteThatTheLearnerInterrupted(pointingHold: BuddyPointingHold?) {
+        learnerInterruptedThePointing = pointingHold?.holdsUntilReleased == true
+    }
+
+    /// The exit for the bubble leaving now, which clears the note so a later release fades as usual.
+    mutating func takeTheExit() -> TetherCalloutExit {
+        defer { learnerInterruptedThePointing = false }
+        return learnerInterruptedThePointing ? .recall : .fadeRise
+    }
+}
+
+/// What the buddy does when the turn its Recall waited for comes. A buddy already following the mouse or flying back has
+/// nothing left to do. With no new pointing it flies back to the mouse. A new pointing whose target this screen flies to
+/// owns the buddy. A new pointing elsewhere, or one this screen refuses, means this buddy gives way, so it never stays
+/// stopped next to the new one.
+enum PointingBubbleRecallStep: Equatable {
+    case nothingLeftToDo
+    case flyBackToTheMouse
+    case leaveTheBuddyToTheNewPointing
+    case giveWayToThePointingElsewhere
+}
+
+func pointingBubbleRecallStep(buddyIsAwayFromTheMouse: Bool, aNewPointingIsSet: Bool, thisScreenFliesToTheNewPointing: Bool) -> PointingBubbleRecallStep {
+    guard buddyIsAwayFromTheMouse else { return .nothingLeftToDo }
+    guard aNewPointingIsSet else { return .flyBackToTheMouse }
+    return thisScreenFliesToTheNewPointing ? .leaveTheBuddyToTheNewPointing : .giveWayToThePointingElsewhere
+}
+
 extension AnyTransition {
     /// For a Callout that a view's own condition puts in and takes out of the tree: it pops from its tail's tip going in, and
     /// leaves with a 6 point rise and a fade. With Reduce Motion on, both are a fade in place.
     /// `pivotInTheView` is where the tail's tip sits in the view the Callout is placed in.
     static func tetherCalloutPopAndFadeRise(reduceMotionIsOn: Bool, pivotInTheView: UnitPoint) -> AnyTransition {
+        tetherCalloutPop(andLeave: .fadeRise, reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: pivotInTheView)
+    }
+
+    /// The same Pop going in, and the leave `exit` names going out, so an interrupted Callout can shrink into the cursor.
+    static func tetherCalloutPop(andLeave exit: TetherCalloutExit, reduceMotionIsOn: Bool, pivotInTheView: UnitPoint) -> AnyTransition {
         .asymmetric(
             insertion: .modifier(
                 active: TetherCalloutPresenceEffect(pose: .appearing(reduceMotionIsOn: reduceMotionIsOn), pivotInTheView: pivotInTheView),
                 identity: TetherCalloutPresenceEffect(pose: .resting, pivotInTheView: pivotInTheView)
             ),
             removal: .modifier(
-                active: TetherCalloutPresenceEffect(pose: .leaving(.fadeRise, reduceMotionIsOn: reduceMotionIsOn), pivotInTheView: pivotInTheView),
+                active: TetherCalloutPresenceEffect(pose: .leaving(exit, reduceMotionIsOn: reduceMotionIsOn), pivotInTheView: pivotInTheView),
                 identity: TetherCalloutPresenceEffect(pose: .resting, pivotInTheView: pivotInTheView)
             )
         )

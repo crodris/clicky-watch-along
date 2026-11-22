@@ -898,6 +898,8 @@ export const handOffToolNames = new Set([
   "hear_task_answer",
   "design_theme",
   "show_art_in_my_room",
+  "replay_explanation",
+  "replay_step",
 ]);
 /** The tools whose step is a read-only lookup, which the model reads before it acts again. */
 export const lookupToolNames = new Set(["find_moment"]);
