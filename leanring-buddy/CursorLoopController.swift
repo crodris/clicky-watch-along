@@ -31,8 +31,8 @@ final class CursorLoopController: ObservableObject {
     /// read, so the media read asks it for the tab instead of reading the tab itself.
     private let readTheMediaInTheFrontTab: (FrontTabReadAtRelease) -> MediaOnTheFrontTab?
     private let readTheFrontTabSample: () -> FrontTabSample?
-    /// The wait between front tab samples. Tests pass one that counts its calls, so they check when the poll waits without
-    /// reading the clock of a busy machine.
+    /// The wait between front tab samples. Tests pass one that counts its calls, or one that suspends until the poll is
+    /// cancelled, so no test reads the clock of a busy machine.
     private let waitBetweenFrontTabPolls: () async -> Void
     /// The wait for a finished agent's spark to complete its last lap. Tests pass one that returns at once.
     private let waitForAFinishingSparkLap: () async -> Void
@@ -321,17 +321,25 @@ final class CursorLoopController: ObservableObject {
     private func startPollingTheFrontTab() {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let self, let mediaThePollWatches = self.state.mediaThePollWatches else { return }
-                let sampleNow = self.readTheFrontTabSample()
-                guard !Task.isCancelled else { return }
-                if let sampleNow, mediaThePollWatches.isTheSameMediaInTheSameTab(as: sampleNow) {
-                    await self.waitBetweenFrontTabPolls()
-                    continue
-                }
-                self.end(because: .tabOrMediaChanged)
-                return
+                // The controller is held only for the sample, never across the wait, so one nobody keeps goes while its poll
+                // waits.
+                guard let waitBeforeTheNextSample = self?.sampleTheFrontTabOnce() else { return }
+                await waitBeforeTheNextSample()
             }
         }
+    }
+
+    /// One sample of the front tab: the wait before the next one when it still shows the same media, or nil when the poll is
+    /// over, because nothing is watched any more or the sample differed and ended the loop.
+    private func sampleTheFrontTabOnce() -> (() async -> Void)? {
+        guard let mediaThePollWatches = state.mediaThePollWatches else { return nil }
+        let sampleNow = readTheFrontTabSample()
+        guard !Task.isCancelled else { return nil }
+        if let sampleNow, mediaThePollWatches.isTheSameMediaInTheSameTab(as: sampleNow) {
+            return waitBetweenFrontTabPolls
+        }
+        end(because: .tabOrMediaChanged)
+        return nil
     }
 
     // MARK: - Reading Chrome

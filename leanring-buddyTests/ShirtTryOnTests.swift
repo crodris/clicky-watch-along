@@ -6,10 +6,6 @@
 //  per-frame analysis, the pose smoothing, and the renderer on a generated frame. None of it needs Vision, so it runs in
 //  CI's background session. The real photos are in ShirtTryOnPhotoCheckTests.swift.
 //
-//  Every test is `@concurrent` and async, so it runs on the concurrent pool. Swift Testing runs a synchronous test on the main
-//  actor, and these take seconds each on a loaded Mac, which held the main actor long enough for main actor tests elsewhere, the
-//  cursor loop suites among them, to hit their time limits.
-//
 
 import CoreGraphics
 import CoreImage
@@ -180,7 +176,7 @@ private func torsoAt(shoulderY: Double, shoulderWidth: Double, hipsEstimated: Bo
 // MARK: - The torso
 
 struct BodyTorsoTests {
-    @Test @concurrent func theTorsoTakesPixelsFromVisionPointsWithYFlippedAndImageLeftFirst() async throws {
+    @Test func theTorsoTakesPixelsFromVisionPointsWithYFlippedAndImageLeftFirst() throws {
         // The person's left shoulder is image right here, as it is in an unmirrored camera.
         let torso = try #require(BodyTorso(
             readings: readings(leftShoulder: (0.65, 0.7, 0.9), rightShoulder: (0.35, 0.7, 0.9), leftHip: (0.62, 0.3, 0.9), rightHip: (0.38, 0.3, 0.9)), frameSize: frameSize))
@@ -197,7 +193,7 @@ struct BodyTorsoTests {
         #expect(isNear(mirrored.imageLeftShoulder, torso.imageLeftShoulder) && isNear(mirrored.imageRightHip, torso.imageRightHip))
     }
 
-    @Test @concurrent func hipsThatAreNotSeenAreEstimatedFromTheShouldersAsTheSpikeDoes() async throws {
+    @Test func hipsThatAreNotSeenAreEstimatedFromTheShouldersAsTheSpikeDoes() throws {
         // Shoulders 300 pixels apart on a level line: the torso is 1.45 * 300 = 435 long, and each hip sits 8 percent of the
         // span toward the center.
         let noHips = try #require(BodyTorso(readings: readings(leftShoulder: (0.65, 0.7, 0.9), rightShoulder: (0.35, 0.7, 0.9)), frameSize: frameSize))
@@ -214,7 +210,7 @@ struct BodyTorsoTests {
         #expect(hipBelowTheFrame.hipsWereEstimated)
     }
 
-    @Test @concurrent func theEstimatedHipsFollowATiltedShoulderLineDownTheBody() async throws {
+    @Test func theEstimatedHipsFollowATiltedShoulderLineDownTheBody() throws {
         // The right shoulder is higher: the body's down direction is across the shoulder line, still toward the bottom.
         let tilted = try #require(BodyTorso(readings: readings(leftShoulder: (0.65, 0.72, 0.9), rightShoulder: (0.35, 0.68, 0.9)), frameSize: frameSize))
         #expect(tilted.imageLeftHip.y > tilted.imageLeftShoulder.y + 300)
@@ -222,19 +218,19 @@ struct BodyTorsoTests {
         #expect(abs(torsoLength - 1.45 * tilted.shoulderWidth) < 0.05 * tilted.shoulderWidth)
     }
 
-    @Test @concurrent func shouldersUnderTheConfidenceFloorOrOutsideTheFrameAreNotSeen() async throws {
+    @Test func shouldersUnderTheConfidenceFloorOrOutsideTheFrameAreNotSeen() throws {
         let weakShoulder = try #require(BodyTorso(readings: readings(leftShoulder: (0.65, 0.7, 0.9), rightShoulder: (0.35, 0.7, 0.2)), frameSize: frameSize))
         #expect(!weakShoulder.shouldersAreSeen)
         let shoulderOutsideTheFrame = try #require(BodyTorso(readings: readings(leftShoulder: (1.1, 0.7, 0.9), rightShoulder: (0.5, 0.7, 0.9)), frameSize: frameSize))
         #expect(!shoulderOutsideTheFrame.shouldersAreSeen)
     }
 
-    @Test @concurrent func aMissingShoulderOrShouldersOnTopOfEachOtherGiveNoTorso() async {
+    @Test func aMissingShoulderOrShouldersOnTopOfEachOtherGiveNoTorso() {
         #expect(BodyTorso(readings: ShirtBodyJointReadings(personLeftShoulder: ShirtJointReading(visionPoint: CGPoint(x: 0.5, y: 0.5), confidence: 0.9), personRightShoulder: nil, personLeftHip: nil, personRightHip: nil), frameSize: frameSize) == nil)
         #expect(BodyTorso(readings: readings(leftShoulder: (0.5, 0.5, 0.9), rightShoulder: (0.5, 0.5, 0.9)), frameSize: frameSize) == nil)
     }
 
-    @Test @concurrent func movingTheHipsKeepsTheShouldersAndTheDirectionOfTheBody() async {
+    @Test func movingTheHipsKeepsTheShouldersAndTheDirectionOfTheBody() {
         let torso = torsoAt(shoulderY: 100, shoulderWidth: 200)
         let shorter = torso.withTorsoLength(250)
         #expect(shorter.imageLeftShoulder == torso.imageLeftShoulder)
@@ -246,26 +242,26 @@ struct BodyTorsoTests {
 // MARK: - Where the learner stands
 
 struct ShirtFramingTests {
-    @Test @concurrent func nobodyInViewIsNoPersonAndGetsAPlainCoachingLine() async {
+    @Test func nobodyInViewIsNoPersonAndGetsAPlainCoachingLine() {
         let framing = ShirtFraming.assess(torso: nil, frameSize: frameSize)
         #expect(framing == .noPerson)
         #expect(framing.coachingLine == "I can't see you yet. Step in front of the camera.")
     }
 
-    @Test @concurrent func shouldersThatAreNotBothSeenSayToStandBack() async {
+    @Test func shouldersThatAreNotBothSeenSayToStandBack() {
         let framing = ShirtFraming.assess(torso: torsoAt(shoulderY: 150, shoulderWidth: 300, shouldersSeen: false), frameSize: frameSize)
         #expect(framing == .standBack(.shouldersAreNotBothSeen))
         #expect(framing.coachingLine == "Stand back so I can see your shoulders and chest.")
     }
 
-    @Test @concurrent func shouldersTooWideForTheFrameSayToStandBack() async {
+    @Test func shouldersTooWideForTheFrameSayToStandBack() {
         // The limit is 62 percent of the 1000 pixel frame: 620 pixels. The chest is in view at this height.
         #expect(ShirtFraming.assess(torso: torsoAt(shoulderY: 50, shoulderWidth: 640), frameSize: frameSize) == .standBack(.tooCloseForTheChest))
         let justInside = torsoAt(shoulderY: 50, shoulderWidth: 600)
         #expect(ShirtFraming.assess(torso: justInside, frameSize: frameSize) == .ready(justInside))
     }
 
-    @Test @concurrent func aChestBelowTheBottomOfTheFrameSaysToStandBack() async {
+    @Test func aChestBelowTheBottomOfTheFrameSaysToStandBack() {
         // The chest reaches 0.6 shoulder widths below the shoulder line: 300 * 0.6 = 180, so a shoulder line at y 330 puts
         // it at 510 in a 500 pixel frame.
         #expect(ShirtFraming.assess(torso: torsoAt(shoulderY: 330, shoulderWidth: 300), frameSize: frameSize) == .standBack(.tooCloseForTheChest))
@@ -273,7 +269,7 @@ struct ShirtFramingTests {
         #expect(ShirtFraming.assess(torso: chestJustInside, frameSize: frameSize) == .ready(chestJustInside))
     }
 
-    @Test @concurrent func aWellFramedTorsoIsReadyWithNoCoachingLine() async {
+    @Test func aWellFramedTorsoIsReadyWithNoCoachingLine() {
         let torso = torsoAt(shoulderY: 150, shoulderWidth: 300)
         let framing = ShirtFraming.assess(torso: torso, frameSize: frameSize)
         #expect(framing == .ready(torso))
@@ -284,7 +280,7 @@ struct ShirtFramingTests {
 // MARK: - The drawn edge
 
 struct ShirtCutoutEdgeTests {
-    @Test @concurrent func theDrawnEdgeIsPulledInAndRampsUpToFullyOpaqueInside() async {
+    @Test func theDrawnEdgeIsPulledInAndRampsUpToFullyOpaqueInside() {
         // A 40 by 40 cutout with a 20 by 20 garment square from column and row 10 to 29.
         var pixels = [UInt8](repeating: 0, count: 40 * 40)
         for row in 10..<30 { for column in 10..<30 { pixels[row * 40 + column] = 255 } }
@@ -306,7 +302,7 @@ struct ShirtCutoutEdgeTests {
 // MARK: - Framing debounce
 
 struct ShirtFramingDebouncerTests {
-    @Test @concurrent func aKindSettlesOnlyOnceItHasHeldForHalfASecond() async {
+    @Test func aKindSettlesOnlyOnceItHasHeldForHalfASecond() {
         var debouncer = ShirtFramingDebouncer()
         #expect(debouncer.advance(to: .standBack, at: 0) == nil)
         #expect(debouncer.advance(to: .standBack, at: 0.49) == nil)
@@ -317,7 +313,7 @@ struct ShirtFramingDebouncerTests {
         #expect(debouncer.advance(to: .standBack, at: 0.6) == nil)
     }
 
-    @Test @concurrent func aFlickerAcrossAThresholdNeverSettlesAndRestartsTheClock() async {
+    @Test func aFlickerAcrossAThresholdNeverSettlesAndRestartsTheClock() {
         var debouncer = ShirtFramingDebouncer()
         _ = debouncer.advance(to: .standBack, at: 0)
         _ = debouncer.advance(to: .standBack, at: 0.5)
@@ -330,7 +326,7 @@ struct ShirtFramingDebouncerTests {
         #expect(debouncer.advance(to: .ready, at: 1.8) == .ready)
     }
 
-    @Test @concurrent func aCandidateThatTurnsIntoAnotherUnsettledKindStartsItsClockAgain() async {
+    @Test func aCandidateThatTurnsIntoAnotherUnsettledKindStartsItsClockAgain() {
         var debouncer = ShirtFramingDebouncer()
         _ = debouncer.advance(to: .ready, at: 0)
         _ = debouncer.advance(to: .ready, at: 0.5)
@@ -341,7 +337,7 @@ struct ShirtFramingDebouncerTests {
         #expect(debouncer.advance(to: .standBack, at: 1.8) == .standBack)
     }
 
-    @Test @concurrent func eachKindTakesTheCoachingLineOfItsFraming() async {
+    @Test func eachKindTakesTheCoachingLineOfItsFraming() {
         #expect(ShirtFramingKind(.noPerson).coachingLine == "I can't see you yet. Step in front of the camera.")
         #expect(ShirtFramingKind(.standBack(.tooCloseForTheChest)) == .standBack)
         #expect(ShirtFramingKind.standBack.coachingLine == "Stand back so I can see your shoulders and chest.")
@@ -352,13 +348,13 @@ struct ShirtFramingDebouncerTests {
 // MARK: - Pose smoothing
 
 struct ShirtTorsoSmootherTests {
-    @Test @concurrent func theFirstResultIsUsedAsItIs() async {
+    @Test func theFirstResultIsUsedAsItIs() {
         var smoother = ShirtTorsoSmoother()
         let torso = torsoAt(shoulderY: 150, shoulderWidth: 300)
         #expect(smoother.advance(toward: torso, at: 0) == torso)
     }
 
-    @Test @concurrent func eachStepMovesPartOfTheWayAndConvergesOnTheBody() async throws {
+    @Test func eachStepMovesPartOfTheWayAndConvergesOnTheBody() throws {
         var smoother = ShirtTorsoSmoother()
         _ = smoother.advance(toward: torsoAt(shoulderY: 150, shoulderWidth: 300), at: 0)
         let target = torsoAt(shoulderY: 180, shoulderWidth: 300)
@@ -376,7 +372,7 @@ struct ShirtTorsoSmootherTests {
         #expect(abs(latest.imageLeftShoulder.y - 180) < 0.5)
     }
 
-    @Test @concurrent func aJumpOfMoreThanHalfAShoulderWidthSnapsToTheNewBody() async {
+    @Test func aJumpOfMoreThanHalfAShoulderWidthSnapsToTheNewBody() {
         var smoother = ShirtTorsoSmoother()
         _ = smoother.advance(toward: torsoAt(shoulderY: 150, shoulderWidth: 300), at: 0)
         let farAway = torsoAt(shoulderY: 150, shoulderWidth: 300)
@@ -388,7 +384,7 @@ struct ShirtTorsoSmootherTests {
         #expect(smoother.advance(toward: moved, at: 0.033) == moved)
     }
 
-    @Test @concurrent func aMissedRunKeepsTheTorsoAndALongAbsenceLosesIt() async {
+    @Test func aMissedRunKeepsTheTorsoAndALongAbsenceLosesIt() {
         var smoother = ShirtTorsoSmoother()
         let torso = torsoAt(shoulderY: 150, shoulderWidth: 300)
         _ = smoother.advance(toward: torso, at: 0)
@@ -400,7 +396,7 @@ struct ShirtTorsoSmootherTests {
 // MARK: - The garment
 
 struct ShirtGarmentTests {
-    @Test @concurrent func theTorsoCornersAndTheNeckComeFromTheCutoutByTheSpikesRules() async throws {
+    @Test func theTorsoCornersAndTheNeckComeFromTheCutoutByTheSpikesRules() throws {
         let (_, mask) = tShirtPhotoAndMask()
         let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
         // Rows 0 to 499, so the height is 499. At 60 percent, row 299, only the torso (columns 100 to 299) is garment. The
@@ -414,14 +410,14 @@ struct ShirtGarmentTests {
         #expect(measurements.frontNeckPoint == CGPoint(x: 199, y: 60))
     }
 
-    @Test @concurrent func aCutoutWithNoNeckHoleFallsBackToTheShoulderLine() async throws {
+    @Test func aCutoutWithNoNeckHoleFallsBackToTheShoulderLine() throws {
         let (_, mask) = tShirtPhotoAndMask(withNeckHole: false)
         let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
         #expect(!measurements.frontNeckWasFound)
         #expect(isNear(measurements.frontNeckPoint, CGPoint(x: 199, y: 49.9)))
     }
 
-    @Test @concurrent func aGapLowerThanANeckIsAPrintNotANeck() async throws {
+    @Test func aGapLowerThanANeckIsAPrintNotANeck() throws {
         // A hole starting at 40 percent of the height is not a neck.
         var (_, mask) = tShirtPhotoAndMask(withNeckHole: false)
         var pixels = mask.pixels
@@ -431,7 +427,7 @@ struct ShirtGarmentTests {
         #expect(!measurements.frontNeckWasFound)
     }
 
-    @Test @concurrent func theInsideOfTheBackSeenThroughTheCollarIsFoundAsTheNeckOpening() async throws {
+    @Test func theInsideOfTheBackSeenThroughTheCollarIsFoundAsTheNeckOpening() throws {
         let (photo, mask) = flatLayTShirtWithItsInsideBackShowing()
         let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
         let opening = try #require(ShirtNeckOpening.find(photoPixels: photoBytes(photo), mask: mask, measurements: measurements))
@@ -441,7 +437,7 @@ struct ShirtGarmentTests {
         #expect(abs(opening.halfWidth - 40) <= 2, "half width \(opening.halfWidth)")
     }
 
-    @Test @concurrent func theOpeningsTopIsTheRingsInnerEdgeAndNotTheRibOfAThickBackCollar() async throws {
+    @Test func theOpeningsTopIsTheRingsInnerEdgeAndNotTheRibOfAThickBackCollar() throws {
         // A back collar 20 rows deep whose rib shades its rows: the shades never differ enough to be the opening's top.
         let (photo, mask) = flatLayTShirtWithItsInsideBackShowing(openingTopRow: 20, textured: true)
         let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
@@ -449,7 +445,7 @@ struct ShirtGarmentTests {
         #expect(abs(opening.topRow - 20) <= 2, "top \(opening.topRow)")
     }
 
-    @Test @concurrent func theOpeningLeavesAtLeast8PixelsOfCollarAboveIt() async throws {
+    @Test func theOpeningLeavesAtLeast8PixelsOfCollarAboveIt() throws {
         // A white collar on a white sweep, cropped to 4 rows above the inside of the back (rows 0 to 7 are background, as
         // white as the collar). An opening there would cut the collar's top off, so it starts 8 rows into the cloth or lower.
         let (photo, wholeMask) = flatLayTShirtWithItsInsideBackShowing(striped: true)
@@ -461,7 +457,7 @@ struct ShirtGarmentTests {
         #expect(opening.topRow >= 16, "top \(opening.topRow)")
     }
 
-    @Test @concurrent func theOpeningIsTheEdgeWithTheRingOutsideItAndNotAStripesEdge() async throws {
+    @Test func theOpeningIsTheEdgeWithTheRingOutsideItAndNotAStripesEdge() throws {
         // A white ring on a striped shirt with a striped inside back: every stripe is an edge, but only the ring's inner edge
         // has the ring's white all the way round outside it.
         let (photo, mask) = flatLayTShirtWithItsInsideBackShowing(striped: true)
@@ -471,7 +467,7 @@ struct ShirtGarmentTests {
         #expect(abs(opening.bottomRow - 52) <= 3, "bottom \(opening.bottomRow)")
     }
 
-    @Test @concurrent func theGarmentLeavesTheInsideOfItsBackOutAndKeepsItsCollarRing() async throws {
+    @Test func theGarmentLeavesTheInsideOfItsBackOutAndKeepsItsCollarRing() throws {
         let (photo, mask) = flatLayTShirtWithItsInsideBackShowing()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
         // The opening is now the neck hole the necklines meet at, its front at the top of the front collar.
@@ -490,7 +486,7 @@ struct ShirtGarmentTests {
         #expect(alpha(column: 199 - 38, row: 15) > 200)
     }
 
-    @Test @concurrent func aNarrowFrontCollarKeepsItsOwnColorAtTheOpening() async throws {
+    @Test func aNarrowFrontCollarKeepsItsOwnColorAtTheOpening() throws {
         // The ring's outside ends at row 56, so the front collar is 4 rows under the opening's bottom at row 52, narrower
         // than the band a cutout's edge takes its colors from. The opening is no outline, so the collar stays brown.
         let (photo, mask) = flatLayTShirtWithItsInsideBackShowing(ringOutside: (middleRow: 28, halfHeight: 28))
@@ -505,7 +501,7 @@ struct ShirtGarmentTests {
         #expect(red < 150 && green < 90, "brown, got \(red), \(green)")
     }
 
-    @Test @concurrent func theInsideOfTheBackLeftOutIsNotTakenForThePhotosBackground() async throws {
+    @Test func theInsideOfTheBackLeftOutIsNotTakenForThePhotosBackground() throws {
         // The background is split into black and white, with 1,000 more white pixels than black, so its median is white. The
         // inside of the back, about 2,500 pixels, would pull that median to its own color if it counted as background, and a
         // light blue and a black inside of the back would then give two different whites. Left out of the cutout, it is not
@@ -534,13 +530,13 @@ struct ShirtGarmentTests {
         #expect(simd_distance(light.photoWhite, dark.photoWhite) < 1e-6, "\(light.photoWhite) against \(dark.photoWhite)")
     }
 
-    @Test @concurrent func aShirtWithItsNeckHoleAlreadyCutHasNoOpeningToFind() async throws {
+    @Test func aShirtWithItsNeckHoleAlreadyCutHasNoOpeningToFind() throws {
         let (photo, mask) = tShirtPhotoAndMask()
         let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
         #expect(ShirtNeckOpening.find(photoPixels: photoBytes(photo), mask: mask, measurements: measurements) == nil)
     }
 
-    @Test @concurrent func aSmallMarkBelowThePlainCollarIsNotAnOpening() async throws {
+    @Test func aSmallMarkBelowThePlainCollarIsNotAnOpening() throws {
         // A plain shirt with a 5 pixel mark below its collar: the mark is a strong edge, but no ellipse's edge has contrast
         // along enough of it to be the collar ring's inner edge.
         let (photo, mask) = tShirtPhotoAndMask(withNeckHole: false)
@@ -551,17 +547,17 @@ struct ShirtGarmentTests {
         #expect(ShirtNeckOpening.find(photoPixels: canvas.bytes, mask: mask, measurements: measurements) == nil)
     }
 
-    @Test @concurrent func aPlainShirtWithNoEdgeBelowItsCollarHasNoOpening() async throws {
+    @Test func aPlainShirtWithNoEdgeBelowItsCollarHasNoOpening() throws {
         let (photo, mask) = tShirtPhotoAndMask(withNeckHole: false)
         let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
         #expect(ShirtNeckOpening.find(photoPixels: photoBytes(photo), mask: mask, measurements: measurements) == nil)
     }
 
-    @Test @concurrent func anEmptyCutoutHasNoMeasurements() async {
+    @Test func anEmptyCutoutHasNoMeasurements() {
         #expect(ShirtGarmentMeasurements(mask: ShirtCutoutMask(width: 100, height: 100, pixels: [UInt8](repeating: 0, count: 10_000))) == nil)
     }
 
-    @Test @concurrent func onlyTheLargestPieceOfACutoutIsTheGarment() async {
+    @Test func onlyTheLargestPieceOfACutoutIsTheGarment() {
         var pixels = [UInt8](repeating: 0, count: 100 * 100)
         for row in 20..<80 { for column in 20..<80 { pixels[row * 100 + column] = 255 } }
         pixels[2 * 100 + 90] = 255
@@ -570,7 +566,7 @@ struct ShirtGarmentTests {
         #expect(kept.pixels[50 * 100 + 50] == 255)
     }
 
-    @Test @concurrent func theGarmentTakesItsBaseColorFromTheHemBandAndNotTheGreenPrint() async throws {
+    @Test func theGarmentTakesItsBaseColorFromTheHemBandAndNotTheGreenPrint() throws {
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
         #expect(abs(garment.baseColor.red - 200.0 / 255) < 0.01)
@@ -580,7 +576,7 @@ struct ShirtGarmentTests {
         #expect(garment.frontNeckPoint == CGPoint(x: 199, y: 60))
     }
 
-    @Test @concurrent func aStripedHemBandGivesTheMeanOfItsLightAndNotOneStripe() async throws {
+    @Test func aStripedHemBandGivesTheMeanOfItsLightAndNotOneStripe() throws {
         let (_, mask) = tShirtPhotoAndMask()
         // Black and white stripes two rows each over the whole photo, so the hem band holds as many of each.
         var canvas = ShirtTestCanvas(width: 400, height: 500, color: (255, 255, 255))
@@ -590,7 +586,7 @@ struct ShirtGarmentTests {
         #expect(abs(garment.baseColor.red - 188.0 / 255) < 0.02)
     }
 
-    @Test @concurrent func aStraySpeckInTheCutoutDoesNotStretchTheGarment() async throws {
+    @Test func aStraySpeckInTheCutoutDoesNotStretchTheGarment() throws {
         // The torso ends at row 449 and a speck sits at row 499. Without dropping the speck the garment would be 50 rows taller.
         let (photo, mask) = tShirtPhotoAndMask()
         var pixels = mask.pixels
@@ -600,7 +596,7 @@ struct ShirtGarmentTests {
         #expect(garment.torsoCorners.bottomLeft.y == 449)
     }
 
-    @Test @concurrent func noGarmentWhenTheCutoutIsTinyOrTheSizesDiffer() async {
+    @Test func noGarmentWhenTheCutoutIsTinyOrTheSizesDiffer() {
         let (photo, mask) = tShirtPhotoAndMask()
         var tinyPixels = [UInt8](repeating: 0, count: 400 * 500)
         for row in 100..<110 { for column in 100..<110 { tinyPixels[row * 400 + column] = 255 } }
@@ -630,17 +626,17 @@ private func smallFrameOfAPerson(shirtBottomRow: Int) -> ShirtSmallFrame {
 }
 
 struct ShirtFrameAnalysisTests {
-    @Test @concurrent func theOldShirtsColorIsTheMedianOfThePatchBelowTheShoulders() async throws {
+    @Test func theOldShirtsColorIsTheMedianOfThePatchBelowTheShoulders() throws {
         let color = try #require(smallFrameOfAPerson(shirtBottomRow: 110).measureOldShirtColor())
         #expect(color == SIMD3<Float>(30, 60, 150))
     }
 
-    @Test @concurrent func theNeckIsFoundWhereTheSkinGivesWayToTheOldShirt() async throws {
+    @Test func theNeckIsFoundWhereTheSkinGivesWayToTheOldShirt() throws {
         let frame = smallFrameOfAPerson(shirtBottomRow: 110)
         #expect(frame.bodyNeckRow(oldShirtColor: SIMD3(30, 60, 150)) == 70)
     }
 
-    @Test @concurrent func theNeckInTheChinsShadowIsNotTakenForADarkOldShirt() async {
+    @Test func theNeckInTheChinsShadowIsNotTakenForADarkOldShirt() {
         // A navy shirt from row 70, and the neck above it in shadow, as dark as the shirt but warm. Only the shirt's hue
         // marks where the neck meets it.
         let person = smallFrameOfAPerson(shirtBottomRow: 110)
@@ -652,7 +648,7 @@ struct ShirtFrameAnalysisTests {
         #expect(frame.bodyNeckRow(oldShirtColor: SIMD3(25, 29, 40)) == 70)
     }
 
-    @Test @concurrent func aBlackShirtsNecklineIsFoundThoughItsHueIsNoise() async {
+    @Test func aBlackShirtsNecklineIsFoundThoughItsHueIsNoise() {
         // A black shirt from row 70 whose pixels lean red, though the shirt's measured color is a neutral black.
         let person = smallFrameOfAPerson(shirtBottomRow: 110)
         var canvas = ShirtTestCanvas(width: 160, height: 120, color: (0, 0, 0))
@@ -662,7 +658,7 @@ struct ShirtFrameAnalysisTests {
         #expect(frame.bodyNeckRow(oldShirtColor: SIMD3(9, 9, 9)) == 70)
     }
 
-    @Test @concurrent func theNewShirtIsCutAtTheNeckAndAboveButNotAcrossTheOldShirt() async {
+    @Test func theNewShirtIsCutAtTheNeckAndAboveButNotAcrossTheOldShirt() {
         let frame = smallFrameOfAPerson(shirtBottomRow: 110)
         let analysis = ShirtFrameAnalysis(frame: frame, oldShirtColor: SIMD3(30, 60, 150))
         func isCut(column: Int, row: Int) -> Bool { analysis.maskPixels[(row * 160 + column) * 4] == 255 }
@@ -677,7 +673,7 @@ struct ShirtFrameAnalysisTests {
         #expect(!isCut(column: 80, row: 70))
     }
 
-    @Test @concurrent func everythingAboveTheShouldersIsCutWhateverItsColorAndWhicheverSideTheShouldersAreListedOn() async {
+    @Test func everythingAboveTheShouldersIsCutWhateverItsColorAndWhicheverSideTheShouldersAreListedOn() {
         // Old shirt colored pixels 20 rows above the shoulder line, which is above 30 percent of the shoulder width over the
         // neck base, are cut even though they look like the old shirt. A room pixel to the side of the head, above the shoulder
         // line and outside the neck's width, is cut too.
@@ -700,7 +696,7 @@ struct ShirtFrameAnalysisTests {
         #expect(!isCut(swappedAnalysis, column: 80, row: 90))
     }
 
-    @Test @concurrent func oldShirtColoredClothBelowTheHipsIsNotTheOldShirt() async {
+    @Test func oldShirtColoredClothBelowTheHipsIsNotTheOldShirt() {
         // The hips are at row 105, 33 below the shoulder midpoint, so the shirt's zone ends at 1.1 * 33 + 2 = 38 pixels down,
         // row 110. Trousers of the shirt's color at rows 112 to 119 are below it and must keep their own color.
         var canvas = ShirtTestCanvas(width: 160, height: 120, color: (128, 128, 128))
@@ -716,7 +712,7 @@ struct ShirtFrameAnalysisTests {
         #expect(analysis.maskPixels[(116 * 160 + 80) * 4 + 1] == 0)
     }
 
-    @Test @concurrent func aLoneOldShirtColoredPixelInsideTheTrousersIsASpeckNotShirt() async {
+    @Test func aLoneOldShirtColoredPixelInsideTheTrousersIsASpeckNotShirt() {
         let person = smallFrameOfAPerson(shirtBottomRow: 100)
         var canvas = ShirtTestCanvas(width: 160, height: 120, color: (0, 0, 0))
         canvas.bytes = person.rgba
@@ -726,7 +722,7 @@ struct ShirtFrameAnalysisTests {
         #expect(analysis.maskPixels[(110 * 160 + 80) * 4 + 1] == 0)
     }
 
-    @Test @concurrent func theOldShirtBeyondTheGarmentIsMarkedAsUncoveredButNotTheTrousers() async {
+    @Test func theOldShirtBeyondTheGarmentIsMarkedAsUncoveredButNotTheTrousers() {
         let frame = smallFrameOfAPerson(shirtBottomRow: 100)
         let analysis = ShirtFrameAnalysis(frame: frame, oldShirtColor: SIMD3(30, 60, 150))
         func isUncovered(column: Int, row: Int) -> Bool { analysis.maskPixels[(row * 160 + column) * 4 + 1] == 255 }
@@ -737,7 +733,7 @@ struct ShirtFrameAnalysisTests {
         #expect(!isUncovered(column: 20, row: 90))
     }
 
-    @Test @concurrent func aTwoPixelStripeOfTrimInsideTheOldShirtIsFilledToo() async {
+    @Test func aTwoPixelStripeOfTrimInsideTheOldShirtIsFilledToo() {
         let person = smallFrameOfAPerson(shirtBottomRow: 100)
         var canvas = ShirtTestCanvas(width: 160, height: 120, color: (0, 0, 0))
         canvas.bytes = person.rgba
@@ -749,7 +745,7 @@ struct ShirtFrameAnalysisTests {
         #expect(analysis.maskPixels[(105 * 160 + 56) * 4 + 1] == 0)
     }
 
-    @Test @concurrent func somethingFarFromTheBodyThatSharesTheOldShirtsColorIsNotTheOldShirt() async {
+    @Test func somethingFarFromTheBodyThatSharesTheOldShirtsColorIsNotTheOldShirt() {
         // A chair back the old shirt's color, 60 pixels from the center. The old shirt's sleeves reach 0.9 * 40 = 36.
         let person = smallFrameOfAPerson(shirtBottomRow: 100)
         var canvas = ShirtTestCanvas(width: 160, height: 120, color: (0, 0, 0))
@@ -763,7 +759,7 @@ struct ShirtFrameAnalysisTests {
         #expect(analysis.maskPixels[(90 * 160 + 80) * 4 + 1] == 255)
     }
 
-    @Test @concurrent func theOldShirtOnTopOfAShoulderIsFilledButNotBesideTheNeck() async {
+    @Test func theOldShirtOnTopOfAShoulderIsFilledButNotBesideTheNeck() {
         // The neck's base is 0.1 shoulder widths above the shoulders, at row 68. Old shirt rises above it on the top of the
         // image left shoulder (columns 50 to 62, 0.45 to 0.75 shoulder widths from the middle) and beside the neck (columns
         // 69 to 73, 0.18 to 0.28 shoulder widths out).
@@ -780,7 +776,7 @@ struct ShirtFrameAnalysisTests {
         #expect(analysis.maskPixels[(44 * 160 + 56) * 4 + 1] == 0)
     }
 
-    @Test @concurrent func anOldSleeveIsMeasuredDownItsArm() async throws {
+    @Test func anOldSleeveIsMeasuredDownItsArm() throws {
         // A torso of old shirt too narrow to count as a sleeve, and an old sleeve hanging beside it down the image left arm,
         // from the shoulder at (60, 72) toward the elbow at (40, 112).
         func analysis(sleeveBottomRow: Int, withElbows: Bool) -> ShirtFrameAnalysis {
@@ -808,7 +804,7 @@ struct ShirtFrameAnalysisTests {
         #expect(analysis(sleeveBottomRow: 100, withElbows: false).oldSleeves[0] == nil)
     }
 
-    @Test @concurrent func theOldShirtsHemIsFoundBelowTheShouldersAlongTheBody() async throws {
+    @Test func theOldShirtsHemIsFoundBelowTheShouldersAlongTheBody() throws {
         // The shirt ends at row 112, 40 pixels below the shoulder midpoint at row 72, which is 1.0 shoulder widths.
         let analysis = ShirtFrameAnalysis(frame: smallFrameOfAPerson(shirtBottomRow: 112), oldShirtColor: SIMD3(30, 60, 150))
         let hemDistance = try #require(analysis.oldShirtHemDistance)
@@ -817,7 +813,7 @@ struct ShirtFrameAnalysisTests {
         #expect(ShirtFrameAnalysis(frame: smallFrameOfAPerson(shirtBottomRow: 120), oldShirtColor: SIMD3(30, 60, 150)).oldShirtHemDistance == nil)
     }
 
-    @Test @concurrent func aDarkShirtOverDarkTrousersHasItsHemFoundFromTheDropInLightness() async throws {
+    @Test func aDarkShirtOverDarkTrousersHasItsHemFoundFromTheDropInLightness() throws {
         // Both look like the old shirt's color to the color test, which is why the hem needs the lightness profile too.
         var canvas = ShirtTestCanvas(width: 160, height: 120, color: (128, 128, 128))
         canvas.fill(columns: 50..<110, rows: 70..<112, color: (24, 38, 52))
@@ -833,7 +829,7 @@ struct ShirtFrameAnalysisTests {
         #expect(abs(hemDistance - 40) < 3)
     }
 
-    @Test @concurrent func aHemOutsideTheRangeOfATorsoIsAMisread() async {
+    @Test func aHemOutsideTheRangeOfATorsoIsAMisread() {
         let shoulderWidth = 40.0
         func profile(dropsAt dropStep: Int, count: Int = 90) -> [Double] { (0..<count).map { $0 < dropStep ? 1 : 0 } }
         let steadyLightness = [Double](repeating: 100, count: 90)
@@ -853,7 +849,7 @@ struct ShirtFrameAnalysisTests {
         #expect(ShirtFrameAnalysis.hemDistance(oldShirtShareOfTheBand: alwaysOldShirt, lightnessOfTheBand: slightlyDarker, shoulderWidth: shoulderWidth) == nil)
     }
 
-    @Test @concurrent func theOldShirtsLightIsTheMedianOfItsPixelsAndNotItsBrightest() async {
+    @Test func theOldShirtsLightIsTheMedianOfItsPixelsAndNotItsBrightest() {
         // Two rows of the blue in three, then a fold lit at 1.5 times, which still passes the color rule.
         let frame = smallFrameOfAPerson(shirtBottomRow: 100)
         var canvas = ShirtTestCanvas(width: 160, height: 120, color: (0, 0, 0))
@@ -866,7 +862,7 @@ struct ShirtFrameAnalysisTests {
         #expect(abs(analysis.oldShirtMedianLinearLuminance - blueLuminance) < 0.001)
     }
 
-    @Test @concurrent func theOldShirtsMedianLightComesFromItsOwnPixelsInLinearLight() async {
+    @Test func theOldShirtsMedianLightComesFromItsOwnPixelsInLinearLight() {
         let analysis = ShirtFrameAnalysis(frame: smallFrameOfAPerson(shirtBottomRow: 100), oldShirtColor: SIMD3(30, 60, 150))
         let linear = ShirtColorMath.linearValueOfEachByte
         let expectedLuminance = 0.2126 * linear[30] + 0.7152 * linear[60] + 0.0722 * linear[150]
@@ -906,7 +902,7 @@ struct ShirtTryOnRendererTests {
         return max(abs(firstPixel.red - secondPixel.red), abs(firstPixel.green - secondPixel.green), abs(firstPixel.blue - secondPixel.blue))
     }
 
-    @Test @concurrent func theGarmentDrawsOnlyInsideThePersonAndNeverOnTheHeadOrNeck() async throws {
+    @Test func theGarmentDrawsOnlyInsideThePersonAndNeverOnTheHeadOrNeck() throws {
         let (frame, personMask, torso) = personFrame()
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
@@ -930,7 +926,7 @@ struct ShirtTryOnRendererTests {
         #expect(chest.red > chest.blue + 40)
     }
 
-    @Test @concurrent func theGarmentLandsTheRightWayUpWithItsPrintOnTheChest() async throws {
+    @Test func theGarmentLandsTheRightWayUpWithItsPrintOnTheChest() throws {
         let (frame, personMask, torso) = personFrame()
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
@@ -950,7 +946,7 @@ struct ShirtTryOnRendererTests {
         #expect(belowPrint.red > belowPrint.green + 20, "below the print should be red, got \(belowPrint)")
     }
 
-    @Test @concurrent func theOldShirtBeyondTheGarmentTakesTheGarmentsBaseColor() async throws {
+    @Test func theOldShirtBeyondTheGarmentTakesTheGarmentsBaseColor() throws {
         let (frame, personMask, torso) = personFrame()
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
@@ -962,7 +958,7 @@ struct ShirtTryOnRendererTests {
         #expect(beside.red > beside.blue + 40, "old shirt beside the garment should take its red base color, got \(beside)")
     }
 
-    @Test @concurrent func aPersonMaskOfAnotherSizeIsScaledToTheFrame() async throws {
+    @Test func aPersonMaskOfAnotherSizeIsScaledToTheFrame() throws {
         let (frame, _, torso) = personFrame()
         // The same person at a quarter of the frame's size.
         var smallPerson = ShirtTestCanvas(width: 160, height: 90, color: (0, 0, 0))
@@ -979,7 +975,7 @@ struct ShirtTryOnRendererTests {
         #expect(result.pixel(column: 320, row: 330).red > result.pixel(column: 320, row: 330).blue + 40)
     }
 
-    @Test @concurrent func theCompositeIsTheFrameWhenTheTorsoCannotBeMappedOntoTheGarment() async throws {
+    @Test func theCompositeIsTheFrameWhenTheTorsoCannotBeMappedOntoTheGarment() throws {
         let (frame, personMask, _) = personFrame()
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
@@ -993,7 +989,7 @@ struct ShirtTryOnRendererTests {
         #expect(maxDifference(result, renderedCanvas(of: frame.ciImage, context: context), column: 320, row: 300) <= 3)
     }
 
-    @Test @concurrent func theGarmentEndsWhereTheOldShirtEndsSoItNeverDrawsOverTrousers() async throws {
+    @Test func theGarmentEndsWhereTheOldShirtEndsSoItNeverDrawsOverTrousers() throws {
         // The shoulders are at row 100 and the old shirt ends at row 300, 200 below, which is 1.11 shoulder widths. The
         // estimated hips would put the garment's hem at row 382, over the trousers.
         let (frame, personMask, torso) = personFrame(shoulderRow: 100, shirtTopRow: 95, shirtBottomRow: 300)
@@ -1007,7 +1003,7 @@ struct ShirtTryOnRendererTests {
         #expect(aboveTheHem.red > aboveTheHem.blue + 40, "the garment should reach the old hem, got \(aboveTheHem)")
     }
 
-    @Test @concurrent func theGarmentKeepsTheHipsTheyGaveWhenTheyWereSeen() async throws {
+    @Test func theGarmentKeepsTheHipsTheyGaveWhenTheyWereSeen() throws {
         // The same frame as the hem test, but the hips were seen, so the garment reaches them and the old shirt's hem does not
         // move them.
         var (frame, personMask, torso) = personFrame(shoulderRow: 100, shirtTopRow: 95, shirtBottomRow: 300)
@@ -1023,7 +1019,7 @@ struct ShirtTryOnRendererTests {
         #expect(overTheTrousers.red > overTheTrousers.blue + 40, "the garment should reach the seen hips, got \(overTheTrousers)")
     }
 
-    @Test @concurrent func aNeckScanThatFindsSomethingFarFromTheGarmentsNeckIsIgnored() async throws {
+    @Test func aNeckScanThatFindsSomethingFarFromTheGarmentsNeckIsIgnored() throws {
         // The learner's shirt starts at row 245, far under the shoulders, so the patch the old shirt's color comes from is
         // skin, and the scan finds the skin of the neck far above the garment's neck. Moving the garment that far is wrong, so
         // the print stays where it is, rows 238 to 274.
@@ -1036,7 +1032,7 @@ struct ShirtTryOnRendererTests {
         #expect(print.green > print.red + 20, "the print should not have moved, got \(print)")
     }
 
-    @Test @concurrent func aGarmentWithNoNeckHoleIsNotMovedToMeetTheNecklines() async throws {
+    @Test func aGarmentWithNoNeckHoleIsNotMovedToMeetTheNecklines() throws {
         // The cutout has no neck hole, so its neck point is only a guess at the shoulder line. The learner's shirt starts at row
         // 205, which would move a garment that knew its neck, and this one stays: the print is still at rows 238 to 274.
         let (frame, personMask, torso) = personFrame(shirtTopRow: 205)
@@ -1051,7 +1047,7 @@ struct ShirtTryOnRendererTests {
         #expect(notMoved.green < notMoved.red, "the print should not reach row 286, got \(notMoved)")
     }
 
-    @Test @concurrent func theNecklinesMeetSoALowerCollarPullsTheGarmentDown() async throws {
+    @Test func theNecklinesMeetSoALowerCollarPullsTheGarmentDown() throws {
         // The learner's shirt starts at row 205, not 185, so the garment's front neck, which would land near row 186, moves
         // down to 0.05 shoulder widths above row 205 with the shoulder corners. The print, a band from row 238 to 274 without
         // the move, moves down with the upper torso, off row 238 and onto row 272.
@@ -1066,7 +1062,7 @@ struct ShirtTryOnRendererTests {
         #expect(formerPrint.green < formerPrint.red, "the print should have left row 238, got \(formerPrint)")
     }
 
-    @Test @concurrent func theNeckMatchMovesOnlyTheShouldersAndLeavesTheHemAndTheSleevesWhereTheyWere() async throws {
+    @Test func theNeckMatchMovesOnlyTheShouldersAndLeavesTheHemAndTheSleevesWhereTheyWere() throws {
         // The same person with their own neckline at row 185 and at row 205. The garment's front neck lands 0.05 of the 180
         // pixel shoulder width, 9 pixels, above it, the shoulder corners follow, and the hem corners stay put. Each sleeve's
         // seam top moves with the shoulder corners, so it lands where the torso's map puts it, and the rest of the sleeve stays
@@ -1098,7 +1094,7 @@ struct ShirtTryOnRendererTests {
         }
     }
 
-    @Test @concurrent func thePanelsRendererDrawsTheFrameAsItIsUntilItsFirstAnalysisIsIn() async throws {
+    @Test func thePanelsRendererDrawsTheFrameAsItIsUntilItsFirstAnalysisIsIn() throws {
         let (frame, personMask, torso) = personFrame()
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
@@ -1117,7 +1113,7 @@ struct ShirtTryOnRendererTests {
         #expect(renderer.composition(frame: frame.ciImage, personMask: personMask, torso: torso, garment: garment) == nil)
     }
 
-    @Test @concurrent func theGarmentIsLitByTheRoomSoABrighterRoomDrawsItBrighter() async throws {
+    @Test func theGarmentIsLitByTheRoomSoABrighterRoomDrawsItBrighter() throws {
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
         let context = CIContext()
@@ -1132,7 +1128,7 @@ struct ShirtTryOnRendererTests {
         #expect(dimRoom < 150)
     }
 
-    @Test @concurrent func aWhiteGarmentInABrightRoomRollsOffBelowWhiteInsteadOfClipping() async throws {
+    @Test func aWhiteGarmentInABrightRoomRollsOffBelowWhiteInsteadOfClipping() throws {
         // A white T-shirt on a light gray photo, in a room as bright as a camera's white.
         var canvas = ShirtTestCanvas(width: 400, height: 500, color: (230, 230, 232))
         var maskPixels = [UInt8](repeating: 0, count: 400 * 500)
@@ -1150,7 +1146,7 @@ struct ShirtTryOnRendererTests {
         #expect(chest.red < 250 && chest.red > 180, "the white chest should be bright but below clipping, got \(chest)")
     }
 
-    @Test @concurrent func theSleevesAreDrawnApartOnlyWhenBothElbowsAreSeen() async throws {
+    @Test func theSleevesAreDrawnApartOnlyWhenBothElbowsAreSeen() throws {
         let (frame, personMask, torso) = personFrame()
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
@@ -1172,7 +1168,7 @@ struct ShirtTryOnRendererTests {
         #expect(whole.sleeves.isEmpty)
     }
 
-    @Test @concurrent func anArmNearTheLimitKeepsTheSleevesTheWayTheLastFrameDrewThem() async throws {
+    @Test func anArmNearTheLimitKeepsTheSleevesTheWayTheLastFrameDrewThem() throws {
         let (frame, personMask, torso) = personFrame()
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
@@ -1200,7 +1196,7 @@ struct ShirtTryOnRendererTests {
         #expect(loweredALittle.sleeves.count == 2 && loweredALittle.sleeves.allSatisfy(\.liesAlongTheArm))
     }
 
-    @Test @concurrent func theFillReachesOnlyTheTorsoOnceTheSleevesAreDrawnApart() async throws {
+    @Test func theFillReachesOnlyTheTorsoOnceTheSleevesAreDrawnApart() throws {
         // The old shirt runs out to column 470, past 0.62 shoulder widths (column 432) from the middle at 320, and the garment's
         // torso is narrower. Drawn in one piece, the fill covers it; once the sleeves are drawn apart, each frame's
         // analysis keeps the fill on the torso, so the old shirt at column 450 stays.
@@ -1216,7 +1212,7 @@ struct ShirtTryOnRendererTests {
         #expect(maxDifference(second, frame, column: 450, row: 300) < 12)
     }
 
-    @Test @concurrent func atTheSoftEdgeOfThePersonTheRoomShowsUnderTheFill() async throws {
+    @Test func atTheSoftEdgeOfThePersonTheRoomShowsUnderTheFill() throws {
         // The person mask fades over the shirt's last eight columns. The garment's torso stops well inside them, so only
         // the fill reaches there, and at a mask of 0.4 the room shows under it instead of the old shirt's dark blend.
         let (frame, _, torso) = personFrame()
@@ -1236,7 +1232,7 @@ struct ShirtTryOnRendererTests {
         #expect(abs(edge.red - 128) < 20 && abs(edge.green - 128) < 20 && abs(edge.blue - 128) < 20, "the room's gray, got \(edge)")
     }
 
-    @Test @concurrent func theBodysTorsoCornersFollowTheSpikesOffsets() async {
+    @Test func theBodysTorsoCornersFollowTheSpikesOffsets() {
         let torso = BodyTorso(
             imageLeftShoulder: CGPoint(x: 200, y: 100), imageRightShoulder: CGPoint(x: 400, y: 100),
             imageLeftHip: CGPoint(x: 220, y: 400), imageRightHip: CGPoint(x: 380, y: 400), hipsWereEstimated: false, shouldersAreSeen: true
@@ -1253,7 +1249,7 @@ struct ShirtTryOnRendererTests {
 // MARK: - The elbows
 
 struct ShirtElbowTests {
-    @Test @concurrent func eachElbowGoesWithTheShoulderOnItsOwnSideWhicheverWayTheCameraIsMirrored() async throws {
+    @Test func eachElbowGoesWithTheShoulderOnItsOwnSideWhicheverWayTheCameraIsMirrored() throws {
         func elbowReadings(personLeftShoulderX: Double, personRightShoulderX: Double, personLeftElbowX: Double, personRightElbowX: Double, elbowConfidence: Float = 0.9, rightElbowConfidence: Float = 0.9) -> ShirtBodyJointReadings {
             ShirtBodyJointReadings(
                 personLeftShoulder: ShirtJointReading(visionPoint: CGPoint(x: personLeftShoulderX, y: 0.7), confidence: 0.9),
@@ -1276,13 +1272,13 @@ struct ShirtElbowTests {
         #expect(weakRightElbow.imageLeftElbow == nil && weakRightElbow.imageRightElbow != nil)
     }
 
-    @Test @concurrent func movingAndScalingTheTorsoCarriesItsElbows() async {
+    @Test func movingAndScalingTheTorsoCarriesItsElbows() {
         let torso = torsoAt(shoulderY: 150, shoulderWidth: 300).withElbowsForTesting(imageLeft: CGPoint(x: 330, y: 400), imageRight: CGPoint(x: 670, y: 400))
         #expect(torso.withTorsoLength(200).imageLeftElbow == CGPoint(x: 330, y: 400))
         #expect(torso.scaled(by: 0.5).imageRightElbow == CGPoint(x: 335, y: 200))
     }
 
-    @Test @concurrent func anElbowMissingFromAResultHoldsItsPlaceForAMomentThenGoes() async {
+    @Test func anElbowMissingFromAResultHoldsItsPlaceForAMomentThenGoes() {
         var smoother = ShirtTorsoSmoother()
         let withElbows = torsoAt(shoulderY: 150, shoulderWidth: 300).withElbowsForTesting(imageLeft: CGPoint(x: 330, y: 400), imageRight: CGPoint(x: 670, y: 400))
         let withoutElbows = torsoAt(shoulderY: 150, shoulderWidth: 300)
@@ -1307,7 +1303,7 @@ extension BodyTorso {
 // MARK: - The garment's sleeves, edge, and white
 
 struct ShirtGarmentPartsTests {
-    @Test @concurrent func theTShirtsSleevesAreFoundApartFromItsTorso() async throws {
+    @Test func theTShirtsSleevesAreFoundApartFromItsTorso() throws {
         let (_, mask) = tShirtPhotoAndMask()
         let measurements = try #require(ShirtGarmentMeasurements(mask: mask))
         let left = try #require(measurements.imageLeftSleeve), right = try #require(measurements.imageRightSleeve)
@@ -1321,7 +1317,7 @@ struct ShirtGarmentPartsTests {
         #expect(left.isSleevePixel[10 * 400 + 50] && !left.isSleevePixel[200 * 400 + 150] && !left.isSleevePixel[10 * 400 + 350])
     }
 
-    @Test @concurrent func aCutoutWhoseSidesRunStraightDownHasNoSleevesApart() async throws {
+    @Test func aCutoutWhoseSidesRunStraightDownHasNoSleevesApart() throws {
         // A box with no gap under its sides, like a jacket whose sleeves hang beside its body.
         var pixels = [UInt8](repeating: 0, count: 400 * 500)
         for row in 0..<500 { for column in 0..<400 { pixels[row * 400 + column] = 255 } }
@@ -1329,7 +1325,7 @@ struct ShirtGarmentPartsTests {
         #expect(measurements.imageLeftSleeve == nil && measurements.imageRightSleeve == nil)
     }
 
-    @Test @concurrent func theGarmentKeepsItsSleevesApartWhenItHasBoth() async throws {
+    @Test func theGarmentKeepsItsSleevesApartWhenItHasBoth() throws {
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
         #expect(garment.sleeves.map(\.geometry.side) == [.imageLeft, .imageRight])
@@ -1338,7 +1334,7 @@ struct ShirtGarmentPartsTests {
         #expect(garment.sleeves[0].boundingBox.minX == 0 && garment.sleeves[0].boundingBox.maxX > 100)
     }
 
-    @Test @concurrent func theCutoutsOuterPixelsTakeTheCleanClothsColorsInsteadOfTheBackgrounds() async {
+    @Test func theCutoutsOuterPixelsTakeTheCleanClothsColorsInsteadOfTheBackgrounds() {
         // A red square whose outer 2 pixels carry the photo's white background, as a lifted edge does.
         let size = 40
         var rgba = [UInt8](repeating: 255, count: size * size * 4)
@@ -1357,7 +1353,7 @@ struct ShirtGarmentPartsTests {
         #expect(cleaned[(1 * size + 1) * 4 + 1] == 255)
     }
 
-    @Test @concurrent func thePhotosWhiteIsItsBackgroundRaisedToAGarmentBrighterThanIt() async {
+    @Test func thePhotosWhiteIsItsBackgroundRaisedToAGarmentBrighterThanIt() {
         let linear = ShirtColorMath.linearValueOfEachByte
         let grayBackground: [[UInt8]] = [[230, 230, 230], [231, 231, 231], [233, 233, 233]]
         let backgroundLuminance = 0.2126 * linear[230] + 0.7152 * linear[231] + 0.0722 * linear[233]
@@ -1392,7 +1388,7 @@ struct ShirtRoomLightTests {
         return ShirtSmallFrame(width: 100, height: 100, rgba: canvas.bytes, personMask: person, torso: torso)
     }
 
-    @Test @concurrent func theRoomsWhiteIsItsUnsaturatedUnclippedWallOffThePerson() async throws {
+    @Test func theRoomsWhiteIsItsUnsaturatedUnclippedWallOffThePerson() throws {
         let light = try #require(ShirtRoomLight.measure(in: roomFrame(wallLevel: 160)))
         // Only the gray wall counts: the orange wall is colored, the lamp is clipped, and the bright person is the person.
         #expect(abs(light.whiteLuminance - ShirtColorMath.linearValueOfEachByte[160]) < 0.002)
@@ -1402,7 +1398,7 @@ struct ShirtRoomLightTests {
         #expect(brighterRoom.whiteLuminance > light.whiteLuminance * 1.5)
     }
 
-    @Test @concurrent func aWarmLightIsReadAsAWarmIlluminant() async throws {
+    @Test func aWarmLightIsReadAsAWarmIlluminant() throws {
         var frame = roomFrame(wallLevel: 160)
         var bytes = frame.rgba
         // A warm wall still within the saturation limit.
@@ -1412,13 +1408,13 @@ struct ShirtRoomLightTests {
         #expect(light.illuminant.x > 1.1 && light.illuminant.z < 0.9)
     }
 
-    @Test @concurrent func aFrameWithNoUsableRoomHasNoLight() async {
+    @Test func aFrameWithNoUsableRoomHasNoLight() {
         let frame = roomFrame(wallLevel: 160)
         let everyoneIsPerson = ShirtSmallFrame(width: 100, height: 100, rgba: frame.rgba, personMask: [UInt8](repeating: 255, count: 100 * 100), torso: frame.torso)
         #expect(ShirtRoomLight.measure(in: everyoneIsPerson) == nil)
     }
 
-    @Test @concurrent func theShadingReadsTheOldShirtsOwnClothButNotAPanelOfAnotherFabric() async {
+    @Test func theShadingReadsTheOldShirtsOwnClothButNotAPanelOfAnotherFabric() {
         // The navy old shirt of the standing photo, with its gray side panel, which passes the color rule on its lightness, and
         // a fold of the navy at 0.6 of the light, which keeps the navy's chromaticity.
         let frame = smallFrameOfAPerson(shirtBottomRow: 110)
@@ -1438,7 +1434,7 @@ struct ShirtRoomLightTests {
         #expect(!readsTheLight(column: 80, row: 50), "the neck is not the old shirt")
     }
 
-    @Test @concurrent func theOldShirtsZoneEndsWhereTheGarmentsHemLands() async {
+    @Test func theOldShirtsZoneEndsWhereTheGarmentsHemLands() {
         // The hips are 58 rows below the shoulders, so the garment's hem lands 1.08 * 58 = 62.6 rows below them, and the blue
         // further down is not the old shirt; the zone's old margin, 1.10 torso lengths and a few pixels, counted it.
         let frame = smallFrameOfAPerson(shirtBottomRow: 120)
@@ -1455,7 +1451,7 @@ struct ShirtRoomLightTests {
 // MARK: - The renderer's light and geometry
 
 struct ShirtTryOnLightTests {
-    @Test @concurrent func theHighlightRolloffPassesValuesUpToTheKneeThenEasesBelowTheCeiling() async {
+    @Test func theHighlightRolloffPassesValuesUpToTheKneeThenEasesBelowTheCeiling() {
         #expect(ShirtTryOnRenderer.highlightRolloff(0.3) == 0.3)
         #expect(ShirtTryOnRenderer.highlightRolloff(ShirtTryOnRenderer.highlightKnee) == ShirtTryOnRenderer.highlightKnee)
         // Just past the knee the slope is still about 1, so the curve has no corner there.
@@ -1471,7 +1467,7 @@ struct ShirtTryOnLightTests {
         }
     }
 
-    @Test @concurrent func anAffineTransformCarriesThreePointsOntoThreeOthers() async throws {
+    @Test func anAffineTransformCarriesThreePointsOntoThreeOthers() throws {
         let source = [CGPoint(x: 0, y: 0), CGPoint(x: 10, y: 0), CGPoint(x: 0, y: 10)]
         let destination = [CGPoint(x: 5, y: 5), CGPoint(x: 5, y: 25), CGPoint(x: -15, y: 5)]
         let transform = try #require(ShirtTryOnRenderer.affineTransform(from: source, to: destination))
@@ -1479,7 +1475,7 @@ struct ShirtTryOnLightTests {
         #expect(ShirtTryOnRenderer.affineTransform(from: [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 1), CGPoint(x: 2, y: 2)], to: destination) == nil)
     }
 
-    @Test @concurrent func theBodysMotionCarriesTheEarlierShouldersOntoTheLaterOnes() async {
+    @Test func theBodysMotionCarriesTheEarlierShouldersOntoTheLaterOnes() {
         let earlier = torsoAt(shoulderY: 150, shoulderWidth: 300)
         let later = BodyTorso(
             imageLeftShoulder: CGPoint(x: 420, y: 160), imageRightShoulder: CGPoint(x: 600, y: 260),
@@ -1490,7 +1486,7 @@ struct ShirtTryOnLightTests {
         #expect(isNear(earlier.imageRightShoulder.applying(motion), later.imageRightShoulder))
     }
 
-    @Test @concurrent func aSleeveLandsAlongItsArmFromItsSeam() async throws {
+    @Test func aSleeveLandsAlongItsArmFromItsSeam() throws {
         // A sleeve shaped like the product photos': its seam runs down the torso's edge, longer than the sleeve, which reaches
         // out and a little down to an opening half as wide as the seam. Its middle is 65 pixels past the seam's middle.
         let leftSleeve = ShirtSleeveGeometry(
@@ -1551,7 +1547,7 @@ struct ShirtTryOnLightTests {
         CGPoint(x: shoulder.x - 300 * sin(degrees * .pi / 180), y: shoulder.y + 300 * cos(degrees * .pi / 180))
     }
 
-    @Test @concurrent func aSleeveAtTheGarmentsAngleHoldsAHangingArmUntilTheArmRisesPastIt() async {
+    @Test func aSleeveAtTheGarmentsAngleHoldsAHangingArmUntilTheArmRisesPastIt() {
         let torso = torsoAt(shoulderY: 150, shoulderWidth: 300)
         let sleeveAngle = ShirtTryOnRenderer.outwardAngleFromTheBodysDown(
             of: ShirtDrawnSleeve(side: .imageLeft, landing: wholeGarmentLeftSleeve, liesAlongTheArm: false).axis, side: .imageLeft, torso: torso
@@ -1575,7 +1571,7 @@ struct ShirtTryOnLightTests {
         #expect(!holds(armTurnedOut: between, pastTheSleeveDegrees: goBack))
     }
 
-    @Test @concurrent func theHipCornersMoveOutToCoverALooserOldShirtUpToALimit() async {
+    @Test func theHipCornersMoveOutToCoverALooserOldShirtUpToALimit() {
         let torso = torsoAt(shoulderY: 150, shoulderWidth: 300)
         let corners = ShirtTryOnRenderer.bodyTorsoCorners(of: torso)
         let noWidths = [[Double?]](repeating: [Double?](repeating: nil, count: ShirtFrameAnalysis.torsoWidthFractions.count), count: 2)
@@ -1597,7 +1593,7 @@ struct ShirtTryOnLightTests {
         #expect(ShirtTryOnRenderer.hipWidening(of: torso, toCover: widths)[0] == ShirtTryOnRenderer.mostHipWideningInShoulderWidths)
     }
 
-    @Test @concurrent func theOutwardAngleIsMeasuredTowardEachArmsOwnSide() async {
+    @Test func theOutwardAngleIsMeasuredTowardEachArmsOwnSide() {
         let torso = torsoAt(shoulderY: 150, shoulderWidth: 300)
         #expect(abs(ShirtTryOnRenderer.outwardAngleFromTheBodysDown(of: CGVector(dx: 0, dy: 10), side: .imageLeft, torso: torso)) < 0.001)
         #expect(abs(ShirtTryOnRenderer.outwardAngleFromTheBodysDown(of: CGVector(dx: -10, dy: 0), side: .imageLeft, torso: torso) - 90) < 0.001)
@@ -1605,7 +1601,7 @@ struct ShirtTryOnLightTests {
         #expect(abs(ShirtTryOnRenderer.outwardAngleFromTheBodysDown(of: CGVector(dx: 10, dy: 10), side: .imageLeft, torso: torso) + 45) < 0.001)
     }
 
-    @Test @concurrent func theWholeGarmentsSleeveGrowsAlongItsOwnAxisUntilItCoversTheOldSleevesHem() async {
+    @Test func theWholeGarmentsSleeveGrowsAlongItsOwnAxisUntilItCoversTheOldSleevesHem() {
         let shoulder = CGPoint(x: 350, y: 150), elbow = CGPoint(x: 330, y: 450), bodyCenter = CGPoint(x: 500, y: 360)
         let landing = wholeGarmentLeftSleeve
         func lengthened(_ oldSleeve: ShirtOldSleeveExtent?) -> [CGPoint] {

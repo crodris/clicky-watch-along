@@ -246,9 +246,8 @@ struct RoomArtLoopOutlineTests {
     }
 }
 
-/// The loop's renders at 2x. Only the render runs on the main actor, as `ImageRenderer` needs, and every scan of its 2 million
-/// pixels runs on a detached task. A scan on the main actor held it for most of a minute on a loaded Mac, and every main actor
-/// test that waited on it, the cursor loop suites among them, hit its time limit.
+/// The loop's renders at 2x. Only the render runs on the main actor, as `ImageRenderer` needs. Every scan of its 2 million
+/// pixels runs on a detached task, since a scan on the main actor holds every other main actor test back on a loaded Mac.
 @MainActor
 struct RoomArtLoopRenderTests {
     private static let cameraFrame = CGSize(width: 1280, height: 720)
@@ -275,24 +274,26 @@ struct RoomArtLoopRenderTests {
         )
         let renderer = ImageRenderer(content: canvas.frame(width: panelSize.width, height: panelSize.height))
         renderer.scale = 2
+        // A CGImage never changes after the render, so the detached task may read it.
         nonisolated(unsafe) let image = try #require(renderer.cgImage)
         let lineBoundsInPoints = path.boundingRect
-        return await Task.detached {
-            Render(bytes: rgbaBytes(of: image), width: image.width, height: image.height, lineBoundsInPoints: lineBoundsInPoints)
-        }.value
+        let bytes = try #require(await Task.detached { rgbaBytes(of: image) }.value)
+        return Render(bytes: bytes, width: image.width, height: image.height, lineBoundsInPoints: lineBoundsInPoints)
     }
 
-    nonisolated private static func rgbaBytes(of image: CGImage) -> [UInt8] {
+    /// The image's pixels as 8-bit RGBA, or nil when no context could be made to draw them.
+    nonisolated private static func rgbaBytes(of image: CGImage) -> [UInt8]? {
         var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
         // The context writes through the buffer's pointer, so the draw happens inside the closure that lends it.
-        bytes.withUnsafeMutableBytes { buffer in
+        let didDraw: Bool = bytes.withUnsafeMutableBytes { buffer in
             guard let context = CGContext(
                 data: buffer.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else { return }
+            ) else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return true
         }
-        return bytes
+        return didDraw ? bytes : nil
     }
 
     nonisolated private static func isTheAccent(_ bytes: [UInt8], at offset: Int) -> Bool {

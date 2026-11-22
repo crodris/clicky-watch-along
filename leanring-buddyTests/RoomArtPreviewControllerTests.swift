@@ -226,10 +226,9 @@ private func furnitureCutoutImage() -> CGImage {
     return context.makeImage()!
 }
 
-/// The test garment, made once for the whole run. Every harness's cutout stub used to make its own on the main actor, and
-/// `ShirtGarment.make` takes seconds on a loaded Mac, so this suite's harnesses held the main actor for over a minute and every
-/// main actor test waiting on it, the cursor loop suites among them, hit its time limit. A garment is a value, so the stubs can
-/// share it.
+/// The test garment, made once for the whole run. `ShirtGarment.make` takes a quarter of a second or more on a loaded Mac, and
+/// the stubs are made on the main actor. One garment per harness held the main actor for most of a minute, so other main actor
+/// tests hit their time limits. A garment is a value, so every stub can share one.
 private let sharedTestGarment = testGarment()
 
 /// A garment from a plain photo whose whole middle is the cutout, which is all the controller needs to pass on.
