@@ -459,6 +459,7 @@ describe("handleLiveScene model setting", () => {
     // Experiments lost the blind judge 1 to 4 with these rules, so a simulation's prompt keeps none of them.
     expect(simulationInstructions).not.toContain("Label at most 10 parts");
     expect(simulationInstructions).not.toContain("Frame the whole subject so no part of it is cropped");
+    // Guards the dropped experiment framing rule, so it does not come back without a new bakeoff.
     expect(simulationInstructions).not.toContain("the equipment a readout depends on stays large in the frame");
   });
 

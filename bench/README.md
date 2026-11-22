@@ -609,6 +609,9 @@ That matters because a scene OpenAI cannot answer falls back to Sonnet with an H
 | Experiments, 10 a side | 32.3 s | 17.7 s | 39.4 s | 24.0 s | $0.50 | $0.28 | 7,590 | 4,133 |
 | Both | 25.1 s | 15.8 s | 39.4 s | 24.0 s | $0.47 | $0.29 | 7,363 | 4,538 |
 
+`results/sim-page-worker-156b21bc7d43.json` and `results/sim-kernel-worker-156b21bc7d43.json` are the first experiment run, the one judge round 1 scored, from before the kernel prompt stopped forbidding the numbers on an instrument's scale.
+The table uses the second run, `results/sim-*-15e448dc1c6c`, which rendered both sides again with that prompt fixed.
+
 The time arm of the decision rule passes: the p50 is 37% lower and the p95 is lower too.
 The blind judge prefers `page`, so the kernel was not merged.
 
@@ -655,11 +658,13 @@ Every render ran on the intended GPT model, and none fell back.
 | Cost a render | $0.50 | $0.47 |
 | Output tokens | 7,810 | 7,478 |
 
-The blind judge picked the rules 7 times and main's prompt 6 times, with 1 pair undecided (`results/framing-judge/summary.json`).
+The two judges gave 14 verdicts over the 7 pairs, one each per pair, counted only when a judge picked the same reply in both orders: 7 for the rules, 6 for main's prompt, and 1 undecided, where a judge picked differently in the two orders (`results/framing-judge/summary.json`).
 3D models went 6 to 2 for the rules, on the heart and both bicycles, where main's bicycle was cropped and carried about 26 crowded labels.
 Experiments went 1 to 4 for main's prompt, with 1 undecided, and the reasons named what each page built, such as a lever that balances, more than its framing.
 The rules ship for 3D models only, where they won 6 to 2, and a simulation's prompt stays as main's, with none of the three, since experiments lost 1 to 4.
-The p50 with the rules is within 15% of main's.
+On 3D models alone, the decision rule passes on its judged arm: a win rate of 6 of 8 decided verdicts, 0.75, with the p50 going from 23.0 s to 19.0 s over the 4 renders a side (`node bench/decisionRule.ts` on the 3D samples of `results/fr1-*` and `results/fr2-*`).
+Over every pair it would not pass: 7 of 13 decided verdicts is 0.54, under the 0.6 the judged arm needs, and the p50 rose from 24.6 s to 26.0 s, so the faster arm fails too.
+That is why only 3D models get the rules.
 It cost $7.26: $6.79 in renders, $0.05 in a credit check, and $0.42 for the judge.
 
 ### Task agent

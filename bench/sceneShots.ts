@@ -363,7 +363,6 @@ export class SceneCamera {
     });
   }
 
-  /** Draws one page and writes the side-by-side PNG to pngPath. */
   /** Loads the page in a new tab at the app's viewport, hands the tab to use, and closes it after. */
   private async withPage<Result>(html: string, use: (page: PageConnection, pageID: string) => Promise<Result>): Promise<Result> {
     const pageID = `page-${this.pagesByPath.size + 1}`;
@@ -404,7 +403,7 @@ export class SceneCamera {
         await new Promise((resolve) => setTimeout(resolve, 2500));
         report.rotateTurns = api.getState?.().yawDegrees !== yawBefore;
         const firstPart = (api.parts ?? [])[0];
-        report.focusFindsAPart = firstPart ? api.focusPart(firstPart.label) === true : false;
+        report.focusFindsAPart = firstPart ? api.focusPart?.(firstPart.label) === true : false;
         report.focusRefusesAnUnknownLabel = api.focusPart?.("no such part") === false;
         api.focusPart?.("");
         api.reveal?.();
@@ -416,9 +415,9 @@ export class SceneCamera {
           const runOnce = () => Promise.race([Promise.resolve(api.run()).then(() => "done", (error) => "rejected: " + error),
             new Promise((resolve) => setTimeout(() => resolve("timeout"), ${runWaitMs}))]);
           const readoutsAt = async (value) => {
-            api.setControl(controls[0].name, value);
+            api.setControl?.(controls[0].name, value);
             const outcome = await runOnce();
-            return { outcome, readouts: api.getState().readouts };
+            return { outcome, readouts: api.getState?.()?.readouts ?? [] };
           };
           report.readoutsBeforeARun = (api.getState?.().readouts ?? []).length;
           if (controls.length > 0 && typeof api.run === "function") {
@@ -438,9 +437,9 @@ export class SceneCamera {
     });
   }
 
+  /** Draws one page and writes the side-by-side PNG to pngPath. */
   async shoot(html: string, sceneKind: SceneKind, pngPath: string): Promise<SceneShotOutcome> {
     return this.withPage(html, async (page, pageID) => {
-
       const tourFinished = await waitFor(async () => (await page.evaluate("window.__tourFinished === true")) === true, tourWaitMs);
       if (!tourFinished) {
         await page.evaluate("window.liveScene?.endTour?.()");
