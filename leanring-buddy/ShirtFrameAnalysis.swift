@@ -20,8 +20,23 @@ nonisolated enum ShirtColorMath {
     /// A pixel within this distance of the old shirt's color is the old shirt. The lightness difference counts a third, since
     /// folds and shadows move lightness far more than they move the cloth's hue.
     static let oldShirtDistanceLimit: Float = 16
+    /// The old shirt's light is read only from pixels whose chromaticity (each linear channel's share of their sum) is within
+    /// this of its color's. A panel of another fabric near its color passes the color rule on its lightness, and its lighter
+    /// cloth would read as brighter light on the new shirt. Light scales the linear channels together, so a fold or a shadow
+    /// leaves the chromaticity where it was; a gray panel on a navy shirt is about 0.19 away, and a dark webcam pixel's noise
+    /// moves it about 0.05.
+    static let oldShirtChromaticityDistanceLimitForTheShading: Float = 0.1
 
-    private static let linearValueOfEachByte: [Float] = (0..<256).map { byte in
+    /// Each linear channel's share of their sum, red and green (blue is the rest), or nil for black.
+    static func chromaticity(red: UInt8, green: UInt8, blue: UInt8) -> SIMD2<Float>? {
+        let linearRed = linearValueOfEachByte[Int(red)], linearGreen = linearValueOfEachByte[Int(green)], linearBlue = linearValueOfEachByte[Int(blue)]
+        let sum = linearRed + linearGreen + linearBlue
+        guard sum > 1e-4 else { return nil }
+        return SIMD2(linearRed / sum, linearGreen / sum)
+    }
+
+    /// Each 8-bit sRGB value in linear light.
+    static let linearValueOfEachByte: [Float] = (0..<256).map { byte in
         let srgb = Float(byte) / 255
         return srgb <= 0.04045 ? srgb / 12.92 : pow((srgb + 0.055) / 1.055, 2.4)
     }
@@ -57,6 +72,61 @@ nonisolated enum ShirtColorMath {
     }
 
     static func byte(_ value: Float) -> UInt8 { UInt8(max(0, min(255, value.rounded()))) }
+}
+
+/// The room's light, read from the pixels off the person, which the garment is lit with instead of the product photo's.
+nonisolated struct ShirtRoomLight: Equatable, Sendable {
+    /// A pixel whose channels differ by more than this share of the largest is colored, not a lit neutral surface.
+    static let saturationLimit: Float = 0.25
+    /// A pixel with a channel at or over this level is a light or a blown highlight, which says nothing about the light.
+    static let clippedLevel: UInt8 = 250
+    /// Fewer usable pixels than this share of the frame (a learner filling the frame, a colorful room) say nothing.
+    static let leastShareOfTheFrame = 0.01
+
+    /// The linear luminance a white surface has in the room: the 90th percentile of the unsaturated, unclipped pixels off
+    /// the person, which are mostly walls, doors, and ceilings.
+    let whiteLuminance: Float
+    /// The light's color in linear light with a luminance of 1: the mean of the brightest fifth of those pixels.
+    let illuminant: SIMD3<Float>
+
+    /// The room's light in `frame`, or nil when too few pixels off the person can show it.
+    static func measure(in frame: ShirtSmallFrame) -> ShirtRoomLight? {
+        // A histogram of luminance in 512 steps finds the percentiles without sorting.
+        let stepCount = 512
+        var histogram = [Int](repeating: 0, count: stepCount)
+        var luminanceStepOfEachPixel = [Int](repeating: -1, count: frame.width * frame.height)
+        var usableCount = 0
+        for index in 0..<(frame.width * frame.height) where frame.personMask[index] <= 127 {
+            let red = frame.rgba[index * 4], green = frame.rgba[index * 4 + 1], blue = frame.rgba[index * 4 + 2]
+            let largest = max(red, green, blue), smallest = min(red, green, blue)
+            guard largest < clippedLevel, largest > 0, Float(largest - smallest) < saturationLimit * Float(largest) else { continue }
+            let luminance = 0.2126 * ShirtColorMath.linearValueOfEachByte[Int(red)] + 0.7152 * ShirtColorMath.linearValueOfEachByte[Int(green)] + 0.0722 * ShirtColorMath.linearValueOfEachByte[Int(blue)]
+            let step = min(stepCount - 1, Int(luminance * Float(stepCount)))
+            histogram[step] += 1
+            luminanceStepOfEachPixel[index] = step
+            usableCount += 1
+        }
+        guard Double(usableCount) >= leastShareOfTheFrame * Double(frame.width * frame.height) else { return nil }
+        func stepAtPercentile(_ share: Double) -> Int {
+            var counted = 0
+            for step in 0..<stepCount {
+                counted += histogram[step]
+                if Double(counted) >= share * Double(usableCount) { return step }
+            }
+            return stepCount - 1
+        }
+        let whiteStep = stepAtPercentile(0.9), brightStep = stepAtPercentile(0.8)
+        var brightColorSum = SIMD3<Float>(0, 0, 0)
+        for index in luminanceStepOfEachPixel.indices where luminanceStepOfEachPixel[index] >= brightStep {
+            brightColorSum += SIMD3(
+                ShirtColorMath.linearValueOfEachByte[Int(frame.rgba[index * 4])], ShirtColorMath.linearValueOfEachByte[Int(frame.rgba[index * 4 + 1])],
+                ShirtColorMath.linearValueOfEachByte[Int(frame.rgba[index * 4 + 2])]
+            )
+        }
+        let brightLuminance = 0.2126 * brightColorSum.x + 0.7152 * brightColorSum.y + 0.0722 * brightColorSum.z
+        guard brightLuminance > 0 else { return nil }
+        return ShirtRoomLight(whiteLuminance: (Float(whiteStep) + 0.5) / Float(stepCount), illuminant: brightColorSum / brightLuminance)
+    }
 }
 
 /// One frame, small: the camera frame and the person mask at the same size, with the torso in the same pixels.
@@ -117,11 +187,15 @@ nonisolated struct ShirtSmallFrame: Sendable {
 /// What the renderer needs from one frame.
 nonisolated struct ShirtFrameAnalysis: Sendable {
     /// RGBA bytes the size of the small frame: red is 255 where the new shirt must not draw (the neck, the face, above the
-    /// shoulders), green is 255 where the learner's old shirt shows beyond the new shirt's outline and takes its base color.
+    /// shoulders), green is 255 where the learner's old shirt shows beyond the new shirt's outline and takes its base color,
+    /// and blue is 255 on every pixel of the person below the neck that looks like the old shirt and has its chromaticity
+    /// (`ShirtColorMath.oldShirtChromaticityDistanceLimitForTheShading`), with no clean-up, which is where the old shirt's own
+    /// light can be read for the shading (its print, trim, a panel of another fabric, and the arms are left out).
     let maskPixels: [UInt8]
-    /// The old shirt's average lightness and average of all channels, both from 0 to 1, over its pixels in the torso zone.
-    let oldShirtMeanLuminance: Float
-    let oldShirtMeanBrightness: Float
+    /// The median luminance in linear light of the old shirt's pixels in the torso zone, which the shading is a ratio to. The
+    /// median, since the mean of a dark shirt in linear light is pulled up by its few lit folds, and the shirt's typical cloth
+    /// would then read as shadow.
+    let oldShirtMedianLinearLuminance: Float
     /// How far below the shoulder midpoint the old shirt ends, along the body, or nil when it runs to the frame's edge or
     /// cannot be told apart from what is below it.
     let oldShirtHemDistance: Double?
@@ -149,15 +223,22 @@ nonisolated struct ShirtFrameAnalysis: Sendable {
         let hipMidpoint = vector(torso.hipMidpoint)
         let torsoLength = max(simd_length(hipMidpoint - shoulderMidpoint), 1)
         let torsoAxis = (hipMidpoint - shoulderMidpoint) / torsoLength
-        // The old shirt's zone ends a little below the hips, so same-colored trousers never take the shirt's color.
-        let lowestTorsoDistance = torsoLength * 1.10 + 0.05 * shoulderWidth
+        // The old shirt's zone ends just above where the garment's hem lands (`ShirtTryOnRenderer.garmentBottomInTorsoLengths`,
+        // 1.08 torso lengths), so same-colored trousers never take the shirt's color, and the fill, which the renderer grows a
+        // pixel or two under the garment's edge, never draws a band of base color over the waistband below the hem.
+        let lowestTorsoDistance = torsoLength * 1.08 - 2
 
         let oldShirtLab = ShirtColorMath.lab(red: ShirtColorMath.byte(oldShirtColor.x), green: ShirtColorMath.byte(oldShirtColor.y), blue: ShirtColorMath.byte(oldShirtColor.z))
+        let oldShirtChromaticity = ShirtColorMath.chromaticity(red: ShirtColorMath.byte(oldShirtColor.x), green: ShirtColorMath.byte(oldShirtColor.y), blue: ShirtColorMath.byte(oldShirtColor.z))
         var looksLikeTheOldShirt = [Bool](repeating: false, count: width * height)
+        var oldShirtForTheShading = [Bool](repeating: false, count: width * height)
         var cut = [Bool](repeating: false, count: width * height)
         var uncovered = [Bool](repeating: false, count: width * height)
         var inTheOldShirtZone = [Bool](repeating: false, count: width * height)
-        var luminanceSum = 0.0, brightnessSum = 0.0, oldShirtPixelCount = 0
+        var oldShirtPixelCount = 0
+        // A histogram of linear luminance finds the median without sorting.
+        let linearLuminanceStepCount = 2048
+        var linearLuminanceHistogram = [Int](repeating: 0, count: linearLuminanceStepCount)
         for row in 0..<height {
             for column in 0..<width {
                 let index = row * width + column
@@ -172,6 +253,11 @@ nonisolated struct ShirtFrameAnalysis: Sendable {
                 let aboveTheShoulders = upward > 0.04 * shoulderWidth && abs(across) < 0.30 * shoulderWidth
                 cut[index] = ((insideTheNeck || aboveTheShoulders || upward > 0) && !looksOld) || upward > 0.30 * shoulderWidth
                 let isPerson = frame.personMask[index] > 127
+                let pixelChromaticity = looksOld && isPerson && upward < 0
+                    ? ShirtColorMath.chromaticity(red: frame.rgba[pixelIndex], green: frame.rgba[pixelIndex + 1], blue: frame.rgba[pixelIndex + 2]) : nil
+                oldShirtForTheShading[index] = pixelChromaticity.map { chromaticity in
+                    oldShirtChromaticity.map { simd_distance(chromaticity, $0) < ShirtColorMath.oldShirtChromaticityDistanceLimitForTheShading } ?? true
+                } ?? false
                 let distanceFromTheShoulders = simd_dot(SIMD2(Double(column), Double(row)) - shoulderMidpoint, torsoAxis)
                 // The old shirt's sleeves reach about 0.9 shoulder widths either side of the center, so something farther out that
                 // happens to share its color, such as a dark chair back, is not the shirt.
@@ -179,18 +265,25 @@ nonisolated struct ShirtFrameAnalysis: Sendable {
                 inTheOldShirtZone[index] = isPerson && upward < 0 && distanceFromTheShoulders < lowestTorsoDistance && abs(acrossFromTheCenter) < 0.9 * shoulderWidth
                 if looksOld, inTheOldShirtZone[index] {
                     uncovered[index] = true
-                    let red = Double(frame.rgba[pixelIndex]), green = Double(frame.rgba[pixelIndex + 1]), blue = Double(frame.rgba[pixelIndex + 2])
-                    luminanceSum += (0.299 * red + 0.587 * green + 0.114 * blue) / 255
-                    brightnessSum += (red + green + blue) / (3 * 255)
+                    let linearLuminance = 0.2126 * ShirtColorMath.linearValueOfEachByte[Int(frame.rgba[pixelIndex])]
+                        + 0.7152 * ShirtColorMath.linearValueOfEachByte[Int(frame.rgba[pixelIndex + 1])]
+                        + 0.0722 * ShirtColorMath.linearValueOfEachByte[Int(frame.rgba[pixelIndex + 2])]
+                    linearLuminanceHistogram[min(linearLuminanceStepCount - 1, Int(linearLuminance * Float(linearLuminanceStepCount)))] += 1
                     oldShirtPixelCount += 1
                 }
             }
         }
         // With no old shirt pixels to measure, the old color itself stands for them.
-        let colorLuminance: Float = (0.299 * oldShirtColor.x + 0.587 * oldShirtColor.y + 0.114 * oldShirtColor.z) / 255
-        let colorBrightness: Float = (oldShirtColor.x + oldShirtColor.y + oldShirtColor.z) / (3 * 255)
-        oldShirtMeanLuminance = oldShirtPixelCount > 0 ? Float(luminanceSum / Double(oldShirtPixelCount)) : colorLuminance
-        oldShirtMeanBrightness = oldShirtPixelCount > 0 ? Float(brightnessSum / Double(oldShirtPixelCount)) : colorBrightness
+        let colorLinearLuminance = 0.2126 * ShirtColorMath.linearValueOfEachByte[Int(ShirtColorMath.byte(oldShirtColor.x))]
+            + 0.7152 * ShirtColorMath.linearValueOfEachByte[Int(ShirtColorMath.byte(oldShirtColor.y))]
+            + 0.0722 * ShirtColorMath.linearValueOfEachByte[Int(ShirtColorMath.byte(oldShirtColor.z))]
+        var medianStep: Int?
+        var countedPixels = 0
+        for step in 0..<linearLuminanceStepCount where medianStep == nil {
+            countedPixels += linearLuminanceHistogram[step]
+            if 2 * countedPixels >= oldShirtPixelCount { medianStep = step }
+        }
+        oldShirtMedianLinearLuminance = oldShirtPixelCount > 0 ? (Float(medianStep ?? 0) + 0.5) / Float(linearLuminanceStepCount) : colorLinearLuminance
 
         precondition(width >= 3 && height >= 3, "The analysis needs a frame of at least 3 by 3 pixels")
         // A pixel with fewer than 3 old-shirt neighbors in its 8 is a speck, not a patch of shirt the garment missed.
@@ -212,6 +305,7 @@ nonisolated struct ShirtFrameAnalysis: Sendable {
         for index in 0..<(width * height) {
             maskPixels[index * 4] = cut[index] ? 255 : 0
             maskPixels[index * 4 + 1] = despeckled[index] ? 255 : 0
+            maskPixels[index * 4 + 2] = oldShirtForTheShading[index] ? 255 : 0
             maskPixels[index * 4 + 3] = 255
         }
         self.maskPixels = maskPixels

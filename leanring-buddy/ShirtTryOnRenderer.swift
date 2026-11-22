@@ -2,16 +2,24 @@
 //  ShirtTryOnRenderer.swift
 //  leanring-buddy
 //
-//  Draws the garment over the shirt the learner wears. The method is the spike's: the garment's torso is mapped onto the
-//  body's torso, the person mask keeps the shirt on the body, the neck and face stay, the old shirt's shading is carried onto
-//  the new print, and the camera's exposure is matched. Core Image draws it with built-in filters. The per-frame questions
-//  they cannot ask (which pixels are the old shirt) are answered on a small copy in ShirtFrameAnalysis.swift.
+//  Draws the garment over the shirt the learner wears so it looks worn in the room, not pasted on. The garment's torso is
+//  mapped onto the body's torso and each sleeve along its upper arm; the person mask keeps the shirt on the body and the neck
+//  and face stay. The color is worked out in linear light: the product photo over its own white is the cloth's albedo, which
+//  is lit by the room's white and tinted toward the room's light, then shaded by the old shirt's own light and folds, darkened
+//  a little where cloth turns away at its edges, and rolled off softly at the top so no highlight blows out. Core Image draws
+//  it with built-in filters.
+//
+//  The questions Core Image's filters cannot ask (which pixels are the old shirt, where the neck is, the room's light) are
+//  answered on a small copy in ShirtFrameAnalysis.swift. They are CPU loops, which an unoptimized Debug build runs many
+//  times slower than a release build, so they run on their own queue every few frames, and each frame reuses the newest
+//  answer with its masks moved along with the torso since. The frame itself only builds Core Image filters.
 //
 //  Points are in camera pixels with y down. Core Image's y grows up, so every point crosses `flipped` on the way in.
 //
 
 import CoreImage
 import Foundation
+import os
 import simd
 
 extension BodyTorso {
@@ -21,150 +29,302 @@ extension BodyTorso {
         return BodyTorso(
             imageLeftShoulder: scaledPoint(imageLeftShoulder), imageRightShoulder: scaledPoint(imageRightShoulder),
             imageLeftHip: scaledPoint(imageLeftHip), imageRightHip: scaledPoint(imageRightHip),
-            hipsWereEstimated: hipsWereEstimated, shouldersAreSeen: shouldersAreSeen
+            hipsWereEstimated: hipsWereEstimated, shouldersAreSeen: shouldersAreSeen,
+            imageLeftElbow: imageLeftElbow.map(scaledPoint), imageRightElbow: imageRightElbow.map(scaledPoint)
+        )
+    }
+}
+
+/// One sleeve as it was drawn: its side, where its quadrilateral landed (seam top, opening outer, opening inner, seam
+/// bottom, in camera pixels with y down), and where it shows, its warped alpha where the torso does not cover it, before the
+/// person mask.
+nonisolated struct ShirtDrawnSleeve: @unchecked Sendable {
+    // @unchecked because CIImage is immutable, so sharing one across queues is safe.
+    let side: ShirtSleeveSide
+    let landing: [CGPoint]
+    let alpha: CIImage
+
+    /// From the middle of the seam to the middle of the opening.
+    var axis: CGVector {
+        CGVector(dx: (landing[1].x + landing[2].x - landing[0].x - landing[3].x) / 2, dy: (landing[1].y + landing[2].y - landing[0].y - landing[3].y) / 2)
+    }
+}
+
+/// One composite and the layers it was made of. The panel draws only `image`; the look checks in ShirtLookCheckTests.swift
+/// read the rest to measure the result against the frame.
+nonisolated struct ShirtTryOnComposition: @unchecked Sendable {
+    // @unchecked because CIImage is immutable, so sharing one across queues is safe.
+
+    /// The frame with the garment drawn on it.
+    let image: CIImage
+    /// Where the garment itself covers the frame, 0 to 1 in the red channel: its warped alpha times the person mask, minus
+    /// the neck cut. The base color fill is not in it.
+    let garmentAlpha: CIImage
+    /// The garment and the base color fill together, the mask the garment is drawn with.
+    let totalAlpha: CIImage
+    /// The product photo's colors where they land in the frame, over the base color, before any light or shading.
+    let warpedGarmentColor: CIImage
+    /// The body's torso corners the garment's torso landed on, top left first, in camera pixels with y down.
+    let landedTorsoCorners: [CGPoint]
+    /// The sleeves drawn apart along the arms, image left first, empty when the garment was drawn whole.
+    let sleeves: [ShirtDrawnSleeve]
+}
+
+/// What one run of the frame analysis learned, which the frames after it reuse.
+nonisolated private struct ShirtFrameAnalysisResult: @unchecked Sendable {
+    // @unchecked because CIImage is immutable, so sharing one across queues is safe.
+
+    /// Counts runs, so each frame knows whether it has folded this one's numbers in yet.
+    let runNumber: Int
+    /// The torso the analysis ran for, in camera pixels. The masks are moved from it to each frame's torso.
+    let torso: BodyTorso
+    /// The analysis masks (`ShirtFrameAnalysis.maskPixels`) as an image the size of the small copy.
+    let masks: CIImage
+    let oldShirtMedianLinearLuminance: Float
+    /// The row where the learner's neck meets the old shirt, and how far below the shoulders the old shirt ends, both in
+    /// camera pixels, each nil when it was not found.
+    let neckRow: Double?
+    let oldShirtHemDistance: Double?
+    let roomLight: ShirtRoomLight?
+
+    func numbered(_ runNumber: Int) -> ShirtFrameAnalysisResult {
+        ShirtFrameAnalysisResult(
+            runNumber: runNumber, torso: torso, masks: masks, oldShirtMedianLinearLuminance: oldShirtMedianLinearLuminance,
+            neckRow: neckRow, oldShirtHemDistance: oldShirtHemDistance, roomLight: roomLight
         )
     }
 }
 
 /// Draws a garment over the learner. One renderer serves one try-on session on one queue: it keeps a few smoothed numbers
-/// between frames (the old shirt's color, how far the necklines are apart, where the old shirt ends), so use `reset()` for a
-/// new session or a new garment, and call `composite` from one queue only.
+/// between frames (the old shirt's color, the room's light, how far the necklines are apart, where the old shirt ends), so
+/// use `reset()` for a new session or a new garment, and call `composite` from one queue only.
 nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     /// The per-frame questions run on a copy of the frame this wide.
     static let analysisFrameWidth = 320.0
-    /// The old shirt's color is measured again every this many frames. It changes only with the light, and each frame's
-    /// median would only add flicker.
-    static let framesBetweenOldShirtColorMeasurements = 4
+    /// A new analysis starts at most every this many frames, and only once the last has finished. About 10 a second at 30
+    /// frames a second, which keeps the masks close to the body while a Debug build's slow loops never hold a frame up.
+    static let framesBetweenAnalyses = 3
     /// Where the garment's bottom edge sits along the body, in torso lengths from the shoulder midpoint: the spike puts the
     /// shirt's hem 8 percent of a torso below the hips.
     static let garmentBottomInTorsoLengths = 1.08
-    /// The shading comes from the camera's luminance, blurred this much (in half size pixels) so a noisy dark webcam shirt
-    /// does not put its grain into the print. The spike used 2 full size pixels, which showed the grain.
-    static let shadingBlurSigmaAtHalfSize = 3.0
     /// The analysis masks are blurred by this many of their own pixels once scaled up, which turns their steps into curves.
     static let analysisMaskSmoothingInSmallPixels = 0.8
     /// The base color fill is closed (grown by twice this, then shrunk by this many analysis pixels), which fills holes a
     /// few pixels wide where a fold read as not the old shirt, and leaves it grown by this much under the garment's edge,
     /// so the two meet with no gap.
-    static let baseColorGrowthUnderTheGarmentInSmallPixels = 1.0
+    static let baseColorGrowthUnderTheGarmentInSmallPixels = 1.6
     /// The base color fill stays this share of the frame's width inside the person mask's edge: about 4 camera pixels at
     /// 1280, which keeps it off the room where the mask reaches past the arm.
     static let baseColorFillPullInShareOfTheFrameWidth = 0.0025
+    /// How far the fill carries the garment's colors from its outline, in shoulder widths: about as far as an old shirt
+    /// reaches past a slimmer new one at the waist.
+    static let fillReachInShoulderWidths = 0.25
+    /// The garment is drawn where the person mask is over the first of these and fully over the second. The mask's soft
+    /// edge starts in the room, so a looser ramp would lay the bright garment over the wall as a light halo.
+    static let personMaskRampForTheGarment = (from: 0.5, to: 0.9)
+    /// How far the room's color is carried in under the person's outline, in half size pixels.
+    static let roomBehindBlurSigmaAtHalfSize = 3.0
+
+    // The light.
+    /// Cloth is lit a little below the room's white: the white is read from walls and doors that face the light, and a
+    /// white T-shirt reflects a little less than a white wall does.
+    static let clothShareOfTheRoomWhite: Float = 0.9
+    /// How much of the room light's color the garment takes. All of it would tint a white shirt the color of a beige wall
+    /// when the walls are what was measured, and none leaves a neutral shirt cold in a warm room.
+    static let roomTintStrength: Float = 0.6
+    /// The room's white when it cannot be measured, a dim room's.
+    static let roomWhiteWhenUnmeasured: Float = 0.35
+    /// Each new analysis moves the smoothed room light and old shirt brightness this share of the way, so a hand passing a
+    /// lamp does not flicker the shirt.
+    static let roomLightSmoothingShare: Float = 0.3
+
+    // The shading, in half size pixels.
+    /// The old shirt's broad light: how the body turns toward and away from the light.
+    static let broadShadingBlurSigmaAtHalfSize = 7.0
+    /// The widest light, which a broad light with no old shirt near falls back to: the side of the body, the top of the arm.
+    static let widestShadingBlurSigmaAtHalfSize = 30.0
+    /// The old shirt's folds: its finer light over the broad light, so a crease shows through the print.
+    static let foldShadingBlurSigmaAtHalfSize = 2.5
+    static let broadShadingRange = (lowest: 0.5, highest: 1.7)
+    static let foldShadingRange = (lowest: 0.9, highest: 1.1)
+    /// The shading is raised to this power before it lights the garment. A dark webcam shirt's light is mostly noise at its
+    /// finer scales, and in linear light that noise is large next to its level, so the full ratio mottles a light garment
+    /// like tie-dye; this keeps the body's light and folds and quiets the noise.
+    static let shadingStrength = 0.8
+    /// The old shirt's pixels are shrunk by this many small pixels before its light is read. A pixel next to the body's
+    /// outline or the old shirt's piping still passes the color rule but carries some of the bright wall or trim, which
+    /// showed as a light rim along the body's sides and light lines where the piping was.
+    static let shadingWeightShrinkInSmallPixels = 1.2
+    /// A pixel brighter than the first of these times the old shirt's median counts less toward its light, and one brighter
+    /// than the second not at all. The broad shading tops out at 1.7, so cloth that bright adds nothing but a blend does.
+    static let shadingBrightestShareOfTheMedian = (from: 2.0, to: 3.0)
+    /// How much old shirt weight a shading sample needs before it is believed, as a share of a pixel. Where no old shirt is
+    /// near, such as a sleeve over a bare arm, the shading falls back to a broader band's light (see `shadingImage`).
+    static let shadingWeightFloor = 0.02
+
+    // The cloth's edges.
+    /// Cloth turns away from the camera at the body's outline, the neck, and the armpits, and catches less light there: it is
+    /// darkened by up to this share at its edge, fading over `edgeDarkeningReachInShoulderWidths` inside.
+    static let edgeDarkeningStrength = 0.26
+    static let edgeDarkeningReachInShoulderWidths = 0.035
+
+    // The highlights.
+    /// Linear values above this roll off softly toward `highlightCeiling` instead of clipping, so a lit cream shirt keeps its
+    /// cream and its folds instead of turning flat white.
+    static let highlightKnee = 0.6
+    /// The brightest linear value the garment reaches, sRGB 242.
+    static let highlightCeiling = 0.88
+    /// The highlight rolloff's input runs from 0 to this, in linear light: four times a white wall, more than any lit cloth.
+    static let highlightRolloffDomainTop = 4.0
+
+    // The sleeves.
+    /// A flat sleeve's opening is half the sleeve's circumference; on the arm, seen from the front, it shows a little wider
+    /// than the arm, so it lands at this share of its flat width.
+    static let sleeveOpeningShareOnTheArm = 0.8
+    /// How far the opening's center moves from the line through the seam's middle toward the arm's own line.
+    static let sleeveOpeningShareTowardTheArmLine = 0.5
 
     private let ciContext: CIContext
+    private let analysisRunsInTheBackground: Bool
     private let sRGBColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    private let linearColorSpace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) ?? CGColorSpaceCreateDeviceRGB()
+    private let analysisQueue = DispatchQueue(label: "com.crodris.clicky.shirt-try-on.analysis", qos: .userInitiated)
+    private let highlightRolloffCurve = ShirtTryOnRenderer.highlightRolloffCurveData()
+
+    /// Shared with the analysis queue.
+    private struct AnalysisState {
+        var latestResult: ShirtFrameAnalysisResult?
+        var runIsInFlight = false
+        var nextRunNumber = 1
+        var smoothedOldShirtColor: SIMD3<Float>?
+        /// Counts resets, so a run that finishes after one does not bring the last session's answer back.
+        var generation = 0
+    }
+    private let analysisState = OSAllocatedUnfairLock(initialState: AnalysisState())
 
     // Written and read on the one queue that calls `composite`.
-    private var smoothedOldShirtColor: SIMD3<Float>?
-    private var framesSinceTheOldShirtColorWasMeasured = 0
+    private var framesSinceAnAnalysisStarted = 0
+    private var foldedRunNumber = 0
     private var smoothedNeckShift = 0.0
     private var hasNeckShift = false
     private var smoothedTorsoLengthInShoulderWidths: Double?
+    private var smoothedRoomWhite: Float?
+    private var smoothedIlluminant = SIMD3<Float>(1, 1, 1)
+    private var smoothedOldShirtMedianLinearLuminance: Float?
 
-    /// `ciContext` reads the small frame back for the analysis. Pass the one that draws the frames.
-    init(ciContext: CIContext = CIContext()) {
+    /// `ciContext` reads the small frame back for the analysis. Pass the one that draws the frames. With
+    /// `analysisRunsInTheBackground` (the panel's way), the first frames are drawn without the garment until the first
+    /// analysis is in, and later analyses never hold a frame up; without it every frame analyzes itself first, which a test
+    /// needs to see the garment on the frame it passed.
+    init(ciContext: CIContext = CIContext(), analysisRunsInTheBackground: Bool = true) {
         self.ciContext = ciContext
+        self.analysisRunsInTheBackground = analysisRunsInTheBackground
     }
 
     func reset() {
-        smoothedOldShirtColor = nil
-        framesSinceTheOldShirtColorWasMeasured = 0
+        analysisState.withLock { state in
+            state = AnalysisState(generation: state.generation + 1)
+        }
+        framesSinceAnAnalysisStarted = 0
+        foldedRunNumber = 0
         smoothedNeckShift = 0
         hasNeckShift = false
         smoothedTorsoLengthInShoulderWidths = nil
+        smoothedRoomWhite = nil
+        smoothedIlluminant = SIMD3(1, 1, 1)
+        smoothedOldShirtMedianLinearLuminance = nil
     }
 
     /// `frame` with `garment` drawn over the person's shirt. `personMask` is white where the person is (any size, it is scaled
     /// to the frame), and should be made with `CIImage(cvPixelBuffer:, options: [.colorSpace: NSNull()])` so Core Image
     /// reads its values as they are. `torso` comes from `ShirtFraming.ready`. The result is lazy, with the frame's extent.
-    func composite(frame: CIImage, personMask: CIImage, torso suppliedTorso: BodyTorso, garment: ShirtGarment) -> CIImage {
-        let frameExtent = frame.extent
-        guard frameExtent.width >= 64, frameExtent.height >= 64, !personMask.extent.isEmpty else { return frame }
-        let frameWidth = frameExtent.width, frameHeight = frameExtent.height
-        let analysisScale = min(1, Self.analysisFrameWidth / frameWidth)
-        let smallWidth = max(3, Int((frameWidth * analysisScale).rounded())), smallHeight = max(3, Int((frameHeight * analysisScale).rounded()))
+    func composite(frame: CIImage, personMask: CIImage, torso: BodyTorso, garment: ShirtGarment) -> CIImage {
+        composition(frame: frame, personMask: personMask, torso: torso, garment: garment)?.image ?? frame
+    }
 
-        // What the previous frames learned about the body: where the old shirt ends, as a share of the shoulder width.
+    /// The composite with its layers, or nil when the garment cannot be drawn on this frame (too small a frame, no analysis
+    /// in yet, no old shirt to measure, or a torso that cannot be mapped), when `composite` returns the frame as it is.
+    func composition(frame: CIImage, personMask: CIImage, torso suppliedTorso: BodyTorso, garment: ShirtGarment) -> ShirtTryOnComposition? {
+        let frameExtent = frame.extent
+        guard frameExtent.width >= 64, frameExtent.height >= 64, !personMask.extent.isEmpty else { return nil }
+        let frameWidth = frameExtent.width
+        let shoulderWidth = suppliedTorso.shoulderWidth
+
+        // 1. The analysis: the newest one, and a new one started when it is due.
         func torsoWithTheLearnedLength() -> BodyTorso {
             smoothedTorsoLengthInShoulderWidths.map { suppliedTorso.withTorsoLength($0 * suppliedTorso.shoulderWidth) } ?? suppliedTorso
         }
-        let torsoForTheAnalysis = torsoWithTheLearnedLength()
-
-        // 1. The small copy and the analysis. One render reads the small frame and the small person mask back together.
-        guard let smallBytes = renderedSmallFrameAndPersonMask(frame: frame, personMask: personMask, width: smallWidth, height: smallHeight) else { return frame }
-        let smallFrame = ShirtSmallFrame(width: smallWidth, height: smallHeight, rgba: smallBytes.frame, personMask: smallBytes.person, torso: torsoForTheAnalysis.scaled(by: analysisScale))
-        guard let oldShirtColor = oldShirtColor(of: smallFrame) else { return frame }
-        let analysis = ShirtFrameAnalysis(frame: smallFrame, oldShirtColor: oldShirtColor)
-        let shoulderWidth = suppliedTorso.shoulderWidth
-
-        // Where the old shirt really ends, when the hips were only estimated. The garment's hem lands there, so it never
-        // draws over trousers, and this frame's garment already uses it.
-        if suppliedTorso.hipsWereEstimated, let hemDistance = analysis.oldShirtHemDistance.map({ $0 / analysisScale }) {
-            let measuredLength = hemDistance / Self.garmentBottomInTorsoLengths / shoulderWidth
-            smoothedTorsoLengthInShoulderWidths = smoothedTorsoLengthInShoulderWidths.map { $0 + (measuredLength - $0) * 0.2 } ?? measuredLength
-        }
-
+        guard let analysis = analysisForThisFrame(frame: frame, personMask: personMask, torso: torsoWithTheLearnedLength()) else { return nil }
+        foldInTheNumbers(of: analysis)
         let torso = torsoWithTheLearnedLength()
+        // How the body moved since the analysis ran, which moves its masks and its neck row with it.
+        let motionSinceTheAnalysis = Self.motion(from: analysis.torso, to: torso)
 
         // 2. Where the garment lands, with the necklines met.
         let sourceCorners = garment.torsoCorners.clockwiseFromTopLeft
         var bodyCorners = Self.bodyTorsoCorners(of: torso)
-        guard let unshiftedHomography = perspectiveTransform(from: sourceCorners, to: bodyCorners) else { return frame }
+        guard let unshiftedHomography = perspectiveTransform(from: sourceCorners, to: bodyCorners) else { return nil }
         var rawNeckShift = 0.0
-        if garment.frontNeckWasFound, let neckRowInSmallFrame = smallFrame.bodyNeckRow(oldShirtColor: oldShirtColor) {
+        if garment.frontNeckWasFound, let neckRowAtTheAnalysis = analysis.neckRow {
+            let neckRow = neckRowAtTheAnalysis + (torso.shoulderMidpoint.y - analysis.torso.shoulderMidpoint.y)
             let garmentNeckInFrame = applyingPerspective(unshiftedHomography, to: garment.frontNeckPoint)
-            let difference = neckRowInSmallFrame / analysisScale - garmentNeckInFrame.y
+            let difference = neckRow - garmentNeckInFrame.y
             // Further apart than a quarter of the shoulders, the scan found something other than the old collar.
             if abs(difference) < 0.25 * shoulderWidth { rawNeckShift = difference }
         }
         smoothedNeckShift = hasNeckShift ? smoothedNeckShift + (rawNeckShift - smoothedNeckShift) * 0.35 : rawNeckShift
         hasNeckShift = true
         bodyCorners = bodyCorners.map { CGPoint(x: $0.x, y: $0.y + smoothedNeckShift) }
+        guard let homography = perspectiveTransform(from: sourceCorners, to: bodyCorners) else { return nil }
 
-        // 3. The garment warped onto the body. A garment much larger than its landing is scaled down first with Lanczos, since
-        // the warp samples bilinearly and would shimmer the print.
+        // 3. The garment warped onto the body: whole, or its torso and each sleeve along its arm when the elbows are seen.
+        // A garment much larger than its landing is scaled down first with Lanczos, since the warp samples bilinearly and
+        // would shimmer the print.
         let landedTorsoWidth = hypot(bodyCorners[1].x - bodyCorners[0].x, bodyCorners[1].y - bodyCorners[0].y)
         let garmentTorsoWidth = max(garment.torsoCorners.topRight.x - garment.torsoCorners.topLeft.x, 1)
         let preScale = min(1, landedTorsoWidth / garmentTorsoWidth * 1.15)
-        let appliedPreScale = preScale < 0.8 ? preScale : 1
-        let garmentImage = appliedPreScale < 1
-            ? garment.cutout.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: appliedPreScale, kCIInputAspectRatioKey: 1])
-            : garment.cutout
-        let scaledSourceCorners = sourceCorners.map { CGPoint(x: $0.x * appliedPreScale, y: $0.y * appliedPreScale) }
-        guard let homography = perspectiveTransform(from: scaledSourceCorners, to: bodyCorners) else { return frame }
-        let garmentWidth = garment.size.width * appliedPreScale, garmentHeight = garment.size.height * appliedPreScale
-        let landedCorners = [CGPoint(x: 0, y: 0), CGPoint(x: garmentWidth, y: 0), CGPoint(x: garmentWidth, y: garmentHeight), CGPoint(x: 0, y: garmentHeight)]
-            .map { applyingPerspective(homography, to: $0) }
-            .map { Self.flipped($0, frameExtent: frameExtent) }
+        func preScaled(_ image: CIImage) -> CIImage {
+            preScale < 0.8 ? image.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: preScale, kCIInputAspectRatioKey: 1]) : image
+        }
         let clearFrame = CIImage(color: .clear).cropped(to: frameExtent)
-        let warpedGarment = garmentImage
-            .applyingFilter("CIPerspectiveTransform", parameters: [
-                "inputTopLeft": CIVector(cgPoint: landedCorners[0]), "inputTopRight": CIVector(cgPoint: landedCorners[1]),
-                "inputBottomRight": CIVector(cgPoint: landedCorners[2]), "inputBottomLeft": CIVector(cgPoint: landedCorners[3]),
-            ])
-            .composited(over: clearFrame)
-            .cropped(to: frameExtent)
+        let wholeGarmentBox = CGRect(origin: .zero, size: garment.size)
+        var warpedGarment: CIImage
+        var drawnSleeves: [ShirtDrawnSleeve] = []
+        if let sleeveLayers = warpedSleeves(of: garment, torso: torso, torsoHomography: homography, landedTorsoWidth: landedTorsoWidth, frameExtent: frameExtent),
+           let torsoWithoutSleeves = garment.torsoWithoutSleeves,
+           let warpedTorso = Self.warped(preScaled(torsoWithoutSleeves), lyingIn: wholeGarmentBox, by: homography, frameExtent: frameExtent) {
+            // The sleeves go under the torso, which covers their tucked-in strip at the seam.
+            let sleevesUnderneath = sleeveLayers.reduce(clearFrame) { layers, sleeve in sleeve.image.composited(over: layers) }
+            warpedGarment = warpedTorso.composited(over: sleevesUnderneath).cropped(to: frameExtent)
+            let uncoveredByTheTorso = Self.inverted(Self.channel(warpedTorso.composited(over: clearFrame).cropped(to: frameExtent), 3))
+            drawnSleeves = sleeveLayers.map { sleeve in
+                ShirtDrawnSleeve(side: sleeve.side, landing: sleeve.landing, alpha: Self.multiplied(Self.channel(sleeve.image.composited(over: clearFrame).cropped(to: frameExtent), 3), uncoveredByTheTorso))
+            }
+        } else {
+            guard let warpedWhole = Self.warped(preScaled(garment.cutout), lyingIn: wholeGarmentBox, by: homography, frameExtent: frameExtent) else { return nil }
+            warpedGarment = warpedWhole.composited(over: clearFrame).cropped(to: frameExtent)
+        }
 
-        // 4. The masks. The person's opacity ramps from 0.35 to 0.65, the room art's occluder, a slightly hard edge.
-        let personOpacity = Self.ramp(Self.channel(Self.scaled(personMask, toFill: frameExtent), 0), from: 0.35, to: 0.65)
-        let smallMasks = CIImage(bitmapData: Data(analysis.maskPixels), bytesPerRow: smallWidth * 4, size: CGSize(width: smallWidth, height: smallHeight), format: .RGBA8, colorSpace: nil)
+        // 4. The masks.
+        let scaledPersonMask = Self.channel(Self.scaled(personMask, toFill: frameExtent), 0)
+        let personOpacity = Self.ramp(scaledPersonMask, from: Self.personMaskRampForTheGarment.from, to: Self.personMaskRampForTheGarment.to)
+        let cameraPixelsPerSmallPixel = frameWidth / analysis.masks.extent.width
         // The analysis masks are a quarter of the frame's width, so scaled up they are blocky. Blurred by about one small
         // pixel before their ramp, their edges come out as smooth curves instead of steps.
-        let cameraPixelsPerSmallPixel = frameWidth / Double(smallWidth)
-        let upscaledMasks = Self.scaled(smallMasks, toFill: frameExtent)
+        let movedMasks = Self.scaled(analysis.masks, toFill: frameExtent)
+            .transformed(by: Self.coreImageTransform(of: motionSinceTheAnalysis, frameExtent: frameExtent))
             .clampedToExtent().applyingGaussianBlur(sigma: cameraPixelsPerSmallPixel * Self.analysisMaskSmoothingInSmallPixels).cropped(to: frameExtent)
-        let neckCut = Self.ramp(Self.channel(upscaledMasks, 0), from: 0.3, to: 0.7)
-        let uncoveredOldShirt = Self.ramp(Self.channel(upscaledMasks, 1), from: 0.3, to: 0.7)
+        let neckCut = Self.ramp(Self.channel(movedMasks, 0), from: 0.3, to: 0.7)
+        let uncoveredOldShirt = Self.ramp(Self.channel(movedMasks, 1), from: 0.3, to: 0.7)
+        let oldShirtForTheShading = Self.channel(movedMasks, 2)
 
-        let garmentAlpha = Self.channel(warpedGarment, 3)
-        let alphaOfTheGarment = Self.multiplied(Self.multiplied(garmentAlpha, personOpacity), Self.inverted(neckCut))
+        let alphaOfTheGarment = Self.multiplied(Self.multiplied(Self.channel(warpedGarment, 3), personOpacity), Self.inverted(neckCut))
         // The old shirt the garment's outline misses (the waist, under the arms) takes the garment's base color. The fill
         // grows a little under the garment's edge, so no gap of the old shirt shows between them, and it stays inside the
         // person mask pulled in from its edge, since the mask's edge is soft and a fill out to it would spill onto the room.
         let bodyInsideItsEdge = Self.ramp(
-            Self.channel(Self.scaled(personMask, toFill: frameExtent), 0)
-                .applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: frameWidth * Self.baseColorFillPullInShareOfTheFrameWidth]),
-            from: 0.45, to: 0.75
+            scaledPersonMask.applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: frameWidth * Self.baseColorFillPullInShareOfTheFrameWidth]),
+            from: Self.personMaskRampForTheGarment.from, to: Self.personMaskRampForTheGarment.to
         )
         let growthRadius = cameraPixelsPerSmallPixel * Self.baseColorGrowthUnderTheGarmentInSmallPixels
         let grownUncoveredOldShirt = uncoveredOldShirt
@@ -178,37 +338,258 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         // images' own alphas too, which skews the mask, so it is not used here.
         let totalAlpha = alphaOfTheGarment.applyingFilter("CIScreenBlendMode", parameters: [kCIInputBackgroundImageKey: baseColorCoverage])
 
-        // 5. The colors, in gamma encoded sRGB like the spike, since the shading is a ratio of encoded luminances. The garment
-        // lies over the base color by its own alpha, so its softened edge fades into the fill and not into the old shirt.
+        // 5. The color, in Core Image's linear working space. The garment lies over the base color by its own alpha, so its
+        // softened edge fades into the fill and not into the old shirt.
         let baseColor = CIColor(red: CGFloat(garment.baseColor.red), green: CGFloat(garment.baseColor.green), blue: CGFloat(garment.baseColor.blue), colorSpace: sRGBColorSpace) ?? .white
-        let garmentWithBaseColor = warpedGarment.composited(over: CIImage(color: baseColor).cropped(to: frameExtent))
-        let garmentInGamma = garmentWithBaseColor.applyingFilter("CILinearToSRGBToneCurve")
-
-        let frameInGamma = frame.applyingFilter("CILinearToSRGBToneCurve")
-        let luminance = frameInGamma.applyingFilter("CIColorMatrix", parameters: [
-            "inputRVector": CIVector(x: 0.299, y: 0.587, z: 0.114, w: 0), "inputGVector": CIVector(x: 0.299, y: 0.587, z: 0.114, w: 0),
-            "inputBVector": CIVector(x: 0.299, y: 0.587, z: 0.114, w: 0), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+        // Beyond the garment's outline the fill continues its own colors: its rows smeared sideways, so a stripe runs on into
+        // the fill instead of stopping at a gray panel, and the base color is left only where no row of the garment reaches.
+        let fillReach = Self.fillReachInShoulderWidths * shoulderWidth
+        let halfExtent = CGRect(x: 0, y: 0, width: (frameExtent.width / 2).rounded(), height: (frameExtent.height / 2).rounded())
+        let halfSizeGarment = Self.scaled(warpedGarment, toFill: halfExtent)
+        // A smear's own colors, made opaque (a color matrix works on unpremultiplied colors), over `background` wherever the
+        // smear has gathered enough of the garment to trust them.
+        func smeared(angle: Double, over background: CIImage) -> CIImage {
+            let smear = halfSizeGarment.applyingFilter("CIMotionBlur", parameters: [kCIInputRadiusKey: fillReach / 2, kCIInputAngleKey: angle]).cropped(to: halfExtent)
+            let colorsMadeOpaque = Self.withBias(smear, parameters: [
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0), "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+            ])
+            let smearIsTrusted = Self.ramp(Self.channel(smear, 3), from: 0.05, to: 0.3)
+            return colorsMadeOpaque.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: background, kCIInputMaskImageKey: smearIsTrusted])
+        }
+        let fillColors = Self.scaled(smeared(angle: 0, over: CIImage(color: baseColor).cropped(to: halfExtent)), toFill: frameExtent)
+        let garmentWithBaseColor = warpedGarment.composited(over: fillColors)
+        // Albedo times the room's light: the photo over its own white, times the cloth's share of the room's white, tinted.
+        let roomWhite = smoothedRoomWhite ?? Self.roomWhiteWhenUnmeasured
+        let tint = SIMD3<Float>(repeating: 1) + (smoothedIlluminant - 1) * Self.roomTintStrength
+        let lightOnEachChannel = tint * roomWhite * Self.clothShareOfTheRoomWhite / simd_max(garment.photoWhite, SIMD3(repeating: 0.05))
+        let lit = garmentWithBaseColor.applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": CIVector(x: CGFloat(lightOnEachChannel.x), y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: CGFloat(lightOnEachChannel.y), z: 0, w: 0),
+            "inputBVector": CIVector(x: 0, y: 0, z: CGFloat(lightOnEachChannel.z), w: 0), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
         ])
-        let halfSizeLuminance = luminance.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 0.5, kCIInputAspectRatioKey: 1])
-        let blurredHalfSize = halfSizeLuminance.clampedToExtent().applyingGaussianBlur(sigma: Self.shadingBlurSigmaAtHalfSize).cropped(to: halfSizeLuminance.extent)
-        let blurredLuminance = Self.scaled(blurredHalfSize, toFill: frameExtent)
-        // The old shirt's shading relative to its mean, clipped to 0.55 to 1.45, and the exposure match: a product photo is
-        // lit flat and bright, so the garment takes half of the camera's brightness ratio.
-        let meanLuminance = max(Double(analysis.oldShirtMeanLuminance), 1e-3)
-        let exposure = min(1.2, max(0.6, Double(analysis.oldShirtMeanBrightness) / Double(max(garment.meanBrightness, 1e-3))))
-        let exposureGain = 0.5 + 0.5 * exposure
-        let shading = blurredLuminance
-            .applyingFilter("CIColorMatrix", parameters: Self.grayGain(1 / meanLuminance))
-            .applyingFilter("CIColorClamp", parameters: ["inputMinComponents": CIVector(x: 0.55, y: 0.55, z: 0.55, w: 0), "inputMaxComponents": CIVector(x: 1.45, y: 1.45, z: 1.45, w: 1)])
-            .applyingFilter("CIColorMatrix", parameters: Self.grayGain(exposureGain))
-        let worn = Self.multiplied(garmentInGamma, shading)
-            .clampedToExtent().applyingGaussianBlur(sigma: 0.8).cropped(to: frameExtent)
-            .applyingFilter("CISRGBToneCurveToLinear")
+        let shading = shadingImage(
+            frame: frame, oldShirtForTheShading: oldShirtForTheShading, frameExtent: frameExtent, cameraPixelsPerSmallPixel: cameraPixelsPerSmallPixel,
+            oldShirtMedianLinearLuminance: Double(smoothedOldShirtMedianLinearLuminance ?? analysis.oldShirtMedianLinearLuminance)
+        )
+        // The cloth's outline is the garment and its base color fill together, so the fill below a short garment's hem is not
+        // darkened as an edge.
+        let edgeDarkening = edgeDarkeningImage(clothAlpha: totalAlpha, frameExtent: frameExtent, shoulderWidth: shoulderWidth)
+        let worn = Self.multiplied(Self.multiplied(lit, shading), edgeDarkening)
+            .clampedToExtent().applyingGaussianBlur(sigma: 0.7).cropped(to: frameExtent)
+            .applyingFilter("CIColorCurves", parameters: [
+                "inputCurvesData": highlightRolloffCurve, "inputCurvesDomain": CIVector(x: 0, y: CGFloat(Self.highlightRolloffDomainTop)),
+                "inputColorSpace": linearColorSpace,
+            ])
 
-        // 6. The garment over the frame, where the total alpha says.
-        return worn
-            .applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: frame, kCIInputMaskImageKey: totalAlpha])
+        // 6. The garment over the frame, where the total alpha says. Inside the person matte's soft edge the frame there is the
+        // old shirt blended with the room, so a light garment drawn partly over it would keep a dark outline of the old shirt.
+        // Where the garment reaches, that edge shows the room behind the person instead, and only inside the matte, so
+        // nothing outside the person changes.
+        let roomBehindThePerson = roomBehindThePersonImage(frame: frame, scaledPersonMask: scaledPersonMask, frameExtent: frameExtent)
+        let garmentReach = Self.multiplied(Self.channel(warpedGarment, 3), Self.inverted(neckCut))
+        let insideTheMatte = Self.ramp(scaledPersonMask, from: Self.personMaskRampForTheGarment.from - 0.05, to: Self.personMaskRampForTheGarment.from)
+        let roomShowsThrough = Self.multiplied(Self.multiplied(garmentReach, Self.inverted(personOpacity)), insideTheMatte)
+        let underneath = roomBehindThePerson.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: frame, kCIInputMaskImageKey: roomShowsThrough])
+        let image = worn
+            .applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: underneath, kCIInputMaskImageKey: totalAlpha])
             .cropped(to: frameExtent)
+        return ShirtTryOnComposition(
+            image: image, garmentAlpha: alphaOfTheGarment, totalAlpha: totalAlpha, warpedGarmentColor: garmentWithBaseColor,
+            landedTorsoCorners: bodyCorners, sleeves: drawnSleeves
+        )
+    }
+
+    // MARK: The light
+
+    /// The old shirt's light as a gray image around 1: its broad light over its median, times its folds over its broad light.
+    /// Each is a normalized blur, the blur of the luminance where the old shirt is over the blur of where it is, so the room
+    /// beside the body, the arms, and the old shirt's own print and trim never bleed into it. That bleed was the light rim
+    /// along the body's sides. Where a band has too little old shirt near, it takes the next broader band's light, and the
+    /// broadest takes the median, so a gap in the old shirt (its piping, the body's outline) is lit like the cloth around it
+    /// and never like the median while that cloth is in shadow.
+    private func shadingImage(frame: CIImage, oldShirtForTheShading: CIImage, frameExtent: CGRect, cameraPixelsPerSmallPixel: Double, oldShirtMedianLinearLuminance: Double) -> CIImage {
+        let halfExtent = CGRect(x: 0, y: 0, width: (frameExtent.width / 2).rounded(), height: (frameExtent.height / 2).rounded())
+        let luminance = frame.applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0), "inputGVector": CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0),
+            "inputBVector": CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+        ])
+        let halfSizeLuminance = Self.scaled(luminance, toFill: halfExtent)
+        let median = max(oldShirtMedianLinearLuminance, 1e-4)
+        // The weight is made hard before it is shrunk, since the smoothed mask's soft edge would only fade the shrink, and a
+        // pixel far brighter than the old shirt's median is a blend with the wall or the trim, not the cloth's own light.
+        let notTooBright = Self.inverted(Self.ramp(
+            halfSizeLuminance, from: Self.shadingBrightestShareOfTheMedian.from * median, to: Self.shadingBrightestShareOfTheMedian.to * median
+        ))
+        let halfSizeWeight = Self.multiplied(
+            Self.ramp(Self.scaled(oldShirtForTheShading, toFill: halfExtent), from: 0.5, to: 0.9)
+                .applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: cameraPixelsPerSmallPixel * Self.shadingWeightShrinkInSmallPixels / 2])
+                .cropped(to: halfExtent),
+            notTooBright
+        )
+        let weightedLuminance = Self.multiplied(halfSizeLuminance, halfSizeWeight)
+        let floor = Self.shadingWeightFloor
+        // (blur(luminance * weight) + floor * fallback) / (blur(weight) + floor), each a gray image, which is the plain ratio
+        // blur(luminance * weight) / blur(weight) laid over the fallback by blur(weight) / (blur(weight) + floor).
+        func normalizedBlur(sigma: Double, fallback: CIImage) -> CIImage {
+            let blurredWeight = halfSizeWeight.clampedToExtent().applyingGaussianBlur(sigma: sigma).cropped(to: halfExtent)
+            let blurredLuminance = weightedLuminance.clampedToExtent().applyingGaussianBlur(sigma: sigma).cropped(to: halfExtent)
+            // The divide blend divides its background by its input. The tiny bias keeps an empty weight from dividing by 0.
+            let plainRatio = Self.withBias(blurredWeight, parameters: ["inputBiasVector": CIVector(x: 1e-5, y: 1e-5, z: 1e-5, w: 0)])
+                .applyingFilter("CIDivideBlendMode", parameters: [kCIInputBackgroundImageKey: blurredLuminance])
+            let trust = Self.withBias(blurredWeight, parameters: ["inputBiasVector": CIVector(x: floor, y: floor, z: floor, w: 0)])
+                .applyingFilter("CIDivideBlendMode", parameters: [kCIInputBackgroundImageKey: blurredWeight])
+            return plainRatio.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: fallback, kCIInputMaskImageKey: trust]).cropped(to: halfExtent)
+        }
+        let medianImage = CIImage(color: CIColor(red: median, green: median, blue: median, alpha: 1, colorSpace: linearColorSpace) ?? .gray).cropped(to: halfExtent)
+        let widestLight = normalizedBlur(sigma: Self.widestShadingBlurSigmaAtHalfSize, fallback: medianImage)
+        let broadLight = normalizedBlur(sigma: Self.broadShadingBlurSigmaAtHalfSize, fallback: widestLight)
+        let foldLight = normalizedBlur(sigma: Self.foldShadingBlurSigmaAtHalfSize, fallback: broadLight)
+        let broadShading = broadLight
+            .applyingFilter("CIColorMatrix", parameters: Self.grayGain(1 / median))
+            .applyingFilter("CIColorClamp", parameters: Self.clampParameters(Self.broadShadingRange))
+        let foldShading = broadLight
+            .applyingFilter("CIDivideBlendMode", parameters: [kCIInputBackgroundImageKey: foldLight])
+            .applyingFilter("CIColorClamp", parameters: Self.clampParameters(Self.foldShadingRange))
+        let shading = Self.multiplied(broadShading, foldShading).applyingFilter("CIGammaAdjust", parameters: ["inputPower": Self.shadingStrength])
+        return Self.scaled(shading, toFill: frameExtent)
+    }
+
+    /// The room behind the person near their outline: the frame off the person, blurred with the person's pixels left out
+    /// (a normalized blur, as the shading's), so the wall's color reaches a few pixels in under the person's edge.
+    private func roomBehindThePersonImage(frame: CIImage, scaledPersonMask: CIImage, frameExtent: CGRect) -> CIImage {
+        let halfExtent = CGRect(x: 0, y: 0, width: (frameExtent.width / 2).rounded(), height: (frameExtent.height / 2).rounded())
+        let roomWeight = Self.inverted(Self.ramp(Self.scaled(scaledPersonMask, toFill: halfExtent), from: 0.1, to: 0.3))
+        let weightedRoom = Self.multiplied(Self.scaled(frame, toFill: halfExtent), roomWeight)
+        let blurredWeight = Self.withBias(
+            roomWeight.clampedToExtent().applyingGaussianBlur(sigma: Self.roomBehindBlurSigmaAtHalfSize).cropped(to: halfExtent),
+            parameters: ["inputBiasVector": CIVector(x: 1e-4, y: 1e-4, z: 1e-4, w: 0)]
+        )
+        let blurredRoom = weightedRoom.clampedToExtent().applyingGaussianBlur(sigma: Self.roomBehindBlurSigmaAtHalfSize).cropped(to: halfExtent)
+        // The divide blend divides its background by its input, per channel.
+        return Self.scaled(blurredWeight.applyingFilter("CIDivideBlendMode", parameters: [kCIInputBackgroundImageKey: blurredRoom]), toFill: frameExtent)
+    }
+
+    /// A gray image that is 1 inside the cloth and darkens toward its edge: the cloth's alpha blurred, so it falls toward
+    /// 0.5 at the outline and the neck, and further in the concave corner of an armpit.
+    private func edgeDarkeningImage(clothAlpha: CIImage, frameExtent: CGRect, shoulderWidth: Double) -> CIImage {
+        let halfExtent = CGRect(x: 0, y: 0, width: (frameExtent.width / 2).rounded(), height: (frameExtent.height / 2).rounded())
+        let blurredAlpha = Self.scaled(clothAlpha, toFill: halfExtent)
+            .clampedToExtent().applyingGaussianBlur(sigma: max(1, Self.edgeDarkeningReachInShoulderWidths * shoulderWidth / 2)).cropped(to: halfExtent)
+        // 1 - strength * (1 - blurred alpha), clipped at 1.
+        let strength = Self.edgeDarkeningStrength
+        let darkening = Self.withBias(blurredAlpha, parameters: [
+            "inputRVector": CIVector(x: strength, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: strength, y: 0, z: 0, w: 0),
+            "inputBVector": CIVector(x: strength, y: 0, z: 0, w: 0), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+            "inputBiasVector": CIVector(x: 1 - strength, y: 1 - strength, z: 1 - strength, w: 1),
+        ]).applyingFilter("CIColorClamp")
+        return Self.scaled(darkening, toFill: frameExtent)
+    }
+
+    /// The rolloff curve: values pass as they are up to the knee, then ease toward the ceiling, never reaching it, with no
+    /// corner at the knee.
+    static func highlightRolloff(_ value: Double) -> Double {
+        guard value > highlightKnee else { return value }
+        let headroom = highlightCeiling - highlightKnee
+        return highlightKnee + headroom * (1 - exp(-(value - highlightKnee) / headroom))
+    }
+
+    /// The rolloff as `CIColorCurves` takes it: 1024 steps over the domain, each the same for the three channels.
+    private static func highlightRolloffCurveData() -> Data {
+        let stepCount = 1024
+        var values: [Float] = []
+        values.reserveCapacity(stepCount * 3)
+        for step in 0..<stepCount {
+            let rolledOff = Float(highlightRolloff(Double(step) / Double(stepCount - 1) * highlightRolloffDomainTop))
+            values.append(contentsOf: [rolledOff, rolledOff, rolledOff])
+        }
+        return values.withUnsafeBufferPointer { Data(buffer: $0) }
+    }
+
+    // MARK: The analysis
+
+    /// The analysis this frame uses. Starts a new run when one is due. With nothing in yet, the background way returns nil and
+    /// the first run's result reaches a later frame.
+    private func analysisForThisFrame(frame: CIImage, personMask: CIImage, torso: BodyTorso) -> ShirtFrameAnalysisResult? {
+        framesSinceAnAnalysisStarted += 1
+        guard analysisRunsInTheBackground else {
+            framesSinceAnAnalysisStarted = 0
+            let generation = analysisState.withLock { $0.generation }
+            runTheAnalysis(frame: frame, personMask: personMask, torso: torso, generation: generation)
+            return analysisState.withLock { $0.latestResult }
+        }
+        let generationToRun: Int? = analysisState.withLock { state in
+            guard !state.runIsInFlight, state.latestResult == nil || framesSinceAnAnalysisStarted >= Self.framesBetweenAnalyses else { return nil }
+            state.runIsInFlight = true
+            return state.generation
+        }
+        if let generationToRun {
+            framesSinceAnAnalysisStarted = 0
+            // The camera never writes a frame it has handed out, so the analysis queue may read it while this frame draws.
+            nonisolated(unsafe) let frameToRead = frame
+            nonisolated(unsafe) let personMaskToRead = personMask
+            analysisQueue.async {
+                self.runTheAnalysis(frame: frameToRead, personMask: personMaskToRead, torso: torso, generation: generationToRun)
+            }
+        }
+        return analysisState.withLock { $0.latestResult }
+    }
+
+    /// Reads the small copy back, asks the per-frame questions, and keeps the answer, unless a reset came in between.
+    private func runTheAnalysis(frame: CIImage, personMask: CIImage, torso: BodyTorso, generation: Int) {
+        let previousColor = analysisState.withLock { $0.smoothedOldShirtColor }
+        let outcome = analyze(frame: frame, personMask: personMask, torso: torso, previousOldShirtColor: previousColor)
+        analysisState.withLock { state in
+            state.runIsInFlight = false
+            guard state.generation == generation, let outcome else { return }
+            state.smoothedOldShirtColor = outcome.oldShirtColor
+            state.latestResult = outcome.result.numbered(state.nextRunNumber)
+            state.nextRunNumber += 1
+        }
+    }
+
+    private func analyze(frame: CIImage, personMask: CIImage, torso: BodyTorso, previousOldShirtColor: SIMD3<Float>?) -> (result: ShirtFrameAnalysisResult, oldShirtColor: SIMD3<Float>)? {
+        let frameExtent = frame.extent
+        let analysisScale = min(1, Self.analysisFrameWidth / frameExtent.width)
+        let smallWidth = max(3, Int((frameExtent.width * analysisScale).rounded())), smallHeight = max(3, Int((frameExtent.height * analysisScale).rounded()))
+        let smallBytes = renderedSmallFrameAndPersonMask(frame: frame, personMask: personMask, width: smallWidth, height: smallHeight)
+        let smallFrame = ShirtSmallFrame(width: smallWidth, height: smallHeight, rgba: smallBytes.frame, personMask: smallBytes.person, torso: torso.scaled(by: analysisScale))
+        // The old shirt's color is smoothed over runs, so one run's hand or fold never moves it.
+        guard let measuredColor = smallFrame.measureOldShirtColor() ?? previousOldShirtColor else { return nil }
+        let oldShirtColor = previousOldShirtColor.map { $0 + (measuredColor - $0) * 0.5 } ?? measuredColor
+        let frameAnalysis = ShirtFrameAnalysis(frame: smallFrame, oldShirtColor: oldShirtColor)
+        let masks = CIImage(
+            bitmapData: Data(frameAnalysis.maskPixels), bytesPerRow: smallWidth * 4, size: CGSize(width: smallWidth, height: smallHeight), format: .RGBA8, colorSpace: nil
+        )
+        let result = ShirtFrameAnalysisResult(
+            runNumber: 0, torso: torso, masks: masks, oldShirtMedianLinearLuminance: frameAnalysis.oldShirtMedianLinearLuminance,
+            neckRow: smallFrame.bodyNeckRow(oldShirtColor: oldShirtColor).map { $0 / analysisScale },
+            oldShirtHemDistance: frameAnalysis.oldShirtHemDistance.map { $0 / analysisScale },
+            roomLight: ShirtRoomLight.measure(in: smallFrame)
+        )
+        return (result, oldShirtColor)
+    }
+
+    /// Folds a new analysis's numbers into the smoothed ones, once per run.
+    private func foldInTheNumbers(of analysis: ShirtFrameAnalysisResult) {
+        guard analysis.runNumber != foldedRunNumber else { return }
+        foldedRunNumber = analysis.runNumber
+        let share = Self.roomLightSmoothingShare
+        if let roomLight = analysis.roomLight {
+            if let previousRoomWhite = smoothedRoomWhite {
+                smoothedRoomWhite = previousRoomWhite + (roomLight.whiteLuminance - previousRoomWhite) * share
+                smoothedIlluminant += (roomLight.illuminant - smoothedIlluminant) * share
+            } else {
+                smoothedRoomWhite = roomLight.whiteLuminance
+                smoothedIlluminant = roomLight.illuminant
+            }
+        }
+        let median = analysis.oldShirtMedianLinearLuminance
+        smoothedOldShirtMedianLinearLuminance = smoothedOldShirtMedianLinearLuminance.map { $0 + (median - $0) * share } ?? median
+        // Where the old shirt really ends, when the hips were only estimated. The garment's hem lands there, so it never
+        // draws over trousers.
+        if analysis.torso.hipsWereEstimated, let hemDistance = analysis.oldShirtHemDistance {
+            let measuredLength = hemDistance / Self.garmentBottomInTorsoLengths / analysis.torso.shoulderWidth
+            smoothedTorsoLengthInShoulderWidths = smoothedTorsoLengthInShoulderWidths.map { $0 + (measuredLength - $0) * 0.2 } ?? measuredLength
+        }
     }
 
     // MARK: Geometry
@@ -228,21 +609,128 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         ]
     }
 
-    private static func flipped(_ point: CGPoint, frameExtent: CGRect) -> CGPoint {
-        CGPoint(x: frameExtent.minX + point.x, y: frameExtent.minY + frameExtent.height - point.y)
+    /// Where a sleeve's quadrilateral (`ShirtSleeveGeometry.quadrilateral`) lands on the body, or nil when either of its two
+    /// triangles (see `ShirtGarmentSleeve`) would land mirrored. The seam lands where the torso's map puts it, so the sleeve
+    /// meets the torso. The sleeve runs down the shoulder-to-elbow line as far as it is long past its seam's middle, with its
+    /// opening across the arm, as wide as it lies on the arm, and its outer end on the side away from the body. A sleeve wraps
+    /// the arm but is wider than it, so its opening hangs between the line through the seam's middle and the arm's own line
+    /// (`sleeveOpeningShareTowardTheArmLine`). `garmentToBodyScale` is camera pixels per photo pixel at the torso.
+    static func sleeveLanding(
+        of sleeve: ShirtSleeveGeometry, torsoHomography: simd_double3x3, shoulder: CGPoint, elbow: CGPoint, bodyCenter: CGPoint, garmentToBodyScale: Double
+    ) -> [CGPoint]? {
+        let seamTop = applyingPerspective(torsoHomography, to: sleeve.seamTop), seamBottom = applyingPerspective(torsoHomography, to: sleeve.seamBottom)
+        let seamCenter = SIMD2((seamTop.x + seamBottom.x) / 2, (seamTop.y + seamBottom.y) / 2)
+        let armVector = SIMD2(elbow.x - shoulder.x, elbow.y - shoulder.y)
+        guard simd_length(armVector) > 1 else { return nil }
+        let armDirection = simd_normalize(armVector)
+        var awayFromTheBody = SIMD2(-armDirection.y, armDirection.x)
+        if simd_dot(awayFromTheBody, seamCenter - SIMD2(bodyCenter.x, bodyCenter.y)) < 0 { awayFromTheBody = -awayFromTheBody }
+        let shoulderPoint = SIMD2(Double(shoulder.x), Double(shoulder.y))
+        let seamCenterOffTheArmLine = simd_dot(seamCenter - shoulderPoint, awayFromTheBody)
+        let openingCenter = seamCenter + armDirection * sleeve.length * garmentToBodyScale
+            - awayFromTheBody * seamCenterOffTheArmLine * sleeveOpeningShareTowardTheArmLine
+        let halfOpening = sleeve.openingWidth * garmentToBodyScale * sleeveOpeningShareOnTheArm / 2
+        let openingOuter = openingCenter + awayFromTheBody * halfOpening, openingInner = openingCenter - awayFromTheBody * halfOpening
+        let landing = [seamTop, CGPoint(x: openingOuter.x, y: openingOuter.y), CGPoint(x: openingInner.x, y: openingInner.y), seamBottom]
+        let source = sleeve.quadrilateral
+        // Each triangle must turn the same way on the body as in the photo, or its map would mirror the cloth.
+        func turn(_ first: CGPoint, _ second: CGPoint, _ third: CGPoint) -> Double {
+            (second.x - first.x) * (third.y - first.y) - (second.y - first.y) * (third.x - first.x)
+        }
+        for (first, second, third) in [(0, 1, 2), (0, 2, 3)] {
+            let sourceTurn = turn(source[first], source[second], source[third]), landingTurn = turn(landing[first], landing[second], landing[third])
+            guard abs(landingTurn) > 1e-6, (sourceTurn > 0) == (landingTurn > 0) else { return nil }
+        }
+        return landing
     }
 
-    // MARK: The old shirt's color
-
-    /// The old shirt's color, measured now or every few frames and smoothed in between, so one frame's hand or fold never
-    /// moves it.
-    private func oldShirtColor(of smallFrame: ShirtSmallFrame) -> SIMD3<Float>? {
-        framesSinceTheOldShirtColorWasMeasured += 1
-        if smoothedOldShirtColor == nil || framesSinceTheOldShirtColorWasMeasured >= Self.framesBetweenOldShirtColorMeasurements, let measured = smallFrame.measureOldShirtColor() {
-            smoothedOldShirtColor = smoothedOldShirtColor.map { $0 + (measured - $0) * 0.5 } ?? measured
-            framesSinceTheOldShirtColorWasMeasured = 0
+    /// Each sleeve laid along its arm, image left first, or nil when the garment has no sleeves apart, an elbow is not seen,
+    /// or a sleeve cannot be mapped, when the garment is drawn whole. Each half of a sleeve takes the affine map of its own
+    /// triangle (see `ShirtGarmentSleeve`), and the inner half is drawn over the outer half's strip past the diagonal.
+    private func warpedSleeves(
+        of garment: ShirtGarment, torso: BodyTorso, torsoHomography: simd_double3x3, landedTorsoWidth: Double, frameExtent: CGRect
+    ) -> [(side: ShirtSleeveSide, landing: [CGPoint], image: CIImage)]? {
+        guard garment.sleeves.count == 2, let imageLeftElbow = torso.imageLeftElbow, let imageRightElbow = torso.imageRightElbow else { return nil }
+        let garmentToBodyScale = landedTorsoWidth / max(garment.torsoCorners.topRight.x - garment.torsoCorners.topLeft.x, 1)
+        let bodyCenter = CGPoint(x: (torso.shoulderMidpoint.x + torso.hipMidpoint.x) / 2, y: (torso.shoulderMidpoint.y + torso.hipMidpoint.y) / 2)
+        var layers: [(side: ShirtSleeveSide, landing: [CGPoint], image: CIImage)] = []
+        for sleeve in garment.sleeves {
+            let isImageLeft = sleeve.geometry.side == .imageLeft
+            guard let landing = Self.sleeveLanding(
+                of: sleeve.geometry, torsoHomography: torsoHomography,
+                shoulder: isImageLeft ? torso.imageLeftShoulder : torso.imageRightShoulder, elbow: isImageLeft ? imageLeftElbow : imageRightElbow,
+                bodyCenter: bodyCenter, garmentToBodyScale: garmentToBodyScale
+            ) else { return nil }
+            let geometry = sleeve.geometry
+            guard let outerMap = Self.affineTransform(from: [geometry.seamTop, geometry.openingOuter, geometry.openingInner], to: [landing[0], landing[1], landing[2]]),
+                  let innerMap = Self.affineTransform(from: [geometry.seamTop, geometry.openingInner, geometry.seamBottom], to: [landing[0], landing[2], landing[3]]) else { return nil }
+            let outerHalf = sleeve.outerHalf.transformed(by: Self.coreImageTransform(ofPhotoBox: sleeve.boundingBox, mappedBy: outerMap, frameExtent: frameExtent))
+            let innerHalf = sleeve.innerHalf.transformed(by: Self.coreImageTransform(ofPhotoBox: sleeve.boundingBox, mappedBy: innerMap, frameExtent: frameExtent))
+            layers.append((geometry.side, landing, innerHalf.composited(over: outerHalf)))
         }
-        return smoothedOldShirtColor
+        return layers
+    }
+
+    /// The affine transform that carries three points onto three others, or nil when the first three are on one line.
+    static func affineTransform(from source: [CGPoint], to destination: [CGPoint]) -> CGAffineTransform? {
+        guard source.count == 3, destination.count == 3 else { return nil }
+        let sourceMatrix = simd_double3x3(rows: source.map { SIMD3($0.x, $0.y, 1) })
+        guard abs(sourceMatrix.determinant) > 1e-9 else { return nil }
+        let inverse = sourceMatrix.inverse
+        // Each destination coordinate is a linear function of (x, y, 1), whose three numbers solve the three equations.
+        let xCoefficients = inverse * SIMD3(destination[0].x, destination[1].x, destination[2].x)
+        let yCoefficients = inverse * SIMD3(destination[0].y, destination[1].y, destination[2].y)
+        return CGAffineTransform(a: xCoefficients.x, b: yCoefficients.x, c: xCoefficients.y, d: yCoefficients.y, tx: xCoefficients.z, ty: yCoefficients.z)
+    }
+
+    /// The transform for an image whose extent starts at the origin and holds the photo's `box` (top left origin, y down):
+    /// into photo pixels, through `map` (photo pixels to camera pixels, both y down), and into Core Image's frame coordinates.
+    private static func coreImageTransform(ofPhotoBox box: CGRect, mappedBy map: CGAffineTransform, frameExtent: CGRect) -> CGAffineTransform {
+        let imageToPhoto = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: box.minX, ty: box.maxY)
+        let cameraToCoreImage = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: frameExtent.minX, ty: frameExtent.minY + frameExtent.height)
+        return imageToPhoto.concatenating(map).concatenating(cameraToCoreImage)
+    }
+
+    /// `image`, whose extent starts at the origin and holds the photo's `box` (top left origin, y down), warped by
+    /// `homography` from photo pixels to camera pixels, or nil when a corner would land behind the camera's horizon.
+    private static func warped(_ image: CIImage, lyingIn box: CGRect, by homography: simd_double3x3, frameExtent: CGRect) -> CIImage? {
+        let boxCorners = [CGPoint(x: box.minX, y: box.minY), CGPoint(x: box.maxX, y: box.minY), CGPoint(x: box.maxX, y: box.maxY), CGPoint(x: box.minX, y: box.maxY)]
+        var landed: [CGPoint] = []
+        for corner in boxCorners {
+            let mapped = homography * SIMD3(corner.x, corner.y, 1)
+            guard mapped.z > 1e-9, mapped.x.isFinite, mapped.y.isFinite else { return nil }
+            landed.append(flipped(CGPoint(x: mapped.x / mapped.z, y: mapped.y / mapped.z), frameExtent: frameExtent))
+        }
+        return image.applyingFilter("CIPerspectiveTransform", parameters: [
+            "inputTopLeft": CIVector(cgPoint: landed[0]), "inputTopRight": CIVector(cgPoint: landed[1]),
+            "inputBottomRight": CIVector(cgPoint: landed[2]), "inputBottomLeft": CIVector(cgPoint: landed[3]),
+        ])
+    }
+
+    /// The motion of the body from `earlier` to `later`, in camera pixels with y down: the turn, scale, and shift that carry
+    /// the earlier shoulders onto the later ones.
+    static func motion(from earlier: BodyTorso, to later: BodyTorso) -> CGAffineTransform {
+        let earlierSpan = SIMD2(earlier.imageRightShoulder.x - earlier.imageLeftShoulder.x, earlier.imageRightShoulder.y - earlier.imageLeftShoulder.y)
+        let laterSpan = SIMD2(later.imageRightShoulder.x - later.imageLeftShoulder.x, later.imageRightShoulder.y - later.imageLeftShoulder.y)
+        let earlierLengthSquared = simd_length_squared(earlierSpan)
+        guard earlierLengthSquared > 1 else { return .identity }
+        // The later span as the earlier span turned and scaled, as a ratio of complex numbers.
+        let cosineTimesScale = simd_dot(laterSpan, earlierSpan) / earlierLengthSquared
+        let sineTimesScale = (earlierSpan.x * laterSpan.y - earlierSpan.y * laterSpan.x) / earlierLengthSquared
+        let earlierMidpoint = earlier.shoulderMidpoint, laterMidpoint = later.shoulderMidpoint
+        return CGAffineTransform(translationX: -earlierMidpoint.x, y: -earlierMidpoint.y)
+            .concatenating(CGAffineTransform(a: cosineTimesScale, b: sineTimesScale, c: -sineTimesScale, d: cosineTimesScale, tx: 0, ty: 0))
+            .concatenating(CGAffineTransform(translationX: laterMidpoint.x, y: laterMidpoint.y))
+    }
+
+    /// `motion` (y down) for an image in Core Image's coordinates (y up) with `frameExtent`.
+    private static func coreImageTransform(of motion: CGAffineTransform, frameExtent: CGRect) -> CGAffineTransform {
+        let flip = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: frameExtent.minY * 2 + frameExtent.height)
+        return flip.concatenating(motion).concatenating(flip)
+    }
+
+    private static func flipped(_ point: CGPoint, frameExtent: CGRect) -> CGPoint {
+        CGPoint(x: frameExtent.minX + point.x, y: frameExtent.minY + frameExtent.height - point.y)
     }
 
     // MARK: Core Image helpers
@@ -260,7 +748,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     /// One channel of `image` as an opaque gray image.
     private static func channel(_ image: CIImage, _ index: Int) -> CIImage {
         let unit = CIVector(x: index == 0 ? 1 : 0, y: index == 1 ? 1 : 0, z: index == 2 ? 1 : 0, w: index == 3 ? 1 : 0)
-        return image.applyingFilter("CIColorMatrix", parameters: [
+        return withBias(image, parameters: [
             "inputRVector": unit, "inputGVector": unit, "inputBVector": unit,
             "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0), "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 1),
         ])
@@ -269,17 +757,30 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     /// A gray image's values from `low` to `high` stretched to 0 to 1 and clipped.
     private static func ramp(_ gray: CIImage, from low: Double, to high: Double) -> CIImage {
         let gain = 1 / (high - low), bias = -low / (high - low)
-        return gray.applyingFilter("CIColorMatrix", parameters: [
+        return withBias(gray, parameters: [
             "inputRVector": CIVector(x: gain, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: gain, z: 0, w: 0),
             "inputBVector": CIVector(x: 0, y: 0, z: gain, w: 0), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
             "inputBiasVector": CIVector(x: bias, y: bias, z: bias, w: 0),
         ]).applyingFilter("CIColorClamp")
     }
 
+    /// `image` through a color matrix with a bias, cropped back to its own extent. A bias lights the clear pixels outside an
+    /// image too, so the matrix's output reaches to infinity, and scaling an infinite image to fit a rectangle gives nothing.
+    private static func withBias(_ image: CIImage, parameters: [String: Any]) -> CIImage {
+        image.applyingFilter("CIColorMatrix", parameters: parameters).cropped(to: image.extent)
+    }
+
     private static func grayGain(_ gain: Double) -> [String: Any] {
         [
             "inputRVector": CIVector(x: gain, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: gain, z: 0, w: 0),
             "inputBVector": CIVector(x: 0, y: 0, z: gain, w: 0), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+        ]
+    }
+
+    private static func clampParameters(_ range: (lowest: Double, highest: Double)) -> [String: Any] {
+        [
+            "inputMinComponents": CIVector(x: range.lowest, y: range.lowest, z: range.lowest, w: 0),
+            "inputMaxComponents": CIVector(x: range.highest, y: range.highest, z: range.highest, w: 1),
         ]
     }
 
@@ -291,9 +792,9 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         gray.applyingFilter("CIColorInvert")
     }
 
-    /// The frame and the person mask, each `width` by `height`, read back in one render. The frame is sRGB encoded, the mask
-    /// is the values Core Image sees, and the mask's red channel is the person (255 where the person is).
-    private func renderedSmallFrameAndPersonMask(frame: CIImage, personMask: CIImage, width: Int, height: Int) -> (frame: [UInt8], person: [UInt8])? {
+    /// The frame (sRGB encoded RGBA) and the person mask (one byte per pixel, the values Core Image sees, 255 where the
+    /// person is), each `width` by `height`, read back with two renders so no loop has to pull them apart.
+    private func renderedSmallFrameAndPersonMask(frame: CIImage, personMask: CIImage, width: Int, height: Int) -> (frame: [UInt8], person: [UInt8]) {
         let smallExtent = CGRect(x: 0, y: 0, width: width, height: height)
         let frameExtent = frame.extent
         // Lanczos averages the pixels the small copy stands for, so thin lines do not alias away.
@@ -301,27 +802,16 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
             .transformed(by: CGAffineTransform(translationX: -frameExtent.minX, y: -frameExtent.minY))
             .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: Double(width) / frameExtent.width, kCIInputAspectRatioKey: (Double(height) / frameExtent.height) / (Double(width) / frameExtent.width)])
             .clampedToExtent().cropped(to: smallExtent)
-            .applyingFilter("CILinearToSRGBToneCurve")
-        let smallPerson = Self.scaled(personMask, toFill: smallExtent).transformed(by: CGAffineTransform(translationX: CGFloat(width), y: 0))
-        let combined = smallPerson.composited(over: smallFrame).cropped(to: CGRect(x: 0, y: 0, width: 2 * width, height: height))
-        let rowBytes = 2 * width * 4
-        var bytes = [UInt8](repeating: 0, count: rowBytes * height)
-        bytes.withUnsafeMutableBytes { buffer in
-            guard let baseAddress = buffer.baseAddress else { return }
-            // No color space: the frame is already encoded above, and the mask is read as it is.
-            ciContext.render(combined, toBitmap: baseAddress, rowBytes: rowBytes, bounds: combined.extent, format: .RGBA8, colorSpace: nil)
-        }
         var frameBytes = [UInt8](repeating: 0, count: width * height * 4)
         var personBytes = [UInt8](repeating: 0, count: width * height)
-        for row in 0..<height {
-            for column in 0..<width {
-                let frameIndex = (row * width + column) * 4, combinedIndex = row * rowBytes + column * 4
-                frameBytes[frameIndex] = bytes[combinedIndex]
-                frameBytes[frameIndex + 1] = bytes[combinedIndex + 1]
-                frameBytes[frameIndex + 2] = bytes[combinedIndex + 2]
-                frameBytes[frameIndex + 3] = 255
-                personBytes[row * width + column] = bytes[row * rowBytes + (width + column) * 4]
-            }
+        frameBytes.withUnsafeMutableBytes { buffer in
+            guard let baseAddress = buffer.baseAddress else { return }
+            ciContext.render(smallFrame, toBitmap: baseAddress, rowBytes: width * 4, bounds: smallExtent, format: .RGBA8, colorSpace: sRGBColorSpace)
+        }
+        personBytes.withUnsafeMutableBytes { buffer in
+            guard let baseAddress = buffer.baseAddress else { return }
+            // No color space: the mask is read as it is.
+            ciContext.render(Self.scaled(personMask, toFill: smallExtent), toBitmap: baseAddress, rowBytes: width, bounds: smallExtent, format: .R8, colorSpace: nil)
         }
         return (frameBytes, personBytes)
     }

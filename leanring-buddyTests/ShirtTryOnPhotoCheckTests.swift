@@ -6,8 +6,10 @@
 //  It runs only when SHIRT_TRYON_PHOTOS_DIR names a folder that holds standing.jpg (a person standing in a camera frame) and
 //  one or more uE*.jpg flat lay product photos, and SHIRT_TRYON_OUTPUT_DIR names where the PNGs go:
 //  SHIRT_TRYON_PHOTOS_DIR=/path/photos SHIRT_TRYON_OUTPUT_DIR=/path/out tools/swift-check.sh --filter ShirtTryOnPhotoCheck
-//  standing.jpg is a personal photo, so it is never committed. It also prints the milliseconds one composite takes at 1280 by 720
-//  (about 8 ms in a release build, a few hundred in the debug build tools/swift-check.sh makes).
+//  standing.jpg is a personal photo, so it is never committed. It also prints the milliseconds a frame of the panel takes at 1280
+//  by 720, the composite drawn with the frame analysis on its own queue, as the panel runs it. The Debug app is unoptimized,
+//  as is the build tools/swift-check.sh makes, so the number from swift-check is the one the Debug app's frame rate follows.
+//  ShirtLookCheckTests.swift measures how the composites look.
 //
 
 import CoreGraphics
@@ -85,7 +87,7 @@ struct ShirtTryOnPhotoCheckTests {
                 try savePNG(cutoutImage, to: outputFolder.appendingPathComponent("cutout-\(flatLayName.replacingOccurrences(of: ".jpg", with: "")).png"))
             }
             print("Shirt try-on photo check: \(flatLayName) torso corners \(garment.torsoCorners), front neck \(garment.frontNeckPoint), size \(garment.size)")
-            let renderer = ShirtTryOnRenderer(ciContext: context)
+            let renderer = ShirtTryOnRenderer(ciContext: context, analysisRunsInTheBackground: false)
             let composite = renderer.composite(frame: frame, personMask: personMask, torso: torso, garment: garment)
             let rendered = try #require(context.createCGImage(composite, from: composite.extent, format: .RGBA8, colorSpace: sRGB))
             try savePNG(rendered, to: outputFolder.appendingPathComponent("stand-\(flatLayName.replacingOccurrences(of: ".jpg", with: "")).png"))
@@ -112,23 +114,33 @@ struct ShirtTryOnPhotoCheckTests {
         let garment = try #require(ShirtGarment.make(productPhoto: productPhoto, itemCorners: RoomArtCorners(
             topLeft: .zero, topRight: CGPoint(x: productPhoto.width, y: 0), bottomRight: CGPoint(x: productPhoto.width, y: productPhoto.height), bottomLeft: CGPoint(x: 0, y: productPhoto.height))))
 
-        // Drawn into a pixel buffer, as the panel draws into a drawable, 5 frames to warm up and then 40 timed.
+        // The panel's way: the analysis runs on its own queue, so the first frames are drawn without the garment until it is in.
         let renderer = ShirtTryOnRenderer(ciContext: context)
+        let waitStartedAt = Date()
+        while renderer.composition(frame: frame, personMask: personMask, torso: torso, garment: garment) == nil {
+            try #require(Date().timeIntervalSince(waitStartedAt) < 30, "the first analysis never came in")
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        // Drawn into a pixel buffer, as the panel draws into a drawable, 5 frames to warm up and then 40 timed, at the camera's
+        // 30 frames a second so the analysis queue runs beside the frames as it does in the panel.
         var drawnFrames = 0
         var timedSeconds = 0.0
+        var slowestMilliseconds = 0.0
         for frameNumber in 0..<45 {
             let startedAt = Date()
             let composite = renderer.composite(frame: frame, personMask: personMask, torso: torso, garment: garment)
             context.render(composite, to: frameBuffer, bounds: composite.extent, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+            let frameSeconds = Date().timeIntervalSince(startedAt)
             if frameNumber >= 5 {
-                timedSeconds += Date().timeIntervalSince(startedAt)
+                timedSeconds += frameSeconds
+                slowestMilliseconds = max(slowestMilliseconds, frameSeconds * 1000)
                 drawnFrames += 1
             }
+            Thread.sleep(forTimeInterval: max(0, 1.0 / 30 - frameSeconds))
         }
         let averageMilliseconds = timedSeconds / Double(drawnFrames) * 1000
-        print("Shirt try-on photo check: a 1280x720 composite takes \(String(format: "%.1f", averageMilliseconds)) ms on average over \(drawnFrames) frames")
-        // No expectation: a debug build, which tools/swift-check.sh makes, is about 20 times slower than a release build, so
-        // the number only means something from `swift test -c release -Xswiftc -enable-testing` in a package of these files.
-        #expect(averageMilliseconds > 0)
+        print("Shirt try-on photo check: a 1280x720 frame takes \(String(format: "%.1f", averageMilliseconds)) ms on average and \(String(format: "%.1f", slowestMilliseconds)) ms at most over \(drawnFrames) frames")
+        // The panel must hold 20 frames a second even in the unoptimized Debug build.
+        #expect(averageMilliseconds < 50)
     }
 }

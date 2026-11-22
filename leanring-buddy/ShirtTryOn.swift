@@ -15,6 +15,7 @@
 import CoreGraphics
 import CoreImage
 import Foundation
+import simd
 import Vision
 
 // MARK: - The body's torso
@@ -25,16 +26,30 @@ nonisolated struct ShirtJointReading: Equatable, Sendable {
     let confidence: Float
 }
 
-/// The four joints the torso needs, each nil when the pose request did not report it. These are the person's own left and
-/// right, which the torso sorts by where they land in the image.
+/// The joints the torso needs, each nil when the pose request did not report it, and the elbows the sleeves follow. These are
+/// the person's own left and right, which the torso sorts by where they land in the image.
 nonisolated struct ShirtBodyJointReadings: Equatable, Sendable {
     let personLeftShoulder: ShirtJointReading?
     let personRightShoulder: ShirtJointReading?
     let personLeftHip: ShirtJointReading?
     let personRightHip: ShirtJointReading?
+    let personLeftElbow: ShirtJointReading?
+    let personRightElbow: ShirtJointReading?
+
+    init(
+        personLeftShoulder: ShirtJointReading?, personRightShoulder: ShirtJointReading?, personLeftHip: ShirtJointReading?, personRightHip: ShirtJointReading?,
+        personLeftElbow: ShirtJointReading? = nil, personRightElbow: ShirtJointReading? = nil
+    ) {
+        self.personLeftShoulder = personLeftShoulder
+        self.personRightShoulder = personRightShoulder
+        self.personLeftHip = personLeftHip
+        self.personRightHip = personRightHip
+        self.personLeftElbow = personLeftElbow
+        self.personRightElbow = personRightElbow
+    }
 }
 
-/// The shoulders and hips of the person in a camera frame, in camera pixels.
+/// The shoulders and hips of the person in a camera frame, and the elbows when they are seen, in camera pixels.
 nonisolated struct BodyTorso: Equatable, Sendable {
     /// A joint under this confidence counts as not seen. Vision reports about 0.5 to 1 for a joint it can see, and under 0.3
     /// for one it is guessing at from the rest of the body.
@@ -55,19 +70,30 @@ nonisolated struct BodyTorso: Equatable, Sendable {
     let hipsWereEstimated: Bool
     /// Both shoulders have a confidence over the floor and lie inside the frame.
     let shouldersAreSeen: Bool
+    /// The elbow on the image left shoulder's arm and the one on the image right's, each nil when it is not seen. The sleeves
+    /// follow the line from each shoulder to its elbow, so the shirt is drawn without them apart when either is missing.
+    let imageLeftElbow: CGPoint?
+    let imageRightElbow: CGPoint?
 
     var shoulderMidpoint: CGPoint { CGPoint(x: (imageLeftShoulder.x + imageRightShoulder.x) / 2, y: (imageLeftShoulder.y + imageRightShoulder.y) / 2) }
     var hipMidpoint: CGPoint { CGPoint(x: (imageLeftHip.x + imageRightHip.x) / 2, y: (imageLeftHip.y + imageRightHip.y) / 2) }
     var shoulderWidth: Double { hypot(imageRightShoulder.x - imageLeftShoulder.x, imageRightShoulder.y - imageLeftShoulder.y) }
 
-    init(imageLeftShoulder: CGPoint, imageRightShoulder: CGPoint, imageLeftHip: CGPoint, imageRightHip: CGPoint, hipsWereEstimated: Bool, shouldersAreSeen: Bool) {
+    init(
+        imageLeftShoulder: CGPoint, imageRightShoulder: CGPoint, imageLeftHip: CGPoint, imageRightHip: CGPoint, hipsWereEstimated: Bool, shouldersAreSeen: Bool,
+        imageLeftElbow: CGPoint? = nil, imageRightElbow: CGPoint? = nil
+    ) {
         self.imageLeftShoulder = imageLeftShoulder
         self.imageRightShoulder = imageRightShoulder
         self.imageLeftHip = imageLeftHip
         self.imageRightHip = imageRightHip
         self.hipsWereEstimated = hipsWereEstimated
         self.shouldersAreSeen = shouldersAreSeen
+        self.imageLeftElbow = imageLeftElbow
+        self.imageRightElbow = imageRightElbow
     }
+
+
 
     /// The torso of a pose request's observation, or nil when it has no shoulder joint at all.
     init?(observation: VNHumanBodyPoseObservation, frameSize: CGSize) {
@@ -77,7 +103,8 @@ nonisolated struct BodyTorso: Equatable, Sendable {
         }
         let readings = ShirtBodyJointReadings(
             personLeftShoulder: reading(of: .leftShoulder), personRightShoulder: reading(of: .rightShoulder),
-            personLeftHip: reading(of: .leftHip), personRightHip: reading(of: .rightHip)
+            personLeftHip: reading(of: .leftHip), personRightHip: reading(of: .rightHip),
+            personLeftElbow: reading(of: .leftElbow), personRightElbow: reading(of: .rightElbow)
         )
         guard let torso = BodyTorso(readings: readings, frameSize: frameSize) else { return nil }
         self = torso
@@ -103,12 +130,18 @@ nonisolated struct BodyTorso: Equatable, Sendable {
         guard shoulderSpanLength > 1 else { return nil }
 
         let shouldersAreSeen = isSeen(personLeftShoulder) && isSeen(personRightShoulder)
+        // Each elbow belongs to the shoulder on its own side of the person, wherever that shoulder landed in the image.
+        let personLeftIsImageLeft = pixelPoint(personLeftShoulder).x <= pixelPoint(personRightShoulder).x
+        let seenPersonLeftElbow = isSeen(readings.personLeftElbow) ? readings.personLeftElbow.map(pixelPoint) : nil
+        let seenPersonRightElbow = isSeen(readings.personRightElbow) ? readings.personRightElbow.map(pixelPoint) : nil
+        let imageLeftElbow = personLeftIsImageLeft ? seenPersonLeftElbow : seenPersonRightElbow
+        let imageRightElbow = personLeftIsImageLeft ? seenPersonRightElbow : seenPersonLeftElbow
         if isSeen(readings.personLeftHip), isSeen(readings.personRightHip), let personLeftHip = readings.personLeftHip, let personRightHip = readings.personRightHip {
             let hipsInImageOrder = [pixelPoint(personLeftHip), pixelPoint(personRightHip)].sorted { $0.x < $1.x }
             self.init(
                 imageLeftShoulder: imageLeftShoulder, imageRightShoulder: imageRightShoulder,
                 imageLeftHip: hipsInImageOrder[0], imageRightHip: hipsInImageOrder[1],
-                hipsWereEstimated: false, shouldersAreSeen: shouldersAreSeen
+                hipsWereEstimated: false, shouldersAreSeen: shouldersAreSeen, imageLeftElbow: imageLeftElbow, imageRightElbow: imageRightElbow
             )
             return
         }
@@ -127,7 +160,7 @@ nonisolated struct BodyTorso: Equatable, Sendable {
                 x: imageRightShoulder.x + downDirection.x * torsoLength - shoulderSpan.x * hipInset,
                 y: imageRightShoulder.y + downDirection.y * torsoLength - shoulderSpan.y * hipInset
             ),
-            hipsWereEstimated: true, shouldersAreSeen: shouldersAreSeen
+            hipsWereEstimated: true, shouldersAreSeen: shouldersAreSeen, imageLeftElbow: imageLeftElbow, imageRightElbow: imageRightElbow
         )
     }
 
@@ -143,7 +176,7 @@ nonisolated struct BodyTorso: Equatable, Sendable {
         return BodyTorso(
             imageLeftShoulder: imageLeftShoulder, imageRightShoulder: imageRightShoulder,
             imageLeftHip: moved(hip: imageLeftHip, shoulder: imageLeftShoulder), imageRightHip: moved(hip: imageRightHip, shoulder: imageRightShoulder),
-            hipsWereEstimated: hipsWereEstimated, shouldersAreSeen: shouldersAreSeen
+            hipsWereEstimated: hipsWereEstimated, shouldersAreSeen: shouldersAreSeen, imageLeftElbow: imageLeftElbow, imageRightElbow: imageRightElbow
         )
     }
 }
@@ -338,39 +371,7 @@ nonisolated struct ShirtCutoutMask: Equatable, Sendable {
     /// box blurs, 0 to 255 per pixel. Outside the pulled-in cutout it is 0, so the softening only ever fades the garment's
     /// own pixels and never brings background back in.
     func featheredEdgeAlpha() -> [UInt8] {
-        let reach = Self.edgePullInPixels
-        // The distance from each pixel to the nearest background pixel along its row and along its column, where the
-        // photo's edge counts as background, so a garment touching the edge is pulled in there too.
-        var distanceAlongTheRow = [Int](repeating: 0, count: pixels.count)
-        for row in 0..<height {
-            var lastBackgroundColumn = -1
-            for column in 0..<width {
-                if pixels[row * width + column] == 0 { lastBackgroundColumn = column }
-                distanceAlongTheRow[row * width + column] = column - lastBackgroundColumn
-            }
-            var nextBackgroundColumn = width
-            for column in stride(from: width - 1, through: 0, by: -1) {
-                if pixels[row * width + column] == 0 { nextBackgroundColumn = column }
-                distanceAlongTheRow[row * width + column] = min(distanceAlongTheRow[row * width + column], nextBackgroundColumn - column)
-            }
-        }
-        // A pixel stays when every pixel within `reach` (a square) is garment: it is far enough from the side edges, and
-        // so is every pixel within `reach` above and below it.
-        let farFromTheSideEdges = distanceAlongTheRow.map { $0 > reach }
-        var pulledIn = [Float](repeating: 0, count: pixels.count)
-        for column in 0..<width {
-            var lastNearRow = -1
-            var distanceAlongTheColumn = [Int](repeating: 0, count: height)
-            for row in 0..<height {
-                if !farFromTheSideEdges[row * width + column] { lastNearRow = row }
-                distanceAlongTheColumn[row] = row - lastNearRow
-            }
-            var nextNearRow = height
-            for row in stride(from: height - 1, through: 0, by: -1) {
-                if !farFromTheSideEdges[row * width + column] { nextNearRow = row }
-                if min(distanceAlongTheColumn[row], nextNearRow - row) > reach { pulledIn[row * width + column] = 1 }
-            }
-        }
+        let pulledIn = pulledIn(by: Self.edgePullInPixels).map { $0 ? Float(1) : 0 }
         // Each pass is a 3 pixel box along the rows, then along the columns.
         var softened = pulledIn
         for _ in 0..<Self.edgeSofteningPasses {
@@ -393,6 +394,89 @@ nonisolated struct ShirtCutoutMask: Equatable, Sendable {
         return zip(softened, pulledIn).map { softenedValue, pulledInValue in
             pulledInValue == 0 ? 0 : UInt8((min(max(softenedValue, 0), 1) * 255).rounded())
         }
+    }
+
+    /// Which pixels stay garment when the cutout is pulled in by `reach` pixels: every pixel within `reach` of them (a square)
+    /// is garment, and the photo's edge counts as background, so a garment touching the edge is pulled in there too.
+    func pulledIn(by reach: Int) -> [Bool] {
+        // The distance from each pixel to the nearest background pixel along its row, then along its column.
+        var distanceAlongTheRow = [Int](repeating: 0, count: pixels.count)
+        for row in 0..<height {
+            var lastBackgroundColumn = -1
+            for column in 0..<width {
+                if pixels[row * width + column] == 0 { lastBackgroundColumn = column }
+                distanceAlongTheRow[row * width + column] = column - lastBackgroundColumn
+            }
+            var nextBackgroundColumn = width
+            for column in stride(from: width - 1, through: 0, by: -1) {
+                if pixels[row * width + column] == 0 { nextBackgroundColumn = column }
+                distanceAlongTheRow[row * width + column] = min(distanceAlongTheRow[row * width + column], nextBackgroundColumn - column)
+            }
+        }
+        // A pixel stays when it is far enough from the side edges, and so is every pixel within `reach` above and below it.
+        let farFromTheSideEdges = distanceAlongTheRow.map { $0 > reach }
+        var pulledIn = [Bool](repeating: false, count: pixels.count)
+        var distanceAlongTheColumn = [Int](repeating: 0, count: height)
+        for column in 0..<width {
+            var lastNearRow = -1
+            for row in 0..<height {
+                if !farFromTheSideEdges[row * width + column] { lastNearRow = row }
+                distanceAlongTheColumn[row] = row - lastNearRow
+            }
+            var nextNearRow = height
+            for row in stride(from: height - 1, through: 0, by: -1) {
+                if !farFromTheSideEdges[row * width + column] { nextNearRow = row }
+                if min(distanceAlongTheColumn[row], nextNearRow - row) > reach { pulledIn[row * width + column] = true }
+            }
+        }
+        return pulledIn
+    }
+
+    /// How deep the photo's background can reach into the cutout's colors. Subject lifting's edge, a JPEG's ringing, and the
+    /// photo's own blur mix the light background into the garment's outer few pixels, which a light garment hides and a dark
+    /// trim or a navy stripe shows as a pale outline.
+    static let backgroundBleedPixels = 5
+
+    /// The photo's colors with the cutout's outer `backgroundBleedPixels` replaced by the mean of the clean garment within a
+    /// few pixels inside them, so no background color is left in the drawn edge. `rgba` is the photo's bytes, as tight RGBA
+    /// rows; the alpha bytes are left as they are.
+    func colorsWithTheBackgroundBleedRemoved(from rgba: [UInt8]) -> [UInt8] {
+        precondition(rgba.count == pixels.count * 4, "The photo and the cutout must be the same size")
+        let clean = pulledIn(by: Self.backgroundBleedPixels)
+        let reach = Self.backgroundBleedPixels + 2
+        // Summed area tables of the clean pixels' colors and of their count, so each edge pixel's mean costs four lookups.
+        let tableWidth = width + 1
+        var colorSums = [SIMD3<Double>](repeating: .zero, count: tableWidth * (height + 1))
+        var countSums = [Double](repeating: 0, count: tableWidth * (height + 1))
+        for row in 0..<height {
+            var rowColor = SIMD3<Double>.zero, rowCount = 0.0
+            for column in 0..<width {
+                let index = row * width + column
+                if clean[index] {
+                    rowColor += SIMD3(Double(rgba[index * 4]), Double(rgba[index * 4 + 1]), Double(rgba[index * 4 + 2]))
+                    rowCount += 1
+                }
+                colorSums[(row + 1) * tableWidth + column + 1] = colorSums[row * tableWidth + column + 1] + rowColor
+                countSums[(row + 1) * tableWidth + column + 1] = countSums[row * tableWidth + column + 1] + rowCount
+            }
+        }
+        var cleaned = rgba
+        for row in 0..<height {
+            for column in 0..<width {
+                let index = row * width + column
+                guard pixels[index] != 0, !clean[index] else { continue }
+                let top = max(0, row - reach), bottom = min(height, row + reach + 1), left = max(0, column - reach), right = min(width, column + reach + 1)
+                let count = countSums[bottom * tableWidth + right] - countSums[top * tableWidth + right] - countSums[bottom * tableWidth + left] + countSums[top * tableWidth + left]
+                // A sliver thinner than the bleed has no clean pixels near it and keeps its own colors.
+                guard count > 0 else { continue }
+                let colorSum = colorSums[bottom * tableWidth + right] - colorSums[top * tableWidth + right] - colorSums[bottom * tableWidth + left] + colorSums[top * tableWidth + left]
+                let mean = colorSum / count
+                cleaned[index * 4] = UInt8(mean.x.rounded())
+                cleaned[index * 4 + 1] = UInt8(mean.y.rounded())
+                cleaned[index * 4 + 2] = UInt8(mean.z.rounded())
+            }
+        }
+        return cleaned
     }
 
     /// The mask keeping only its largest 4-connected piece, so a stray speck that lifting kept cannot stretch the garment's
@@ -423,6 +507,102 @@ nonisolated struct ShirtCutoutMask: Equatable, Sendable {
     }
 }
 
+/// Which side of the garment a sleeve is on, as it lies in the photo and as it lands in the frame: image left or image right.
+nonisolated enum ShirtSleeveSide: Equatable, Sendable {
+    case imageLeft
+    case imageRight
+}
+
+/// One sleeve of a flat lay garment, in the working photo's pixels, top left origin, y down. The sleeve is what lies beyond
+/// the torso's edge column above the armpit; its quadrilateral runs from the seam's top (the shoulder) out along the sleeve's
+/// top edge to the opening, across it, and back along the underside to the armpit.
+nonisolated struct ShirtSleeveGeometry: Equatable, Sendable {
+    let side: ShirtSleeveSide
+    /// Where the sleeve meets the torso: the top of the shoulder and the armpit, both on the torso's edge column.
+    let seamTop: CGPoint
+    let seamBottom: CGPoint
+    /// The two ends of the sleeve's opening: on the edge that starts at the shoulder, and on the underside.
+    let openingOuter: CGPoint
+    let openingInner: CGPoint
+    /// The sleeve's own pixels, one per photo pixel.
+    let isSleevePixel: [Bool]
+
+    var seamCenter: CGPoint { CGPoint(x: (seamTop.x + seamBottom.x) / 2, y: (seamTop.y + seamBottom.y) / 2) }
+    var openingCenter: CGPoint { CGPoint(x: (openingOuter.x + openingInner.x) / 2, y: (openingOuter.y + openingInner.y) / 2) }
+    /// From the seam's middle to the opening's middle.
+    var length: Double { hypot(openingCenter.x - seamCenter.x, openingCenter.y - seamCenter.y) }
+    var openingWidth: Double { hypot(openingOuter.x - openingInner.x, openingOuter.y - openingInner.y) }
+    /// Seam top, opening outer, opening inner, seam bottom: the quadrilateral the renderer maps onto the arm.
+    var quadrilateral: [CGPoint] { [seamTop, openingOuter, openingInner, seamBottom] }
+
+    /// The sleeve beyond `edgeColumn` (the torso's left edge for `imageLeft`, its right edge for `imageRight`), or nil when
+    /// the cutout has none there or it is not separate from the torso below the armpit, such as a jacket whose sleeves hang
+    /// beside its body. The armpit is where a column just outside the torso turns from cloth to background, going down from
+    /// the shoulder, and the sleeve is the cloth connected to that column on the outer side of the edge.
+    static func detect(side: ShirtSleeveSide, mask: ShirtCutoutMask, edgeColumn: Int, torsoWidth: Int, topRow: Int, lowestArmpitRow: Int) -> ShirtSleeveGeometry? {
+        let outward = side == .imageLeft ? -1 : 1
+        let probeColumn = edgeColumn + outward * max(2, Int(0.03 * Double(torsoWidth)))
+        guard probeColumn >= 0, probeColumn < mask.width, topRow < lowestArmpitRow else { return nil }
+        let isGarment = { (column: Int, row: Int) in mask.pixels[row * mask.width + column] != 0 }
+        guard let seamTopRow = (topRow..<lowestArmpitRow).first(where: { isGarment(probeColumn, $0) }),
+              let firstGapRow = ((seamTopRow + 1)..<lowestArmpitRow).first(where: { !isGarment(probeColumn, $0) }) else { return nil }
+        let armpitRow = firstGapRow - 1
+        guard armpitRow - seamTopRow >= 4 else { return nil }
+
+        // The sleeve's cloth: everything connected to the probe on the outer side of the edge column.
+        let isOutside = { (column: Int) in side == .imageLeft ? column < edgeColumn : column > edgeColumn }
+        var isSleevePixel = [Bool](repeating: false, count: mask.pixels.count)
+        var pending = [((seamTopRow + armpitRow) / 2) * mask.width + probeColumn]
+        isSleevePixel[pending[0]] = true
+        var sleevePixelCount = 0
+        var pointSum = SIMD2<Double>(0, 0)
+        while let index = pending.popLast() {
+            sleevePixelCount += 1
+            let column = index % mask.width, row = index / mask.width
+            pointSum += SIMD2(Double(column), Double(row))
+            for (neighborColumn, neighborRow) in [(column - 1, row), (column + 1, row), (column, row - 1), (column, row + 1)]
+            where neighborColumn >= 0 && neighborColumn < mask.width && neighborRow >= 0 && neighborRow < mask.height && isOutside(neighborColumn) {
+                let neighbor = neighborRow * mask.width + neighborColumn
+                if !isSleevePixel[neighbor] && mask.pixels[neighbor] != 0 {
+                    isSleevePixel[neighbor] = true
+                    pending.append(neighbor)
+                }
+            }
+        }
+        guard sleevePixelCount >= 50 else { return nil }
+
+        // The sleeve's axis runs from the seam's middle through its middle, and its opening is the far end along that axis.
+        let seamTop = CGPoint(x: Double(edgeColumn), y: Double(seamTopRow)), seamBottom = CGPoint(x: Double(edgeColumn), y: Double(armpitRow))
+        let seamCenter = SIMD2(Double(edgeColumn), Double(seamTopRow + armpitRow) / 2)
+        let toTheMiddle = pointSum / Double(sleevePixelCount) - seamCenter
+        guard simd_length(toTheMiddle) > 1 else { return nil }
+        let axis = simd_normalize(toTheMiddle), across = SIMD2(-axis.y, axis.x)
+        var farthest = 0.0
+        for index in isSleevePixel.indices where isSleevePixel[index] {
+            farthest = max(farthest, simd_dot(SIMD2(Double(index % mask.width), Double(index / mask.width)) - seamCenter, axis))
+        }
+        guard farthest > 2 else { return nil }
+        // The opening's width is the sleeve's width over its last quarter, where a flat sleeve is about as wide as its cuff.
+        var smallestAcross = Double.infinity, largestAcross = -Double.infinity
+        for index in isSleevePixel.indices where isSleevePixel[index] {
+            let offset = SIMD2(Double(index % mask.width), Double(index / mask.width)) - seamCenter
+            guard simd_dot(offset, axis) >= 0.75 * farthest else { continue }
+            smallestAcross = min(smallestAcross, simd_dot(offset, across))
+            largestAcross = max(largestAcross, simd_dot(offset, across))
+        }
+        let openingCenter = seamCenter + axis * 0.95 * farthest + across * (smallestAcross + largestAcross) / 2
+        let halfOpening = (largestAcross - smallestAcross + 1) / 2
+        // The outer edge is the one the shoulder end of the seam lies on.
+        let outerSide = simd_dot(SIMD2(Double(seamTop.x), Double(seamTop.y)) - seamCenter, across) >= 0 ? across : -across
+        let openingOuter = openingCenter + outerSide * halfOpening, openingInner = openingCenter - outerSide * halfOpening
+        return ShirtSleeveGeometry(
+            side: side, seamTop: seamTop, seamBottom: seamBottom,
+            openingOuter: CGPoint(x: openingOuter.x, y: openingOuter.y), openingInner: CGPoint(x: openingInner.x, y: openingInner.y),
+            isSleevePixel: isSleevePixel
+        )
+    }
+}
+
 /// What the garment's cutout says about its own shape, from the rules the spike found on flat-lay photos.
 nonisolated struct ShirtGarmentMeasurements: Equatable, Sendable {
     /// Where the garment's body (the torso without its sleeves) sits: top left, top right, bottom right, bottom left.
@@ -437,6 +617,9 @@ nonisolated struct ShirtGarmentMeasurements: Equatable, Sendable {
     let bottomRow: Int
     let torsoLeftColumn: Int
     let torsoRightColumn: Int
+    /// The sleeves, image left first, each nil when the cutout has no sleeve on that side apart from its torso.
+    let imageLeftSleeve: ShirtSleeveGeometry?
+    let imageRightSleeve: ShirtSleeveGeometry?
 
     /// Below the sleeves, 60 percent of the way down, the cutout is only the torso, so its width there is the torso's.
     static let torsoWidthRowShare = 0.6
@@ -464,6 +647,9 @@ nonisolated struct ShirtGarmentMeasurements: Equatable, Sendable {
         self.bottomRow = bottomRow
         self.torsoLeftColumn = torsoLeftColumn
         self.torsoRightColumn = torsoRightColumn
+        let torsoWidth = torsoRightColumn - torsoLeftColumn
+        imageLeftSleeve = ShirtSleeveGeometry.detect(side: .imageLeft, mask: mask, edgeColumn: torsoLeftColumn, torsoWidth: torsoWidth, topRow: topRow, lowestArmpitRow: torsoRow)
+        imageRightSleeve = ShirtSleeveGeometry.detect(side: .imageRight, mask: mask, edgeColumn: torsoRightColumn, torsoWidth: torsoWidth, topRow: topRow, lowestArmpitRow: torsoRow)
 
         // Down the center line: the back of the collar, then the neck hole, then the front of the shirt, where the hole ends.
         let centerColumn = (torsoLeftColumn + torsoRightColumn) / 2
@@ -481,7 +667,29 @@ nonisolated struct ShirtGarmentMeasurements: Equatable, Sendable {
     }
 }
 
-/// The garment as the renderer draws it: its cutout, the shirt's own geometry, and the two colors the renderer needs.
+/// One sleeve of the garment as the renderer draws it on its own: its pixels and where they lie in the working photo.
+///
+/// On a hanging arm a sleeve's seam runs down the arm while its opening runs across it, where on the flat lay the two are
+/// nearly parallel, so no single map from the photo to the arm keeps both. The sleeve is split along the diagonal from the
+/// seam's top to the underside of the opening, and the renderer maps each half with its own affine transform: the outer half
+/// by its triangle (seam top, opening outer, opening inner) and the inner half by its own (seam top, opening inner, seam
+/// bottom). The two maps agree on the diagonal, so the halves meet with no seam of their own.
+nonisolated struct ShirtGarmentSleeve: @unchecked Sendable {
+    // @unchecked because CIImage is immutable, so sharing one across queues is safe.
+
+    /// The outer half reaches this many photo pixels past the diagonal, under the inner half, so no hairline gap shows.
+    static let halvesOverlapPixels = 1.5
+
+    let geometry: ShirtSleeveGeometry
+    /// The sleeve's outer and inner halves, each premultiplied RGBA with everything else clear, cropped to `boundingBox` and
+    /// moved to the origin.
+    let outerHalf: CIImage
+    let innerHalf: CIImage
+    /// Where the halves lie in the working photo, top left origin, y down.
+    let boundingBox: CGRect
+}
+
+/// The garment as the renderer draws it: its cutout, the shirt's own geometry, and the colors the renderer needs.
 /// A garment never changes, so everything the renderer can work out once is worked out here.
 nonisolated struct ShirtGarment: @unchecked Sendable {
     // @unchecked because CIImage is immutable, so sharing one across queues is safe.
@@ -489,6 +697,9 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
     /// The longest side the working photo is scaled to. The garment is drawn about 400 to 900 camera pixels wide, so more
     /// than this would only slow the warp down.
     static let longestWorkingSide = 1024
+    /// A sleeve's cloth reaches this share of the torso's width inside the torso's edge, under the torso, so the two never
+    /// show a gap where they meet on the body.
+    static let sleeveTuckShareOfTheTorsoWidth = 0.03
 
     /// The garment's pixels with the background cut away: premultiplied RGBA, extent `(0, 0, size)`, Core Image's y up.
     let cutout: CIImage
@@ -501,9 +712,14 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
     /// The garment's base color, from a print-free band near the hem. It fills the learner's old shirt where the garment's
     /// outline does not reach, at the waist and under the arms.
     let baseColor: ShirtRGB
-    /// The average of all three channels over the garment's pixels, from 0 to 1. The renderer matches the camera's exposure
-    /// to it, since a product photo is lit flat and bright.
-    let meanBrightness: Float
+    /// The product photo's white in linear light, per channel: its background, raised to the garment's own 98th percentile
+    /// of luminance when the garment is brighter (a white shirt on a light gray sweep). The photo over this is the garment's
+    /// albedo, so a cream shirt stays cream and is not turned white, and the photo's lighting does not come along.
+    let photoWhite: SIMD3<Float>
+    /// The cutout without its sleeves, and the two sleeves apart, image left first, so the renderer can lay each sleeve along
+    /// its arm. Nil when the cutout does not have both sleeves apart from its torso; the whole cutout is drawn then.
+    let torsoWithoutSleeves: CIImage?
+    let sleeves: [ShirtGarmentSleeve]
 
     /// The garment from a product photo and where the item sits in it (`itemCorners`, the page reader's answer, in the
     /// photo's pixels): the photo is cropped to the corners with a margin, scaled down, and cut out with subject lifting.
@@ -530,6 +746,7 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
         let garmentPixelCount = cutoutMask.pixels.reduce(0) { $0 + ($1 != 0 ? 1 : 0) }
         guard Double(garmentPixelCount) >= 0.04 * Double(cutoutMask.pixels.count), let measurements = ShirtGarmentMeasurements(mask: cutoutMask),
               let photoPixels = rgbaPixels(of: workingPhoto) else { return nil }
+        let width = workingPhoto.width, height = workingPhoto.height
 
         // The hem band: from 12 to 3 percent of the garment's height above its bottom, inside the torso's columns. A print
         // rarely reaches the hem, so its median is the cloth's own color.
@@ -537,37 +754,137 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
         let bandTopRow = Int(Double(measurements.bottomRow) - 0.12 * garmentHeight), bandBottomRow = Int(Double(measurements.bottomRow) - 0.03 * garmentHeight)
         var bandChannels: [[UInt8]] = [[], [], []]
         for row in bandTopRow...max(bandTopRow, bandBottomRow) {
-            for column in measurements.torsoLeftColumn...measurements.torsoRightColumn where cutoutMask.pixels[row * cutoutMask.width + column] != 0 {
-                for channel in 0..<3 { bandChannels[channel].append(photoPixels[(row * cutoutMask.width + column) * 4 + channel]) }
+            for column in measurements.torsoLeftColumn...measurements.torsoRightColumn where cutoutMask.pixels[row * width + column] != 0 {
+                for channel in 0..<3 { bandChannels[channel].append(photoPixels[(row * width + column) * 4 + channel]) }
             }
         }
         var garmentChannelSum = 0.0
-        for pixelIndex in cutoutMask.pixels.indices where cutoutMask.pixels[pixelIndex] != 0 {
-            for channel in 0..<3 { garmentChannelSum += Double(photoPixels[pixelIndex * 4 + channel]) }
-        }
-        // The drawn garment's edge is the cutout pulled in and softened (`featheredEdgeAlpha`), so the photo's background
-        // mixed into the edge pixels never shows as a light fringe and the edge is smooth at any size it lands.
-        let edgeAlpha = cutoutMask.featheredEdgeAlpha()
-        var premultipliedPixels = [UInt8](repeating: 0, count: photoPixels.count)
-        for pixelIndex in edgeAlpha.indices where edgeAlpha[pixelIndex] != 0 {
-            let alpha = UInt16(edgeAlpha[pixelIndex])
-            for channel in 0..<3 {
-                premultipliedPixels[pixelIndex * 4 + channel] = UInt8((UInt16(photoPixels[pixelIndex * 4 + channel]) * alpha + 127) / 255)
+        var garmentLuminances: [Float] = []
+        var backgroundChannels: [[UInt8]] = [[], [], []]
+        for pixelIndex in cutoutMask.pixels.indices {
+            if cutoutMask.pixels[pixelIndex] != 0 {
+                for channel in 0..<3 { garmentChannelSum += Double(photoPixels[pixelIndex * 4 + channel]) }
+                garmentLuminances.append(linearLuminance(of: photoPixels, at: pixelIndex))
+            } else {
+                for channel in 0..<3 { backgroundChannels[channel].append(photoPixels[pixelIndex * 4 + channel]) }
             }
-            premultipliedPixels[pixelIndex * 4 + 3] = edgeAlpha[pixelIndex]
         }
+        // A hem band with no cloth in it (a cutout cut off above its hem) takes the garment's mean color instead.
         let meanBrightness = Float(garmentChannelSum / (3 * 255 * Double(garmentPixelCount)))
         let baseChannels = bandChannels.map { channelValues -> Float in
             guard !channelValues.isEmpty else { return meanBrightness }
             return Float(channelValues.sorted()[channelValues.count / 2]) / 255
         }
+        let photoWhite = photoWhite(backgroundChannels: backgroundChannels, garmentLuminances: garmentLuminances)
 
-        guard let cutoutImage = cgImage(fromRGBAPixels: premultipliedPixels, width: workingPhoto.width, height: workingPhoto.height) else { return nil }
+        // The drawn garment's edge is the cutout pulled in and softened (`featheredEdgeAlpha`), and its outer pixels take the
+        // colors of the clean cloth just inside them, so the photo's background never shows as a light fringe.
+        let edgeAlpha = cutoutMask.featheredEdgeAlpha()
+        let cleanedPixels = cutoutMask.colorsWithTheBackgroundBleedRemoved(from: photoPixels)
+        guard let cutoutImage = premultipliedImage(colors: cleanedPixels, alpha: edgeAlpha, width: width, height: height) else { return nil }
+
+        // The sleeves apart from the torso, when the cutout has both. Each sleeve keeps a narrow strip of the torso along its
+        // seam, which the torso covers, and the torso fades out over 3 pixels at the seam, so the two overlap with no gap.
+        var torsoWithoutSleeves: CIImage?
+        var sleeves: [ShirtGarmentSleeve] = []
+        if let imageLeftSleeve = measurements.imageLeftSleeve, let imageRightSleeve = measurements.imageRightSleeve {
+            let tuckColumns = max(2, Int(sleeveTuckShareOfTheTorsoWidth * Double(measurements.torsoRightColumn - measurements.torsoLeftColumn)))
+            var torsoAlpha = edgeAlpha
+            for geometry in [imageLeftSleeve, imageRightSleeve] {
+                let edgeColumn = Int(geometry.seamTop.x), inward = geometry.side == .imageLeft ? 1 : -1
+                var sleeveAlpha = [UInt8](repeating: 0, count: edgeAlpha.count)
+                var boxLeft = width, boxRight = -1, boxTop = height, boxBottom = -1
+                func include(column: Int, row: Int) {
+                    boxLeft = min(boxLeft, column); boxRight = max(boxRight, column); boxTop = min(boxTop, row); boxBottom = max(boxBottom, row)
+                }
+                for index in geometry.isSleevePixel.indices where geometry.isSleevePixel[index] {
+                    sleeveAlpha[index] = edgeAlpha[index]
+                    torsoAlpha[index] = 0
+                    include(column: index % width, row: index / width)
+                }
+                for row in Int(geometry.seamTop.y)...Int(geometry.seamBottom.y) {
+                    for step in 0...tuckColumns {
+                        let column = edgeColumn + inward * step
+                        guard column >= 0, column < width else { continue }
+                        let index = row * width + column
+                        sleeveAlpha[index] = edgeAlpha[index]
+                        include(column: column, row: row)
+                        if step < 3 { torsoAlpha[index] = UInt8(Int(torsoAlpha[index]) * (step + 1) / 4) }
+                    }
+                }
+                // The halves, split along the diagonal from the seam's top to the opening's underside. Each pixel's distance from
+                // the diagonal is positive on the outer side.
+                let diagonalStart = SIMD2(Double(geometry.seamTop.x), Double(geometry.seamTop.y))
+                let diagonal = SIMD2(Double(geometry.openingInner.x), Double(geometry.openingInner.y)) - diagonalStart
+                guard simd_length(diagonal) > 1 else { continue }
+                var acrossTheDiagonal = SIMD2(-diagonal.y, diagonal.x) / simd_length(diagonal)
+                if simd_dot(SIMD2(Double(geometry.openingOuter.x), Double(geometry.openingOuter.y)) - diagonalStart, acrossTheDiagonal) < 0 { acrossTheDiagonal = -acrossTheDiagonal }
+                var outerAlpha = [UInt8](repeating: 0, count: sleeveAlpha.count), innerAlpha = [UInt8](repeating: 0, count: sleeveAlpha.count)
+                for index in sleeveAlpha.indices where sleeveAlpha[index] != 0 {
+                    let distance = simd_dot(SIMD2(Double(index % width), Double(index / width)) - diagonalStart, acrossTheDiagonal)
+                    if distance >= -ShirtGarmentSleeve.halvesOverlapPixels { outerAlpha[index] = sleeveAlpha[index] }
+                    if distance <= 0 { innerAlpha[index] = sleeveAlpha[index] }
+                }
+                guard boxRight >= boxLeft, boxBottom >= boxTop,
+                      let outerImage = premultipliedImage(colors: cleanedPixels, alpha: outerAlpha, width: width, height: height),
+                      let innerImage = premultipliedImage(colors: cleanedPixels, alpha: innerAlpha, width: width, height: height) else { continue }
+                let boundingBox = CGRect(x: boxLeft, y: boxTop, width: boxRight - boxLeft + 1, height: boxBottom - boxTop + 1)
+                // Core Image's y grows up, so the box's top row is the image's top edge.
+                let boxInCoreImage = CGRect(x: boundingBox.minX, y: Double(height) - boundingBox.maxY, width: boundingBox.width, height: boundingBox.height)
+                func croppedToTheBox(_ image: CIImage) -> CIImage {
+                    image.cropped(to: boxInCoreImage).transformed(by: CGAffineTransform(translationX: -boxInCoreImage.minX, y: -boxInCoreImage.minY))
+                }
+                sleeves.append(ShirtGarmentSleeve(geometry: geometry, outerHalf: croppedToTheBox(outerImage), innerHalf: croppedToTheBox(innerImage), boundingBox: boundingBox))
+            }
+            if sleeves.count == 2 {
+                torsoWithoutSleeves = premultipliedImage(colors: cleanedPixels, alpha: torsoAlpha, width: width, height: height)
+            } else {
+                sleeves = []
+            }
+        }
+
         return ShirtGarment(
-            cutout: CIImage(cgImage: cutoutImage), size: CGSize(width: workingPhoto.width, height: workingPhoto.height),
+            cutout: cutoutImage, size: CGSize(width: width, height: height),
             torsoCorners: measurements.torsoCorners, frontNeckPoint: measurements.frontNeckPoint, frontNeckWasFound: measurements.frontNeckWasFound,
-            baseColor: ShirtRGB(red: baseChannels[0], green: baseChannels[1], blue: baseChannels[2]), meanBrightness: meanBrightness
+            baseColor: ShirtRGB(red: baseChannels[0], green: baseChannels[1], blue: baseChannels[2]),
+            photoWhite: photoWhite, torsoWithoutSleeves: torsoWithoutSleeves, sleeves: torsoWithoutSleeves == nil ? [] : sleeves
         )
+    }
+
+    /// The photo's white from its background's median color and the garment's luminances, both as described on `photoWhite`.
+    /// A cutout that fills the whole photo has no background, and then the garment's own brightest cloth is the white.
+    static func photoWhite(backgroundChannels: [[UInt8]], garmentLuminances: [Float]) -> SIMD3<Float> {
+        let brightestGarmentLuminance = garmentLuminances.isEmpty ? 1 : max(garmentLuminances.sorted()[min(garmentLuminances.count - 1, Int(0.98 * Double(garmentLuminances.count)))], 0.05)
+        guard backgroundChannels.allSatisfy({ !$0.isEmpty }) else { return SIMD3(repeating: brightestGarmentLuminance) }
+        let background = SIMD3(
+            linearValueOfEachByte[Int(backgroundChannels[0].sorted()[backgroundChannels[0].count / 2])],
+            linearValueOfEachByte[Int(backgroundChannels[1].sorted()[backgroundChannels[1].count / 2])],
+            linearValueOfEachByte[Int(backgroundChannels[2].sorted()[backgroundChannels[2].count / 2])]
+        )
+        let backgroundLuminance = max(0.2126 * background.x + 0.7152 * background.y + 0.0722 * background.z, 0.05)
+        return background / backgroundLuminance * max(backgroundLuminance, brightestGarmentLuminance)
+    }
+
+    private static let linearValueOfEachByte: [Float] = (0..<256).map { byte in
+        let encoded = Float(byte) / 255
+        return encoded <= 0.04045 ? encoded / 12.92 : pow((encoded + 0.055) / 1.055, 2.4)
+    }
+
+    private static func linearLuminance(of rgba: [UInt8], at pixelIndex: Int) -> Float {
+        0.2126 * linearValueOfEachByte[Int(rgba[pixelIndex * 4])] + 0.7152 * linearValueOfEachByte[Int(rgba[pixelIndex * 4 + 1])] + 0.0722 * linearValueOfEachByte[Int(rgba[pixelIndex * 4 + 2])]
+    }
+
+    /// `colors` (tight RGBA rows) premultiplied by `alpha` as a Core Image image in sRGB.
+    private static func premultipliedImage(colors: [UInt8], alpha: [UInt8], width: Int, height: Int) -> CIImage? {
+        var premultipliedPixels = [UInt8](repeating: 0, count: colors.count)
+        for pixelIndex in alpha.indices where alpha[pixelIndex] != 0 {
+            let pixelAlpha = UInt16(alpha[pixelIndex])
+            for channel in 0..<3 {
+                premultipliedPixels[pixelIndex * 4 + channel] = UInt8((UInt16(colors[pixelIndex * 4 + channel]) * pixelAlpha + 127) / 255)
+            }
+            premultipliedPixels[pixelIndex * 4 + 3] = alpha[pixelIndex]
+        }
+        return cgImage(fromRGBAPixels: premultipliedPixels, width: width, height: height).map { CIImage(cgImage: $0) }
     }
 
     private static func scaledDown(_ image: CGImage, toLongestSide longestSide: Int) -> CGImage? {
