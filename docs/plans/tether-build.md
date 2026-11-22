@@ -141,7 +141,8 @@ Left open by PR 15, for PR 19: an open menu bar panel does not count as busy for
 Left open by PR 16, for PR 19: a push-to-talk press during the recap's disc gather sends the discs back on a 0.5 second flight instead of at once, the panel's agent chips stay colored during a pause, keyboard focus does not move to the paused disc or back after "go ahead", a recap within half a second of a pause or resume can leave a disc showing, and three `AGENTS.md` nits (the `AgentPauseTests.swift` line count, the approval line in the Swift agents bullet, and the missing held tool call log line).
 Left open by PR 18, closed by PR 19c: the hover look after a re-layout (`HoverAndPointerNSView` tested the pointer against a visible rect as large as the window), and Finder's icon for a `.clickytheme` file (the `ClickyThemeThumbnail` extension).
 Still open: the Quick Look extensions draw their own still cursor, a flat copy of the triangle and the Clicky blue palette order.
-Sharing the app's drawing needs `Triangle` (OverlayWindow.swift) and `CursorGlyphShade` (CursorBodyLanguage.swift) moved into a file the extensions compile, and PR 19b owns those files, so it waits for 19b to merge.
+Sharing the app's drawing needs `Triangle` (OverlayWindow.swift) and `CursorGlyphShade` (CursorBodyLanguage.swift) moved into a file the extensions compile, and PR 19b owned those files while 19c was built.
+19b merged as [#112](https://github.com/crodris/clicky-watch-along/pull/112), so a later PR can move them.
 
 Left open by PR 14, for PR 19: no test covers the loop view passing the paused flag to an agent's spark.
 The recap watcher reads the front tab every 3 seconds on the main actor, so a spark may jump while an agent works on that video; this is not measured.
