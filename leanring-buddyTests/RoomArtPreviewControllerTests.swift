@@ -684,13 +684,14 @@ struct RoomArtPreviewControllerTests {
 
     @Test func aPageReplyAfterThePanelClosedIsDroppedAndMeasuresNothing() async throws {
         let worker = WorkerStub()
-        worker.secondsBeforeThePageReplies = 0.4
+        // The reply would come long after the close, so a loaded machine cannot let it land before the close does.
+        worker.secondsBeforeThePageReplies = 60
         let harness = RoomArtHarness(worker: worker)
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
         try await waitFor("the page request") { !worker.pageRequests.isEmpty }
 
         harness.controller.close()
-        try await Task.sleep(for: .seconds(0.8))
+        try await waitFor("the close to cancel the page read") { worker.aPageReadWasCancelled }
 
         #expect(harness.controller.phase == .closed)
         #expect(harness.spokenLines().isEmpty)
