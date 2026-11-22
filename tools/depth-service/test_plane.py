@@ -93,7 +93,7 @@ def test_center_lies_on_the_ray_through_the_anchor_and_on_the_wall(noisy_wall_de
     assert frame["focalPx"] == FOCAL_PX
 
 
-def test_ransac_on_42000_points_runs_under_half_a_second():
+def test_ransac_on_42000_points_runs_under_two_seconds():
     # 42,000 points of a tilted plane: the 4,000 point subset path.
     grid_vs, grid_us = np.mgrid[0:200, 0:210]
     depths = plane_depth(WALL_NORMAL)[grid_vs * 5, grid_us * 9]
@@ -104,7 +104,9 @@ def test_ransac_on_42000_points_runs_under_half_a_second():
     normal, _, inlier_share = plane.fit_plane_ransac(points, inlier_distance_m=0.02)
     seconds = time.perf_counter() - started_at
 
-    assert seconds < 0.5
+    # About 0.35 s on a quiet Mac. The bound is 2 s so a loaded machine does not fail it, and it still catches the BLAS
+    # product that took 40 ms per iteration, 16 s in all.
+    assert seconds < 2.0
     assert angle_between_degrees(normal, WALL_NORMAL) < 0.1
     assert inlier_share > 0.99
 
@@ -202,3 +204,4 @@ def test_a_floor_plane_with_a_nan_raises_instead_of_writing_nan(monkeypatch):
 
     with pytest.raises(plane.NonFinitePlaneError):
         plane.floor_frame(floor_depth(), FOCAL_PX, None, FLOOR_ANCHOR)
+

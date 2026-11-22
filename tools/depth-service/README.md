@@ -158,6 +158,6 @@ A real room frame with a wall about 3 m away measured 3.83 m.
 uv run pytest -q
 ```
 
-The tests build a synthetic tilted wall with noise and an object in front, and check the normal within 1 degree, the person mask, the center on the anchor's ray, a plane with a NaN refused, and that RANSAC on 42,000 points takes under 0.5 s.
+The tests build a synthetic tilted wall with noise and an object in front, and check the normal within 1 degree, the person mask, the center on the anchor's ray, a plane with a NaN refused, and that RANSAC on 42,000 points takes under 2 s.
 For the floor they build a floor seen from a camera 1.2 m high, pitched 15 degrees down, and check `up` within 2 degrees, the center on the anchor's ray and the floor, the orthonormal right, up, and forward with forward away from the camera, the rejection of a wall and of an anchor above the horizon, and the person mask.
 `test_server.py` runs the real HTTP handler on a free port with no Depth Pro loaded, and checks the `Origin` and `Content-Type` refusals on both routes, the 422 for a plane it cannot measure, and the reply shape of each route with a stand-in for Depth Pro.
