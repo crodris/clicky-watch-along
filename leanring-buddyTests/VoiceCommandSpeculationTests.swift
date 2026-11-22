@@ -229,10 +229,8 @@ struct VoiceCommandSpeculationTests {
                 videoQuizIsRunning: false, quizQuestionIsOpen: false, approvalIsWaiting: approvalIsWaiting,
                 backgroundAgentIsRunning: agentIsRunning, backgroundAgentsArePaused: agentsArePaused
             )
-            var sceneStateFields: [String: JSONValue] = [:]
-            if let backgroundAgentsState = backgroundAgentsStateText(runningAgentCount: agentsRunning, agentsArePaused: agentsArePaused) {
-                sceneStateFields["backgroundAgents"] = .string(backgroundAgentsState)
-            }
+            // The same function voiceCommandSceneState adds the field with, so the field's key and text come from production.
+            let sceneStateFields = sceneStateFieldsAddingBackgroundAgents(to: [:], runningAgentCount: agentsRunning, agentsArePaused: agentsArePaused)
             return VoiceCommandInputs(
                 tools: voiceToolsOfferedToTheModel(pageTools: [], appTools: AppVoiceTool.available(in: context)),
                 pageState: nil,

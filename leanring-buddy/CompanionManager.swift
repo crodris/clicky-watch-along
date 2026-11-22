@@ -5259,12 +5259,11 @@ final class CompanionManager: ObservableObject {
         if let themeStudioState = voiceCommandThemeStudioState(themeStudioController.state) {
             sceneStateFields["themeStudio"] = themeStudioState
         }
-        if let backgroundAgentsState = backgroundAgentsStateText(
+        sceneStateFields = sceneStateFieldsAddingBackgroundAgents(
+            to: sceneStateFields,
             runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count,
             agentsArePaused: backgroundAgentStore.agentsArePaused
-        ) {
-            sceneStateFields["backgroundAgents"] = .string(backgroundAgentsState)
-        }
+        )
         if let readyBackgroundScene {
             sceneStateFields["readyToShow"] = .string(readyToShowStateText(
                 isExperiment: readyBackgroundScene.agentKind == .experiment,

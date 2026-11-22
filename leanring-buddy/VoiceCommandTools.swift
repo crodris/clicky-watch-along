@@ -779,6 +779,21 @@ nonisolated func backgroundAgentsStateText(runningAgentCount: Int, agentsArePaus
     return "\(runningAgentCount) paused, and a new agent waits for go ahead too"
 }
 
+/// The router's scene state fields with the `backgroundAgents` field added when an agent runs. `voiceCommandSceneState` and the
+/// speculation tests both build the field here, so a held command's discard rule is tested against the field production sends.
+nonisolated func sceneStateFieldsAddingBackgroundAgents(
+    to existingSceneStateFields: [String: JSONValue],
+    runningAgentCount: Int,
+    agentsArePaused: Bool
+) -> [String: JSONValue] {
+    guard let backgroundAgentsState = backgroundAgentsStateText(runningAgentCount: runningAgentCount, agentsArePaused: agentsArePaused) else {
+        return existingSceneStateFields
+    }
+    var fieldsWithBackgroundAgents = existingSceneStateFields
+    fieldsWithBackgroundAgents["backgroundAgents"] = .string(backgroundAgentsState)
+    return fieldsWithBackgroundAgents
+}
+
 /// Page text and captions sit inside tags the model is told never to obey, so a "<" in them could close the tag early.
 nonisolated func voiceCommandUserMessageText(transcript: String, sceneState: JSONValue, recentActionLines: [String]) -> String {
     let stateText = sceneState.compactJSONText.replacingOccurrences(of: "<", with: " ")
