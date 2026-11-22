@@ -8,6 +8,7 @@
 //
 
 import AppKit
+import Combine
 import SwiftUI
 import Testing
 
@@ -100,7 +101,9 @@ struct TetherCalloutTests {
         #expect(TetherCalloutPresence.secondsToLeave(.recall, reduceMotionIsOn: true) == DS.Move.fadeSeconds)
     }
 
-    @Test func aCalloutStaysInTheTreeWhileItLeavesThenLeavesTheTree() async throws {
+    // The leave ends on a main queue timer, which a busy machine can hold back for seconds, so the test waits for the
+    // published change itself and the time limit, not a wall clock, ends a run where it never comes.
+    @Test(.timeLimit(.minutes(1))) func aCalloutStaysInTheTreeWhileItLeavesThenLeavesTheTree() async throws {
         let presence = TetherCalloutPresence()
         presence.leave(.recall, reduceMotionIsOn: false)
         #expect(!presence.isInTheViewTree && presence.leavingExit == nil, "nothing leaves that is not on screen")
@@ -113,8 +116,7 @@ struct TetherCalloutTests {
         presence.leave(.recall, reduceMotionIsOn: false)
         #expect(presence.leavingExit == .recall)
 
-        let deadline = Date().addingTimeInterval(3)
-        while presence.isInTheViewTree && Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        for await isInTheViewTree in presence.$isInTheViewTree.values where !isInTheViewTree { break }
         #expect(!presence.isInTheViewTree && presence.leavingExit == nil)
     }
 
