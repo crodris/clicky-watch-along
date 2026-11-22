@@ -11,6 +11,7 @@
 
 import Foundation
 import os
+import JavaScriptCore
 import Testing
 @testable import Clicky
 
@@ -132,8 +133,58 @@ struct RoomFurnitureDiscoveryTests {
         #expect(!script.contains("\\"))
     }
 
-    @Test func pageTextScriptCutsToTheRequestedLength() {
-        #expect(roomArtPageTextScript(longestCharacters: 1234).contains(".slice(0, 1234)"))
+    /// Runs the page text script in JavaScriptCore against a stand-in page with `bodyText`, JSON-LD blocks, and Next.js or
+    /// Nuxt data, and returns what it would send.
+    private func pageText(
+        longestCharacters: Int = 30_000,
+        bodyText: String,
+        jsonLDBlocks: [String] = [],
+        nextDataJSON: String? = nil,
+        nuxtJSON: String? = nil
+    ) throws -> String {
+        let context = try #require(JSContext())
+        context.setObject(bodyText, forKeyedSubscript: "BODY_TEXT" as NSString)
+        context.setObject(jsonLDBlocks.map { ["type": "application/ld+json", "textContent": $0] }, forKeyedSubscript: "SCRIPTS" as NSString)
+        context.setObject(nextDataJSON.map { ["__NEXT_DATA__": ["textContent": $0]] } ?? [:], forKeyedSubscript: "ELEMENTS" as NSString)
+        context.setObject(nuxtJSON ?? "", forKeyedSubscript: "NUXT_JSON" as NSString)
+        context.evaluateScript("""
+        var window = this;
+        if (NUXT_JSON) { window.__NUXT__ = JSON.parse(NUXT_JSON); }
+        var document = {
+            body: { innerText: BODY_TEXT },
+            querySelectorAll: function () { return SCRIPTS; },
+            getElementById: function (id) { return ELEMENTS[id] || null; }
+        };
+        """)
+        return try #require(context.evaluateScript(roomArtPageTextScript(longestCharacters: longestCharacters))?.toString())
+    }
+
+    @Test func pageTextKeepsTheSizesFromJSONLDAsLines() throws {
+        let productJSONLD = #"{"@type":"Product","name":"LACK","height":"17 3/4 \"","additionalProperty":[{"@type":"PropertyValue","name":"Width","value":"21 5/8 \""}],"offers":{"price":"14.99"}}"#
+        let text = try pageText(bodyText: "LACK side table", jsonLDBlocks: [productJSONLD])
+        #expect(text.hasPrefix("LACK side table"))
+        #expect(text.contains(#"height: 17 3/4 ""#))
+        #expect(text.contains(#"Width: 21 5/8 ""#))
+        #expect(!text.contains("14.99"))
+    }
+
+    @Test func pageTextNeverSendsWholeHydrationObjects() throws {
+        let nextData = #"{"props":{"user":{"email":"shopper@example.com","sessionToken":"tok_4f9a8b7c6d5e"},"product":{"dimensions":{"height":{"value":45,"unitCode":"CMT"},"depth":"55 cm"}}}}"#
+        let nuxt = #"{"state":{"cart":{"id":"cart_123456"},"item":{"seatWidth":"20 in"}}}"#
+        let text = try pageText(bodyText: "A table", nextDataJSON: nextData, nuxtJSON: nuxt)
+        #expect(text.contains("height: 45 CMT"))
+        #expect(text.contains("depth: 55 cm"))
+        #expect(text.contains("seatWidth: 20 in"))
+        #expect(!text.contains("shopper@example.com"))
+        #expect(!text.contains("tok_4f9a8b7c6d5e"))
+        #expect(!text.contains("cart_123456"))
+    }
+
+    @Test func pageTextCutsTheVisibleTextSoTheSizesStillFit() throws {
+        let longBody = String(repeating: "word ", count: 10_000)
+        let text = try pageText(longestCharacters: 1000, bodyText: longBody, jsonLDBlocks: [#"{"height":"45 cm"}"#])
+        #expect(text.count <= 1000)
+        #expect(text.hasSuffix("height: 45 cm"))
     }
 
     // MARK: Parsing the discovery reply
@@ -195,7 +246,7 @@ struct RoomFurnitureDiscoveryTests {
 
     // MARK: Ranking
 
-    @Test func rankingPutsUSDZFirstThenGLBThenUnknownInTheScriptsOrder() {
+    @Test func rankingPutsGLBFirstThenUSDZThenUnknownInTheScriptsOrder() {
         let ranking = rankedModelCandidates([
             candidate("https://m.example.com/unknown-1", claimedType: .unknown),
             candidate("https://m.example.com/glb-1.glb", claimedType: .glb),
@@ -203,7 +254,7 @@ struct RoomFurnitureDiscoveryTests {
             candidate("https://m.example.com/glb-2.glb", claimedType: .glb),
             candidate("https://m.example.com/usdz-2.usdz", claimedType: .usdz),
         ])
-        #expect(ranking.candidatesToTry.map(\.url.lastPathComponent) == ["usdz-1.usdz", "usdz-2.usdz", "glb-1.glb", "glb-2.glb", "unknown-1"])
+        #expect(ranking.candidatesToTry.map(\.url.lastPathComponent) == ["glb-1.glb", "glb-2.glb", "usdz-1.usdz", "usdz-2.usdz", "unknown-1"])
     }
 
     @Test func rankingLeavesOutDracoFilesAndGltfFilesAndCountsThem() {
@@ -358,12 +409,37 @@ struct RoomFurnitureDownloadTests {
         #expect(requestCount(for: failing) == RoomFurnitureDiscovery.mostDownloadsPerRequest)
     }
 
-    @Test func downloadTriesUSDZBeforeGLB() async {
-        let glb = stubbedCandidate(answeringWith: .file(tinyGLBData(jsonText: plainGLBJSON)), fileNameSuffix: ".glb", claimedType: .glb)
+    @Test func downloadTriesGLBBeforeUSDZ() async {
         let usdz = stubbedCandidate(answeringWith: .file(tinyUSDZData()), fileNameSuffix: ".usdz", claimedType: .usdz)
-        let modelFile = await RoomFurnitureDiscovery.downloadTheFirstUsableModel(from: [glb, usdz], session: stubbedSession())
-        #expect(modelFile?.url == usdz.url)
-        #expect(requestCount(for: [glb]) == 0)
+        let glb = stubbedCandidate(answeringWith: .file(tinyGLBData(jsonText: plainGLBJSON)), fileNameSuffix: ".glb", claimedType: .glb)
+        let modelFile = await RoomFurnitureDiscovery.downloadTheFirstUsableModel(from: [usdz, glb], session: stubbedSession())
+        #expect(modelFile?.url == glb.url)
+        #expect(requestCount(for: [usdz]) == 0)
+    }
+
+    // MARK: Which hosts a page may offer
+
+    @Test func aPageMayOfferFilesOnItsOwnDomainOrFilesItLoaded() throws {
+        let pageURL = try #require(URL(string: "https://www.ikea.com/us/en/p/lack-side-table-white-30449908/"))
+        let onTheSameDomain = candidate("https://web-api.ikea.com/dimma/model.glb", claimedType: .glb)
+        let elsewhere = candidate("https://attacker.example/model.glb", claimedType: .glb)
+        var loadedByThePage = candidate("https://cdn.shopify.com/model.glb", claimedType: .glb)
+        loadedByThePage.wasLoadedByThePage = true
+        let offered = candidatesThePageMayOffer([onTheSameDomain, elsewhere, loadedByThePage], pageURL: pageURL)
+        #expect(offered.map(\.url) == [onTheSameDomain.url, loadedByThePage.url])
+    }
+
+    @Test func aURLTheScriptFoundAmongTheLoadedResourcesCountsAsLoadedByThePage() {
+        let reply = #"[{"url":"https://cdn.example.net/m.glb","source":"html","type":""},{"url":"https://cdn.example.net/m.glb","source":"resource","type":""},{"url":"https://cdn.example.net/n.glb","source":"html","type":""}]"#
+        let candidates = RoomFurnitureModelCandidate.parse(discoveryScriptResult: reply)
+        #expect(candidates.map(\.wasLoadedByThePage) == [true, false])
+    }
+
+    @Test func aRegistrableDomainKeepsTheLabelSomeoneRegistered() {
+        #expect(registrableDomain(ofHost: "digitalcontent.target.com") == "target.com")
+        #expect(registrableDomain(ofHost: "www.johnlewis.co.uk") == "johnlewis.co.uk")
+        #expect(registrableDomain(ofHost: "evil.co.uk") == "evil.co.uk")
+        #expect(registrableDomain(ofHost: "store-one.myshopify.com") != registrableDomain(ofHost: "store-two.myshopify.com"))
     }
 
     @Test func downloadRefusesAHostOnThisMacsNetwork() async {

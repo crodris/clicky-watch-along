@@ -145,6 +145,9 @@ nonisolated struct RoomFurnitureModelCandidate: Equatable, Sendable {
     let claimedType: RoomFurnitureClaimedModelType
     /// True when the URL's path says Draco, the mesh compression SceneKit cannot decode.
     let looksLikeDraco: Bool
+    /// True when the page itself fetched this file (the script found it among the page's loaded resources), so its host is
+    /// one the store chose to load the model from, such as a CDN on another domain.
+    var wasLoadedByThePage = false
 
     /// The candidates in a discovery script's reply, in the order the script found them. Only https URLs on a public host are
     /// kept (`PageImageAnimation.mayDownload`), so a page cannot send a request to this Mac or its network, and each URL is
@@ -154,6 +157,8 @@ nonisolated struct RoomFurnitureModelCandidate: Equatable, Sendable {
               let replyEntries = try? JSONDecoder().decode([ReplyEntry].self, from: Data(discoveryScriptResult.utf8)) else {
             return []
         }
+        // A URL found in the HTML first and among the loaded resources later is still one the page loaded.
+        let urlsThePageLoaded = Set(replyEntries.filter { $0.source == "resource" }.map(\.url))
         var seenURLs = Set<URL>()
         var candidates: [RoomFurnitureModelCandidate] = []
         for replyEntry in replyEntries {
@@ -164,7 +169,8 @@ nonisolated struct RoomFurnitureModelCandidate: Equatable, Sendable {
                 url: candidateURL,
                 source: replyEntry.source ?? "unknown",
                 claimedType: claimedType(ofURL: candidateURL, storeClaim: replyEntry.type ?? ""),
-                looksLikeDraco: candidateURL.path.lowercased().contains("draco")
+                looksLikeDraco: candidateURL.path.lowercased().contains("draco"),
+                wasLoadedByThePage: urlsThePageLoaded.contains(replyEntry.url)
             ))
         }
         return candidates
@@ -203,8 +209,9 @@ nonisolated struct RoomFurnitureCandidateRanking: Equatable, Sendable {
     let droppedBecauseOfGltfCount: Int
 }
 
-/// USDZ first, since Apple's own loader reads it and a store's AR file is a finished model. Then GLB, then a file whose type
-/// nobody names (the download's bytes decide). A GLB that looks Draco compressed is dropped, since SceneKit has no Draco
+/// GLB first, since the app's own `GLBLoader` reads it with every read bounds-checked and every count capped. Then USDZ,
+/// which SceneKit's native USD parser reads, so a store's USDZ is used only when the page offers no GLB. Then a file whose
+/// type nobody names (the download's bytes decide). A GLB that looks Draco compressed is dropped, since SceneKit has no Draco
 /// decoder, and so is a `.gltf` file, since it needs the external buffers and textures it names and a lone download is empty.
 /// The order inside each group is the order the page script found them.
 nonisolated func rankedModelCandidates(_ candidates: [RoomFurnitureModelCandidate]) -> RoomFurnitureCandidateRanking {
@@ -230,11 +237,43 @@ nonisolated func rankedModelCandidates(_ candidates: [RoomFurnitureModelCandidat
         }
     }
     return RoomFurnitureCandidateRanking(
-        candidatesToTry: usdzCandidates + glbCandidates + unknownCandidates,
+        candidatesToTry: glbCandidates + usdzCandidates + unknownCandidates,
         droppedBecauseOfDracoCount: droppedBecauseOfDracoCount,
         droppedBecauseOfGltfCount: droppedBecauseOfGltfCount
     )
 }
+
+// MARK: - Which hosts a page may send the app to
+
+/// The candidates the app may download for the page at `pageURL`: a file on the page's own registrable domain (IKEA's
+/// web-api.ikea.com for www.ikea.com), or a file the page itself loaded, whatever its host. Any other URL the page merely
+/// names is left out, so a page cannot point the app's download at an arbitrary public host of its choosing.
+nonisolated func candidatesThePageMayOffer(_ candidates: [RoomFurnitureModelCandidate], pageURL: URL) -> [RoomFurnitureModelCandidate] {
+    guard let pageHost = pageURL.host else { return [] }
+    let pageDomain = registrableDomain(ofHost: pageHost)
+    return candidates.filter { candidate in
+        candidate.wasLoadedByThePage || candidate.url.host.map { registrableDomain(ofHost: $0) == pageDomain } == true
+    }
+}
+
+/// A host's registrable domain, the part a site owner registers: the last two labels (`ikea.com`), or the last three under
+/// a suffix where anyone registers below two labels (`shop.co.uk`, `store.myshopify.com`). This short suffix list is not
+/// the whole Public Suffix List, and a suffix it misses makes two sites under it look like one, which only widens the hosts
+/// a page on that suffix may offer to its neighbors.
+nonisolated func registrableDomain(ofHost host: String) -> String {
+    let labels = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")).split(separator: ".").map(String.init)
+    guard labels.count > 2 else { return labels.joined(separator: ".") }
+    let lastTwoLabels = labels.suffix(2).joined(separator: ".")
+    return multiLabelPublicSuffixes.contains(lastTwoLabels) ? labels.suffix(3).joined(separator: ".") : lastTwoLabels
+}
+
+/// Two-label suffixes under which separate owners register, the country ones stores sell from and shared hosting platforms.
+nonisolated private let multiLabelPublicSuffixes: Set<String> = [
+    "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au", "co.nz", "co.jp", "com.br", "com.mx", "co.za",
+    "com.cn", "com.sg", "com.hk", "co.in", "co.kr", "com.tr", "com.ar", "co.il",
+    "myshopify.com", "github.io", "herokuapp.com", "vercel.app", "netlify.app", "pages.dev", "web.app", "appspot.com",
+    "cloudfront.net", "azurewebsites.net", "blogspot.com", "amazonaws.com", "workers.dev", "firebaseapp.com",
+]
 
 // MARK: - What a downloaded file is
 
@@ -400,32 +439,67 @@ nonisolated let roomArtExpandTheSizeSectionsScript = [
     "})()",
 ].joined(separator: " ")
 
-/// A page script that returns the page's text for `POST /try-it-item`, cut to `longestCharacters` in all: the page's visible
-/// text first, then its JSON-LD, then Next.js and Nuxt data, each of those only when it holds a word that looks like a
-/// dimension (height, width, depth, dimension, cm, inch). A size a store keeps out of the visible text, or hides in a
-/// collapsed section, is often in that data. Run `roomArtExpandTheSizeSectionsScript` and wait a moment first.
+/// A page script that returns the page's text for `POST /try-it-item`: the page's visible text, then the size-like facts
+/// from its structured data, cut to `longestCharacters` in all. A store often keeps a size out of the visible text or hides
+/// it in a collapsed section, and its JSON-LD or its Next.js or Nuxt data holds it. Whole data objects are never sent, since
+/// they can carry tokens, emails, or other details of the shopper: the script walks them and keeps only pairs whose key is
+/// size-like (height, width, depth, length, size, dimension, measurement), or a `{ name, value }` property whose name is,
+/// with a value of at most 60 characters that holds a digit, as lines such as `height: 17 3/4"`. Those lines get up to
+/// `mostCharactersForPageData` and the visible text the rest. Run `roomArtExpandTheSizeSectionsScript` and wait a moment
+/// first, which shows a collapsed Measurements section in the visible text.
 nonisolated func roomArtPageTextScript(longestCharacters: Int) -> String {
-    [
+    let longestTotal = max(0, longestCharacters)
+    return [
         "(function () {",
         "var NEWLINE = String.fromCharCode(10);",
-        "var dimensionWords = /height|width|depth|dimension|cm|inch/i;",
-        "var parts = [document.body ? document.body.innerText : ''];",
-        "function addWhenItLooksLikeADimension(text) { if (text && dimensionWords.test(text)) { parts.push(text); } }",
+        "var sizeLikeKey = /height|width|depth|length|size|dimension|measurement/i;",
+        "var lines = []; var seenLines = {}; var nodesVisited = 0;",
+        "function addPair(key, value) {",
+        "if (typeof value === 'number' && isFinite(value)) { value = String(value); }",
+        "if (typeof value !== 'string') { return; }",
+        "value = value.trim();",
+        "if (value.length === 0 || value.length > 60 || !/[0-9]/.test(value)) { return; }",
+        "var line = String(key).slice(0, 40) + ': ' + value;",
+        "if (!seenLines[line] && lines.length < 200) { seenLines[line] = true; lines.push(line); }",
+        "}",
+        "function addQuantity(key, quantity) {",
+        "if (!quantity || typeof quantity !== 'object' || Array.isArray(quantity)) { return; }",
+        "var unit = typeof quantity.unitText === 'string' ? quantity.unitText : (typeof quantity.unitCode === 'string' ? quantity.unitCode : '');",
+        "if (typeof quantity.value === 'number' || typeof quantity.value === 'string') { addPair(key, String(quantity.value) + (unit ? ' ' + unit.slice(0, 12) : '')); }",
+        "}",
+        "function walk(node, depth) {",
+        "if (node === null || typeof node !== 'object' || depth > 12 || nodesVisited > 20000) { return; }",
+        "nodesVisited++;",
+        "if (Array.isArray(node)) { for (var itemIndex = 0; itemIndex < node.length; itemIndex++) { walk(node[itemIndex], depth + 1); } return; }",
+        "if (typeof node.name === 'string' && node.name.length <= 40 && sizeLikeKey.test(node.name)) { addPair(node.name, node.value); }",
+        "var keys = Object.keys(node);",
+        "for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {",
+        "var key = keys[keyIndex]; var value = node[key];",
+        "if (key.length <= 40 && sizeLikeKey.test(key)) { addPair(key, value); addQuantity(key, value); }",
+        "walk(value, depth + 1);",
+        "}",
+        "}",
+        "function walkJSONText(text) { try { walk(JSON.parse(text), 0); } catch (error) {} }",
         "try {",
         "var scripts = document.querySelectorAll('script');",
         "for (var scriptIndex = 0; scriptIndex < scripts.length; scriptIndex++) {",
-        "if (scripts[scriptIndex].type === 'application/ld+json') { addWhenItLooksLikeADimension(scripts[scriptIndex].textContent); }",
+        "if (scripts[scriptIndex].type === 'application/ld+json') { walkJSONText(scripts[scriptIndex].textContent); }",
         "}",
         "} catch (error) {}",
         "try {",
         "var hydrationIds = ['__NEXT_DATA__', '__NUXT_DATA__'];",
         "for (var idIndex = 0; idIndex < hydrationIds.length; idIndex++) {",
         "var hydrationElement = document.getElementById(hydrationIds[idIndex]);",
-        "if (hydrationElement) { addWhenItLooksLikeADimension(hydrationElement.textContent); }",
+        "if (hydrationElement) { walkJSONText(hydrationElement.textContent); }",
         "}",
         "} catch (error) {}",
-        "try { if (window.__NUXT__) { addWhenItLooksLikeADimension(JSON.stringify(window.__NUXT__)); } } catch (error) {}",
-        "return parts.join(NEWLINE).slice(0, \(max(0, longestCharacters)));",
+        "try { if (window.__NUXT__) { walk(window.__NUXT__, 0); } } catch (error) {}",
+        "var pageData = lines.length ? (NEWLINE + 'Sizes in the page data:' + NEWLINE + lines.join(NEWLINE)).slice(0, \(min(mostCharactersForPageData, longestTotal))) : '';",
+        "var visibleText = document.body ? String(document.body.innerText || '') : '';",
+        "return visibleText.slice(0, \(longestTotal) - pageData.length) + pageData;",
         "})()",
     ].joined(separator: " ")
 }
+
+/// The size lines from a page's structured data take at most this many characters of the page text.
+nonisolated let mostCharactersForPageData = 4000
