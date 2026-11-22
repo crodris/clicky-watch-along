@@ -266,6 +266,7 @@ The app will appear in your menu bar (not the dock). Click the icon to open the 
 - **Accessibility** — for the global keyboard shortcut (Control + Option)
 - **Screen Recording** — for taking screenshots when you use the hotkey
 - **Screen Content** — for ScreenCaptureKit access
+- **Camera** - for the live room panel that shows a store page's wall art on your wall
 
 ## Architecture
 
@@ -311,7 +312,7 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   SettingsDialPanel.swift        # The settings dial that Shift + Option opens
 harness/                 # Go helper that runs the task agent's loop through the Worker's /v1/messages
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /study-guide, /study-guide-status, /v1/messages, /notion-page, /v1/3dtiles
+  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /study-guide, /study-guide-status, /v1/messages, /notion-page, /v1/3dtiles, /room-art, /room-wall
   src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
   src/liveScene.ts          # Asks GPT-6.1 Sol for a 3D model or GPT-6.2 Sol for a simulation, and grades spoken answers
   src/videoFrameParts.ts    # Finds the subject and its parts in a video frame or page image
@@ -321,7 +322,7 @@ worker/                  # Cloudflare Worker proxy
   src/mapTiles.ts           # Forwards Google 3D Tiles requests with the Maps key
   src/studyGuide.ts         # Writes the study guide and checks a saved guide's page
   src/notionPage.ts         # The task agent's Notion page
-  src/appSecret.ts          # The app secret the Notion routes and /v1/messages (the voice command brain and the task agents) require
+  src/appSecret.ts          # The app secret the Notion routes, /v1/messages (the voice command brain and the task agents), /room-art, and /room-wall require
 demo/                    # The Remotion demo videos and the scripts that record them
 CLAUDE.md                # Full architecture doc (agents read this)
 ```

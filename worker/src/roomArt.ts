@@ -44,6 +44,7 @@ const cornerSchema = z.object({ x: z.number(), y: z.number() });
 const modelReplySchema = z.object({
   title: z.string(),
   isWallArt: z.boolean(),
+  sizeFoundOnPage: z.boolean(),
   chosenSize: z.object({
     label: z.string(),
     widthCentimeters: z.number(),
@@ -82,6 +83,7 @@ const roomArtJSONSchema = {
   properties: {
     title: { type: "string" },
     isWallArt: { type: "boolean" },
+    sizeFoundOnPage: { type: "boolean" },
     chosenSize: {
       type: "object",
       additionalProperties: false,
@@ -110,13 +112,15 @@ const roomArtJSONSchema = {
       required: ["topLeft", "topRight", "bottomRight", "bottomLeft"],
     },
   },
-  required: ["title", "isWallArt", "chosenSize", "whyThisSize", "otherSizes", "artworkCorners"],
+  required: ["title", "isWallArt", "sizeFoundOnPage", "chosenSize", "whyThisSize", "otherSizes", "artworkCorners"],
 };
 
 const roomArtSystemPrompt = [
   "You read a store page for something that hangs on a wall, and its main product photo.",
   "Reply with JSON only.",
   "isWallArt is false when the product is not something that hangs on a wall, such as a lamp, a rug, or a piece of furniture.",
+  "sizeFoundOnPage is true only when the page text states the object's size. Never guess a size from the photo or from what is typical.",
+  "When sizeFoundOnPage is false, the app hangs nothing, so chosenSize may hold any numbers.",
   "chosenSize is the size of the object as it hangs, including the frame when it comes framed, and includesFrame says whether the size includes the frame.",
   "When the page offers several sizes, choose the one the page shows as selected or default, else the smallest, and list the rest in otherSizes.",
   "Width is the horizontal side as the photo shows the object hanging, so width and height must match the photo's orientation.",
@@ -168,9 +172,10 @@ export type CheckedRoomArt = { accepted: true; reply: RoomArt } | { accepted: fa
 
 /**
  * Clamps the corners into the picture and checks the rules the app relies on: a size in the range of real wall art,
- * short labels, and corners that form a convex quadrilateral covering at least 4 percent of the picture, since the app
- * flattens that quadrilateral into an image. A product that does not hang on a wall passes through with its corners
- * clamped, because the app only says so and never places it.
+ * labels that are not empty and are short, and corners that form a convex quadrilateral covering at least 4 percent of
+ * the picture, since the app flattens that quadrilateral into an image. A product that does not hang on a wall, and wall
+ * art whose page states no size, pass through with their corners clamped, because the app only says so and never places
+ * them.
  */
 export function checkRoomArt(modelReply: ModelReply, pictureWidth: number, pictureHeight: number): CheckedRoomArt {
   const clampedCorner = (corner: Corner): Corner => ({
@@ -190,10 +195,13 @@ export function checkRoomArt(modelReply: ModelReply, pictureWidth: number, pictu
     otherSizes: modelReply.otherSizes.slice(0, maximumOtherSizeCount).map((size) => ({ ...size, label: cutLabel(size.label) })),
     artworkCorners,
   };
-  if (!modelReply.isWallArt) {
+  if (!modelReply.isWallArt || !modelReply.sizeFoundOnPage) {
     return { accepted: true, reply: cleanedReply };
   }
 
+  if (modelReply.chosenSize.label.trim() === "") {
+    return { accepted: false, reason: "chosenSize needs a label, the size as the page writes it." };
+  }
   const labels = [modelReply.chosenSize.label, ...modelReply.otherSizes.slice(0, maximumOtherSizeCount).map((size) => size.label)];
   if (labels.some((label) => label.length > maximumLabelLength)) {
     return { accepted: false, reason: `every size label must be at most ${maximumLabelLength} characters.` };

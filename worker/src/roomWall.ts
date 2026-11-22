@@ -5,6 +5,9 @@
  * wall where the art should hang. The Worker forwards that body to the local depth service (tools/depth-service),
  * which measures the wall plane, and checks the reply before the app reads it. The Worker holds the service's
  * address, so the app never learns where it runs.
+ *
+ * A wall the service could not measure (its 422) and a wall too near, too far, or not flat enough answer 422, which the
+ * app reads as "point the camera at a bare wall". A service that is down, slow, failing, or answering garbage answers 502.
  */
 
 import { z } from "zod";
@@ -14,6 +17,11 @@ const maximumJPEGBase64Length = 4_000_000;
 const maximumMaskBase64Length = 1_000_000;
 const depthServiceTimeoutMilliseconds = 60_000;
 const maximumServiceErrorLength = 300;
+/** A wall nearer than this or farther than this is a misread, not a room. */
+const nearestPlausibleWallMeters = 0.3;
+const farthestPlausibleWallMeters = 12;
+/** Under this share of the points near the anchor on one plane, the patch is not one flat wall. */
+const leastPlausibleInlierShare = 0.3;
 
 const roomWallRequestSchema = z.object({
   jpegBase64: z.string().min(1).max(maximumJPEGBase64Length),
@@ -54,6 +62,17 @@ function serviceErrorOnOneLine(errorBodyText: string): string {
   return oneLine.length > 0 ? oneLine : "no error text";
 }
 
+/** Why a measured wall cannot be a real wall to hang art on, or undefined when it can. */
+function wallImplausibility(distanceMeters: number, planeInlierShare: number): string | undefined {
+  if (distanceMeters < nearestPlausibleWallMeters || distanceMeters > farthestPlausibleWallMeters) {
+    return `The wall measured ${distanceMeters} m away, outside ${nearestPlausibleWallMeters} to ${farthestPlausibleWallMeters} m`;
+  }
+  if (planeInlierShare < leastPlausibleInlierShare) {
+    return `Only ${Math.round(planeInlierShare * 100)} percent of the wall fits one plane, under ${leastPlausibleInlierShare * 100} percent`;
+  }
+  return undefined;
+}
+
 export async function handleRoomWall(request: Request, depthServiceURL: string | undefined): Promise<Response> {
   const parsedRequest = await parseJSONRequest(request, roomWallRequestSchema);
   if (!parsedRequest.ok) {
@@ -81,6 +100,11 @@ export async function handleRoomWall(request: Request, depthServiceURL: string |
   if (!serviceResponse.ok) {
     const serviceError = serviceErrorOnOneLine(serviceReplyText);
     console.error(`[/room-wall] The depth service answered ${serviceResponse.status}: ${serviceError}`);
+    // A 422 is the service measuring the photo and finding no wall to hang on, so the app asks for a bare wall.
+    // Every other status means the service itself failed, and the app asks whether it runs.
+    if (serviceResponse.status === 422) {
+      return jsonResponse({ error: serviceError }, 422);
+    }
     return jsonResponse({ error: `The depth service answered ${serviceResponse.status}: ${serviceError}` }, 502);
   }
 
@@ -98,6 +122,11 @@ export async function handleRoomWall(request: Request, depthServiceURL: string |
   }
 
   const reply = parsedReply.data;
+  const implausibility = wallImplausibility(reply.distanceMeters, reply.planeInlierShare);
+  if (implausibility !== undefined) {
+    console.error(`[/room-wall] The measured wall is not plausible: ${implausibility}`);
+    return jsonResponse({ error: implausibility }, 422);
+  }
   const totalSeconds = (Date.now() - startedAtMilliseconds) / 1000;
   console.log(
     `[/room-wall] distance ${reply.distanceMeters} m, angle ${reply.wallAngleDegrees} deg, depth ${reply.inferenceSeconds} s, total ${totalSeconds.toFixed(1)} s`,

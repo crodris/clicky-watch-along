@@ -287,15 +287,15 @@ final class CompanionManager: ObservableObject {
                 RoomArtPicture(jpegData: picture.jpegData, width: picture.width, height: picture.height)
             }
         },
-        speak: { [weak self] line in
-            Task {
-                guard let self, await self.speakLiveSceneLine(line) else { return }
-                await self.waitForClickyToFinishSpeaking()
-                if self.voiceState == .responding { self.voiceState = .idle }
-                self.scheduleTransientHideIfNeeded()
-            }
-        }
+        clearTheLiveScene: { [weak self] in self?.clearTheLiveSceneForTheRoomArtPanel() },
+        speak: { [weak self] line in self?.speakARoomArtLine(line) }
     ))
+    /// The room art line waiting for its turn or playing. A new line replaces it, and Escape on the panel cancels it.
+    private var roomArtSpeechTask: Task<Void, Never>?
+    /// The press count when the learner asked to see the art, so a line that lands after a newer press is dropped.
+    private var pushToTalkPressCountWhenTheRoomArtStarted = 0
+    /// The room art request holds the thinking state while it reads the page and its picture, until the panel opens.
+    private var roomArtIsOpeningThePanel = false
     /// The playback token of the studio's own spoken line, so closing the card stops that exact line and never an unrelated
     /// answer that is playing when the card closes. Once the line has ended, the token matches nothing and stops nothing.
     private var themeStudioLineToken: SpokenLineToken?
@@ -2609,8 +2609,11 @@ final class CompanionManager: ObservableObject {
         if themeStudioController.closeOnEscape() {
             return
         }
-        // With the room art panel open, Escape closes it and stops the camera, ahead of any scene behavior.
+        // With the room art panel open, or its page still being read, Escape closes it, stops the camera, and drops a line
+        // still waiting to be said, ahead of any scene behavior.
         if roomArtPreviewController.closeOnEscape() {
+            roomArtSpeechTask?.cancel()
+            roomArtSpeechTask = nil
             return
         }
         // A second Escape while a pop-out lands in its frame hides it at once.
@@ -3359,13 +3362,64 @@ final class CompanionManager: ObservableObject {
     /// Reads the picture and the page and opens the room art panel. The thinking state shows while the page is read, and
     /// the panel and its spoken line say the rest. Like any hand-off, it takes over the reply.
     private func startShowingTheArtInMyRoom() {
+        // The request that asked already pressed push-to-talk, so only a later press is the learner's next request.
+        pushToTalkPressCountWhenTheRoomArtStarted = pushToTalkPressCount
+        roomArtSpeechTask?.cancel()
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         voiceState = .processing
+        roomArtIsOpeningThePanel = true
         currentResponseTask = Task {
             await self.roomArtPreviewController.showTheArtInTheRoom()
+            self.roomArtIsOpeningThePanel = false
             if self.voiceState == .processing { self.voiceState = .idle }
             self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// Says a room art line once nothing else is happening (`roomArtLineStep`). "Here it is" lands about 14 seconds after
+    /// the request, so it waits for a newer answer to finish instead of cutting it off, and it is dropped when the learner
+    /// pressed push-to-talk since asking. It has its own task, since a press cancels the reply task.
+    private func speakARoomArtLine(_ line: String) {
+        roomArtSpeechTask?.cancel()
+        roomArtSpeechTask = Task {
+            while !Task.isCancelled {
+                let lineStep = roomArtLineStep(
+                    dictationIsInProgress: self.buddyDictationManager.isDictationInProgress,
+                    clickyIsThinking: self.voiceState == .processing,
+                    audioIsPlaying: self.elevenLabsTTSClient.isPlaying,
+                    roomArtIsOpeningThePanel: self.roomArtIsOpeningThePanel,
+                    pushToTalkPressCount: self.pushToTalkPressCount,
+                    pushToTalkPressCountWhenTheRoomArtStarted: self.pushToTalkPressCountWhenTheRoomArtStarted
+                )
+                switch lineStep {
+                case .drop:
+                    print("Room art: dropped the line \"\(line)\", since the learner pressed push-to-talk after asking")
+                    return
+                case .waitForQuiet:
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                case .speakNow:
+                    guard await self.speakLiveSceneLine(line) else { return }
+                    await self.waitForClickyToFinishSpeaking()
+                    guard !Task.isCancelled else { return }
+                    if self.voiceState == .responding { self.voiceState = .idle }
+                    self.scheduleTransientHideIfNeeded()
+                    return
+                }
+            }
+        }
+    }
+
+    /// The room art panel floats under the live scene's window, so a scene or pop-out on screen is cleared before it opens.
+    /// The clear does nothing when no scene is up, and a video paused for the scene stays paused under the panel.
+    private func clearTheLiveSceneForTheRoomArtPanel() {
+        clearTheLiveSceneAndReleaseTheBuddy()
+        switch liveScenePhase {
+        case .touring, .allLabelsShowing:
+            liveSceneTourFinishedTask?.cancel()
+            liveScenePhase = .idle
+        default:
+            break
         }
     }
 

@@ -63,7 +63,7 @@ interface Env {
   NOTION_API_KEY?: string;
   /** Where the local depth service runs (tools/depth-service), which /room-wall forwards to. Unset answers 503. */
   DEPTH_SERVICE_URL?: string;
-  /** The secret the app sends in x-clicky-app-secret. The Notion routes and /v1/messages refuse a request without it. */
+  /** The secret the app sends in x-clicky-app-secret. The Notion routes, /v1/messages, /room-art, and /room-wall refuse a request without it. */
   CLICKY_APP_SECRET?: string;
   /** Local benchmark runs only: a gemini-* BENCH_MODEL calls Google's OpenAI-compatible endpoint with this key. */
   GEMINI_API_KEY?: string;

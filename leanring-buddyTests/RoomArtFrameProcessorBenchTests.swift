@@ -3,7 +3,7 @@
 //  leanring-buddyTests
 //
 //  Plays a video through the room art frame processor, the way `--room-camera-file` does in the app, with art hung at the
-//  bare wall spot, and prints the processor's own "Room art: N fps" lines. It runs only when ROOM_ART_VIDEO names a video:
+//  bare wall spot, checks the keyframe it sends the depth service, and prints the processor's own "Room art: N fps" lines. It runs only when ROOM_ART_VIDEO names a video:
 //  ROOM_ART_VIDEO=/path/pan.mp4 [ROOM_ART_IMAGE=/path/art.jpg] [ROOM_ART_SNAPSHOT_DIR=/path/out] \
 //    tools/swift-check.sh --filter RoomArtFrameProcessorBench
 //  ROOM_ART_SNAPSHOT_DIR saves a frame as the panel drew it every 2 seconds, so the art can be checked by eye.
@@ -22,7 +22,7 @@ struct RoomArtFrameProcessorBenchTests {
     @Test(.enabled(if: benchEnvironment["ROOM_ART_VIDEO"] != nil, "Set ROOM_ART_VIDEO to a video file"))
     func theProcessorHoldsTheFrameRateWithTheArtOnTheWall() async throws {
         let frameProcessor = RoomArtFrameProcessor()
-        frameProcessor.startASession {}
+        frameProcessor.startASession(onFirstSegmentedFrame: {}, onTheWallLostOrFound: { _ in })
         let frameSource = LoopingVideoFileRoomCamera(videoFileURL: URL(fileURLWithPath: try #require(benchEnvironment["ROOM_ART_VIDEO"])))
         try await frameSource.start(deliveringFramesOn: frameProcessor.processingQueue) { cameraFrame in
             frameProcessor.process(cameraFrame)
@@ -31,7 +31,13 @@ struct RoomArtFrameProcessorBenchTests {
         try await Task.sleep(for: .seconds(1))
 
         let keyframe = try #require(await frameProcessor.takeAKeyframe(anchorInCameraPixels: nil))
+        // The keyframe is a JPEG of the video's own frame with a mask the depth service can read, and the bare wall spot
+        // lies inside it. The controller's tests use a stand-in processor, so this is where the real keyframe is checked.
+        let keyframeSource = try #require(CGImageSourceCreateWithData(keyframe.wallRequest.keyframeJPEGData as CFData, nil))
+        let keyframeImage = try #require(CGImageSourceCreateImageAtIndex(keyframeSource, 0, nil))
+        #expect(CGImageSourceCreateWithData(keyframe.wallRequest.personMaskPNGData as CFData, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) } != nil)
         let anchor = keyframe.wallRequest.anchor
+        #expect(anchor.x > 0 && anchor.x < Double(keyframeImage.width) && anchor.y > 0 && anchor.y < Double(keyframeImage.height))
         print("Room art bench: bare wall spot (\(Int(anchor.x)), \(Int(anchor.y))), wall light \(keyframe.wallLight)")
         // A 16 by 20 inch print 2 meters from a camera with a 1000 pixel focal length.
         let wallFacingTheCamera = WallPlane(

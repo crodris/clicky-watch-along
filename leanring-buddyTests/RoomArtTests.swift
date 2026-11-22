@@ -22,8 +22,8 @@ private func solidImage(width: Int, height: Int, red: CGFloat = 0.2) -> CGImage 
     return context.makeImage()!
 }
 
-private func artwork(sizeLabel: String = "16x20 in") -> RoomArtwork {
-    RoomArtwork(title: "Water Lilies", sizeLabel: sizeLabel, widthMeters: 0.406, heightMeters: 0.508, includesFrame: false, flattenedImage: solidImage(width: 4, height: 5))
+private func artwork() -> RoomArtwork {
+    RoomArtwork(title: "Water Lilies", widthMeters: 0.406, heightMeters: 0.508, includesFrame: false, flattenedImage: solidImage(width: 4, height: 5))
 }
 
 private let wall = WallPlane(
@@ -32,7 +32,7 @@ private let wall = WallPlane(
 )
 
 private let goodRoomArtReply = """
-{"title": "Water Lilies print", "isWallArt": true,
+{"title": "Water Lilies print", "isWallArt": true, "sizeFoundOnPage": true,
  "chosenSize": {"label": "16x20 in", "widthCentimeters": 40.6, "heightCentimeters": 50.8, "includesFrame": true},
  "whyThisSize": "The page's size menu shows 16x20 in selected.",
  "otherSizes": [{"label": "8x10 in", "widthCentimeters": 20.3, "heightCentimeters": 25.4}, {"label": "Huge", "widthCentimeters": 5000, "heightCentimeters": 25}],
@@ -67,15 +67,28 @@ struct RoomArtReplyTests {
         #expect(reading == .notWallArt(title: "Blue sofa"))
     }
 
+    @Test func wallArtWhosePageStatesNoSizeIsReadAsSoAndNeverHung() throws {
+        let noSizeReply = goodRoomArtReply.replacingOccurrences(of: #""sizeFoundOnPage": true"#, with: #""sizeFoundOnPage": false"#)
+
+        let reading = try RoomArtPageReading(responseData: jsonData(noSizeReply), pictureWidth: 400, pictureHeight: 500)
+
+        #expect(reading == .sizeNotOnThePage(title: "Water Lilies print"))
+        #expect(RoomArtFailure.sizeNotOnThePage.spokenLine == "I couldn't find the size on that page.")
+    }
+
     @Test(arguments: [
+        // No sizeFoundOnPage, so the reply cannot say whether the size came from the page.
+        goodRoomArtReply.replacingOccurrences(of: #""sizeFoundOnPage": true,"#, with: ""),
         // No corners.
-        #"{"title": "A", "isWallArt": true, "chosenSize": {"label": "S", "widthCentimeters": 20, "heightCentimeters": 30, "includesFrame": false}}"#,
+        #"{"title": "A", "isWallArt": true, "sizeFoundOnPage": true, "chosenSize": {"label": "S", "widthCentimeters": 20, "heightCentimeters": 30, "includesFrame": false}}"#,
         // No size.
-        #"{"title": "A", "isWallArt": true, "artworkCorners": {"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 500}, "bottomLeft": {"x": 0, "y": 500}}}"#,
+        #"{"title": "A", "isWallArt": true, "sizeFoundOnPage": true, "artworkCorners": {"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 500}, "bottomLeft": {"x": 0, "y": 500}}}"#,
         // A width of zero.
-        #"{"title": "A", "isWallArt": true, "chosenSize": {"label": "S", "widthCentimeters": 0, "heightCentimeters": 30, "includesFrame": false}, "artworkCorners": {"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 500}, "bottomLeft": {"x": 0, "y": 500}}}"#,
+        #"{"title": "A", "isWallArt": true, "sizeFoundOnPage": true, "chosenSize": {"label": "S", "widthCentimeters": 0, "heightCentimeters": 30, "includesFrame": false}, "artworkCorners": {"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 500}, "bottomLeft": {"x": 0, "y": 500}}}"#,
+        // An empty label, which the Worker refuses too.
+        #"{"title": "A", "isWallArt": true, "sizeFoundOnPage": true, "chosenSize": {"label": " ", "widthCentimeters": 20, "heightCentimeters": 30, "includesFrame": false}, "artworkCorners": {"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 500}, "bottomLeft": {"x": 0, "y": 500}}}"#,
         // Corners that enclose a sliver.
-        #"{"title": "A", "isWallArt": true, "chosenSize": {"label": "S", "widthCentimeters": 20, "heightCentimeters": 30, "includesFrame": false}, "artworkCorners": {"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 2}, "bottomLeft": {"x": 0, "y": 2}}}"#,
+        #"{"title": "A", "isWallArt": true, "sizeFoundOnPage": true, "chosenSize": {"label": "S", "widthCentimeters": 20, "heightCentimeters": 30, "includesFrame": false}, "artworkCorners": {"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 2}, "bottomLeft": {"x": 0, "y": 2}}}"#,
         // An error body.
         #"{"error": "The page has no picture"}"#,
         "not json",
@@ -111,16 +124,27 @@ struct RoomArtReplyTests {
     @Test func aDepthServiceThatIsMissingOrDownAsksWhetherItRuns() {
         #expect(roomArtFailure(forAFailedWallMeasurement: RoomArtWorkerError.workerReturned(statusCode: 503, body: "")) == .depthServiceUnavailable)
         #expect(roomArtFailure(forAFailedWallMeasurement: RoomArtWorkerError.workerReturned(statusCode: 502, body: "")) == .depthServiceUnavailable)
+        // A 422 is the service or the Worker finding no wall it can hang on, which a bare wall fixes.
         #expect(roomArtFailure(forAFailedWallMeasurement: RoomArtWorkerError.workerReturned(statusCode: 422, body: "")) == .wallNotMeasured)
         #expect(roomArtFailure(forAFailedWallMeasurement: URLError(.timedOut)) == .wallNotMeasured)
     }
 
-    @Test func thePageTextIsCutToTheWorkersLimitInUTF16Units() {
+    @Test func a401OnEitherRouteSaysTheAppSecretIsMissing() {
+        let refused = RoomArtWorkerError.workerReturned(statusCode: 401, body: #"{"error":"Missing or wrong x-clicky-app-secret"}"#)
+
+        #expect(roomArtFailure(forAFailedWallMeasurement: refused) == .appSecretMissing)
+        #expect(roomArtFailure(forAFailedPageRead: refused) == .appSecretMissing)
+        #expect(roomArtFailure(forAFailedPageRead: RoomArtWorkerError.workerReturned(statusCode: 422, body: "")) == .pageNotRead)
+        #expect(RoomArtFailure.appSecretMissing.spokenLine == "Clicky needs its app secret for this. See the README's Worker setup.")
+    }
+
+    @Test func thePageTextAndTitleAreCutToTheWorkersLimitsInUTF16Units() {
         let picture = RoomArtPicture(jpegData: Data([1, 2, 3]), width: 10, height: 10)
         // Each emoji is 2 UTF-16 units, so 15,001 of them is 30,002 units and one must go.
-        let pageRequest = RoomArtPageRequest(pageURL: "https://shop.example/print", pageTitle: "Print", pageText: String(repeating: "🖼", count: 15_001), picture: picture)
+        let pageRequest = RoomArtPageRequest(pageURL: "https://shop.example/print", pageTitle: String(repeating: "🖼", count: 251), pageText: String(repeating: "🖼", count: 15_001), picture: picture)
 
         #expect(pageRequest.pageText.utf16.count == 30_000)
+        #expect(pageRequest.pageTitle.utf16.count == 500)
         #expect(pageRequest.json["picture"]?["jpegBase64"]?.stringValue == Data([1, 2, 3]).base64EncodedString())
     }
 }
@@ -219,13 +243,22 @@ struct RoomArtPhraseTests {
     @Test(arguments: [
         "show me how this would look in my room",
         "How would this look on my wall?",
+        "how would this poster look in my bedroom",
+        "what would that print look like in my living room",
+        "show this on my wall",
+        "show me this on my wall",
+        "put it on my wall",
+        "can I see this in my living room",
+        "try this in my room",
         "try this in my living room",
-        "can you hang it on the wall behind me",
+        "preview this on my wall",
         "preview this in my bedroom",
+        "can you hang it on the wall behind me",
+        "hang that print in my office",
         "put this in my office",
         "I want to see it in my apartment",
     ])
-    func aRoomPhraseWithALookOrTryWordAsksForIt(transcript: String) {
+    func aPlacingVerbOrALookOnTheItemBeforeARoomPhraseAsksForIt(transcript: String) {
         #expect(asksToSeeArtInMyRoom(transcript))
     }
 
@@ -236,6 +269,14 @@ struct RoomArtPhraseTests {
         "how would this look",
         "my room is a mess",
         "what's the wall made of",
+        // A room phrase with a look word that governs no item to place.
+        "how does the router in my house work",
+        "what would look good in my room",
+        "I put a poster in my room, who painted it",
+        "what is the painting in my room called",
+        "is there a window in my office",
+        // A look with no item before it: the learner asks about themselves.
+        "how do I look in my room",
     ])
     func anythingElseAsksNothing(transcript: String) {
         #expect(!asksToSeeArtInMyRoom(transcript))
@@ -300,12 +341,64 @@ struct RoomArtPhaseTests {
 
         let wallFirst = measuring.withWallMeasured(wall, measurementID: firstMeasurement)
         #expect(wallFirst == .measuring(id: firstMeasurement, artwork: nil, wall: wall))
-        #expect(wallFirst.withArtworkRead(theArt, measurementID: firstMeasurement) == .showing(artwork: theArt, wall: wall))
+        #expect(wallFirst.withArtworkRead(theArt, measurementID: firstMeasurement) == .showing(artwork: theArt, wall: wall, moveFailure: nil))
 
         let pageFirst = measuring.withArtworkRead(theArt, measurementID: firstMeasurement)
         #expect(pageFirst.statusLine == "Measuring your wall…")
-        #expect(pageFirst.withWallMeasured(wall, measurementID: firstMeasurement) == .showing(artwork: theArt, wall: wall))
-        #expect(RoomArtPhase.showing(artwork: theArt, wall: wall).statusLine == "On your wall at 16x20 in")
+        #expect(pageFirst.withWallMeasured(wall, measurementID: firstMeasurement) == .showing(artwork: theArt, wall: wall, moveFailure: nil))
+        // The size Clicky shows comes from the measured centimeters, never the page's own label.
+        #expect(RoomArtPhase.showing(artwork: theArt, wall: wall, moveFailure: nil).statusLine == "On your wall at 16 by 20 inches")
+    }
+
+    @Test func theSizeIsSaidInInchesToTheNearestHalfInch() {
+        #expect(roomArtSizeInInches(widthCentimeters: 40.6, heightCentimeters: 50.8) == "16 by 20 inches")
+        #expect(roomArtSizeInInches(widthCentimeters: 21.59, heightCentimeters: 27.94) == "8.5 by 11 inches")
+        // 50 by 70 cm is 19.69 by 27.56 inches.
+        #expect(roomArtSizeInInches(widthCentimeters: 50, heightCentimeters: 70) == "19.5 by 27.5 inches")
+    }
+
+    @Test func aFailedMovePutsTheArtBackOnItsWallAndSaysWhyInTheStatusLineOnly() {
+        let theArt = artwork()
+        let movedWall = WallPlane(
+            center: SIMD3(0.5, 0, 2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 1000,
+            principalPoint: SIMD2(640, 360), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 0.9
+        )
+        let moving = RoomArtPhase.showing(artwork: theArt, wall: wall, moveFailure: nil).startingAMeasurement(id: secondMeasurement)
+
+        let afterAFailedMove = moving.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: secondMeasurement)
+        #expect(afterAFailedMove == .showing(artwork: theArt, wall: wall, moveFailure: .depthServiceUnavailable))
+        #expect(afterAFailedMove.statusLine == "Couldn't measure the wall. Is the depth service running?")
+        #expect(afterAFailedMove.statusLineIsAFailure(theWallIsLost: false))
+        // A wall behind the camera places nothing, so the art stays on the wall it hung on.
+        let wallBehindTheCamera = WallPlane(
+            center: SIMD3(0, 0, -2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 1000,
+            principalPoint: SIMD2(640, 360), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 0.9
+        )
+        #expect(moving.withWallMeasured(wallBehindTheCamera, measurementID: secondMeasurement) == .showing(artwork: theArt, wall: wall, moveFailure: .wallNotMeasured))
+        // A click after the failure tries again, and a measured wall moves the art and clears the failure.
+        let movingAgain = afterAFailedMove.startingAMeasurement(id: RoomArtMeasurementID(number: 3))
+        #expect(movingAgain == .moving(id: RoomArtMeasurementID(number: 3), artwork: theArt, wallBeforeTheMove: wall))
+        #expect(movingAgain.withWallMeasured(movedWall, measurementID: RoomArtMeasurementID(number: 3)) == .showing(artwork: theArt, wall: movedWall, moveFailure: nil))
+    }
+
+    @Test func theFirstMeasurementOnAWallThatPlacesNothingFails() {
+        let measuring = RoomArtPhase.startingCamera.startingAMeasurement(id: firstMeasurement).withArtworkRead(artwork(), measurementID: firstMeasurement)
+        let wallBehindTheCamera = WallPlane(
+            center: SIMD3(0, 0, -2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 1000,
+            principalPoint: SIMD2(640, 360), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 0.9
+        )
+
+        #expect(measuring.withWallMeasured(wallBehindTheCamera, measurementID: firstMeasurement) == .failed(.wallNotMeasured))
+    }
+
+    @Test func aLostWallSaysSoWhileTheArtShowsAndTheSizeLineReturnsWhenFound() {
+        let showing = RoomArtPhase.showing(artwork: artwork(), wall: wall, moveFailure: nil)
+
+        #expect(showing.statusLine(theWallIsLost: true) == "Lost the wall. Turn back, or click the wall to place it again.")
+        #expect(showing.statusLine(theWallIsLost: false) == "On your wall at 16 by 20 inches")
+        #expect(!showing.statusLineIsAFailure(theWallIsLost: true))
+        // Before the art shows, a lost room hides nothing, so the line keeps its own words.
+        #expect(RoomArtPhase.startingCamera.statusLine(theWallIsLost: true) == "Starting the camera…")
     }
 
     @Test func aReplyAfterThePanelClosedChangesNothing() {
@@ -319,8 +412,8 @@ struct RoomArtPhaseTests {
     @Test func aReplyFromAnEarlierMeasurementChangesNothing() {
         let theArt = artwork()
         // The learner clicked to move the art, which started a second measurement that keeps the art.
-        let movingTheArt = RoomArtPhase.showing(artwork: theArt, wall: wall).startingAMeasurement(id: secondMeasurement)
-        #expect(movingTheArt == .measuring(id: secondMeasurement, artwork: theArt, wall: nil))
+        let movingTheArt = RoomArtPhase.showing(artwork: theArt, wall: wall, moveFailure: nil).startingAMeasurement(id: secondMeasurement)
+        #expect(movingTheArt == .moving(id: secondMeasurement, artwork: theArt, wallBeforeTheMove: wall))
 
         #expect(movingTheArt.withWallMeasured(wall, measurementID: firstMeasurement) == movingTheArt)
         #expect(movingTheArt.afterTheMeasurementFailed(.wallNotMeasured, measurementID: firstMeasurement) == movingTheArt)
@@ -344,6 +437,40 @@ struct RoomArtPhaseTests {
         #expect(RoomArtFailure.cameraAccessDenied.spokenLine == "I need camera access for that. You can turn it on in System Settings.")
         #expect(RoomArtFailure.depthServiceUnavailable.spokenLine == "I couldn't measure your wall. Is the depth service running?")
         #expect(RoomArtFailure.notWallArt.spokenLine == "That doesn't look like something that hangs on a wall.")
+    }
+}
+
+struct RoomArtLineTests {
+    private func step(
+        dictation: Bool = false, thinking: Bool = false, audio: Bool = false, opening: Bool = false,
+        presses: Int = 4, pressesAtTheRequest: Int = 4
+    ) -> RoomArtLineStep {
+        roomArtLineStep(
+            dictationIsInProgress: dictation,
+            clickyIsThinking: thinking,
+            audioIsPlaying: audio,
+            roomArtIsOpeningThePanel: opening,
+            pushToTalkPressCount: presses,
+            pushToTalkPressCountWhenTheRoomArtStarted: pressesAtTheRequest
+        )
+    }
+
+    @Test func aLineSpeaksWhenNothingElseIsHappening() {
+        #expect(step() == .speakNow)
+        // The room art's own opening holds the thinking state, so its "no picture" line does not wait on itself.
+        #expect(step(thinking: true, opening: true) == .speakNow)
+    }
+
+    @Test func aLineWaitsForANewerAnswerInsteadOfCuttingItOff() {
+        #expect(step(audio: true) == .waitForQuiet)
+        #expect(step(thinking: true) == .waitForQuiet)
+        #expect(step(dictation: true) == .waitForQuiet)
+    }
+
+    @Test func aLineIsDroppedOnceTheLearnerPressedPushToTalkSinceAsking() {
+        #expect(step(presses: 5) == .drop)
+        #expect(step(dictation: true, presses: 5) == .drop)
+        #expect(step(thinking: true, opening: true, presses: 5) == .drop)
     }
 }
 

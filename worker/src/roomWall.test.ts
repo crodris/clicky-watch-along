@@ -154,6 +154,41 @@ describe("handleRoomWall", () => {
     expect(error).not.toContain("\n");
   });
 
+  it("passes the service's 422 through as 422 with its error, since the service found no wall to measure", async () => {
+    stubServiceReply(new Response(JSON.stringify({ error: "Too little bare wall around that point" }), { status: 422 }));
+
+    const response = await handleRoomWall(requestWithBody(goodRequest), depthServiceURL);
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "Too little bare wall around that point" });
+  });
+
+  const implausibleWalls: [string, Partial<typeof goodServiceReply>, string][] = [
+    ["nearer than 0.3 m", { distanceMeters: 0.29 }, "0.29 m away"],
+    ["farther than 12 m", { distanceMeters: 12.5 }, "12.5 m away"],
+    ["under 30 percent on one plane", { planeInlierShare: 0.29 }, "29 percent"],
+  ];
+
+  it.each(implausibleWalls)("answers 422 for a wall %s", async (_name, replyChange, errorFragment) => {
+    stubServiceReply(new Response(JSON.stringify({ ...goodServiceReply, ...replyChange })));
+
+    const response = await handleRoomWall(requestWithBody(goodRequest), depthServiceURL);
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: expect.stringContaining(errorFragment) });
+  });
+
+  it("accepts a wall exactly at 0.3 m, 12 m, and 30 percent on one plane", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    for (const replyChange of [{ distanceMeters: 0.3 }, { distanceMeters: 12 }, { planeInlierShare: 0.3 }]) {
+      stubServiceReply(new Response(JSON.stringify({ ...goodServiceReply, ...replyChange })));
+
+      const response = await handleRoomWall(requestWithBody(goodRequest), depthServiceURL);
+
+      expect(response.status).toBe(200);
+    }
+  });
+
   it("answers 502 with the service's plain text when its error is not JSON", async () => {
     stubServiceReply(new Response("Bad   gateway\n", { status: 502 }));
 

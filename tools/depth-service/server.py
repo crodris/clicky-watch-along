@@ -4,7 +4,9 @@ GET  /health -> {"ok": true}
 POST /wall   -> { jpegBase64, maskPngBase64?, anchor: { u, v }, focalPx? }
                 200 { center, right, up, focalPx, principal, distanceMeters, wallAngleDegrees,
                       planeInlierShare, inferenceSeconds, seconds }
-                400 { error } for a bad body, 422 { error } when under 200 bare wall points remain.
+                400 { error } for a bad body, 422 { error } when under 200 bare wall points remain or the
+                plane is not finite, 403 for a request with an Origin header, and 415 for a body that is
+                not application/json, so a web page in a browser on this Mac cannot reach the service.
 
 Depth Pro loads once at start. `plane.py` holds the geometry and has no torch import.
 """
@@ -62,15 +64,15 @@ def infer_depth(frame_rgb, focal_hint):
     """Returns (depth in meters at the frame's size, focal length in pixels)."""
     import torch
 
-    image_h, image_w = frame_rgb.shape[:2]
+    image_height, image_width = frame_rgb.shape[:2]
     with DEPTH_LOCK, torch.no_grad():
         prediction = depth_model.infer(
             depth_transform(frame_rgb),
             f_px=torch.tensor(float(focal_hint), device=depth_device) if focal_hint else None,
         )
     depth_m = prediction["depth"].float().cpu().numpy()
-    if depth_m.shape != (image_h, image_w):
-        depth_m = cv2.resize(depth_m, (image_w, image_h))
+    if depth_m.shape != (image_height, image_width):
+        depth_m = cv2.resize(depth_m, (image_width, image_height))
     return depth_m, float(prediction["focallength_px"])
 
 
@@ -91,7 +93,7 @@ def parse_wall_request(body):
         frame_rgb = np.array(Image.open(io.BytesIO(decode_base64(body.get("jpegBase64"), "jpegBase64"))).convert("RGB"))
     except (UnidentifiedImageError, OSError):
         raise BadRequestError("jpegBase64 is not a readable image")
-    image_h, image_w = frame_rgb.shape[:2]
+    image_height, image_width = frame_rgb.shape[:2]
 
     anchor = body.get("anchor")
     anchor_is_valid = (
@@ -100,8 +102,8 @@ def parse_wall_request(body):
     )
     if not anchor_is_valid:
         raise BadRequestError("anchor must be an object with numbers u and v")
-    if not (0 <= anchor["u"] < image_w and 0 <= anchor["v"] < image_h):
-        raise BadRequestError(f"anchor must lie inside the {image_w} x {image_h} frame")
+    if not (0 <= anchor["u"] < image_width and 0 <= anchor["v"] < image_height):
+        raise BadRequestError(f"anchor must lie inside the {image_width} x {image_height} frame")
 
     focal_hint = body.get("focalPx")
     if focal_hint is not None and (isinstance(focal_hint, bool) or not isinstance(focal_hint, (int, float)) or not focal_hint > 0):
@@ -113,7 +115,7 @@ def parse_wall_request(body):
         mask_small = cv2.imdecode(np.frombuffer(mask_bytes, np.uint8), cv2.IMREAD_GRAYSCALE)
         if mask_small is None:
             raise BadRequestError("maskPngBase64 is not a readable PNG")
-        person_mask = cv2.resize(mask_small, (image_w, image_h)) > PERSON_MASK_THRESHOLD
+        person_mask = cv2.resize(mask_small, (image_width, image_height)) > PERSON_MASK_THRESHOLD
     return frame_rgb, person_mask, anchor, focal_hint
 
 
@@ -128,6 +130,22 @@ def measure_wall(body):
         "inferenceSeconds": round(inference_seconds, 2),
         "seconds": round(time.time() - started_at, 2),
     }
+
+
+def refusal_for_headers(headers):
+    """(status, error) for a request a web page could have sent, or None.
+
+    A browser adds an Origin header to every cross-site POST, and a page can send
+    a simple POST with no preflight only as form or plain text, so refusing both
+    keeps any page in a browser on this Mac from spending Depth Pro runs. The
+    Worker sends application/json and no Origin.
+    """
+    if headers.get("Origin") is not None:
+        return 403, "Requests from web pages are refused"
+    content_type = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    if content_type != "application/json":
+        return 415, "The body must be application/json"
+    return None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -149,6 +167,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/wall":
             self.reply(404, {"error": "Not found"})
             return
+        refusal = refusal_for_headers(self.headers)
+        if refusal is not None:
+            status, error = refusal
+            self.reply(status, {"error": error})
+            print(f"[/wall] {status} {error}", flush=True)
+            return
         started_at = time.time()
         try:
             content_length = int(self.headers.get("Content-Length", ""))
@@ -165,7 +189,7 @@ class Handler(BaseHTTPRequestHandler):
             result, status = {"error": "The body is not valid JSON"}, 400
         except BadRequestError as error:
             result, status = {"error": str(error)}, 400
-        except plane.TooLittleWallError as error:
+        except plane.WallNotMeasuredError as error:
             result, status = {"error": str(error)}, 422
         except Exception as error:  # a model or geometry failure: log it and answer 500
             print(f"[/wall] failed: {error!r}", flush=True)

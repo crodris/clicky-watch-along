@@ -28,7 +28,8 @@ nonisolated struct RoomArtPicture: Equatable, Sendable {
 
 /// What Clicky sends `POST /room-art`: the page and its picture.
 nonisolated struct RoomArtPageRequest: Equatable, Sendable {
-    /// The Worker refuses page text over this many UTF-16 code units, so the app cuts it first.
+    /// The Worker refuses a page title and page text over these many UTF-16 code units, so the app cuts them first.
+    static let longestPageTitle = 500
     static let longestPageText = 30_000
 
     let pageURL: String
@@ -38,7 +39,7 @@ nonisolated struct RoomArtPageRequest: Equatable, Sendable {
 
     init(pageURL: String, pageTitle: String, pageText: String, picture: RoomArtPicture) {
         self.pageURL = pageURL
-        self.pageTitle = pageTitle
+        self.pageTitle = textCutToUTF16Count(pageTitle, longestUTF16Count: Self.longestPageTitle)
         self.pageText = textCutToUTF16Count(pageText, longestUTF16Count: Self.longestPageText)
         self.picture = picture
     }
@@ -102,6 +103,8 @@ nonisolated struct RoomArtSize: Equatable, Sendable {
 /// What `POST /room-art` read from the page and its picture.
 nonisolated enum RoomArtPageReading: Equatable, Sendable {
     case notWallArt(title: String)
+    /// Wall art whose page text states no size, so Clicky says so instead of hanging a size the model guessed.
+    case sizeNotOnThePage(title: String)
     case wallArt(RoomArtWallArtReading)
 }
 
@@ -150,6 +153,7 @@ nonisolated private struct RoomArtCornersReply: Decodable {
 nonisolated private struct RoomArtReply: Decodable {
     let title: String
     let isWallArt: Bool
+    let sizeFoundOnPage: Bool?
     let chosenSize: RoomArtChosenSizeReply?
     let whyThisSize: String?
     let otherSizes: [RoomArtSizeReply]?
@@ -157,9 +161,9 @@ nonisolated private struct RoomArtReply: Decodable {
 }
 
 extension RoomArtPageReading {
-    /// Parses the Worker's reply. A reply for wall art needs a sensible size and corners that enclose part of the picture,
-    /// which are clamped into it, since a model's corner can land a pixel or two outside. Sizes that are not sensible are
-    /// dropped from the other sizes.
+    /// Parses the Worker's reply. A reply for wall art says whether the page states its size, and when it does, it needs a
+    /// sensible size and corners that enclose part of the picture, which are clamped into it, since a model's corner can
+    /// land a pixel or two outside. Sizes that are not sensible are dropped from the other sizes.
     nonisolated init(responseData: Data, pictureWidth: Int, pictureHeight: Int) throws {
         let reply: RoomArtReply
         do {
@@ -169,6 +173,13 @@ extension RoomArtPageReading {
         }
         guard reply.isWallArt else {
             self = .notWallArt(title: reply.title)
+            return
+        }
+        guard let sizeFoundOnPage = reply.sizeFoundOnPage else {
+            throw RoomArtReplyError(reason: "sizeFoundOnPage is missing")
+        }
+        guard sizeFoundOnPage else {
+            self = .sizeNotOnThePage(title: reply.title)
             return
         }
         guard let chosenSize = reply.chosenSize,
@@ -212,12 +223,26 @@ extension RoomArtPageReading {
 /// The art as Clicky hangs it: its real size and the picture flattened to the art alone.
 nonisolated struct RoomArtwork: Equatable, @unchecked Sendable {
     let title: String
-    let sizeLabel: String
     let widthMeters: Double
     let heightMeters: Double
     let includesFrame: Bool
     /// Front on, cropped to the art, with the size's shape.
     let flattenedImage: CGImage
+
+    /// The size Clicky says and shows, such as "16 by 20 inches", from the measured numbers. The page's own label is free
+    /// text a page wrote, so it stays in the log.
+    var sizeInWords: String {
+        roomArtSizeInInches(widthCentimeters: widthMeters * 100, heightCentimeters: heightMeters * 100)
+    }
+}
+
+/// A size in inches rounded to the nearest half inch, width first: "16 by 20 inches", or "8.5 by 11 inches".
+nonisolated func roomArtSizeInInches(widthCentimeters: Double, heightCentimeters: Double) -> String {
+    func inchesInWords(_ centimeters: Double) -> String {
+        let halfInches = (centimeters / 2.54 * 2).rounded()
+        return halfInches.truncatingRemainder(dividingBy: 2) == 0 ? String(Int(halfInches / 2)) : String(format: "%.1f", halfInches / 2)
+    }
+    return "\(inchesInWords(widthCentimeters)) by \(inchesInWords(heightCentimeters)) inches"
 }
 
 /// The longer side of a flattened artwork, in pixels: sharp at any size it lands on the wall in a 1280 by 720 frame.
@@ -507,21 +532,33 @@ nonisolated func applyingPerspective(_ transform: simd_double3x3, to point: CGPo
 // MARK: - Failures
 
 nonisolated enum RoomArtFailure: Equatable, Sendable {
+    /// No app secret is set, or a route answered 401. Checked before the camera opens, and mapped from a 401 after.
+    case appSecretMissing
+    /// The front tab is not an https page, which the Worker refuses. Checked before the camera opens.
+    case pageNotHTTPS
     case cameraAccessDenied
     case noCamera
     case notWallArt
+    /// The page text could not be read or was empty, or `POST /room-art` failed.
     case pageNotRead
+    /// The page is wall art, but its text states no size.
+    case sizeNotOnThePage
     /// `POST /room-wall` answered 503 (no depth service configured) or 502 (the depth service is down).
     case depthServiceUnavailable
+    /// `POST /room-wall` answered 422 (no bare wall there, or a wall too near, too far, or not flat), or its reply could
+    /// not place the art.
     case wallNotMeasured
 
     /// What Clicky says.
     var spokenLine: String {
         switch self {
+        case .appSecretMissing: return "Clicky needs its app secret for this. See the README's Worker setup."
+        case .pageNotHTTPS: return "I can only read store pages served over https."
         case .cameraAccessDenied: return "I need camera access for that. You can turn it on in System Settings."
         case .noCamera: return "I couldn't find a camera to show your room."
         case .notWallArt: return "That doesn't look like something that hangs on a wall."
         case .pageNotRead: return "I couldn't read the size from that page."
+        case .sizeNotOnThePage: return "I couldn't find the size on that page."
         case .depthServiceUnavailable: return "I couldn't measure your wall. Is the depth service running?"
         case .wallNotMeasured: return "I couldn't measure your wall. Try pointing the camera at a bare wall."
         }
@@ -530,10 +567,13 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
     /// What the panel's status line says.
     var statusLine: String {
         switch self {
+        case .appSecretMissing: return "Clicky needs its app secret. See the README's Worker setup."
+        case .pageNotHTTPS: return "The page is not served over https"
         case .cameraAccessDenied: return "Camera access is off. Turn it on in System Settings, Privacy & Security, Camera."
         case .noCamera: return "No camera found"
         case .notWallArt: return "That doesn't look like wall art"
         case .pageNotRead: return "Couldn't read the size from the page"
+        case .sizeNotOnThePage: return "Couldn't find the size on the page"
         case .depthServiceUnavailable: return "Couldn't measure the wall. Is the depth service running?"
         case .wallNotMeasured: return "Couldn't measure the wall"
         }
@@ -553,9 +593,14 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     case closed
     /// The panel is open and waits for the camera's first frame with a person mask.
     case startingCamera
-    /// A keyframe is taken, and the page and the wall are being read. The art is read once, so moving it keeps it.
+    /// The first keyframe is taken, and the page and the wall are being read at once.
     case measuring(id: RoomArtMeasurementID, artwork: RoomArtwork?, wall: WallPlane?)
-    case showing(artwork: RoomArtwork, wall: WallPlane)
+    /// The art is on the wall. `moveFailure` is why the last click could not move it, shown in the status line until the
+    /// next move, with the art back where it was.
+    case showing(artwork: RoomArtwork, wall: WallPlane, moveFailure: RoomArtFailure?)
+    /// A click moves the art: a new keyframe and a new wall measurement. The art is read once, so moving it keeps it, and
+    /// the wall it hung on comes back if the new one is not measured.
+    case moving(id: RoomArtMeasurementID, artwork: RoomArtwork, wallBeforeTheMove: WallPlane)
     case failed(RoomArtFailure)
 
     var isOpen: Bool { self != .closed }
@@ -573,29 +618,56 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         switch self {
         case .startingCamera:
             return .measuring(id: id, artwork: nil, wall: nil)
-        case .showing(let artwork, _):
-            return .measuring(id: id, artwork: artwork, wall: nil)
-        case .closed, .measuring, .failed:
+        case .showing(let artwork, let wall, _):
+            return .moving(id: id, artwork: artwork, wallBeforeTheMove: wall)
+        case .closed, .measuring, .moving, .failed:
             return self
         }
     }
 
     func withArtworkRead(_ artwork: RoomArtwork, measurementID: RoomArtMeasurementID) -> RoomArtPhase {
-        guard case .measuring(let id, _, let wall) = self, id == measurementID else { return self }
-        if let wall { return .showing(artwork: artwork, wall: wall) }
-        return .measuring(id: id, artwork: artwork, wall: nil)
+        guard case .measuring(let measuringID, _, let wall) = self, measuringID == measurementID else { return self }
+        if let wall { return Self.showingOrFailed(artwork: artwork, wall: wall) }
+        return .measuring(id: measuringID, artwork: artwork, wall: nil)
     }
 
     func withWallMeasured(_ wall: WallPlane, measurementID: RoomArtMeasurementID) -> RoomArtPhase {
-        guard case .measuring(let id, let artwork, _) = self, id == measurementID else { return self }
-        if let artwork { return .showing(artwork: artwork, wall: wall) }
-        return .measuring(id: id, artwork: nil, wall: wall)
+        switch self {
+        case .measuring(let measuringID, let artwork, _) where measuringID == measurementID:
+            if let artwork { return Self.showingOrFailed(artwork: artwork, wall: wall) }
+            return .measuring(id: measuringID, artwork: nil, wall: wall)
+        case .moving(let movingID, let artwork, let wallBeforeTheMove) where movingID == measurementID:
+            guard Self.artCanHang(artwork, on: wall) else {
+                return .showing(artwork: artwork, wall: wallBeforeTheMove, moveFailure: .wallNotMeasured)
+            }
+            return .showing(artwork: artwork, wall: wall, moveFailure: nil)
+        default:
+            return self
+        }
     }
 
-    /// A reply of this measurement failed.
+    /// A reply of this measurement failed. The first measurement's failure ends the panel, and a move's failure puts the
+    /// art back on the wall it hung on.
     func afterTheMeasurementFailed(_ failure: RoomArtFailure, measurementID: RoomArtMeasurementID) -> RoomArtPhase {
-        guard case .measuring(let id, _, _) = self, id == measurementID else { return self }
-        return .failed(failure)
+        switch self {
+        case .measuring(let measuringID, _, _) where measuringID == measurementID:
+            return .failed(failure)
+        case .moving(let movingID, let artwork, let wallBeforeTheMove) where movingID == measurementID:
+            return .showing(artwork: artwork, wall: wallBeforeTheMove, moveFailure: failure)
+        default:
+            return self
+        }
+    }
+
+    /// Whether every corner of the art lands in front of the camera on this wall.
+    private static func artCanHang(_ artwork: RoomArtwork, on wall: WallPlane) -> Bool {
+        wall.keyframeCorners(widthMeters: artwork.widthMeters, heightMeters: artwork.heightMeters) != nil
+    }
+
+    /// The first measurement's art on its wall, or a failure when no corner placement exists there.
+    private static func showingOrFailed(artwork: RoomArtwork, wall: WallPlane) -> RoomArtPhase {
+        guard artCanHang(artwork, on: wall) else { return .failed(.wallNotMeasured) }
+        return .showing(artwork: artwork, wall: wall, moveFailure: nil)
     }
 
     /// The camera could not start.
@@ -615,40 +687,123 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         case .startingCamera: return "Starting the camera…"
         case .measuring(_, let artwork, _):
             return artwork == nil ? "Reading the page and measuring your wall…" : "Measuring your wall…"
-        case .showing(let artwork, _): return "On your wall at \(artwork.sizeLabel)"
+        case .moving: return "Measuring your wall…"
+        case .showing(let artwork, _, let moveFailure): return moveFailure?.statusLine ?? "On your wall at \(artwork.sizeInWords)"
         case .failed(let failure): return failure.statusLine
+        }
+    }
+
+    /// The status line while the tracker has lost the room and the art is hidden, which only happens while it shows.
+    func statusLine(theWallIsLost: Bool) -> String {
+        guard theWallIsLost, case .showing = self else { return statusLine }
+        return roomArtLostTheWallLine
+    }
+
+    /// Whether the status line says what went wrong, so the panel draws it in the failure color.
+    func statusLineIsAFailure(theWallIsLost: Bool) -> Bool {
+        switch self {
+        case .failed: return true
+        case .showing(_, _, let moveFailure): return moveFailure != nil && !theWallIsLost
+        case .closed, .startingCamera, .measuring, .moving: return false
         }
     }
 }
 
+/// What the status line says while the tracker has lost the room, so the hidden art does not vanish without a word.
+nonisolated let roomArtLostTheWallLine = "Lost the wall. Turn back, or click the wall to place it again."
+
+// MARK: - When a line may play
+
+/// What a room art line does now.
+nonisolated enum RoomArtLineStep: Equatable, Sendable {
+    case speakNow
+    case waitForQuiet
+    /// The learner pressed push-to-talk since asking, so the line belongs to a request they moved on from.
+    case drop
+}
+
+/// The rule `themeStudioLineMayStart` holds for the studio, for a room art line that can land 14 seconds after the request:
+/// it waits while push-to-talk is held, while audio plays, and while Clicky thinks about a request that is not the room
+/// art's own opening, so it never cuts off a newer answer. A press after the room art request means the learner moved on,
+/// so the line is dropped instead of waiting for them.
+nonisolated func roomArtLineStep(
+    dictationIsInProgress: Bool,
+    clickyIsThinking: Bool,
+    audioIsPlaying: Bool,
+    roomArtIsOpeningThePanel: Bool,
+    pushToTalkPressCount: Int,
+    pushToTalkPressCountWhenTheRoomArtStarted: Int
+) -> RoomArtLineStep {
+    guard pushToTalkPressCount == pushToTalkPressCountWhenTheRoomArtStarted else { return .drop }
+    let mayStart = themeStudioLineMayStart(
+        dictationIsInProgress: dictationIsInProgress,
+        clickyIsThinking: clickyIsThinking,
+        audioIsPlaying: audioIsPlaying,
+        themeStudioIsDesigning: roomArtIsOpeningThePanel,
+        pushToTalkPressCount: pushToTalkPressCount,
+        pushToTalkPressCountWhenTheDesignStarted: pushToTalkPressCountWhenTheRoomArtStarted
+    )
+    return mayStart ? .speakNow : .waitForQuiet
+}
+
 // MARK: - The phrase that asks for it
 
-/// Whether the learner asks to see the picture in their own room: a room phrase ("in my room", "on my wall", "on the wall
-/// behind me", ...) together with a look or try word ("how would", "show", "see", "try", "hang", ...). "What's on my wall"
-/// has no look word and "clean my room" no room phrase, so neither asks.
+/// Whether the learner asks to see this item placed in their own room: a room phrase ("in my room", "on my wall", "on the
+/// wall behind me", ...) right after either a placing verb and the item ("show this", "put it", "can I see this", "hang
+/// that print") or the item and a look ("how would this look", "what would that poster look like"). The item is "this",
+/// "it", or "that", or "this", "that", or "the" and one noun. So "how does the router in my house work", "what would look
+/// good in my room", and "I put a poster in my room" name no item to place, and none of them asks.
 nonisolated func asksToSeeArtInMyRoom(_ transcript: String) -> Bool {
     let apostrophes = CharacterSet(charactersIn: "'\u{2019}")
     let words = transcript.lowercased()
         .components(separatedBy: CharacterSet.alphanumerics.union(apostrophes).inverted)
         .map { $0.trimmingCharacters(in: apostrophes) }
         .filter { !$0.isEmpty }
-    func containsPhrase(_ phrase: [String]) -> Bool {
-        guard words.count >= phrase.count else { return false }
-        return (0...(words.count - phrase.count)).contains { start in Array(words[start..<(start + phrase.count)]) == phrase }
-    }
     let roomPhrases: [[String]] = [
         ["in", "my", "room"], ["on", "my", "wall"], ["in", "my", "living", "room"], ["in", "my", "bedroom"],
         ["in", "my", "office"], ["in", "my", "house"], ["in", "my", "home"], ["in", "my", "apartment"],
         ["in", "my", "space"], ["on", "the", "wall", "behind", "me"],
     ]
-    let lookOrTryPhrases: [[String]] = [["how", "would"], ["how", "will"], ["how", "does"]]
-    let lookOrTryWords: Set<String> = [
-        "show", "showing", "see", "look", "looks", "looking", "try", "trying",
-        "put", "putting", "hang", "hanging", "place", "placing", "preview",
+    let placingVerbs: Set<String> = [
+        "show", "see", "try", "put", "hang", "place", "preview", "picture", "visualize", "imagine",
     ]
-    let namesTheRoom = roomPhrases.contains(where: containsPhrase)
-    let asksToLookOrTry = words.contains(where: lookOrTryWords.contains) || lookOrTryPhrases.contains(where: containsPhrase)
-    return namesTheRoom && asksToLookOrTry
+    let itemWords: Set<String> = ["this", "it", "that"]
+    let itemDeterminers: Set<String> = ["this", "that", "the"]
+    let modalWords: Set<String> = ["would", "will", "could", "might", "does", "do"]
+
+    /// The first index of each way the item can end at `lastIndex`: one word ("this"), or a determiner and a noun ("this print").
+    func itemStarts(endingAt lastIndex: Int) -> [Int] {
+        guard lastIndex >= 0 else { return [] }
+        var starts: [Int] = []
+        if itemWords.contains(words[lastIndex]) { starts.append(lastIndex) }
+        if lastIndex >= 1, itemDeterminers.contains(words[lastIndex - 1]), !itemDeterminers.contains(words[lastIndex]), !modalWords.contains(words[lastIndex]) {
+            starts.append(lastIndex - 1)
+        }
+        return starts
+    }
+    /// A placing verb right before the item, or with "me" between them: "show this", "show me this".
+    func aPlacingVerbComesBefore(itemStart: Int) -> Bool {
+        if itemStart >= 1, placingVerbs.contains(words[itemStart - 1]) { return true }
+        return itemStart >= 2 && words[itemStart - 1] == "me" && placingVerbs.contains(words[itemStart - 2])
+    }
+    /// The item, an optional modal, "look" or "looks", and an optional "like", ending right before the room phrase.
+    func theItemLooksRightBefore(roomPhraseStart: Int) -> Bool {
+        var lookIndex = roomPhraseStart - 1
+        if lookIndex >= 0, words[lookIndex] == "like" { lookIndex -= 1 }
+        guard lookIndex >= 1, words[lookIndex] == "look" || words[lookIndex] == "looks" else { return false }
+        // "how this would look" has the modal after the item, and "how would this look" before it.
+        var itemEnd = lookIndex - 1
+        if modalWords.contains(words[itemEnd]) { itemEnd -= 1 }
+        return !itemStarts(endingAt: itemEnd).isEmpty
+    }
+
+    for roomPhrase in roomPhrases where words.count >= roomPhrase.count {
+        for roomPhraseStart in 0...(words.count - roomPhrase.count) where Array(words[roomPhraseStart..<(roomPhraseStart + roomPhrase.count)]) == roomPhrase {
+            if itemStarts(endingAt: roomPhraseStart - 1).contains(where: aPlacingVerbComesBefore(itemStart:)) { return true }
+            if theItemLooksRightBefore(roomPhraseStart: roomPhraseStart) { return true }
+        }
+    }
+    return false
 }
 
 // MARK: - Clients
@@ -706,11 +861,21 @@ final class RoomArtClient {
     }
 }
 
-/// What a failed wall measurement means to the learner: 503 (no depth service configured) and 502 (it is down) ask whether
-/// it runs, and anything else says the wall could not be measured.
+/// What a failed wall measurement means to the learner: 401 says the app secret is missing, 503 (no depth service
+/// configured) and 502 (it is down) ask whether it runs, and anything else, a 422 included, says the wall could not be
+/// measured.
 nonisolated func roomArtFailure(forAFailedWallMeasurement error: Error) -> RoomArtFailure {
-    if case RoomArtWorkerError.workerReturned(let statusCode, _) = error, statusCode == 503 || statusCode == 502 {
-        return .depthServiceUnavailable
+    guard case RoomArtWorkerError.workerReturned(let statusCode, _) = error else { return .wallNotMeasured }
+    switch statusCode {
+    case 401: return .appSecretMissing
+    case 502, 503: return .depthServiceUnavailable
+    default: return .wallNotMeasured
     }
-    return .wallNotMeasured
+}
+
+/// What a failed page read means to the learner: 401 says the app secret is missing, and anything else that the page
+/// could not be read.
+nonisolated func roomArtFailure(forAFailedPageRead error: Error) -> RoomArtFailure {
+    if case RoomArtWorkerError.workerReturned(statusCode: 401, _) = error { return .appSecretMissing }
+    return .pageNotRead
 }

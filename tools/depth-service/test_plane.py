@@ -107,3 +107,11 @@ def test_ransac_on_42000_points_runs_under_half_a_second():
     assert seconds < 0.5
     assert angle_between_degrees(normal, WALL_NORMAL) < 0.1
     assert inlier_share > 0.99
+
+
+def test_a_plane_with_a_nan_raises_instead_of_writing_nan(noisy_wall_depth, monkeypatch):
+    # A fit that comes back with a NaN normal, as a wall seen edge on can.
+    monkeypatch.setattr(plane, "fit_plane_ransac", lambda points, inlier_distance_m: (np.array([np.nan, 0.0, -1.0]), np.array([0.0, 0.0, 3.0]), 0.9))
+
+    with pytest.raises(plane.NonFinitePlaneError):
+        plane.wall_frame(noisy_wall_depth, FOCAL_PX, None, ANCHOR)

@@ -8,6 +8,7 @@ function goodReply(overrides: Partial<RoomArt> = {}): RoomArt {
   return {
     title: "Wave print, framed",
     isWallArt: true,
+    sizeFoundOnPage: true,
     chosenSize: { label: "50 x 70 cm", widthCentimeters: 50, heightCentimeters: 70, includesFrame: true },
     whyThisSize: "The page shows 50 x 70 cm as the selected size.",
     otherSizes: [{ label: "70 x 100 cm", widthCentimeters: 70, heightCentimeters: 100 }],
@@ -111,6 +112,19 @@ describe("checkRoomArt", () => {
     const checkedReply = checkRoomArt(goodReply({ otherSizes: manySizes }), pictureWidth, pictureHeight);
 
     expect(checkedReply.accepted && checkedReply.reply.otherSizes).toHaveLength(8);
+  });
+
+  it("rejects an empty chosenSize label, which the app also refuses", () => {
+    expectRejectedFor(goodReply({ chosenSize: { ...goodReply().chosenSize, label: "  " } }), "chosenSize needs a label");
+  });
+
+  it("passes wall art whose page states no size through with no size rules, so the app can say it found none", () => {
+    const noSizeOnThePage = goodReply({
+      sizeFoundOnPage: false,
+      chosenSize: { label: "", widthCentimeters: 0, heightCentimeters: 0, includesFrame: false },
+    });
+
+    expect(checkRoomArt(noSizeOnThePage, pictureWidth, pictureHeight)).toMatchObject({ accepted: true, reply: { sizeFoundOnPage: false } });
   });
 
   it("passes a product that is not wall art through with its corners clamped and no size or corner rules", () => {

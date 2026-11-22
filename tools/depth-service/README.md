@@ -86,7 +86,8 @@ Points are `[x, y, z]` in meters, x right, y down, z forward.
 
 Errors are `{ "error": "..." }`.
 `400` is a bad body (invalid JSON, base64 or image, an anchor outside the frame, a bad `focalPx`).
-`422` means under 200 bare wall points remain around the anchor.
+`403` is a request with an `Origin` header, and `415` a body whose `Content-Type` is not `application/json`, so a web page in a browser on this Mac cannot reach the service. The Worker sends `application/json` and no `Origin`.
+`422` means under 200 bare wall points remain around the anchor, or the plane has a NaN or infinite number, such as a wall seen edge on.
 `500` is a model failure.
 
 ## Measured
@@ -101,4 +102,5 @@ A real room frame with a wall about 3 m away measured 3.83 m.
 uv run pytest -q
 ```
 
-The tests build a synthetic tilted wall with noise and an object in front, and check the normal within 1 degree, the person mask, the center on the anchor's ray, and that RANSAC on 42,000 points takes under 0.5 s.
+The tests build a synthetic tilted wall with noise and an object in front, and check the normal within 1 degree, the person mask, the center on the anchor's ray, a plane with a NaN refused, and that RANSAC on 42,000 points takes under 0.5 s.
+`test_server.py` runs the real HTTP handler on a free port with no Depth Pro loaded, and checks the `Origin` and `Content-Type` refusals and the 422 for a wall it cannot measure.

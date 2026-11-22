@@ -581,8 +581,9 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Starting a task"
         default:
             // pop_out, animate_picture, build_new_scene, answer_with_screen, show_ready_model, hear_task_answer, and
-            // show_art_in_my_room hand off to a path with its own status line, thinking dots, rising scene, panel, or voice. answer_approval shows no chip of its
-            // own, since the desk's approval_settled shows the outcome the harness's gate took, on both paths.
+            // show_art_in_my_room hand off to a path with its own status line, thinking dots, rising scene, panel, or
+            // voice. answer_approval shows no chip of its own, since the desk's approval_settled shows the outcome the
+            // harness's gate took, on both paths.
             return nil
         }
     }

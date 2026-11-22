@@ -17,14 +17,22 @@ MINIMUM_BARE_WALL_POINTS = 200
 WALL_INLIER_DISTANCE_M = 0.02
 
 
-class TooLittleWallError(ValueError):
+class WallNotMeasuredError(ValueError):
+    """The photo was read, and it holds no wall the artwork can hang on. The server answers 422."""
+
+
+class TooLittleWallError(WallNotMeasuredError):
     """Fewer than MINIMUM_BARE_WALL_POINTS pixels around the anchor are free of people."""
 
 
+class NonFinitePlaneError(WallNotMeasuredError):
+    """The fitted plane has a NaN or infinite number, such as a wall seen edge on, so it places nothing."""
+
+
 def back_project(pixel_us, pixel_vs, depths, focal_px, principal_point):
-    cx, cy = principal_point
-    xs = (pixel_us - cx) * depths / focal_px
-    ys = (pixel_vs - cy) * depths / focal_px
+    principal_u, principal_v = principal_point
+    xs = (pixel_us - principal_u) * depths / focal_px
+    ys = (pixel_vs - principal_v) * depths / focal_px
     return np.stack([xs, ys, depths], axis=1)
 
 
@@ -75,14 +83,17 @@ def wall_frame(depth_m, focal_px, person_mask, anchor):
     `depth_m` is the depth map in meters at the frame's size. `person_mask` is a
     boolean array of the same size, True where a person is, or None. The principal
     point is the frame's center. Raises TooLittleWallError when under 200 bare wall
-    points remain around the anchor.
+    points remain around the anchor, and NonFinitePlaneError when the plane has a
+    NaN or infinite number.
     """
-    image_h, image_w = depth_m.shape
+    image_height, image_width = depth_m.shape
     anchor_u, anchor_v = float(anchor["u"]), float(anchor["v"])
-    half = int(WALL_WINDOW_HALF_SHARE * image_w)
-    x0, x1 = max(0, int(anchor_u) - half), min(image_w, int(anchor_u) + half)
-    y0, y1 = max(0, int(anchor_v) - half), min(image_h, int(anchor_v) + half)
-    grid_vs, grid_us = np.mgrid[y0:y1:WALL_SAMPLE_STEP_PIXELS, x0:x1:WALL_SAMPLE_STEP_PIXELS]
+    window_half_width = int(WALL_WINDOW_HALF_SHARE * image_width)
+    window_left = max(0, int(anchor_u) - window_half_width)
+    window_right = min(image_width, int(anchor_u) + window_half_width)
+    window_top = max(0, int(anchor_v) - window_half_width)
+    window_bottom = min(image_height, int(anchor_v) + window_half_width)
+    grid_vs, grid_us = np.mgrid[window_top:window_bottom:WALL_SAMPLE_STEP_PIXELS, window_left:window_right:WALL_SAMPLE_STEP_PIXELS]
     if person_mask is None:
         keep = np.ones(grid_vs.shape, bool)
     else:
@@ -91,7 +102,7 @@ def wall_frame(depth_m, focal_px, person_mask, anchor):
     if len(us) < MINIMUM_BARE_WALL_POINTS:
         raise TooLittleWallError("Too little bare wall around that point: click away from people and objects")
 
-    principal = (image_w / 2, image_h / 2)
+    principal = (image_width / 2, image_height / 2)
     points = back_project(us, vs, depth_m[vs.astype(int), us.astype(int)], focal_px, principal)
     normal, plane_point, inlier_share = fit_plane_ransac(points, inlier_distance_m=WALL_INLIER_DISTANCE_M)
 
@@ -107,6 +118,10 @@ def wall_frame(depth_m, focal_px, person_mask, anchor):
     up = np.cross(normal, right)
     if up[1] > 0:
         up = -up
+    # A NaN or inf would reach the app as JSON it cannot read, or hang the art nowhere, so it is a wall not measured.
+    numbers = np.concatenate([center, right, up, [focal_px, inlier_share]])
+    if not np.all(np.isfinite(numbers)):
+        raise NonFinitePlaneError("The wall's plane could not be measured there: point the camera straight at a bare wall")
     return {
         "center": center.round(4).tolist(),
         "right": right.round(5).tolist(),
