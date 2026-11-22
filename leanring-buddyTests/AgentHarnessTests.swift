@@ -523,8 +523,8 @@ struct AgentHarnessTests {
         #expect(desk.waitingRequests.map(\.approvalID) == ["approval-2"], "the grace period of an answered request never touches a later one")
     }
 
-    /// A request that reuses the ID of an answered and settled one is waiting, not answering, so the settled request's
-    /// grace period must not drop it.
+    /// A request that reuses the ID of an answered and settled one is waiting, not answering.
+    /// The settled request's grace period must not drop it.
     @Test func theGracePeriodOfASettledRequestNeverDropsALaterRequestThatReusesItsID() {
         let delays = ScheduledDelays()
         let desk = HarnessApprovalDesk(answerSettleGraceSeconds: 2, secondsAnEndedCardStays: 60, scheduleAfter: delays.schedule) { _, _, _ in }

@@ -139,9 +139,8 @@ struct SettingsDialPickingTests {
     }
 
     @Test func thePlateBoundaryDecidesBetweenPickingASliceAndPickingAFanItem() throws {
-        // The fan's spacing divides by the number of themes read from themes/, so a read that comes back short (the
-        // cause of an earlier failure of this test was never proven) would give no ball at the expected angle. Say so
-        // here instead of failing on a pick.
+        // The fan's spacing divides by the number of themes read from themes/. Fewer than 2 themes leave no ball at the
+        // expected angle, so name that here instead of failing on a pick.
         #expect(bundledThemesForTests.count >= 2, "themes/ loaded only \(bundledThemesForTests.count) themes, so the Team fan has no spacing")
         let teamOpen = SettingsDialSelection(slice: .team, fanItemIndex: nil)
         let teamFanLayout = try #require(SettingsDialFans.builtIn.layout(of: .team), "the built-in fans have no Team layout")
