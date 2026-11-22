@@ -193,7 +193,9 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
 
 nonisolated enum HarnessCommand: Equatable, Sendable {
     /// `skill` names a skill file the harness reads from its skills folders, or is nil for a task with no skill.
-    case startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?, skill: String?)
+    /// `startsPaused` is true for a task started while the learner has paused every agent, so its first turn waits for
+    /// `resumeTask`.
+    case startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?, skill: String?, startsPaused: Bool = false)
     /// `content` is a string or an array of content blocks, such as the image block look_at_video returns.
     /// `sourceURL` is the video link a read_video_captions result is about. The harness lets a task cite only that link
     /// from it and never reads a link out of `content`, which a video's own text can write, so it is set for that tool
@@ -203,6 +205,11 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
     /// which may already have changed the screen. The harness reverses a cut-off page call on "undo that" only when this
     /// names it, since a call the press caught before it started never ran.
     case cancelTask(taskID: UUID, runningToolUseID: String? = nil)
+    /// Holds a task's next model turn and next tool call while the learner has paused every agent. A turn or a call
+    /// already in flight finishes, and a pending approval stays pending.
+    case pauseTask(taskID: UUID)
+    /// Lets a paused task go on.
+    case resumeTask(taskID: UUID)
     /// The answer to one approval_request, named by the harness's approvalID.
     case approvalResult(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
     /// Starts a voice command on the brain. `sceneState` is `voiceCommandSceneState`'s object, and `tools` the list after
@@ -223,15 +230,19 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
 
     var json: JSONValue {
         switch self {
-        case .startTask(let taskID, let goal, let frontTabTitle, let frontTabURL, let skill):
-            return .object([
+        case .startTask(let taskID, let goal, let frontTabTitle, let frontTabURL, let skill, let startsPaused):
+            var startFields: [String: JSONValue] = [
                 "type": .string("start_task"),
                 "taskID": .string(taskID.uuidString),
                 "goal": .string(goal),
                 "frontTabTitle": frontTabTitle.map(JSONValue.string) ?? .null,
                 "frontTabURL": frontTabURL.map(JSONValue.string) ?? .null,
                 "skill": skill.map(JSONValue.string) ?? .null,
-            ])
+            ]
+            if startsPaused {
+                startFields["startsPaused"] = .bool(true)
+            }
+            return .object(startFields)
         case .toolResult(let taskID, let toolUseID, let content, let isError, let sourceURL):
             var toolResultFields: [String: JSONValue] = [
                 "type": .string("tool_result"),
@@ -250,6 +261,10 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
                 cancelFields["runningToolUseID"] = .string(runningToolUseID)
             }
             return .object(cancelFields)
+        case .pauseTask(let taskID):
+            return .object(["type": .string("pause_task"), "taskID": .string(taskID.uuidString)])
+        case .resumeTask(let taskID):
+            return .object(["type": .string("resume_task"), "taskID": .string(taskID.uuidString)])
         case .approvalResult(let approvalID, let approved, let scope):
             return .object([
                 "type": .string("approval_result"),
@@ -834,11 +849,16 @@ final class AgentHarness {
 
     /// Starts a task on the harness, with the steps of the named skill when `skill` is given. The stream ends after the
     /// task finishes or fails, or when the harness stops.
-    func startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?, skill: String? = nil) throws -> AsyncStream<HarnessTaskEvent> {
+    func startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?, skill: String? = nil, startsPaused: Bool = false) throws -> AsyncStream<HarnessTaskEvent> {
         try launchTheHarnessIfItIsNotRunning()
         let taskEvents = taskRouter.register(taskID: taskID)
-        write(.startTask(taskID: taskID, goal: goal, frontTabTitle: frontTabTitle, frontTabURL: frontTabURL, skill: skill))
+        write(.startTask(taskID: taskID, goal: goal, frontTabTitle: frontTabTitle, frontTabURL: frontTabURL, skill: skill, startsPaused: startsPaused))
         return taskEvents
+    }
+
+    /// Holds or lets go a running task's next step (`pauseTask`, `resumeTask`). A task that already ended ignores it.
+    func setTaskIsPaused(_ taskIsPaused: Bool, taskID: UUID) {
+        write(taskIsPaused ? .pauseTask(taskID: taskID) : .resumeTask(taskID: taskID))
     }
 
     func sendToolResult(taskID: UUID, toolUseID: String, content: JSONValue, isError: Bool, sourceURL: String? = nil) {

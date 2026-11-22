@@ -250,6 +250,7 @@
 				"$(SRCROOT)/harness/loop.go",
 				"$(SRCROOT)/harness/main.go",
 				"$(SRCROOT)/harness/mcp.go",
+				"$(SRCROOT)/harness/pause.go",
 				"$(SRCROOT)/harness/protocol.go",
 				"$(SRCROOT)/harness/skills.go",
 				"$(SRCROOT)/harness/taskagent.go",

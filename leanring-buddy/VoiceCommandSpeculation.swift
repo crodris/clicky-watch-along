@@ -38,6 +38,10 @@ nonisolated struct TranscriptRouteContext: Equatable, Sendable {
     var backgroundSceneIsReady: Bool
     var taskAnswerIsReady: Bool
     var approvalIsWaiting: Bool
+    /// A background agent is running, so "hold on" reaches the router with nothing else on screen.
+    var backgroundAgentIsRunning: Bool
+    /// The learner paused every agent, so "go ahead" reaches the router with nothing else on screen.
+    var backgroundAgentsArePaused: Bool
 }
 
 /// The route of a transcript, checked in the order the app has always checked it. `videoIsInFront` is asked only for a
@@ -74,6 +78,8 @@ nonisolated func transcriptRoute(
         taskAnswerIsReady: context.taskAnswerIsReady,
         approvalIsWaiting: context.approvalIsWaiting,
         themeStudioIsOpen: context.themeStudioIsOpen,
+        backgroundAgentIsRunning: context.backgroundAgentIsRunning,
+        backgroundAgentsArePaused: context.backgroundAgentsArePaused,
         phaseIsWaitingForAQuizAnswer: context.phaseIsWaitingForAQuizAnswer,
         sceneIsBuilding: context.sceneIsBuilding,
         brainTakesEveryRequest: context.brainTakesEveryRequest

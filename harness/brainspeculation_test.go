@@ -94,6 +94,34 @@ func TestACommandOnThePartialTranscriptSendsNoCallUntilTheFinalOneMatches(t *tes
 	}
 }
 
+// "Hold on" pauses the task agents and never a voice command, so a pause or a resume that reaches a command held for its
+// final transcript, whether by its own ID or while it waits, neither holds its call after the confirm nor changes what it
+// finishes with. The app only sends pause_task for a task agent, and this keeps a stray line from stalling the voice.
+func TestAPauseNeverHoldsACommandStartedOnThePartialTranscript(t *testing.T) {
+	worker, _ := newRotatingBrainWorker(t)
+	driver := startHarness(t, worker.server.URL)
+
+	driver.send(speculativeVoiceCommandLine("command-1", "turn it left"))
+	driver.expectLine("voice_line_if_every_call_changes")
+	driver.send(pauseTaskLine("command-1"))
+	driver.send(pauseTaskLine("a-task-that-never-started"))
+	// The harness read both lines before it reads the confirm, and the held command still sends nothing.
+	driver.expectNoLineFor(200 * time.Millisecond)
+
+	driver.send(confirmVoiceCommandLine("command-1"))
+	if got := driver.expectLine("tool_call"); !strings.Contains(got, `"toolUseID":"toolu_rotate"`) {
+		t.Fatalf("the confirmed command's call was %s", got)
+	}
+	driver.send(resumeTaskLine("command-1"))
+	driver.send(voiceToolResultLine("command-1", "toolu_rotate", voiceToolChanged, `{"ok":true,"state":null}`))
+	if got := driver.expectLine("voice_command_finished"); !strings.Contains(got, `"spokenLine":"turned it left"`) {
+		t.Fatalf("finished: %s", got)
+	}
+	if driver.logsContain("Task agent: paused by the learner") || driver.logsContain("Task agent: resumed by the learner") {
+		t.Errorf("a voice command was paused or resumed like a task agent: %v", driver.logs)
+	}
+}
+
 func TestADiscardedCommandLeavesNoTraceAndTheFinalTranscriptRunsNormally(t *testing.T) {
 	worker, userTexts := newRotatingBrainWorker(t)
 	driver := startHarness(t, worker.server.URL)

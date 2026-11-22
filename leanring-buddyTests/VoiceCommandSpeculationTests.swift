@@ -38,7 +38,9 @@ struct VoiceCommandSpeculationTests {
         brainTakesEveryRequest: false,
         backgroundSceneIsReady: false,
         taskAnswerIsReady: false,
-        approvalIsWaiting: false
+        approvalIsWaiting: false,
+        backgroundAgentIsRunning: false,
+        backgroundAgentsArePaused: false
     )
 
     private func screenRead(ofPress pressCount: Int) -> ReleaseScreenReadInHand {
@@ -171,6 +173,111 @@ struct VoiceCommandSpeculationTests {
         #expect(inputs(approvalAtPress: nil) != inputs(approvalAtPress: unreadRequest))
         #expect(inputs(approvalAtPress: unreadRequest) != inputs(approvalAtPress: readRequest))
         #expect(inputs(approvalAtPress: unreadRequest) != inputs(approvalAtPress: ApprovalAtPress(approvalID: "approval-2", wholeSummaryWasSeen: false)))
+    }
+
+    /// "Hold on" and "go ahead" are router tools (`pause_agents`, `resume_agents`), not keyword branches, so the route follows
+    /// the agents' state and is the same for the partial and the final transcript.
+    @Test func holdOnAndGoAheadGoToTheRouterOnlyWhileAnAgentRunsOrIsPausedForPartialAndFinalAlike() {
+        var anAgentRuns = quietScreen
+        anAgentRuns.backgroundAgentIsRunning = true
+        var theAgentsArePaused = quietScreen
+        theAgentsArePaused.backgroundAgentsArePaused = true
+        for transcript in ["hold on", "Hold on.", "go ahead", "Go ahead."] {
+            // Nothing runs, so there is nothing to hold, and the words answer no command.
+            #expect(transcriptRoute(for: transcript, in: quietScreen, videoIsInFront: { false }) == .keywordPath)
+            #expect(transcriptRoute(for: transcript, in: anAgentRuns, videoIsInFront: { false }) == .voiceCommandRouter)
+            #expect(transcriptRoute(for: transcript, in: theAgentsArePaused, videoIsInFront: { false }) == .voiceCommandRouter)
+        }
+        // The first word of either phrase, which Apple Speech often shows alone at the release, goes the same way.
+        #expect(transcriptRoute(for: "hold", in: anAgentRuns, videoIsInFront: { false }) == .voiceCommandRouter)
+        #expect(transcriptRoute(for: "go", in: theAgentsArePaused, videoIsInFront: { false }) == .voiceCommandRouter)
+        // A quiz answer still goes to the judge, and a scene still building keeps the keyword path, agents or not.
+        var quizAnswerWhileAgentsRun = anAgentRuns
+        quizAnswerWhileAgentsRun.phaseIsWaitingForAQuizAnswer = true
+        #expect(transcriptRoute(for: "hold on", in: quizAnswerWhileAgentsRun, videoIsInFront: { false }) == .keywordPath)
+        var sceneBuildingWhileAgentsRun = anAgentRuns
+        sceneBuildingWhileAgentsRun.sceneIsBuilding = true
+        #expect(transcriptRoute(for: "hold on", in: sceneBuildingWhileAgentsRun, videoIsInFront: { false }) == .keywordPath)
+        // A keyword branch keeps its place ahead of the router while agents run, so "let me try it" builds with no model call.
+        #expect(transcriptRoute(for: "let me try it", in: anAgentRuns, videoIsInFront: { false }) == .keywordBranch(.startExperiment))
+    }
+
+    @Test func aPartialHoldOnOrGoAheadStartsACommandUnlessAnApprovalWaitsAtThePress() {
+        func step(_ partial: String, approvalAtPress: ApprovalAtPress?) -> SpeculativeStartStep {
+            speculativeStartStep(partialTranscript: partial, partialRoute: .voiceCommandRouter, voiceCommandsRunInTheHarness: true, approvalAtPress: approvalAtPress, speculationIsOn: true)
+        }
+        #expect(step("hold on", approvalAtPress: nil) == .start)
+        #expect(step("go ahead", approvalAtPress: nil) == .start)
+        // "Go ahead" is also a yes to a waiting request, which the harness settles from the transcript's own words, so a
+        // request at the press, read or not, keeps both phrases from starting a command on a partial transcript.
+        let approvalIsWaitingReason = "an approval request is waiting, and a partial yes or no could answer it"
+        for wholeSummaryWasSeen in [true, false] {
+            let request = ApprovalAtPress(approvalID: "approval-1", wholeSummaryWasSeen: wholeSummaryWasSeen)
+            #expect(step("go ahead", approvalAtPress: request) == .doNotStart(reason: approvalIsWaitingReason))
+            #expect(step("hold on", approvalAtPress: request) == .doNotStart(reason: approvalIsWaitingReason))
+        }
+    }
+
+    /// A command started on the partial transcript is kept only while the tools and scene state it was sent with still
+    /// hold. A pause, a resume, or an agent that started or finished while the learner spoke changes both, so the held
+    /// command is discarded and the final transcript builds its own. The harness never pauses a voice command, so a pause
+    /// never holds, cancels, or reorders a held command (`TestAPauseNeverHoldsACommandStartedOnThePartialTranscript`).
+    @Test func aHeldCommandIsDiscardedWhenTheAgentsPauseStateChangesBeforeTheFinalTranscript() {
+        func inputs(agentIsRunning: Bool, agentsArePaused: Bool, agentsRunning: Int, approvalIsWaiting: Bool = false) -> VoiceCommandInputs {
+            let context = AppVoiceTool.Context(
+                sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: false, videoIsOnYouTube: false,
+                videoQuizIsRunning: false, quizQuestionIsOpen: false, approvalIsWaiting: approvalIsWaiting,
+                backgroundAgentIsRunning: agentIsRunning, backgroundAgentsArePaused: agentsArePaused
+            )
+            var sceneStateFields: [String: JSONValue] = [:]
+            if let backgroundAgentsState = backgroundAgentsStateText(runningAgentCount: agentsRunning, agentsArePaused: agentsArePaused) {
+                sceneStateFields["backgroundAgents"] = .string(backgroundAgentsState)
+            }
+            return VoiceCommandInputs(
+                tools: voiceToolsOfferedToTheModel(pageTools: [], appTools: AppVoiceTool.available(in: context)),
+                pageState: nil,
+                frontVideoState: nil,
+                harnessSceneState: .object(sceneStateFields),
+                approvalWhenTheCommandStarted: nil
+            )
+        }
+        func finalStep(startedFrom startedInputs: VoiceCommandInputs, keptUntil finalInputs: VoiceCommandInputs, finalRoute: TranscriptRoute = .voiceCommandRouter) -> SpeculationStep {
+            speculationStep(
+                partialTranscript: "hold on",
+                finalTranscript: "Hold on.",
+                finalRoute: finalRoute,
+                voiceCommandsRunInTheHarness: true,
+                finalUsesTheSameScreenRead: true,
+                commandInputsAreUnchanged: startedInputs == finalInputs,
+                heldCommandIsStillRunning: true
+            )
+        }
+        let running = inputs(agentIsRunning: true, agentsArePaused: false, agentsRunning: 2)
+        let paused = inputs(agentIsRunning: true, agentsArePaused: true, agentsRunning: 2)
+
+        // The tools differ ("hold on" offers pause_agents, "go ahead" resume_agents), and so does the scene state.
+        #expect(running.offeredToolNames.contains("pause_agents") && !running.offeredToolNames.contains("resume_agents"))
+        #expect(paused.offeredToolNames.contains("resume_agents") && !paused.offeredToolNames.contains("pause_agents"))
+        #expect(running.harnessSceneState != paused.harnessSceneState)
+        #expect(finalStep(startedFrom: running, keptUntil: running) == .confirm)
+        #expect(finalStep(startedFrom: running, keptUntil: paused) == .discard(reason: "what the command offers changed"))
+        #expect(finalStep(startedFrom: paused, keptUntil: running) == .discard(reason: "what the command offers changed"))
+
+        // Another agent started while the learner spoke: the tools match but the count in the scene state does not.
+        let anotherAgentStarted = inputs(agentIsRunning: true, agentsArePaused: false, agentsRunning: 3)
+        #expect(running.tools == anotherAgentStarted.tools)
+        #expect(finalStep(startedFrom: running, keptUntil: anotherAgentStarted) == .discard(reason: "what the command offers changed"))
+
+        // The last agent finished while the learner spoke, so the final "hold on" has nothing to hold: with nothing on screen
+        // it no longer goes to the router, and the held command is discarded for that reason first.
+        let nothingRunsAnymore = inputs(agentIsRunning: false, agentsArePaused: false, agentsRunning: 0)
+        #expect(finalStep(startedFrom: running, keptUntil: nothingRunsAnymore, finalRoute: .keywordPath) == .discard(reason: "the final transcript does not go to the router"))
+        #expect(finalStep(startedFrom: running, keptUntil: nothingRunsAnymore) == .discard(reason: "what the command offers changed"))
+
+        // A request that came to wait while the agents were paused withholds resume_agents, since "go ahead" answers it.
+        let pausedWithARequestWaiting = inputs(agentIsRunning: true, agentsArePaused: true, agentsRunning: 2, approvalIsWaiting: true)
+        #expect(!pausedWithARequestWaiting.offeredToolNames.contains("resume_agents"))
+        #expect(finalStep(startedFrom: paused, keptUntil: pausedWithARequestWaiting) == .discard(reason: "what the command offers changed"))
     }
 
     @Test func theFinalTranscriptKeepsTheCommandOnlyWhenEverythingItWasStartedFromStillHolds() {

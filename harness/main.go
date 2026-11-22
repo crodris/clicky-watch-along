@@ -188,6 +188,10 @@ func (serving *harness) handle(line []byte) {
 		serving.deliverToolResult(message)
 	case cancelTaskMessage:
 		serving.cancelTask(message)
+	case pauseTaskMessage:
+		serving.pauseTask(message.TaskID, true)
+	case resumeTaskMessage:
+		serving.pauseTask(message.TaskID, false)
 	case seedApprovalRequestMessage:
 		if !serving.benchMode {
 			fmt.Fprintln(os.Stderr, "harness: dropped seed_approval_request, which only a harness started with CLICKY_BENCH=1 takes")
@@ -213,7 +217,13 @@ func (serving *harness) startTask(start startTaskMessage) {
 		return
 	}
 	taskContext, cancel := context.WithCancel(serving.rootContext)
-	task := &runningTask{cancel: cancel, done: taskContext.Done(), toolResults: make(chan toolResultMessage, 32), mcpImages: newImageByteBudget(mostMCPImageBytesPerTask)}
+	task := &runningTask{
+		cancel:      cancel,
+		done:        taskContext.Done(),
+		toolResults: make(chan toolResultMessage, 32),
+		mcpImages:   newImageByteBudget(mostMCPImageBytesPerTask),
+		pause:       newPauseGate(start.StartsPaused),
+	}
 	serving.tasks[start.TaskID] = task
 	serving.tasksMutex.Unlock()
 
@@ -316,6 +326,25 @@ func (serving *harness) cancelTask(message cancelTaskMessage) {
 		task.toolUseIDTheAppWasRunningAtTheCancel.Store(&message.RunningToolUseID)
 		cancelUnlessAHandOffCompletedIt(task)
 	}
+}
+
+// pauseTask holds or lets go a task agent's next step. A voice command is never paused, since the learner's own voice
+// must keep working while the agents wait, so a pause_task for one, or for a task that already ended, changes nothing.
+func (serving *harness) pauseTask(taskID string, paused bool) {
+	serving.tasksMutex.Lock()
+	task := serving.tasks[taskID]
+	serving.tasksMutex.Unlock()
+	if task == nil || task.pause == nil {
+		fmt.Fprintf(os.Stderr, "harness: ignored a pause or resume for %s, which is not a running task\n", taskID)
+		return
+	}
+	if paused {
+		task.pause.pause()
+		serving.runner.writer.send(newLogMessage("Task agent: paused by the learner"))
+		return
+	}
+	task.pause.resume()
+	serving.runner.writer.send(newLogMessage("Task agent: resumed by the learner"))
 }
 
 // cancelUnlessAHandOffCompletedIt cancels a task or command, except a command a hand-off completed. The caller holds
