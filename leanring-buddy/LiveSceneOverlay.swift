@@ -7,8 +7,10 @@
 //  to their screen: the one under the mouse for generated scenes, and the one
 //  showing the video or image for pop-outs and landmark pages. Each scene is
 //  generated HTML loaded in that window. The page reports tourFinished when
-//  the camera tour ends. A frame pop-out plays a short return into the video
-//  frame when it is cleared, and posts returnFinished when it has landed. After
+//  the camera tour ends, and the overlay ends a tour still open 30 seconds
+//  after its page started, since a generated page can hang without an error.
+//  A frame pop-out plays a short return into the video frame when it is
+//  cleared, and posts returnFinished when it has landed. After
 //  its tour, the bundled frame pop-out reports partTapped when a label is clicked.
 //
 
@@ -212,6 +214,40 @@ private final class LiveSceneAssetSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 }
 
+/// Whether the page on screen has ended its camera tour. A page reports it with tourFinished, but a generated page can
+/// hang with no error and never reach that line, and Clicky would then wait forever to narrate or ask its question. So
+/// the overlay ends a tour that is still open `secondsATourMayTake` after its page started. The bundled pages' tours end
+/// within about 15 seconds, and a generated page's tour within about 10.
+struct LiveSceneTourEnd {
+    static let secondsATourMayTake: TimeInterval = 30
+    private var sceneNumber = 0
+    private var tourIsOpen = false
+
+    mutating func pageStarted(sceneNumber startedSceneNumber: Int) {
+        sceneNumber = startedSceneNumber
+        tourIsOpen = true
+    }
+
+    /// A cleared scene has no tour left to end, so neither a late report nor the deadline ends it.
+    mutating func sceneCleared() {
+        tourIsOpen = false
+    }
+
+    /// True when this report ends the tour, so a page that reports twice, or after the deadline ended its tour, ends it once.
+    mutating func pageReportedTheTourFinished() -> Bool {
+        guard tourIsOpen else { return false }
+        tourIsOpen = false
+        return true
+    }
+
+    /// True when the deadline of the scene that started it finds that scene's tour still open.
+    mutating func deadlinePassed(forSceneNumber deadlineSceneNumber: Int) -> Bool {
+        guard tourIsOpen, deadlineSceneNumber == sceneNumber else { return false }
+        tourIsOpen = false
+        return true
+    }
+}
+
 /// What the overlay window is doing, so a clear request knows whether to play the
 /// return, hide at once, or do nothing.
 enum LiveSceneOverlayPhase: Equatable {
@@ -329,6 +365,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     /// How many pages the overlay has started, so a read of one page's tools can tell that another page replaced it. The
     /// router's scene state also names the scene on screen by it (`sceneNumber`), which the harness brain's undo record reads.
     private(set) var scenesPlayedCount = 0
+    private var tourEnd = LiveSceneTourEnd()
     /// The page normally posts returnFinished. This hides the window if it never does.
     private var returnFallbackWorkItem: DispatchWorkItem?
     private var waitersForReturnToFinish: [CheckedContinuation<Void, Never>] = []
@@ -360,7 +397,9 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         }
         switch pageEvent {
         case .tourFinished:
-            onTourFinished?()
+            if tourEnd.pageReportedTheTourFinished() {
+                onTourFinished?()
+            }
         case .returnFinished:
             finishReturnToSource()
         case .partTapped(let untrustedLabel):
@@ -388,6 +427,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         returnFallbackWorkItem = nil
         overlayPhase = .showing(isFramePopout: isFramePopout)
         scenesPlayedCount += 1
+        endTheTourAtItsDeadline(ofSceneNumber: scenesPlayedCount)
         onASceneStartedToShow?()
         releaseWaitersForReturnToFinish()
         discardThePreviousWebView()
@@ -396,6 +436,19 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         queuedPageLoad = QueuedLiveScenePage(html: html, hidesQuizLabel: hidesQuizLabel, rendersMapTiles: rendersMapTiles)
         startQueuedPageLoad()
         return true
+    }
+
+    /// Ends the scene's tour when its page has not reported the end by the deadline. The page's own endTour runs too,
+    /// so dragging and zoomBy work, and the tourFinished it posts is not reported a second time.
+    private func endTheTourAtItsDeadline(ofSceneNumber sceneNumber: Int) {
+        tourEnd.pageStarted(sceneNumber: sceneNumber)
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(LiveSceneTourEnd.secondsATourMayTake))
+            guard let self, self.tourEnd.deadlinePassed(forSceneNumber: sceneNumber) else { return }
+            print("Live scene: the page did not end its tour within \(Int(LiveSceneTourEnd.secondsATourMayTake)) seconds, so Clicky ended it")
+            self.evaluateOnThePage("window.liveScene?.endTour?.()")
+            self.onTourFinished?()
+        }
     }
 
     func webView(
@@ -573,6 +626,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     /// Safe to call again. A frame pop-out lands back in the video frame first, so the window
     /// hides when the page posts returnFinished or after a fallback delay. Any other call hides at once.
     func clear() {
+        tourEnd.sceneCleared()
         queuedPageLoad = nil
         liveSceneOverlayWindow?.ignoresMouseEvents = true
         switch overlayPhase.requestClear() {
