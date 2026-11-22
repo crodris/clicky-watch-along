@@ -1077,14 +1077,6 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         .closed
     }
 
-    /// A click on the video places the item there: it moves an item that shows, or measures the floor where none was found.
-    var aClickPlacesTheItem: Bool {
-        switch self {
-        case .showing, .waitingForAFloorClick: return true
-        default: return false
-        }
-    }
-
     /// The panel's one-line status with nothing lost and no coaching.
     var statusLine: String {
         statusLine(theSurfaceIsLost: false, shirtCoachingLine: nil)

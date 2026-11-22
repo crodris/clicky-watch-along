@@ -274,6 +274,17 @@ struct ShirtFramingDebouncerTests {
         #expect(debouncer.advance(to: .ready, at: 1.8) == .ready)
     }
 
+    @Test func aCandidateThatTurnsIntoAnotherUnsettledKindStartsItsClockAgain() {
+        var debouncer = ShirtFramingDebouncer()
+        _ = debouncer.advance(to: .ready, at: 0)
+        _ = debouncer.advance(to: .ready, at: 0.5)
+        // Nobody for a moment, then standing too close: the newer kind has its own half second to hold.
+        #expect(debouncer.advance(to: .noPerson, at: 1.0) == nil)
+        #expect(debouncer.advance(to: .standBack, at: 1.3) == nil)
+        #expect(debouncer.advance(to: .standBack, at: 1.6) == nil)
+        #expect(debouncer.advance(to: .standBack, at: 1.8) == .standBack)
+    }
+
     @Test func eachKindTakesTheCoachingLineOfItsFraming() {
         #expect(ShirtFramingKind(.noPerson).coachingLine == "I can't see you yet. Step in front of the camera.")
         #expect(ShirtFramingKind(.standBack(.tooCloseForTheChest)) == .standBack)

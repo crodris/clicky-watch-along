@@ -690,7 +690,6 @@ struct RoomArtPhaseTests {
         #expect(waitingForAClick == .waitingForAFloorClick(.furniture(furniture())))
         #expect(waitingForAClick.statusLine == "Tilt the screen down so the floor shows, then click the floor")
         #expect(waitingForAClick.statusLineIsAFailure(theSurfaceIsLost: false))
-        #expect(waitingForAClick.aClickPlacesTheItem)
         // A floor that cannot stand the piece means the same as one not found.
         #expect(measuring.withTheSurfaceMeasured(.floor(floorBehindTheCamera), measurementID: firstMeasurement) == waitingForAClick)
         // The click measures again, and a floor found stands the piece on it.
@@ -711,7 +710,7 @@ struct RoomArtPhaseTests {
         #expect(measuring.withTheSurfaceMeasured(.wall(wallBehindTheCamera), measurementID: firstMeasurement) == .failed(.wallNotMeasured))
         // Only furniture waits for a click, so a floor failure for wall art could only end the panel.
         #expect(measuring.afterTheMeasurementFailed(.floorNotFound, measurementID: firstMeasurement) == .failed(.floorNotFound))
-        #expect(!RoomArtPhase.failed(.wallNotMeasured).aClickPlacesTheItem)
+        #expect(RoomArtPhase.failed(.wallNotMeasured).startingAMeasurement(id: secondMeasurement) == .failed(.wallNotMeasured))
     }
 
     @Test func theSizeIsSaidInInchesToTheNearestHalfInch() {
@@ -776,7 +775,6 @@ struct RoomArtPhaseTests {
         // The learner standing in view before the garment is ready changes nothing until it is.
         #expect(preparing.afterTheLearnerStoodInFrame() == preparing)
         // A click does nothing on a shirt, and a garment that cannot be cut out ends the panel.
-        #expect(!showing.aClickPlacesTheItem)
         #expect(showing.startingAMeasurement(id: firstMeasurement) == showing)
         #expect(preparing.afterTheGarmentFailed() == .failed(.garmentNotCutOut))
         #expect(waiting.afterTheGarmentFailed() == waiting)
@@ -808,7 +806,6 @@ struct RoomArtPhaseTests {
         let measuring = RoomArtPhase.waitingForTheCamera(.wallArt(artwork())).startingAMeasurement(id: firstMeasurement)
 
         #expect(measuring.startingAMeasurement(id: secondMeasurement) == measuring)
-        #expect(!measuring.aClickPlacesTheItem)
         #expect(RoomArtPhase.readingThePage.startingAMeasurement(id: firstMeasurement) == .readingThePage)
         #expect(RoomArtPhase.closed.startingAMeasurement(id: firstMeasurement) == .closed)
         #expect(RoomArtPhase.failed(.notSomethingToTry).startingAMeasurement(id: firstMeasurement) == .failed(.notSomethingToTry))

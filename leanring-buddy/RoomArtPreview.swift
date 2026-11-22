@@ -899,9 +899,8 @@ final class RoomArtPreviewController: ObservableObject {
 
     /// A click on the video places the item there: it moves an item that shows with a new keyframe and measurement, or
     /// measures the floor where none was found. A click during a measurement, before the item shows, or on a shirt changes
-    /// nothing. A click after a failed move tries again.
+    /// nothing, since `RoomArtPhase.startingAMeasurement` starts none then. A click after a failed move tries again.
     func placeTheItem(atCameraPixel cameraPixel: CGPoint) {
-        guard phase.aClickPlacesTheItem else { return }
         startAMeasurement(anchorInCameraPixels: cameraPixel)
     }
 

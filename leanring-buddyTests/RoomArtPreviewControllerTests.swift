@@ -221,14 +221,33 @@ private final class WorkerStub {
         principalPoint: SIMD2(320, 180), distanceMeters: 2.4, floorTiltDegrees: 2, planeInlierShare: 0.9
     ))
     var secondsBeforeThePageReplies = 0.0
+    /// Replies for the next page reads, in order, each after its own wait, which a cancel does not cut short, the way a
+    /// reply already on its way still arrives. The default reply answers at once when the list is empty.
+    var queuedPageReplies: [(seconds: Double, reply: Result<RoomArtPageReading, Error>)] = []
     var secondsBeforeTheWallReplies = 0.0
+    /// A page read's wait ended early because its task was cancelled, which a close does.
+    private(set) var aPageReadWasCancelled = false
     private(set) var pageRequests: [RoomArtPageRequest] = []
     private(set) var wallRequests: [RoomWallRequest] = []
     private(set) var floorRequests: [RoomWallRequest] = []
 
     func readThePage(_ pageRequest: RoomArtPageRequest) async throws -> RoomArtPageReading {
         pageRequests.append(pageRequest)
-        if secondsBeforeThePageReplies > 0 { try await Task.sleep(for: .seconds(secondsBeforeThePageReplies)) }
+        if !queuedPageReplies.isEmpty {
+            let queuedReply = queuedPageReplies.removeFirst()
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.asyncAfter(deadline: .now() + queuedReply.seconds) { continuation.resume() }
+            }
+            return try queuedReply.reply.get()
+        }
+        if secondsBeforeThePageReplies > 0 {
+            do {
+                try await Task.sleep(for: .seconds(secondsBeforeThePageReplies))
+            } catch {
+                aPageReadWasCancelled = true
+                throw error
+            }
+        }
         return try pageReading.get()
     }
 
@@ -423,7 +442,8 @@ struct RoomArtPreviewControllerTests {
     }
 
     @Test func thePageIsReadWhileTheCameraStartsAndTheVideoStaysCoveredUntilItsFirstFrame() async throws {
-        let camera = SyntheticRoomCamera(secondsToStart: 0.5)
+        // The camera takes 2 seconds to start, so the item waits for it long enough to be seen even on a loaded machine.
+        let camera = SyntheticRoomCamera(secondsToStart: 2)
         let harness = RoomArtHarness(camera: camera)
 
         let openingTask = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
@@ -529,6 +549,28 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.phase == .closed)
         #expect(harness.spokenLines().isEmpty)
         #expect(worker.wallRequests.isEmpty && worker.floorRequests.isEmpty)
+        // The close stops the request itself, not only what its reply would do.
+        #expect(worker.aPageReadWasCancelled)
+    }
+
+    @Test func anEarlierRequestsFailedPageReadNeverFailsTheNewerOne() async throws {
+        let worker = WorkerStub()
+        let firstPageReading = try worker.pageReading.get()
+        // The first read fails late, after the learner asked again, and the second read succeeds.
+        worker.queuedPageReplies = [
+            (seconds: 0.4, reply: .failure(URLError(.timedOut))),
+            (seconds: 0.8, reply: .success(firstPageReading)),
+        ]
+        let harness = RoomArtHarness(worker: worker)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the first page request") { worker.pageRequests.count == 1 }
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the art from the second request to show") { harness.artIsShowing() }
+
+        #expect(worker.pageRequests.count == 2)
+        #expect(harness.spokenLines() == ["Here it is at 16 by 20 inches."])
+        harness.controller.close()
     }
 
     @Test func noAppSecretSaysSoBeforeTheCameraOpens() async {
@@ -805,6 +847,10 @@ struct RoomArtPreviewControllerTests {
         harness.frameProcessor.settleTheShirtFraming(on: .ready)
 
         try await waitFor("the shirt to show on the learner") { harness.controller.phase == .showingTheShirt(title: "Linen shirt") }
+        #expect(harness.spokenLines() == ["Here it is on you."])
+        // Stepping away once the shirt shows moves only the status line, even with no advice said before.
+        harness.frameProcessor.settleTheShirtFraming(on: .standBack)
+        try await waitFor("the coaching in the status line") { harness.controller.shirtCoachingLine != nil }
         #expect(harness.spokenLines() == ["Here it is on you."])
         harness.controller.close()
     }
