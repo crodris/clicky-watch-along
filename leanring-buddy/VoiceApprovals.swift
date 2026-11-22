@@ -56,7 +56,7 @@ nonisolated struct ApprovalVoiceAnswer: Equatable, Sendable {
         self.scope = approved && toolInput["always"]?.boolValue == true ? .always : .once
     }
 
-    /// What the chip under the cursor says once the answer went through.
+    /// What the chip above the cursor says once the answer went through.
     var chipPhrase: String {
         guard approved else { return "Declined it" }
         return scope == .always ? "Allowed it for this task" : "Allowed it"
@@ -131,7 +131,7 @@ nonisolated let approvalWaitingStatusText = "Needs your OK"
 
 // MARK: - The chip
 
-/// The chip under the cursor while a request waits: "Hinata needs your OK" with the way to answer after it, in the
+/// The chip above the cursor while a request waits: "Hinata needs your OK" with the way to answer after it, in the
 /// agent's color. `agentName` is the agent's player under a team theme, and the kind's name otherwise.
 nonisolated func approvalWaitingChipTexts(agentName: String) -> (primary: String, secondary: String) {
     ("\(agentName) needs your OK", "· say yes or no")

@@ -14,6 +14,7 @@ The lesson runs in four stages: Clicky asks a hypothesis and waits for a guess, 
 - `simulation-challenge` starts once the guess is settled, hides the dashed path, and counts tries until a hit, which plays "Glass".
 - `simulation-agent` is the background build, which logs `Experiment: built "<what>" in N s` and then `Experiment: showing "<what>", rising out of the video <bool>`, or `Experiment: the screen is busy, so it waits for "show the experiment"`.
 - `simulation-voice` is `set_control` and `run_simulation` from the router, such as "make the angle 30 degrees" and "run it".
+  `set_control` with `run: true` does both in one call, for "try 60 degrees", and while the guess is still locked it changes nothing and fails with a result that says it did not set or run.
 - `simulation-midrun-change` abandons a run when a slider drag or `set_control` changes a control while it plays, so its end adds no trial and Clicky says nothing about it. A change the page refuses leaves the run going.
 - `simulation-challenge-declined` skips the challenge when no readout carries the challenge's `readoutLabel`, since that target could never be hit, and the lesson ends without one.
 - `simulation-build-once` leaves `build_simulation` out of the router's tools while Clicky's own record says an experiment is on screen, so "let me try it" over one cannot start a second paid build.
@@ -46,6 +47,10 @@ Preconditions:
   The "&" prefix makes the guess wait for the build, the rise, and the spoken question, since the experiment now builds in the background.
   The log shows `Experiment: built`, `Experiment: showing`, `Simulation: asked for the guess` before `Live scene rehearsal: saying "I think`, `Voice command: record_guess(...)`, `Simulation: guess recorded`, two `run_simulation()` calls, `Simulation: guess check skipped after run 1, one setting tried`, and `Simulation: guess check after run 2`.
   Run `$V shot simulation` once the log shows `Simulation: challenge started`.
+- **Set and run in one call.** After the App recipe, post `set_control` with `{"name":"angle","value":60,"run":true}` to `http://127.0.0.1:8790/mcp`.
+  The App recipe ends in the challenge stage, so the run counts as a challenge try: the log shows the challenge line (`simulationChallengeSpokenLine`, such as "That was 2.1 meters under the target. Try again.", or "You hit the target in 2 tries." for a hit), and the trials table gains one row.
+  For the guess lock, launch with `$V app-launch "let me try it"` alone, wait for `Simulation: asked for the guess`, and post the same call.
+  It answers `ok: false` with "Did not set or run it", the slider stays where it was, and no trial is added.
 - **Change during a run.** After the App recipe, with the experiment still up, post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"run_simulation","arguments":{}}}` to `http://127.0.0.1:8790/mcp`, wait 0.5 seconds, then post `set_control` with `{"name":"angle","value":45}`.
   After 8 seconds the log has no new `Simulation: saying "That run gave` line, and a third `run_simulation` adds one, such as 40.77 meters for 45 degrees at 20 m/s.
   Run `$V shot simulation-midrun` and check the trials table lists only the runs that finished.

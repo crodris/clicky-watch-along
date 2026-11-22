@@ -1,0 +1,919 @@
+{
+  "label": "set-control-run-review-fixes",
+  "benchKind": "brain-evals",
+  "commitSHA": "1b247b75ef3d",
+  "workingTreeIsDirty": true,
+  "recordedAt": "2026-11-21T22:53:53.461Z",
+  "runCount": 5,
+  "port": 8797,
+  "backend": "harness",
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "summaryByBackend": {
+    "harness": {
+      "overall": {
+        "runs": 15,
+        "passed": 15,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 779,
+        "p95Ms": 949,
+        "totalCostUSD": 0.00353,
+        "meanCostUSD": 0.000236,
+        "fullCommandP50Ms": 788,
+        "meanFullCommandCostUSD": 0.000236
+      },
+      "byContext": {
+        "nothing": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "video": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "scene3D": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "experimentGuess": {
+          "runs": 5,
+          "passed": 5,
+          "passRate": 1,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": 830,
+          "p95Ms": 949,
+          "totalCostUSD": 0.00141,
+          "meanCostUSD": 0.000281,
+          "fullCommandP50Ms": 838,
+          "meanFullCommandCostUSD": 0.000281
+        },
+        "experimentExplore": {
+          "runs": 10,
+          "passed": 10,
+          "passRate": 1,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": 720,
+          "p95Ms": 914,
+          "totalCostUSD": 0.00213,
+          "meanCostUSD": 0.000213,
+          "fullCommandP50Ms": 723,
+          "meanFullCommandCostUSD": 0.000213
+        },
+        "popout": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "readyModel": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "taskAnswer": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "approvalWaiting": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioClosed": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioIdeas": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        }
+      }
+    }
+  },
+  "planningSummary": {
+    "runs": 5,
+    "passed": 5,
+    "passRate": 1,
+    "wrongTool": 0,
+    "wrongInput": 0,
+    "missedTool": 0,
+    "spuriousTool": 0,
+    "errors": 0,
+    "p50Ms": 1241,
+    "p95Ms": 1299,
+    "totalCostUSD": 0.00111,
+    "meanCostUSD": 0.000221,
+    "fullCommandP50Ms": 1241,
+    "meanFullCommandCostUSD": 0.000221
+  },
+  "samples": [
+    {
+      "backend": "harness",
+      "caseId": "experiment-set-angle",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 951.5831659999985,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 400,
+          "cacheWriteTokens": 5822,
+          "cacheReadTokens": 0,
+          "outputTokens": 98
+        }
+      ],
+      "costUSD": 0.00081675,
+      "fullCommandCostUSD": 0.00081675,
+      "totalMs": 948.6721249999991,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "value": 45
+          }
+        }
+      ],
+      "spokenText": "angle set to 45"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-set-angle",
+      "context": "experimentGuess",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 781.4267089999994,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 400,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 98
+        }
+      ],
+      "costUSD": 0.00014722,
+      "fullCommandCostUSD": 0.00014722,
+      "totalMs": 775.6983749999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "value": 45
+          }
+        }
+      ],
+      "spokenText": "angle set to 45"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-set-angle",
+      "context": "experimentGuess",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 798.48675,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 400,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 98
+        }
+      ],
+      "costUSD": 0.00014722,
+      "fullCommandCostUSD": 0.00014722,
+      "totalMs": 792.3777919999993,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "value": 45
+          }
+        }
+      ],
+      "spokenText": "angle set to 45"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-set-angle",
+      "context": "experimentGuess",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 945.6436249999988,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 400,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 99
+        }
+      ],
+      "costUSD": 0.00014772,
+      "fullCommandCostUSD": 0.00014772,
+      "totalMs": 934.4432499999984,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "value": 45
+          }
+        }
+      ],
+      "spokenText": "set the angle to 45"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-set-angle",
+      "context": "experimentGuess",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 837.531167000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 400,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 98
+        }
+      ],
+      "costUSD": 0.00014722,
+      "fullCommandCostUSD": 0.00014722,
+      "totalMs": 829.8321250000008,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "value": 45
+          }
+        }
+      ],
+      "spokenText": "angle set to 45"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-try-angle",
+      "context": "experimentExplore",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 921.1827919999996,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 511,
+          "cacheWriteTokens": 5488,
+          "cacheReadTokens": 0,
+          "outputTokens": 121
+        }
+      ],
+      "costUSD": 0.0007976,
+      "fullCommandCostUSD": 0.0007976,
+      "totalMs": 913.6867089999996,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "run": true,
+            "value": 45
+          }
+        }
+      ],
+      "spokenText": "trying 45 degrees"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-try-angle",
+      "context": "experimentExplore",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 878.4253750000007,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 511,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5488,
+          "outputTokens": 121
+        }
+      ],
+      "costUSD": 0.00016648000000000002,
+      "fullCommandCostUSD": 0.00016648000000000002,
+      "totalMs": 875.4717909999981,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "run": true,
+            "value": 45
+          }
+        }
+      ],
+      "spokenText": "trying 45 degrees"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-try-angle",
+      "context": "experimentExplore",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 794.6140000000014,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 511,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5488,
+          "outputTokens": 121
+        }
+      ],
+      "costUSD": 0.00016648000000000002,
+      "fullCommandCostUSD": 0.00016648000000000002,
+      "totalMs": 792.455417000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "run": true,
+            "value": 45
+          }
+        }
+      ],
+      "spokenText": "trying 45 degrees"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-try-angle",
+      "context": "experimentExplore",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 772.938041999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 511,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5488,
+          "outputTokens": 121
+        }
+      ],
+      "costUSD": 0.00016648000000000002,
+      "fullCommandCostUSD": 0.00016648000000000002,
+      "totalMs": 768.3382919999967,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "run": true,
+            "value": 45
+          }
+        }
+      ],
+      "spokenText": "trying 45 degrees"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-try-angle",
+      "context": "experimentExplore",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 788.1937080000025,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 511,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5488,
+          "outputTokens": 121
+        }
+      ],
+      "costUSD": 0.00016648000000000002,
+      "fullCommandCostUSD": 0.00016648000000000002,
+      "totalMs": 779.3987080000006,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "run": true,
+            "value": 45
+          }
+        }
+      ],
+      "spokenText": "trying 45 degrees"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-again",
+      "context": "experimentExplore",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 663.8634999999995,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 507,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5488,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00013258,
+      "fullCommandCostUSD": 0.00013258,
+      "totalMs": 662.1805420000019,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it again"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-again",
+      "context": "experimentExplore",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 653.5174589999988,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 507,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5488,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00013258,
+      "fullCommandCostUSD": 0.00013258,
+      "totalMs": 653.1267499999994,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it again"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-again",
+      "context": "experimentExplore",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 644.2721249999995,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 507,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5488,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00013258,
+      "fullCommandCostUSD": 0.00013258,
+      "totalMs": 643.6548750000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it again"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-again",
+      "context": "experimentExplore",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 695.0945419999989,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 507,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5488,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00013258,
+      "fullCommandCostUSD": 0.00013258,
+      "totalMs": 694.8885420000006,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it again"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-again",
+      "context": "experimentExplore",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 722.7127089999994,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 507,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5488,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00013258,
+      "fullCommandCostUSD": 0.00013258,
+      "totalMs": 720.0880419999994,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it again"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-guess-set-run",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1256.627207999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 415,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 243
+        }
+      ],
+      "costUSD": 0.00022122,
+      "fullCommandCostUSD": 0.00022122,
+      "totalMs": 1256.156665999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "sixty goes farther"
+          }
+        },
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "run": true,
+            "value": 60
+          }
+        }
+      ],
+      "spokenText": "got it, now let's try sixty running it at sixty degrees",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-guess-set-run",
+      "context": "experimentGuess",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 1171.234124999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 415,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 244
+        }
+      ],
+      "costUSD": 0.00022172,
+      "fullCommandCostUSD": 0.00022172,
+      "totalMs": 1170.3610829999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "sixty goes farther"
+          }
+        },
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "run": true,
+            "value": 60
+          }
+        }
+      ],
+      "spokenText": "got it, now trying sixty running sixty degrees",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-guess-set-run",
+      "context": "experimentGuess",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 1241.460332999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 415,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 240
+        }
+      ],
+      "costUSD": 0.00021972,
+      "fullCommandCostUSD": 0.00021972,
+      "totalMs": 1241.1094999999987,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "sixty goes farther"
+          }
+        },
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "run": true,
+            "value": 60
+          }
+        }
+      ],
+      "spokenText": "got it, now let's see set to sixty, running it",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-guess-set-run",
+      "context": "experimentGuess",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 1300.3039160000008,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 415,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 249
+        }
+      ],
+      "costUSD": 0.00022422,
+      "fullCommandCostUSD": 0.00022422,
+      "totalMs": 1298.7180829999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "sixty goes farther"
+          }
+        },
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "run": true,
+            "value": 60
+          }
+        }
+      ],
+      "spokenText": "got it, now trying sixty running it at sixty",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-guess-set-run",
+      "context": "experimentGuess",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 1170.5700410000027,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 415,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 241
+        }
+      ],
+      "costUSD": 0.00022022,
+      "fullCommandCostUSD": 0.00022022,
+      "totalMs": 1169.549583,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "sixty goes farther"
+          }
+        },
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "run": true,
+            "value": 60
+          }
+        }
+      ],
+      "spokenText": "got it, now try it set to sixty, running it",
+      "suite": "planning"
+    }
+  ]
+}
