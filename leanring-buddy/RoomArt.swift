@@ -522,8 +522,10 @@ nonisolated enum RoomArtBareFloorWindow {
     /// in a window around and below the anchor, so the lowest rows are left for it.
     static let centerRowShares = 0.62...0.86
     /// How much more a spot at the frame's side edge costs than one in the middle, as a share of its texture: furniture
-    /// standing at the edge is cut off by the frame, and the darkest, plainest floor is often a far corner.
-    static let costOfTheSideEdges = 1.0
+    /// standing at the edge is cut off by the frame, and the darkest, plainest floor is often a far corner. At 1.0 the
+    /// plain dark corner of room-floor.mp4's wood floor still won, so the loop outlined that corner while the piece then
+    /// stood in the middle (`roomFurnitureSpotWhereTheWholePieceFits`); at 2.0 the spot is the lower middle there.
+    static let costOfTheSideEdges = 2.0
 }
 
 /// The spot of the frame with the least texture, away from the person, in the upper part of the frame where art hangs, and

@@ -447,6 +447,21 @@ struct RoomArtGeometryTests {
         #expect(abs(spot.x - 160) <= 40, "the spot is at \(spot)")
     }
 
+    @Test func aPlainCornerDoesNotOutweighTheMiddleOfAGrainedWoodFloor() {
+        let width = 320, height = 180
+        // Faint wood grain, a 0.8 step every 4 rows, about 1.6 of texture a pixel, and a plain corner on the right from
+        // column 240, as room-floor.mp4's floor is. At a side cost of 1 the corner wins this floor.
+        var pixels = [Float](repeating: 100, count: width * height)
+        for row in 0..<height where (row / 4) % 2 == 1 {
+            for column in 0..<240 { pixels[row * width + column] = 100.8 }
+        }
+        let spot = bareFloorSpot(grayscale: RoomGrayscaleImage(width: width, height: height, pixels: pixels), roomMask: [Float](repeating: 1, count: width * height))
+
+        // The piece stands where the whole of it shows, near the middle, so the loop outlines the middle while the floor
+        // is measured.
+        #expect(abs(spot.x - 160) <= 40, "the spot is at \(spot)")
+    }
+
     @Test func flatteningCutsTheArtOutOfItsPhotoAtTheSizesShape() throws {
         // A 200 by 200 photo, white, with a red square from (50, 40) to (150, 140): the art.
         let context = CGContext(data: nil, width: 200, height: 200, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
