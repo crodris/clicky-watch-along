@@ -14,7 +14,7 @@
 //  bright dot orbits its ring every 3 seconds, so a slow agent still looks alive, and a waiting approval's disc pulses
 //  once every 1.6 seconds. With Reduce Motion on, the dot only fades in and out at the top of the ring and the pulse
 //  is a still halo, so the shape of the state still shows.
-//  The same triangle and progress view also draw the agent list's rows.
+//  The agent list's rows draw the same disc at its own size.
 //
 
 import AppKit
@@ -362,7 +362,7 @@ final class AgentTokenLoopHostView: NSView {
 
 // MARK: - Agent triangle
 
-/// One agent's triangle, drawn small in the agent list's rows.
+/// One agent's triangle. No surface draws it now, since the agent list's rows draw the agent's disc.
 struct AgentTriangleView: View {
     let agent: BackgroundAgent
     var size: CGFloat = 11
@@ -488,7 +488,7 @@ func agentTokenBadge(phase: BackgroundAgentPhase, isWaitingForApproval: Bool) ->
 }
 
 /// The badge a disc draws at its lower right. A waiting approval is the "!" face and the notch instead, so only a finished or
-/// failed agent gets a badge on its disc. The agent list's rows still draw `agentTokenBadge`.
+/// failed agent gets a badge on its disc.
 func agentTokenBadgeOnTheDisc(phase: BackgroundAgentPhase, isWaitingForApproval: Bool) -> AgentTokenBadge? {
     let badge = agentTokenBadge(phase: phase, isWaitingForApproval: isWaitingForApproval)
     return badge == .needsYourOK ? nil : badge

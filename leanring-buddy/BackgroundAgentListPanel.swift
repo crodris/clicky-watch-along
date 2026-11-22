@@ -1003,14 +1003,16 @@ private struct AgentRowView: View {
         .clipped()
     }
 
-    /// The same disc the agent has beside the notch, with the same badges, at the row's size.
+    /// The same disc the agent has beside the notch, with the same badges and loops, at its own size in the row's slot. It is
+    /// not scaled, since the disc's orbiting dot and approval pulse are Core Animation layers pinned to the disc's size, which
+    /// a SwiftUI scale does not reach.
     private var rowDisc: some View {
         AgentTokenDiscView(agent: agent, isWaitingForApproval: approvalState != .none)
-            .scaleEffect(Self.discDiameter / AgentTokenMetrics.discDiameter)
-            .frame(width: Self.discDiameter, height: Self.discDiameter)
+            .frame(width: Self.discSlotDiameter, height: Self.discSlotDiameter)
     }
 
-    private static let discDiameter: CGFloat = 28
+    /// The slot the disc sits in, which sets where the title starts.
+    private static let discSlotDiameter: CGFloat = 28
 
     /// "Hinata #10 · Study guide" for a player, with the number quieter, and just the kind's name otherwise.
     private var rowTitle: Text {
