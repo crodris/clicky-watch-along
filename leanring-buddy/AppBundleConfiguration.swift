@@ -27,7 +27,7 @@ enum AppBundleConfiguration {
     }
 }
 
-/// The secret the Worker's gated routes require in x-clicky-app-secret: the Notion routes, /room-art and /room-wall, which
+/// The secret the Worker's gated routes require in x-clicky-app-secret: the Notion routes, /try-it-item and /room-wall, which
 /// the room art panel uses, and /v1/messages, which the task agents and the voice command brain in the harness use. It
 /// is read from this app's defaults, so it
 /// never sits in git or in the built app. `verify-clicky.sh app-launch` copies it there from worker/.dev.vars, and

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { logModelUsage, requestAnthropicMessage } from "./anthropic";
+import { z } from "zod";
+import { logModelUsage, requestAnthropicMessage, zodIssuesOnOneLine } from "./anthropic";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -69,5 +70,18 @@ describe("logModelUsage", () => {
     logModelUsage("/live-scene", { model: "gpt-6.1-sol", service_tier: "ultrafast", usage: { input_tokens: 10, output_tokens: 2 } });
 
     expect(logMock).toHaveBeenCalledWith('[/live-scene] usage {"model":"gpt-6.1-sol","input_tokens":10,"output_tokens":2,"service_tier":"ultrafast"}');
+  });
+});
+
+describe("zodIssuesOnOneLine", () => {
+  it("keeps model-written line breaks out of the line, so no issue can forge a log line", () => {
+    const parsed = z.object({ kind: z.enum(["wallArt", "other"]) }).strict().safeParse({ kind: "a\nfake log line\u2028and\u2029more\r\u0085end", extra: 1 });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      const line = zodIssuesOnOneLine(parsed.error);
+      expect(line).toContain("fake log line");
+      expect(line).not.toMatch(/[\r\n\v\f\u0085\u2028\u2029]/);
+    }
   });
 });

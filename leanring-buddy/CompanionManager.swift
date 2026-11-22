@@ -330,7 +330,9 @@ final class CompanionManager: ObservableObject {
             }
         },
         clearTheLiveScene: { [weak self] in self?.clearTheLiveSceneForTheRoomArtPanel() },
-        speak: { [weak self] line in self?.speakARoomArtLine(line) },
+        // Every room art line but "Here it is" reports a failure, so the cursor shakes as it is said.
+        speak: { [weak self] line, isAFailure in self?.speakARoomArtLine(line, isAFailure: isAFailure) },
+        loopAccentColor: { [weak self] in self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue },
         endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() }
     ))
     /// The room art line waiting for its turn or playing. A new line replaces it, and every close of the panel ends it.
@@ -1596,7 +1598,7 @@ final class CompanionManager: ObservableObject {
             return
         case .showArtInMyRoom:
             theRequestBecameALookAtTheMedia()
-            startShowingTheArtInMyRoom()
+            startShowingTheArtInMyRoom(learnerRequest: transcript)
             return
         case nil:
             break
@@ -2920,8 +2922,9 @@ final class CompanionManager: ObservableObject {
     /// Escape only cancels a text field being edited in Clicky's own window, such as a saved theme's rename field, when one
     /// is, does nothing more when the menu bar panel took it as its own close, only cancels the settings dial when it is
     /// open, only closes the agent list when that is open, and then closes the Theme Studio card when that is open, keeping
-    /// the old theme, then answers an "Add theme?" card with a no, then closes the room art panel, then stops a recap's disc gather, then closes the quiz summary Card.
-    /// Otherwise it ends the scene and anything Clicky is still saying about it.
+    /// the old theme, then answers an "Add theme?" card with a no, then closes the room art panel (or stops its page read),
+    /// then stops a recap's disc gather, then closes the quiz summary Card. Otherwise it ends the scene and anything Clicky
+    /// is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
@@ -3573,7 +3576,7 @@ final class CompanionManager: ObservableObject {
             startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
         case .showArtInMyRoom:
             theRequestBecameALookAtTheMedia()
-            startShowingTheArtInMyRoom()
+            startShowingTheArtInMyRoom(learnerRequest: transcript)
         case .keywordPath:
             respondByTheKeywordPath(transcript: transcript)
         }
@@ -3655,7 +3658,7 @@ final class CompanionManager: ObservableObject {
             return .handOff { self.respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout) }
         case .showArtInMyRoom:
             theRequestBecameALookAtTheMedia()
-            return .handOff { self.startShowingTheArtInMyRoom() }
+            return .handOff { self.startShowingTheArtInMyRoom(learnerRequest: transcript) }
         case .closeScene:
             return .handOff { self.closeTheSceneByVoice() }
         case .explainPart:
@@ -3893,8 +3896,9 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Reads the picture and the page and opens the room art panel. The thinking state shows while the page is read, and
-    /// the panel and its spoken line say the rest. Like any hand-off, it takes over the reply.
-    private func startShowingTheArtInMyRoom() {
+    /// the panel and its spoken line say the rest. Like any hand-off, it takes over the reply. `learnerRequest` is the
+    /// learner's words, which tell the page reader which item they mean.
+    private func startShowingTheArtInMyRoom(learnerRequest: String) {
         // The request that asked already pressed push-to-talk, so only a later press is the learner's next request.
         pushToTalkPressCountWhenTheRoomArtStarted = pushToTalkPressCount
         roomArtSpeechTask?.cancel()
@@ -3905,7 +3909,7 @@ final class CompanionManager: ObservableObject {
         voiceState = .processing
         roomArtIsOpeningThePanel = true
         currentResponseTask = Task {
-            await self.roomArtPreviewController.showTheArtInTheRoom()
+            await self.roomArtPreviewController.showTheArtInTheRoom(learnerRequest: learnerRequest)
             // A push-to-talk press cancelled this task, and the newer request owns the voice state and, when it is another
             // room art request, the opening flag too.
             guard !Task.isCancelled else { return }
@@ -3917,8 +3921,9 @@ final class CompanionManager: ObservableObject {
 
     /// Says a room art line once nothing else is happening (`roomArtLineStep`). "Here it is" lands about 14 seconds after
     /// the request, so it waits for a newer answer to finish instead of cutting it off, and it is dropped when the learner
-    /// pressed push-to-talk since asking. It has its own task, since a press cancels the reply task.
-    private func speakARoomArtLine(_ line: String) {
+    /// pressed push-to-talk since asking. It has its own task, since a press cancels the reply task. `isAFailure` says the
+    /// line reports something that went wrong, so the cursor shakes as Clicky says it.
+    private func speakARoomArtLine(_ line: String, isAFailure: Bool) {
         roomArtSpeechTask?.cancel()
         roomArtSpeechTask = Task {
             while !Task.isCancelled {
@@ -3938,7 +3943,7 @@ final class CompanionManager: ObservableObject {
                     try? await Task.sleep(nanoseconds: 200_000_000)
                 case .speakNow:
                     // The token lets a close of the panel stop this line once it plays (`stopTheRoomArtSpeech`).
-                    guard let lineToken = await self.speakLiveSceneLineAndReturnItsToken(line) else { return }
+                    guard let lineToken = await self.speakLiveSceneLineAndReturnItsToken(line, isAFailure: isAFailure) else { return }
                     self.roomArtLineToken = lineToken
                     await self.waitForClickyToFinishSpeaking()
                     guard !Task.isCancelled else { return }

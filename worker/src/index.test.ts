@@ -203,7 +203,7 @@ describe("the app secret on the gated routes", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    for (const path of ["/notion-page", "/study-guide", "/study-guide-status", "/v1/messages", "/room-art", "/room-wall"]) {
+    for (const path of ["/notion-page", "/study-guide", "/study-guide-status", "/v1/messages", "/try-it-item", "/room-wall"]) {
       expect((await worker.fetch(postTo(path, {}), notionEnv)).status).toBe(401);
       expect((await worker.fetch(postTo(path, { "x-clicky-app-secret": "app-secreT" }), notionEnv)).status).toBe(401);
       expect((await worker.fetch(postTo(path, { "x-clicky-app-secret": "app-secret" }), { ...notionEnv, CLICKY_APP_SECRET: undefined })).status).toBe(401);
