@@ -39,7 +39,7 @@ A PR in a later wave starts once every PR it depends on has merged.
 | 5 Approval card | B | 2 | Read rail, ring, equal buttons, desk-driven states, per-surface seen state and clock, the stored transcript for "You said", instant No. |
 | 6 Agent list, Theme Studio, dial | B | 2, 3 | Glide from origin, live lines, result buttons, studio states and sound preview, dial plate. |
 | 7 Menu bar | B | 2 | Icon states, the disc dot, the approval disc, peek, right-click menu, and Bring back. |
-| 9 Cursor and ring | B | 2 | Glyph, stretch and landing ring, nod, shake, hop, ticks to dots to bubble. |
+| 9 Cursor and ring | B | 2 | Glyph, stretch and landing ring, nod, shake, hop, ticks to dots to the speech Callout. |
 | 10 Quiz, scenes, edges | B | 2 | Quiz states and summary, scene stylesheet with dark glass labels, lesson stages, error and full-screen states. |
 | 11 Instant replay | B | 2 | Record each stop's label, sentence, and camera pose; voice and click controls; cancelation; the Reduce Motion list. |
 | 8 Panel, onboarding, keyboard | C | 2, 3, 7 | Home panel, banner slot, theme cards, all-themes grid, six-step setup, keyboard and VoiceOver paths. |
@@ -100,15 +100,15 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 6 Agent list, Theme Studio, dial | Merged: [#87](https://github.com/crodris/clicky-watch-along/pull/87) |
 | 7 Menu bar | Merged: [#86](https://github.com/crodris/clicky-watch-along/pull/86) |
 | 5 Approval card | Merged: [#84](https://github.com/crodris/clicky-watch-along/pull/84) |
-| 9 Cursor and ring | Open: [#83](https://github.com/crodris/clicky-watch-along/pull/83), paused by the weekly Claude limit |
-| 10 Quiz, scenes, edges | Open: [#85](https://github.com/crodris/clicky-watch-along/pull/85), paused by the weekly Claude limit |
-| 11 Instant replay | Open: [#88](https://github.com/crodris/clicky-watch-along/pull/88), paused by the weekly Claude limit |
-| 8 Panel, onboarding, keyboard | Branch `feature/tether-panel-onboarding`, no PR yet, paused by the weekly Claude limit |
-| 13 Theme Studio designs motion | Branch `feature/tether-theme-motion`, no PR yet, paused by the weekly Claude limit |
-| 14 The loop carries background work | Starts when PR 9 merges |
+| 9 Cursor and ring | Merged: [#83](https://github.com/crodris/clicky-watch-along/pull/83) |
+| 10 Quiz, scenes, edges | Open: [#85](https://github.com/crodris/clicky-watch-along/pull/85) |
+| 11 Instant replay | Open: [#88](https://github.com/crodris/clicky-watch-along/pull/88) |
+| 8 Panel, onboarding, keyboard | Building |
+| 13 Theme Studio designs motion | Building |
+| 14 The loop carries background work | Building |
 | 15 End-of-video recap | Starts when PR 10 merges |
-| 16 Pause every agent by voice | Branch `feature/tether-pause-agents`, no PR yet, paused by the weekly Claude limit |
-| 17 Scrub by voice | Starts when PRs 9 and 11 merge |
+| 16 Pause every agent by voice | Building |
+| 17 Scrub by voice | Starts when PR 11 merges |
 | 18 Share themes as files | Starts when PR 8 merges, since it drags the panel's theme cards |
 | 19 Tether polish | After the build order: what earlier PRs left open that no later PR owns |
 
@@ -118,9 +118,12 @@ Left open by PR 2, folded into PR 7: the serve has no still ring under Reduce Mo
 
 Deferred from PR 3: the "Add theme?" card shown before an install (done in PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18).
 
-Left open by PR 4: the ring still hides while a status line shows (PR 9). PR 11 makes a push-to-talk press during a narration shrink the bubble into the cursor.
+Left open by PR 4: a push-to-talk press during a narration left the bubble with a rise instead of shrinking it into the cursor. PR 11 makes it shrink into the cursor.
 PR 19 takes the rest, plus PR 7's leftovers: Bring back's drop to the cursor can cross the video, no unit test pins the tether cut when a disc slides, the right-click menu's quiz check, or the press-handler order, and the app icon's cursor points down and right while the app's cursor points up and left. PR 4's leftovers in PR 19: stacked chips (a new chip pushes the old one up, which needs a second panel), the speech underline at exactly 2 points, and the `start_background_task` description that still says "a chip under the cursor", with its three fixtures and recorded evals.
 
 Folded into PR 8 from PR 7: keyboard focus on the agent discs, and the status badge on a light menu bar.
 
 Left open by PR 6, for PR 19: the disc right-click menu has no "Try again" item, `AgentTriangleView` is now unused, and a click in the agent list's shadow margin hits faint shadow pixels. PR 8 makes the panel's theme cards match the studio tiles.
+
+Left open by PR 5, for PR 19: the approval card should glide back into its agent disc when answered, and the disc's "!" should turn into a check.
+Left open by PR 9, for PR 19: a ring dot crosses about 3 points into a status line's Callout at the top of its orbit, the shake, hop, and Reduce Motion tints are checked only on rendered frames, and the failure flag `isAFailure` defaults to false, so make it required once the parallel PRs have merged.
