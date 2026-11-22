@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { pageWithLocalThree, sceneShotsChromeProcesses, sceneShotsFolderIsStale, scenePageContentSecurityPolicy } from "./sceneShots.ts";
+import { aChromeOnTheFolderHasALiveParent, pageWithLocalThree, sceneShotsChromeProcesses, sceneShotsFolderIsStale, scenePageContentSecurityPolicy } from "./sceneShots.ts";
 
 describe("pageWithLocalThree", () => {
   it("points the import map's three.js at the local server, and leaves every other URL alone", () => {
@@ -55,6 +55,34 @@ describe("sceneShotsChromeProcesses", () => {
       { pid: 83128, parentPid: 1, scratchDirectory: "/var/folders/ab/T/scene-shots-9XaGV9" },
       { pid: 83177, parentPid: 83128, scratchDirectory: "/var/folders/ab/T/scene-shots-9XaGV9" },
     ]);
+  });
+});
+
+describe("aChromeOnTheFolderHasALiveParent", () => {
+  const folder = "/var/folders/ab/T/scene-shots-9XaGV9";
+
+  it("is false for an orphaned Chrome even though its helpers have the Chrome as their parent", () => {
+    assert.equal(
+      aChromeOnTheFolderHasALiveParent([
+        { pid: 83128, parentPid: 1, scratchDirectory: folder },
+        { pid: 83177, parentPid: 83128, scratchDirectory: folder },
+      ]),
+      false,
+    );
+  });
+
+  it("is true for a Chrome whose run is still its parent", () => {
+    assert.equal(
+      aChromeOnTheFolderHasALiveParent([
+        { pid: 83128, parentPid: 4000, scratchDirectory: folder },
+        { pid: 83177, parentPid: 83128, scratchDirectory: folder },
+      ]),
+      true,
+    );
+  });
+
+  it("is false with no Chrome on the folder", () => {
+    assert.equal(aChromeOnTheFolderHasALiveParent([]), false);
   });
 });
 

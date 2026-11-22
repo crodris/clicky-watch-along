@@ -58,7 +58,8 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
                             launches in Finder, so Chris can turn its switch on or drag that exact app into the list. app-launch says when it is needed.
   cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
   lock-take <owner>         Take the app check lock (/tmp/clicky-app-check.lock, or $CLICKY_APP_CHECK_LOCK) for <owner>, such as your
-                            branch name. Fails and names the owner while another agent holds it: wait 60 seconds and try again.
+                            branch name. Fails and names the owner and how long it has held the lock while another agent holds it: wait 60
+                            seconds and try again. A lock held over 20 minutes has outlived the rule: report the app surface as unverified.
   lock-release <owner>      Release the lock. Refuses and names the real owner when the lock is held by anyone but <owner>.
                             Never remove the lock directory by hand: a lock you did not take is another agent's running check.
 EOF

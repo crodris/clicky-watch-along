@@ -60,6 +60,16 @@ export function sceneShotsChromeProcesses(psOutput: string): SceneShotsChromePro
   });
 }
 
+/**
+ * True when a run still waits for a Chrome on the folder. Each Chrome has helper processes (GPU, renderer) whose parent is
+ * the main Chrome, so a main Chrome orphaned by a SIGKILL still has children with a live parent. Only the processes
+ * whose parent is not another Chrome on the folder count: the main Chrome, whose parent is launchd once its run is gone.
+ */
+export function aChromeOnTheFolderHasALiveParent(chromesOnFolder: SceneShotsChromeProcess[]): boolean {
+  const mainChromes = chromesOnFolder.filter((chromeProcess) => !chromesOnFolder.some((other) => other.pid === chromeProcess.parentPid));
+  return mainChromes.some((chromeProcess) => chromeProcess.parentPid !== launchdPid);
+}
+
 /** launchd's pid. A process whose parent died is handed to it, so a Chrome with this parent has no run waiting for it. */
 const launchdPid = 1;
 
@@ -111,8 +121,7 @@ export function removeStaleSceneShots() {
       const ownerPidPath = join(folder, ownerPidFileName);
       const ownerPidText = existsSync(ownerPidPath) ? readFileSync(ownerPidPath, "utf8") : undefined;
       const chromesOnFolder = chromeProcesses.filter((chromeProcess) => chromeProcess.scratchDirectory === folder);
-      const aChromeOnItHasALiveParent = chromesOnFolder.some((chromeProcess) => chromeProcess.parentPid !== launchdPid);
-      if (!sceneShotsFolderIsStale(ownerPidText, Date.now() - statSync(folder).mtimeMs, processIsAlive, aChromeOnItHasALiveParent)) {
+      if (!sceneShotsFolderIsStale(ownerPidText, Date.now() - statSync(folder).mtimeMs, processIsAlive, aChromeOnTheFolderHasALiveParent(chromesOnFolder))) {
         continue;
       }
       for (const { pid } of chromesOnFolder) {
