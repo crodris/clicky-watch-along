@@ -114,7 +114,7 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 16 Pause every agent by voice | Merged: [#94](https://github.com/crodris/clicky-watch-along/pull/94) |
 | 17 Scrub by voice | Merged: [#111](https://github.com/crodris/clicky-watch-along/pull/111). Seen in the app on the volcano video: a long slide, a short one from a spoken request, and a press mid-scrub. Reduce Motion is covered by a unit test only |
 | 18 Share themes as files | Merged: [#102](https://github.com/crodris/clicky-watch-along/pull/102) |
-| 19 Tether polish | Three parallel PRs: 19a agents, menu bar, and recap merged as [#114](https://github.com/crodris/clicky-watch-along/pull/114); 19b speech, cursor, quiz, and replay merged as [#112](https://github.com/crodris/clicky-watch-along/pull/112); 19c themes, panel, Quick Look, and the app icon is building |
+| 19 Tether polish | Merged in three parts: 19a agents, menu bar, and recap ([#114](https://github.com/crodris/clicky-watch-along/pull/114)); 19b speech, cursor, quiz, and replay ([#112](https://github.com/crodris/clicky-watch-along/pull/112)); 19c themes, panel, Quick Look, and the app icon ([#113](https://github.com/crodris/clicky-watch-along/pull/113)) |
 
 Deferred from PR 1, to fold into later PRs: the Chrome control row hides after onboarding (PR 8), a hover that shows only after the next mouse move on a still pointer (PR 8), the dimmed No button's low contrast (PR 5), a pop-out label's leader line that can point off screen after a resize (PR 10), and the menu bar icon not found beside the notch (PR 7).
 
@@ -163,3 +163,16 @@ Left open by PR 17, which was built while PR 19 was building, so a later polish 
 The scrub was not seen on a non-YouTube player (the video's bottom edge line), or with the mouse on another display than the video, where the cursor flies from wherever the video's screen last saw the mouse.
 One of four app runs read no line while the volcano video had about 14 seconds left, and the app sought with no slide, as designed; the first 400 characters of the reply are now logged, so the next case shows why.
 A page can choose the line's geometry, since the script runs in the page, so it can steer where the cursor slides on its own display; nothing reaches a model.
+
+## Still open after the build
+
+Every PR in the build order and every bigger idea has merged.
+The leftover paragraphs above are a record; this list is what is still open, and a follow-up PR takes the code items.
+
+- The Quick Look extensions draw their own copy of the still cursor; `Triangle` and `CursorGlyphShade` can now move into a file the extensions compile.
+- Two video resume paths after a failure do not check that a newer scene took the pause, as the three paths PR 19b fixed now do.
+- With no part focused, a wide model after a pop-out's tour still centers in the window and can reach over a video page's sidebar.
+- The Theme Studio card's `hidingTheCarriedView: true` argument has no test of its own.
+- Not yet seen in the app: the stacked chips, the scrub's Reduce Motion fade, a close during the Theme Studio card's glide-in, the approval card's Glide into its disc, and the recap gather.
+- Known limits, kept: the recap covers only the last quiz and can miss a playlist's end; the scrub was not seen on a non-YouTube player or a second display; a page can steer where the scrub line sits on its own display; a scene build the learner watches waits 60 seconds, which a slow Sonnet test Worker can pass.
+- For Chris by hand: the dark, tinted, and clear app icon modes need the layers imported into Icon Composer, and macOS asks whether Clicky may bypass the system private window picker.
