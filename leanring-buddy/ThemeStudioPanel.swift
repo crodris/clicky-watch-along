@@ -455,7 +455,14 @@ private struct ThemeStudioTileView: View {
     /// A tile lands from this scale. It is larger than a Callout's Pop start (`DS.Move.popStartScale`), since a tile is
     /// large and a Pop from 0.4 would sweep over its neighbors.
     private static let landingStartScale: CGFloat = 0.85
+    /// The size of a tile that is not highlighted.
+    private static let unhighlightedScale: CGFloat = 0.92
     private var accentColor: Color { Color(hex: idea.accentHex) }
+
+    /// Pop under this idea's own springs, not the shown theme's, so each tile previews the motion it would give the app.
+    private var ideasOwnPop: Animation? {
+        DS.Move.pop.animation(reduceMotionIsOn: reduceMotion, springs: idea.moveSprings)
+    }
 
     init(
         idea: ClickyTheme,
@@ -558,13 +565,17 @@ private struct ThemeStudioTileView: View {
                     .transition(reduceMotion ? .opacity : .scale(scale: DS.Move.popStartScale).combined(with: .opacity))
             }
         }
-        .animation(DS.Move.pop.animation(reduceMotionIsOn: reduceMotion), value: isStamped)
+        .animation(ideasOwnPop, value: isStamped)
+        // A tile that is not the highlighted one sits a little smaller, and picking it springs it up with its own idea's Pop,
+        // so a bouncy idea visibly overshoots and a calm one settles. With Reduce Motion the size never changes.
+        .scaleEffect(isHighlighted || isDimmedWhileDesigning || reduceMotion ? 1 : Self.unhighlightedScale)
+        .animation(ideasOwnPop, value: isHighlighted)
         // Each tile lands with a Pop, 90 ms after the one before it. With Reduce Motion it only fades in.
         .opacity(hasLanded ? 1 : 0)
         .scaleEffect(hasLanded || reduceMotion ? 1 : Self.landingStartScale)
         .onAppear {
             guard !hasLanded else { return }
-            withAnimation(DS.Move.pop.animation(reduceMotionIsOn: reduceMotion)?.delay(Double(ideaIndex) * Self.secondsBetweenLandings)) {
+            withAnimation(ideasOwnPop?.delay(Double(ideaIndex) * Self.secondsBetweenLandings)) {
                 hasLanded = true
             }
         }

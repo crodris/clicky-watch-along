@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { checkThemeIdeas, contrastRatioAgainstTheDarkSurface, handleThemeIdeas, pathProblem } from "./themeIdeas";
+import { checkThemeIdeas, contrastRatioAgainstTheDarkSurface, handleThemeIdeas, pathProblem, themeSpringLimits } from "./themeIdeas";
+import springLimitsFixture from "./testdata/theme-spring-limits.json";
 
 type CheckedModelReply = Parameters<typeof checkThemeIdeas>[0];
 type ModelIdea = CheckedModelReply["ideas"][number];
@@ -235,6 +236,61 @@ describe("checkThemeIdeas", () => {
     expect(rejectionReason(replyWithFirstIdea(withAgents({ ring: "accent" })))).toContain("agents.ring is accent, so its agents.colors must be empty, and it holds 3");
     expect(rejectionReason(replyWithFirstIdea(withAgents({ ring: "perKind" })))).toContain("agents.ring is \"perKind\", and it must be one of perAgent, accent");
     expect(rejectionReason(replyWithFirstIdea(withAgents({ faces: { kind: "roster" } })))).toContain("agents.faces.kind is \"roster\", and it must be one of triangle, picture");
+  });
+});
+
+describe("springs", () => {
+  const bouncySprings = { pop: { response: 0.3, dampingFraction: 0.6 }, glide: { response: 0.4, dampingFraction: 0.8 }, point: { response: 0.4 } };
+
+  it("keeps an idea's springs when they are inside the limits, and writes none for an idea with none or a null", () => {
+    const nullSprings = goodIdea({ motion: { ...goodIdea().motion, springs: null } });
+    const check = checkThemeIdeas(goodReply({ ideas: [goodIdea({ motion: { ...goodIdea().motion, springs: bouncySprings } }), goodIdea(), nullSprings] }), false);
+
+    expect(check).toMatchObject({ accepted: true });
+    if (!check.accepted) return;
+    expect(check.reply.ideas[0].motion.springs).toEqual(bouncySprings);
+    expect("springs" in check.reply.ideas[1].motion).toBe(false);
+    expect("springs" in check.reply.ideas[2].motion).toBe(false);
+  });
+
+  for (const springCase of springLimitsFixture.cases) {
+    it(`clamps like the app does: ${springCase.name}`, () => {
+      const check = checkThemeIdeas(replyWithFirstIdea({ motion: { ...goodIdea().motion, springs: springCase.input } }), false);
+
+      expect(check).toMatchObject({ accepted: true });
+      if (!check.accepted) return;
+      expect(check.reply.ideas[0].motion.springs).toEqual(springCase.expected);
+    });
+  }
+
+  it("uses the limits the shared fixture lists", () => {
+    expect(themeSpringLimits).toEqual(springLimitsFixture.limits);
+  });
+
+  it("refuses a spring that is not a finite number, since it cannot be moved into a range", () => {
+    const springs = { ...bouncySprings, pop: { response: Number.NaN, dampingFraction: 0.6 } };
+
+    expect(rejectionReason(replyWithFirstIdea({ motion: { ...goodIdea().motion, springs } }))).toContain("springs must hold finite numbers");
+  });
+
+  it("offers the model an optional springs field, and tells it how bouncy and calm map to the limits", async () => {
+    const fetchMock = stubFetch(sonnetReply(goodReply()));
+
+    await handleThemeIdeas(requestWithBody(handlerRequest), "key");
+
+    type SentMotionSchema = { properties: { springs: { anyOf: { required?: string[] }[] } }; required: string[] };
+    type SentBody = {
+      system: { text: string }[];
+      output_config: { format: { schema: { properties: { ideas: { items: { properties: { motion: SentMotionSchema } } } } } } };
+    };
+    const sentBody: SentBody = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    const motionSchema = sentBody.output_config.format.schema.properties.ideas.items.properties.motion;
+    expect(motionSchema.properties.springs.anyOf[0].required).toEqual(["pop", "glide", "point"]);
+    expect(motionSchema.properties.springs.anyOf[1]).toEqual({ type: "null" });
+    expect(motionSchema.required).toContain("springs");
+    const systemPrompt = sentBody.system.map((block) => block.text).join("\n");
+    expect(systemPrompt).toContain("pop response 0.2 to 0.45");
+    expect(systemPrompt).toContain("Bouncy or playful");
   });
 });
 

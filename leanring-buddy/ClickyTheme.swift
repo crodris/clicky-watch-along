@@ -35,6 +35,9 @@ nonisolated struct ClickyTheme: Equatable, Sendable {
     /// Where the theme came from, which decides how the settings name it and where its images are.
     let origin: ThemeOrigin
 
+    /// The Pop, Glide, and Point springs this theme gives the app: its own, or Clicky's.
+    var moveSprings: ThemeMoveSprings { motion.springs ?? .standard }
+
     /// True when the theme needs the picture the learner pointed at (picture.jpg), as the cursor, as the agents' faces, or
     /// both.
     var usesPicture: Bool {
@@ -148,6 +151,7 @@ nonisolated enum CursorListeningMotion: String, Equatable, Sendable {
     case none, pulse
 }
 
+/// A theme's `motion` in theme.json: how the cursor moves, and optionally how the whole app's springs feel.
 nonisolated struct CustomCursorMotion: Equatable, Sendable {
     /// The cursor faces the mouse's movement while it follows, as the volleyball does.
     let turnsTowardMovement: Bool
@@ -155,6 +159,73 @@ nonisolated struct CustomCursorMotion: Equatable, Sendable {
     let trailStreaks: Int
     let whileThinking: CursorThinkingMotion
     let whileListening: CursorListeningMotion
+    /// The Pop, Glide, and Point springs the theme asks for, already inside the safe limits. Nil for a theme that keeps
+    /// Clicky's own, as every bundled theme does.
+    var springs: ThemeMoveSprings? = nil
+}
+
+/// One spring a theme sets: how fast it moves (`response`, in seconds) and how much it swings (`dampingFraction`, below 1
+/// overshoots, 1 does not), with the meaning of SwiftUI's `spring(response:dampingFraction:)`.
+nonisolated struct ThemeSpring: Equatable, Sendable {
+    let response: Double
+    let dampingFraction: Double
+}
+
+/// The safe range of one spring. Its worst corner is the slowest and bounciest spring a theme may ask for.
+nonisolated struct ThemeSpringLimits: Equatable, Sendable {
+    let response: ClosedRange<Double>
+    let dampingFraction: ClosedRange<Double>
+
+    func clamped(_ spring: ThemeSpring) -> ThemeSpring {
+        ThemeSpring(
+            response: min(max(spring.response, response.lowerBound), response.upperBound),
+            dampingFraction: min(max(spring.dampingFraction, dampingFraction.lowerBound), dampingFraction.upperBound)
+        )
+    }
+}
+
+/// The springs a theme may change: Pop and Glide as the spring they are, and Point as a speed, since its flight is a
+/// distance-paced smoothstep and not a spring. The Worker's `checkThemeIdeas` clamps to the same numbers
+/// (`worker/src/themeIdeas.ts`), and `worker/src/testdata/theme-spring-limits.json` keeps the two in step.
+///
+/// The limits come from the Tether move table. A spring settles in about `0.989 * response / dampingFraction` seconds, and
+/// overshoots its target by `exp(-pi * damping / sqrt(1 - damping^2))` of the distance:
+/// - Pop (Callouts, badges, tiles): response 0.2 to 0.45 and damping 0.55 to 1, so the slowest settles in 0.81 s and
+///   the bounciest overshoots by 12.6 percent of a scale that grows from 0.4, a few points on a Callout.
+/// - Glide (Cards): response 0.3 to 0.55 and damping 0.75 to 1, so the slowest settles in 0.73 s and the bounciest
+///   overshoots by 2.8 percent, about 8 points at the edge of a 300 point card, inside the shadow margin around it.
+/// - Point: response 0.3 to 0.6 seconds, where Clicky's own flight is 0.5, so a flight is 0.6 to 1.2 times as long as it
+///   is today, at most 1.7 s for the longest one.
+/// No surface takes longer than 0.85 s to settle, so none feels stuck, and none leaves its frame.
+nonisolated struct ThemeMoveSprings: Equatable, Sendable {
+    var pop: ThemeSpring
+    var glide: ThemeSpring
+    /// The Point move's response. A flight lasts `response / standardPointResponse` times its usual 0.6 to 1.4 s.
+    var pointResponse: Double
+
+    static let popLimits = ThemeSpringLimits(response: 0.2...0.45, dampingFraction: 0.55...1)
+    static let glideLimits = ThemeSpringLimits(response: 0.3...0.55, dampingFraction: 0.75...1)
+    static let pointResponseLimits = 0.3...0.6
+
+    /// Clicky's own springs, which every bundled theme keeps (the Tether spec's move table).
+    static let standardPointResponse = 0.5
+    static let standard = ThemeMoveSprings(
+        pop: ThemeSpring(response: 0.32, dampingFraction: 0.68),
+        glide: ThemeSpring(response: 0.42, dampingFraction: 0.9),
+        pointResponse: standardPointResponse
+    )
+
+    /// The same springs with every number moved into its safe range.
+    var clampedToTheSafeLimits: ThemeMoveSprings {
+        ThemeMoveSprings(
+            pop: Self.popLimits.clamped(pop),
+            glide: Self.glideLimits.clamped(glide),
+            pointResponse: min(max(pointResponse, Self.pointResponseLimits.lowerBound), Self.pointResponseLimits.upperBound)
+        )
+    }
+
+    /// How much longer than Clicky's own a Point flight lasts.
+    var pointFlightTimeFactor: Double { pointResponse / Self.standardPointResponse }
 }
 
 /// The macOS system sounds a theme may pick, which are the names `NSSound(named:)` plays.
@@ -509,8 +580,32 @@ nonisolated extension ClickyTheme {
             turnsTowardMovement: try motionReader.bool("turnsTowardMovement"),
             trailStreaks: Int(trailStreaks),
             whileThinking: whileThinking,
-            whileListening: whileListening
+            whileListening: whileListening,
+            springs: try parseSprings(motionReader)
         )
+    }
+
+    /// `motion.springs` is optional, so every theme written before it still parses. A spring outside its safe limits is moved
+    /// to the nearest limit, not refused, since the limits keep a hand-edited file from making the app feel stuck and a
+    /// refusal would throw the rest of the theme away. A move the file leaves out keeps Clicky's own spring.
+    private static func parseSprings(_ motionReader: IdeaReader) throws -> ThemeMoveSprings? {
+        guard let springsReader = try motionReader.optionalObject("springs") else { return nil }
+        let standard = ThemeMoveSprings.standard
+
+        func spring(_ key: String, standard standardSpring: ThemeSpring) throws -> ThemeSpring {
+            guard let springReader = try springsReader.optionalObject(key) else { return standardSpring }
+            return ThemeSpring(
+                response: try springReader.finiteNumber("response"),
+                dampingFraction: try springReader.finiteNumber("dampingFraction")
+            )
+        }
+
+        let pointResponse = try springsReader.optionalObject("point")?.finiteNumber("response") ?? standard.pointResponse
+        return ThemeMoveSprings(
+            pop: try spring("pop", standard: standard.pop),
+            glide: try spring("glide", standard: standard.glide),
+            pointResponse: pointResponse
+        ).clampedToTheSafeLimits
     }
 
     private static func parseSounds(_ soundsReader: IdeaReader) throws -> CustomThemeSounds {
@@ -549,6 +644,12 @@ private nonisolated struct IdeaReader {
         return IdeaReader(fieldValue, location: "\(location).\(key)")
     }
 
+    /// An object, or nil for a missing key or null.
+    func optionalObject(_ key: String) throws -> IdeaReader? {
+        guard let fieldValue = value[key], fieldValue != .null else { return nil }
+        return try object(key)
+    }
+
     func string(_ key: String, lengths: ClosedRange<Int>) throws -> String {
         guard let text = try required(key).stringValue, lengths.contains(text.count) else {
             throw CustomThemeParseError(reason: "\(location).\(key) must be text of \(lengths.lowerBound) to \(lengths.upperBound) characters")
@@ -564,6 +665,14 @@ private nonisolated struct IdeaReader {
     func number(_ key: String, range: ClosedRange<Double>) throws -> Double {
         guard let number = try required(key).numberValue, number.isFinite, range.contains(number) else {
             throw CustomThemeParseError(reason: "\(location).\(key) must be a number from \(range.lowerBound) to \(range.upperBound)")
+        }
+        return number
+    }
+
+    /// Any finite number, for a field the caller moves into its own range afterward.
+    func finiteNumber(_ key: String) throws -> Double {
+        guard let number = try required(key).numberValue, number.isFinite else {
+            throw CustomThemeParseError(reason: "\(location).\(key) must be a number")
         }
         return number
     }
@@ -649,18 +758,27 @@ nonisolated extension ClickyTheme {
                 ]),
             ])
         }
+        var motionFields: [String: JSONValue] = [
+            "turnsTowardMovement": .bool(motion.turnsTowardMovement),
+            "trailStreaks": .number(Double(motion.trailStreaks)),
+            "whileThinking": .string(motion.whileThinking.rawValue),
+            "whileListening": .string(motion.whileListening.rawValue),
+        ]
+        // Written only for a theme that sets springs, so a bundled theme's file stays as it was.
+        if let springs = motion.springs {
+            motionFields["springs"] = .object([
+                "pop": springs.pop.themeJSON,
+                "glide": springs.glide.themeJSON,
+                "point": .object(["response": .number(springs.pointResponse)]),
+            ])
+        }
         return .object([
             "version": .number(Double(Self.newestFileVersion)),
             "name": .string(name),
             "accent": .string(accentHex),
             "contrast": .string(contrastHex),
             "cursor": cursorJSON,
-            "motion": .object([
-                "turnsTowardMovement": .bool(motion.turnsTowardMovement),
-                "trailStreaks": .number(Double(motion.trailStreaks)),
-                "whileThinking": .string(motion.whileThinking.rawValue),
-                "whileListening": .string(motion.whileListening.rawValue),
-            ]),
+            "motion": .object(motionFields),
             "agents": agents.themeJSON,
             "sounds": .object([
                 "done": .string(sounds.done.rawValue),
@@ -668,6 +786,12 @@ nonisolated extension ClickyTheme {
                 "needsYourOK": .string(sounds.needsYourOK.rawValue),
             ]),
         ])
+    }
+}
+
+nonisolated extension ThemeSpring {
+    var themeJSON: JSONValue {
+        .object(["response": .number(response), "dampingFraction": .number(dampingFraction)])
     }
 }
 

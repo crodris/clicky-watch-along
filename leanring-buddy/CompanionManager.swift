@@ -404,6 +404,8 @@ final class CompanionManager: ObservableObject {
     private var approvalAtThePress: ApprovalAtPress?
     private var escapeKeyCancellable: AnyCancellable?
     private var settingsDialCancellable: AnyCancellable?
+    /// Keeps `DS.Move.themeSprings` equal to the shown theme's springs, the studio's preview included.
+    private var themeSpringsCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
     private var scrollWheelCancellable: AnyCancellable?
     private var cursorLoopVoiceStateCancellable: AnyCancellable?
@@ -474,6 +476,11 @@ final class CompanionManager: ObservableObject {
         VoiceToolCallChip.shared.themeAccentProvider = { [weak self] in
             self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue
         }
+        // $theme and $previewTheme publish the new value before the stored one changes, so the sink reads its arguments.
+        themeSpringsCancellable = themeSettings.$theme.combineLatest(themeSettings.$previewTheme)
+            .sink { savedTheme, previewTheme in
+                DS.Move.themeSprings = (previewTheme ?? savedTheme).moveSprings
+            }
         agentTokenDockController.start()
         // The brain runs in the harness process, so the first voice command must not pay its launch.
         if voiceCommandBackend.runsInTheHarness {
