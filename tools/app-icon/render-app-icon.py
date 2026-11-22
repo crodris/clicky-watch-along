@@ -1,31 +1,38 @@
 #!/usr/bin/env python3
 """Draws Clicky's app icon and renders every size the AppIcon set needs.
 
-The icon is the cursor arriving along a dotted arc into its landing ring
-(the Tether spec's "Point" move), on a deep blue rounded square.
+The icon is the cursor inside the ring of 24 ticks the app draws around it while the
+learner talks, on a deep blue rounded square.
 
 Run from anywhere:  python3 -I tools/app-icon/render-app-icon.py
 
-It writes two things from one set of shapes, so they cannot differ:
-  - tools/app-icon/layers/*.svg   the four layers (field, arc, ring, cursor), each a
-                                  full 1024 point canvas, to import into Icon Composer.
+It writes two things from one set of shapes, so their shapes cannot differ:
+  - leanring-buddy/AppIcon.icon   the Icon Composer file, which gives the icon its dark and
+                                  tinted modes. The field is its gradient fill, and the ticks
+                                  and the cursor are 1024 point SVG layers.
                                   The tile shadow and the cursor's shadow are left out, since
-                                  Icon Composer draws its own, and Icon Composer may replace
-                                  the field layer with its own background fill.
-  - leanring-buddy/Assets.xcassets/AppIcon.appiconset/*-mac.png   the shipped sizes
+                                  Icon Composer draws its own.
+                                  Icon Composer maps the layers onto a canvas the size of the tile.
+                                  The PNG's tile is only 824 points of 1024, so on macOS 26 the
+                                  artwork draws at about 80 percent of its PNG size.
+                                  That leaves the glass tile a wider margin.
+                                  The file is generated, so change the shapes here and never in Icon Composer.
+  - leanring-buddy/Assets.xcassets/AppIcon.appiconset/*-mac.png   the sizes macOS before 26 uses
 
 Rasterizing uses headless Google Chrome, since it draws SVG gradients and filters
-exactly and needs no Python packages. Pass --layers-only to skip the PNGs.
+exactly and needs no Python packages. Pass --icon-file-only to skip the PNGs.
 """
 
+import json
 import math
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-LAYERS_DIRECTORY = Path(__file__).resolve().parent / "layers"
+ICON_COMPOSER_FILE = REPOSITORY_ROOT / "leanring-buddy/AppIcon.icon"
 APP_ICON_SET_DIRECTORY = REPOSITORY_ROOT / "leanring-buddy/Assets.xcassets/AppIcon.appiconset"
 CHROME_EXECUTABLE = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
@@ -38,7 +45,7 @@ SQUIRCLE_EXPONENT = 5
 
 # Pixel sizes of the files the AppIcon set refers to, and the sizes that use the simple art.
 RENDERED_PIXEL_SIZES = [16, 32, 64, 128, 256, 512, 1024]
-LARGEST_SIMPLE_ART_PIXEL_SIZE = 64
+LARGEST_SIMPLE_ART_PIXEL_SIZE = 32
 
 
 def squircle_path_data() -> str:
@@ -57,10 +64,13 @@ def squircle_path_data() -> str:
 
 SQUIRCLE = squircle_path_data()
 
+FIELD_TOP_COLOR = "#2f6dff"
+FIELD_BOTTOM_COLOR = "#0f2a7a"
+
 FIELD_LAYER = f"""\
 <defs>
   <linearGradient id="field-gradient" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#2f6dff"/><stop offset="1" stop-color="#0f2a7a"/>
+    <stop offset="0" stop-color="{FIELD_TOP_COLOR}"/><stop offset="1" stop-color="{FIELD_BOTTOM_COLOR}"/>
   </linearGradient>
   <radialGradient id="field-glow" cx=".3" cy=".2" r=".9">
     <stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
@@ -69,55 +79,83 @@ FIELD_LAYER = f"""\
 <path d="{SQUIRCLE}" fill="url(#field-gradient)"/>
 <path d="{SQUIRCLE}" fill="url(#field-glow)"/>"""
 
-ARC_LAYER = """\
-<path d="M240 740 Q 400 300 650 420" fill="none" stroke="#fff" stroke-width="18"
-      stroke-linecap="round" stroke-dasharray="2 46" opacity=".8"/>
-<circle cx="240" cy="740" r="16" fill="#fff" opacity=".8"/>"""
+# The listening ring (`CursorRingGeometry` in the app): 24 ticks that start a fixed distance from the cursor and grow
+# outward, here frozen at the lengths of one spoken word, longer and brighter where the voice is louder.
+RING_CENTER = 512
+TICK_START_RADIUS = 262
+TICK_LENGTHS = [41, 63, 94, 124, 101, 76, 54, 41, 58, 99, 135, 112, 81, 59, 45, 40, 54, 86, 119, 97, 70, 50, 40, 43]
+LONGEST_TICK = max(TICK_LENGTHS)
 
-RING_LAYER = """\
-<circle cx="668" cy="430" r="150" fill="none" stroke="#9cc0ff" stroke-width="14" opacity=".75"/>"""
 
-# The cursor is the app's own triangle (`Triangle` in CursorGlyph.swift): equilateral, centered on its centroid, and
-# turned to the app's pointer angle, its tip up and to the left. The app draws its tip straight up and turns it 35 degrees
-# to the left. Here the tip lies along +x, so the same direction is a turn of -125 degrees (90 + 35, to the left).
+def tick_line(tick_index: int, tick_length: float) -> str:
+    # The first tick points straight up, and the ticks go clockwise 15 degrees apart.
+    angle = math.radians(tick_index * 360 / len(TICK_LENGTHS) - 90)
+    start_x = RING_CENTER + TICK_START_RADIUS * math.cos(angle)
+    start_y = RING_CENTER + TICK_START_RADIUS * math.sin(angle)
+    end_x = RING_CENTER + (TICK_START_RADIUS + tick_length) * math.cos(angle)
+    end_y = RING_CENTER + (TICK_START_RADIUS + tick_length) * math.sin(angle)
+    opacity = 0.55 + 0.45 * tick_length / LONGEST_TICK
+    return (
+        f'<line x1="{start_x:.1f}" y1="{start_y:.1f}" x2="{end_x:.1f}" y2="{end_y:.1f}" '
+        f'stroke="#fff" stroke-width="24" stroke-linecap="round" opacity="{opacity:.2f}"/>'
+    )
+
+
+TICKS_LAYER = "\n".join(tick_line(tick_index, tick_length) for tick_index, tick_length in enumerate(TICK_LENGTHS))
+
+# The cursor points up and to the left, at the app's pointer angle: the app draws its tip straight up and turns it
+# 35 degrees to the left. Here the tip lies along +x, so the same direction is a turn of -125 degrees (90 + 35).
 CURSOR_ROTATION_DEGREES = -125
+CURSOR_CENTER_X = 512
+CURSOR_CENTER_Y = 520
+CURSOR_SCALE = 1.05
+# The icon's cursor is a notched dart, not the app's equilateral triangle: a pale equilateral triangle on its own
+# reads as a play button at any angle, and the notch gives it one clear tip. Its tip lies along +x.
+CURSOR_PATH = "M170 0 L -95 120 L -40 0 L -95 -120 Z"
+CURSOR_OUTLINE = "M-95 -120 L170 0 L -95 120"
+# Three motion streaks trail behind the notch, as a school's volleyball draws in flight, so the cursor reads as moving
+# toward its tip.
+CURSOR_STREAKS = [(-70, 39), (0, 61), (70, 39)]
+CURSOR_TRANSFORM = f"translate({CURSOR_CENTER_X} {CURSOR_CENTER_Y}) rotate({CURSOR_ROTATION_DEGREES}) scale({CURSOR_SCALE})"
 
 
-def equilateral_triangle_path(side: float) -> str:
-    """An equilateral triangle with its centroid at the origin and its tip along +x."""
-    height = side * math.sqrt(3) / 2
-    tip_x = 2 * height / 3
-    base_x = -height / 3
-    return f"M{tip_x:.1f} 0 L {base_x:.1f} {side / 2:.1f} L {base_x:.1f} {-side / 2:.1f} Z"
+def streak_line(vertical_offset: int, streak_length: int) -> str:
+    return (
+        f'<line x1="-75" y1="{vertical_offset}" x2="{-75 - streak_length}" y2="{vertical_offset}" '
+        f'stroke="#fff" stroke-width="15" stroke-linecap="round" opacity=".55"/>'
+    )
 
 
-CURSOR_PATH = equilateral_triangle_path(260)
-# The light edge runs from the tip along the side that faces up once the cursor is turned, as the app's light top edge does.
-CURSOR_TIP_EDGE = CURSOR_PATH.split(" L ")[0] + " L " + CURSOR_PATH.split(" L ")[1]
-
+# The cursor is shaded bright at its tip and deep at its base, as the app's cursor is, with a light edge on the two
+# sides that meet at the tip.
 CURSOR_LAYER = f"""\
 <defs>
   <linearGradient id="cursor-gradient" x1="1" y1=".5" x2="0" y2=".5">
-    <stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#cfe0ff"/>
+    <stop offset="0" stop-color="#fff"/><stop offset=".4" stop-color="#e3edff"/><stop offset="1" stop-color="#7ea4ff"/>
   </linearGradient>
 </defs>
-<g transform="translate(650 420) rotate({CURSOR_ROTATION_DEGREES})">
+<g transform="{CURSOR_TRANSFORM}">
+  {"".join(streak_line(vertical_offset, streak_length) for vertical_offset, streak_length in CURSOR_STREAKS)}
   <path d="{CURSOR_PATH}" fill="url(#cursor-gradient)"/>
-  <path d="{CURSOR_TIP_EDGE}" stroke="#fff" stroke-width="10" opacity=".9"/>
+  <path d="{CURSOR_OUTLINE}" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round" opacity=".95"/>
 </g>"""
 
-# The cursor's own shadow stays out of the layers: Icon Composer adds its own shadow, and in its
-# tinted and clear modes a drawn one would show as a second triangle. It is drawn into the PNGs only.
+# The cursor's own shadow stays out of the Icon Composer layers: Icon Composer adds its own shadow, and in its
+# tinted mode a drawn one would show as a second cursor. It is drawn into the PNGs only.
 # Its offset sits outside the turn, so the shadow falls down and to the right whatever way the cursor points.
 CURSOR_SHADOW = f"""\
-<g transform="translate(662 442) rotate({CURSOR_ROTATION_DEGREES})">
-  <path d="{CURSOR_PATH}" fill="#0a1a4a" opacity=".35"/>
+<g transform="translate({CURSOR_CENTER_X + 13} {CURSOR_CENTER_Y + 23}) rotate({CURSOR_ROTATION_DEGREES}) scale({CURSOR_SCALE})">
+  <path d="{CURSOR_PATH}" fill="#06123a" opacity=".38"/>
 </g>"""
 
-# At 64 pixels and below the arc and ring turn to mush, so only a large white cursor stays.
+# At 32 pixels and below the ticks are too small to read, so only a large white cursor stays. The dart's middle sits 37.5
+# points toward its tip from its origin, so the origin moves that far back along the tip's direction to center it.
+SIMPLE_CURSOR_SCALE = 1.6
+SIMPLE_CURSOR_CENTER_X = 512 + 37.5 * SIMPLE_CURSOR_SCALE * -math.cos(math.radians(CURSOR_ROTATION_DEGREES))
+SIMPLE_CURSOR_CENTER_Y = 512 + 37.5 * SIMPLE_CURSOR_SCALE * -math.sin(math.radians(CURSOR_ROTATION_DEGREES))
 SIMPLE_CURSOR_LAYER = f"""\
-<g transform="translate(512 512) rotate({CURSOR_ROTATION_DEGREES})">
-  <path d="{equilateral_triangle_path(440)}" fill="#fff"/>
+<g transform="translate({SIMPLE_CURSOR_CENTER_X:.1f} {SIMPLE_CURSOR_CENTER_Y:.1f}) rotate({CURSOR_ROTATION_DEGREES}) scale({SIMPLE_CURSOR_SCALE})">
+  <path d="{CURSOR_PATH}" fill="#fff"/>
 </g>"""
 
 SHADOW_FILTER = f"""\
@@ -126,7 +164,7 @@ SHADOW_FILTER = f"""\
     <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity=".3"/>
   </filter>
 </defs>
-<path d="{SQUIRCLE}" fill="#0f2a7a" filter="url(#tile-shadow)"/>"""
+<path d="{SQUIRCLE}" fill="{FIELD_BOTTOM_COLOR}" filter="url(#tile-shadow)"/>"""
 
 
 def svg_document(inner_markup: str, pixel_size: int = CANVAS) -> str:
@@ -136,22 +174,51 @@ def svg_document(inner_markup: str, pixel_size: int = CANVAS) -> str:
     )
 
 
-def write_layers() -> None:
-    LAYERS_DIRECTORY.mkdir(exist_ok=True)
-    layers = {
-        "1-field": FIELD_LAYER,
-        "2-arc": ARC_LAYER,
-        "3-ring": RING_LAYER,
-        "4-cursor": CURSOR_LAYER,
-    }
+def icon_composer_color(hex_color: str) -> str:
+    red, green, blue = (int(hex_color[index : index + 2], 16) / 255 for index in (1, 3, 5))
+    return f"srgb:{red:.5f},{green:.5f},{blue:.5f},1.00000"
+
+
+def write_icon_composer_file() -> None:
+    """Writes AppIcon.icon as Icon Composer saves it: icon.json and the layer files in Assets."""
+    assets_directory = ICON_COMPOSER_FILE / "Assets"
+    assets_directory.mkdir(parents=True, exist_ok=True)
+    # Icon Composer lists a group's layers front first.
+    layers = {"cursor": CURSOR_LAYER, "ticks": TICKS_LAYER}
+    layer_file_names = {f"{layer_name}.svg" for layer_name in layers}
+    # Anything else in the file, such as an asset an Icon Composer save added, would ship in the icon unseen by CI.
+    for stale_entry in [*assets_directory.iterdir(), *ICON_COMPOSER_FILE.iterdir()]:
+        if stale_entry.parent == ICON_COMPOSER_FILE and stale_entry.name in {"Assets", "icon.json"}:
+            continue
+        if stale_entry.parent == assets_directory and stale_entry.name in layer_file_names:
+            continue
+        if stale_entry.is_dir() and not stale_entry.is_symlink():
+            shutil.rmtree(stale_entry)
+        else:
+            stale_entry.unlink()
     for layer_name, markup in layers.items():
-        (LAYERS_DIRECTORY / f"{layer_name}.svg").write_text(svg_document(markup))
+        (assets_directory / f"{layer_name}.svg").write_text(svg_document(markup))
+    icon_description = {
+        "fill": {
+            "linear-gradient": [icon_composer_color(FIELD_TOP_COLOR), icon_composer_color(FIELD_BOTTOM_COLOR)],
+            "orientation": {"start": {"x": 0.5, "y": 0}, "stop": {"x": 0.5, "y": 1}},
+        },
+        "groups": [
+            {
+                "layers": [{"image-name": f"{layer_name}.svg", "name": layer_name} for layer_name in layers],
+                "shadow": {"kind": "neutral", "opacity": 0.5},
+                "translucency": {"enabled": True, "value": 0.5},
+            }
+        ],
+        "supported-platforms": {"circles": ["watchOS"], "squares": "shared"},
+    }
+    (ICON_COMPOSER_FILE / "icon.json").write_text(json.dumps(icon_description, indent=2, separators=(",", " : ")) + "\n")
 
 
 def icon_markup(pixel_size: int) -> str:
     if pixel_size <= LARGEST_SIMPLE_ART_PIXEL_SIZE:
         return "\n".join([FIELD_LAYER, SIMPLE_CURSOR_LAYER])
-    return "\n".join([SHADOW_FILTER, FIELD_LAYER, ARC_LAYER, RING_LAYER, CURSOR_SHADOW, CURSOR_LAYER])
+    return "\n".join([SHADOW_FILTER, FIELD_LAYER, TICKS_LAYER, CURSOR_SHADOW, CURSOR_LAYER])
 
 
 def render_png(pixel_size: int, destination: Path) -> None:
@@ -188,8 +255,8 @@ def render_png(pixel_size: int, destination: Path) -> None:
 
 
 def main() -> None:
-    write_layers()
-    if "--layers-only" in sys.argv:
+    write_icon_composer_file()
+    if "--icon-file-only" in sys.argv:
         return
     for pixel_size in RENDERED_PIXEL_SIZES:
         render_png(pixel_size, APP_ICON_SET_DIRECTORY / f"{pixel_size}-mac.png")
