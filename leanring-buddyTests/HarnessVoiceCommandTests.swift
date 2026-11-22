@@ -45,10 +45,10 @@ struct HarnessVoiceCommandTests {
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
-            approvalIDWaitingWhenTheCommandStarted: "approval-seen-at-the-press",
+            approvalWhenTheCommandStarted: ApprovalAtPress(approvalID: "approval-seen-at-the-press", wholeSummaryWasSeen: true),
             whenNoEventArrivesInTime: {},
-            runTool: { _, approvalIDTheLearnerIsAnswering in
-                approvalIDsTheCallsCarried.append(approvalIDTheLearnerIsAnswering)
+            runTool: { _, approvalTheLearnerIsAnswering in
+                approvalIDsTheCallsCarried.append(approvalTheLearnerIsAnswering?.approvalID)
                 return .changed(state: nil)
             }
         )
@@ -73,7 +73,7 @@ struct HarnessVoiceCommandTests {
             await runTheVoiceCommandEvents(
                 commandEvents,
                 lines: commandLines,
-                approvalIDWaitingWhenTheCommandStarted: nil,
+                approvalWhenTheCommandStarted: nil,
                 whenNoEventArrivesInTime: {},
                 runTool: { _, _ in
                     // What runAppVoiceTool's pop_out branch does: the mark, then respondToTranscript, whose first line
@@ -99,7 +99,7 @@ struct HarnessVoiceCommandTests {
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
-            approvalIDWaitingWhenTheCommandStarted: nil,
+            approvalWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.05,
             whenNoEventArrivesInTime: {
                 // A harness that stalls after the result: the fallback must not answer a request close_scene took.
@@ -143,7 +143,7 @@ struct HarnessVoiceCommandTests {
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
-            approvalIDWaitingWhenTheCommandStarted: nil,
+            approvalWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.05,
             whenNoEventArrivesInTime: {
                 // The harness's call reached the stream just as the wait ran out, ahead of the failure that ends it.
@@ -182,7 +182,7 @@ struct HarnessVoiceCommandTests {
         let endingAfterThePlanningLine = await runTheVoiceCommandEvents(
             planningEvents,
             lines: HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in }),
-            approvalIDWaitingWhenTheCommandStarted: nil,
+            approvalWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.05,
             secondsToWaitAfterAPlanningLine: 60,
             whenNoEventArrivesInTime: { waitRanOutAfterThePlanningLine = true },
@@ -197,7 +197,7 @@ struct HarnessVoiceCommandTests {
         let endingWithNoPlanningLine = await runTheVoiceCommandEvents(
             plainEvents,
             lines: HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in }),
-            approvalIDWaitingWhenTheCommandStarted: nil,
+            approvalWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.05,
             secondsToWaitAfterAPlanningLine: 5,
             whenNoEventArrivesInTime: {
@@ -220,7 +220,7 @@ struct HarnessVoiceCommandTests {
         let endingWhenThePlanningTurnSendsNothing = await runTheVoiceCommandEvents(
             silentPlanningEvents,
             lines: HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in }),
-            approvalIDWaitingWhenTheCommandStarted: nil,
+            approvalWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.05,
             secondsToWaitAfterAPlanningLine: 0.2,
             whenNoEventArrivesInTime: {
@@ -329,7 +329,7 @@ struct HarnessVoiceCommandTests {
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
-            approvalIDWaitingWhenTheCommandStarted: nil,
+            approvalWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.1,
             whenNoEventArrivesInTime: {
                 deadlineRecord.deadlinesPassed += 1

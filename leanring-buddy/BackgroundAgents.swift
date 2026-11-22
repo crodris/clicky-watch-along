@@ -181,6 +181,9 @@ struct BackgroundAgent: Identifiable, Equatable {
     var currentStepStartedAt: Date
     var endedAt: Date?
     var phase: BackgroundAgentPhase
+    /// The learner's own push-to-talk transcript that started a task agent, which its approval card shows as "You said".
+    /// It is never the router's goal, which page text can steer. Nil for an agent no spoken request started.
+    var learnerWords: String?
     /// The steps a task agent said it was on, oldest first. Empty for every other kind, whose steps are fixed.
     var reportedSteps: [String] = []
     /// The site the agent is reading with one of the app's tools, such as the video's site for its captions or the link it
@@ -515,6 +518,12 @@ final class BackgroundAgentStore: ObservableObject {
     func setSubject(_ subject: String, for agentID: UUID) {
         updateRunningAgent(agentID) { agent in
             agent.subject = subject
+        }
+    }
+
+    func setLearnerWords(_ learnerWords: String, for agentID: UUID) {
+        updateRunningAgent(agentID) { agent in
+            agent.learnerWords = learnerWords
         }
     }
 
