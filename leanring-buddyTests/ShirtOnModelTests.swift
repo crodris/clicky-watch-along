@@ -363,18 +363,30 @@ struct ShirtOnModelRendererTests {
         return (learnerModel.photo.ciImage, personMask)
     }
 
-    @Test func eachSleevesOpeningLandsWhereTheModelsArmHeldIt() throws {
+    @Test func eachSleevesOpeningFollowsItsArmEvenWhileTheArmStillHangsBelowTheSleeve() throws {
         let model = DrawnModel()
         let garment = try #require(model.garment())
         let (frame, personMask) = learnerFrame(model)
-        let composition = try #require(ShirtTryOnRenderer(ciContext: CIContext(), analysisRunsInTheBackground: false).composition(
-            frame: frame, personMask: personMask, torso: model.pose.torso, garment: garment
-        ))
-        // On the model's own arms each opening lands where it lay in the photo, which no map through the torso does.
-        for drawnSleeve in composition.sleeves {
-            let sleeve = try #require(garment.sleeves.first { $0.geometry.side == drawnSleeve.side })
-            #expect(hypot(drawnSleeve.landing[1].x - sleeve.geometry.openingOuter.x, drawnSleeve.landing[1].y - sleeve.geometry.openingOuter.y) < 1e-6)
-            #expect(hypot(drawnSleeve.landing[2].x - sleeve.geometry.openingInner.x, drawnSleeve.landing[2].y - sleeve.geometry.openingInner.y) < 1e-6)
+        func openings(elbowShift: CGFloat) throws -> [ShirtSleeveSide: CGPoint] {
+            let modelTorso = model.pose.torso
+            let torso = BodyTorso(
+                imageLeftShoulder: modelTorso.imageLeftShoulder, imageRightShoulder: modelTorso.imageRightShoulder, imageLeftHip: modelTorso.imageLeftHip,
+                imageRightHip: modelTorso.imageRightHip, hipsWereEstimated: true, shouldersAreSeen: true,
+                imageLeftElbow: CGPoint(x: 114 - elbowShift, y: 260), imageRightElbow: CGPoint(x: 286 + elbowShift, y: 260)
+            )
+            let composition = try #require(ShirtTryOnRenderer(ciContext: CIContext(), analysisRunsInTheBackground: false).composition(
+                frame: frame, personMask: personMask, torso: torso, garment: garment
+            ))
+            return Dictionary(uniqueKeysWithValues: composition.sleeves.map { ($0.side, $0.landing[1]) })
+        }
+        // Each arm turns out about 8 degrees, under the 10 degrees past which a flat lay's sleeves leave the garment's angle,
+        // so only the on-model landing, which carries the opening along the arm, moves it out.
+        let hanging = try openings(elbowShift: 0)
+        let turnedOut = try openings(elbowShift: 15)
+        #expect(hanging.count == 2 && turnedOut.count == 2)
+        for (side, opening) in hanging {
+            let turnedOutOpening = try #require(turnedOut[side])
+            #expect(abs(turnedOutOpening.x - opening.x) > 5, "the \(side) opening stayed at x \(opening.x)")
         }
     }
 
