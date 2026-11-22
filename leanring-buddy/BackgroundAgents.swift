@@ -373,10 +373,10 @@ final class BackgroundAgentStore: ObservableObject {
     @Published var approvalCapabilitiesByAgentID: [UUID: HarnessCapability] = [:]
 
     /// True while the learner has paused every agent ("hold on"), until they say "go ahead". No agent starts a model request
-    /// or delivers its result meanwhile (`waitWhileAgentsArePaused`), though one still reads the Mac at once, such as the
-    /// frame it builds from, an agent that starts during the pause starts paused,
-    /// and the discs beside the notch fold into one paused disc. A step already in flight finishes. It ends by itself once
-    /// no agent is running, since nothing is left to hold.
+    /// or a tool call, or delivers its result, meanwhile (`waitWhileAgentsArePaused`). An agent still reads the Mac at once,
+    /// such as the frame it builds from. An agent that starts during the pause starts paused, and the discs beside the notch
+    /// fold into one paused disc. A step already in flight finishes. The pause ends by itself once no agent is running,
+    /// since nothing is left to hold.
     @Published private(set) var agentsArePaused = false
 
     /// Read when an agent starts, to pick its color and face. Changing the theme later never changes a running agent.

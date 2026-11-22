@@ -3845,20 +3845,11 @@ final class CompanionManager: ObservableObject {
 
     /// A task agent's tool waits for the learner to allow it. Nothing is spoken, since the learner is usually watching a
     /// video: "Pop" plays once and the agent list opens next to the mouse with the request in its agent's row.
+    /// A request the harness sent just before its pause_task shows at once too, like one that was already waiting when the
+    /// learner paused, since "go ahead" answers it before it resumes the agents and a hidden card could not be answered.
     private func showTheApprovalRequest(_ approvalRequest: HarnessApprovalRequest) {
-        // A request the harness sent just before its pause_task arrived waits in the desk, and its sound and the list wait
-        // for "go ahead", so nothing opens during the pause. The desk's own timeout still runs meanwhile.
-        guard backgroundAgentStore.agentsArePaused else {
-            themeSettings.shownTheme.sounds.needsYourOK.play()
-            agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
-            return
-        }
-        print("Agents: holding an approval request's card until the learner resumes")
-        Task {
-            await self.backgroundAgentStore.waitWhileAgentsArePaused()
-            guard self.agentHarness.approvalDesk.waitingRequests.contains(where: { $0.approvalID == approvalRequest.approvalID }) else { return }
-            self.showTheApprovalRequest(approvalRequest)
-        }
+        themeSettings.shownTheme.sounds.needsYourOK.play()
+        agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
     }
 
     /// Keeps the chip in step with the approval desk, after each arrival and answer.
@@ -3916,9 +3907,8 @@ final class CompanionManager: ObservableObject {
     // MARK: - Pausing every agent
 
     /// "Hold on" and "go ahead". The Swift agents read the Mac at once and wait before their Worker call and their ending
-    /// (`waitWhileAgentsArePaused`), and
-    /// each running task agent's harness task gets `pause_task` or `resume_task`, so no model turn or tool call starts for
-    /// it. Push-to-talk and the voice brain never pause.
+    /// (`waitWhileAgentsArePaused`). Each running task agent's harness task gets `pause_task` or `resume_task`, so no model
+    /// turn or tool call starts for it. Push-to-talk and the voice brain never pause.
     private func setEveryAgentIsPaused(_ agentsArePaused: Bool) -> VoiceToolOutcome {
         let pauseChanged = agentsArePaused ? backgroundAgentStore.pauseEveryAgent() : backgroundAgentStore.resumeEveryAgent()
         guard pauseChanged else {
@@ -3932,7 +3922,8 @@ final class CompanionManager: ObservableObject {
         return .changed(state: .object(["backgroundAgents": .string(agentsArePaused ? "paused" : "running")]))
     }
 
-    /// Holds an agent's next step or its ending while every agent is paused, and throws once the agent was cancelled.
+    /// Holds an agent's Worker call, a task agent's tool call, or an ending while every agent is paused, and throws once
+    /// the agent was cancelled.
     /// `heldStep` names what waits, for the log.
     private func holdWhileEveryAgentIsPaused(_ heldStep: String) async throws {
         await waitWhileEveryAgentIsPaused(heldStep)
