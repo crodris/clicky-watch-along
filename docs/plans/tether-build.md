@@ -99,7 +99,7 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 1 Quick fixes | Merged: [#66](https://github.com/crodris/clicky-watch-along/pull/66) |
 | 2 Tokens and carrier | Merged: [#72](https://github.com/crodris/clicky-watch-along/pull/72) |
 | 3 Theme files | Merged: [#74](https://github.com/crodris/clicky-watch-along/pull/74) |
-| 12 App icon | Merged: [#73](https://github.com/crodris/clicky-watch-along/pull/73). The icon script now writes `AppIcon.icon` itself, which gives the dark and tinted modes, and the icon became the cursor inside the listening ticks. |
+| 12 App icon | Merged: [#73](https://github.com/crodris/clicky-watch-along/pull/73). [#118](https://github.com/crodris/clicky-watch-along/pull/118) made the icon the cursor inside the listening ticks, and the icon script now writes `AppIcon.icon` itself, which gives the dark and tinted modes. |
 | 4 Callouts and speech | Merged: [#81](https://github.com/crodris/clicky-watch-along/pull/81) |
 | 6 Agent list, Theme Studio, dial | Merged: [#87](https://github.com/crodris/clicky-watch-along/pull/87) |
 | 7 Menu bar | Merged: [#86](https://github.com/crodris/clicky-watch-along/pull/86) |
