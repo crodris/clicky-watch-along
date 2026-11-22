@@ -24,8 +24,17 @@ nonisolated struct VoiceCommandTiming: Equatable, Sendable {
     var firstToolCallReceivedAt: Date?
     /// The audio of the first line the command spoke started playing.
     var firstLineAudioStartedAt: Date?
+    /// Whether the finished line played the audio fetched while the calls ran, or a fetch started after them. Nil for a
+    /// command that spoke no finished line, or that ran on the Worker router, which sends no early line.
+    var lineAudio: VoiceCommandLineAudio?
+    /// Whether the command started on the partial transcript and the final one kept it, or the final transcript
+    /// discarded such a command and this is the final one's. Nil when the press started no command on its partial
+    /// transcript. A kept command went out before the transcript, so its `transcript_to_request_ms` is negative.
+    var speculation: VoiceCommandSpeculationOutcome?
 
     /// The log line's text, which starts with the first duration. A duration whose two marks are not both set is "-".
+    /// It ends with `line_audio=` (`fetched_early`, `fetched_now`, or `-`) and `speculation=` (`kept`, `discarded`, or
+    /// `none`).
     var logLine: String {
         let durations: [(name: String, from: Date?, to: Date?)] = [
             ("release_to_transcript_ms", pushToTalkReleasedAt, transcriptReadyAt),
@@ -35,10 +44,23 @@ nonisolated struct VoiceCommandTiming: Equatable, Sendable {
             ("first_call_to_first_line_ms", firstToolCallReceivedAt, firstLineAudioStartedAt),
             ("release_to_first_line_ms", pushToTalkReleasedAt, firstLineAudioStartedAt),
         ]
-        return durations.map { duration in
+        let durationFields = durations.map { duration in
             guard let from = duration.from, let to = duration.to else { return "\(duration.name)=-" }
             return "\(duration.name)=\(Int((to.timeIntervalSince(from) * 1000).rounded()))"
-        }.joined(separator: " ")
+        }
+        let lineAudioField: String
+        switch lineAudio {
+        case .theAudioFetchedEarly: lineAudioField = "line_audio=fetched_early"
+        case .aFetchStartedNow: lineAudioField = "line_audio=fetched_now"
+        case nil: lineAudioField = "line_audio=-"
+        }
+        let speculationField: String
+        switch speculation {
+        case .kept: speculationField = "speculation=kept"
+        case .discarded: speculationField = "speculation=discarded"
+        case nil: speculationField = "speculation=none"
+        }
+        return (durationFields + [lineAudioField, speculationField]).joined(separator: " ")
     }
 }
 
@@ -73,6 +95,18 @@ final class VoiceCommandTimingRecorder {
 
     init(pushToTalkReleasedAt: Date?, transcriptReadyAt: Date) {
         timing = VoiceCommandTiming(pushToTalkReleasedAt: pushToTalkReleasedAt, transcriptReadyAt: transcriptReadyAt)
+    }
+
+    /// Where the finished line's audio came from. A command speaks one finished line, so it is set once.
+    var lineAudio: VoiceCommandLineAudio? {
+        get { timing.lineAudio }
+        set { timing.lineAudio = newValue }
+    }
+
+    /// Set by the final transcript, which kept or discarded a command started on the partial one.
+    var speculation: VoiceCommandSpeculationOutcome? {
+        get { timing.speculation }
+        set { timing.speculation = newValue }
     }
 
     func mark(_ moment: WritableKeyPath<VoiceCommandTiming, Date?>, at date: Date = Date()) {

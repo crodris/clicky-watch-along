@@ -42,6 +42,10 @@ nonisolated enum HarnessTaskEvent: Equatable, Sendable {
     case failed(reason: String)
     /// A voice command ended. spokenLine may be empty, and gaveUp says its last turn still needed the model.
     case voiceCommandFinished(spokenLine: String, gaveUp: Bool)
+    /// The line a voice command will speak if every call of the turn that follows changes the screen, and the turn's tool
+    /// names in order. It comes before the turn's first call, so its audio can be fetched while the calls run. Only a voice
+    /// command gets it.
+    case spokenLineIfEveryCallChanges(spokenLine: String, toolNames: [String])
     /// The brain's last turn runs on the larger model, which takes longer, so the command's wait for its next event is
     /// longer too (`secondsToWaitForAPlanningTurn`). Only a voice command gets it.
     case planningTurnStarted
@@ -92,6 +96,9 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
     case taskFinished(taskID: UUID, spokenSummary: String)
     case taskFailed(taskID: UUID, reason: String)
     case voiceCommandFinished(taskID: UUID, spokenLine: String, gaveUp: Bool)
+    /// voice_line_if_every_call_changes: the line the command's next turn speaks if every one of its calls changes the
+    /// screen, sent before the turn's first tool_call (spokenLineIfEveryCallChanges in harness/brain.go).
+    case voiceLineIfEveryCallChanges(taskID: UUID, spokenLine: String, toolNames: [String])
     /// The harness's gate took this answer to an approval request. It is the one outcome the desk shows, whether the
     /// learner clicked or said it, and the first answer wins.
     case approvalSettled(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
@@ -156,6 +163,15 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
                 throw ParseError.missingField(messageType: messageType, fieldName: "gaveUp")
             }
             self = .voiceCommandFinished(taskID: try requiredTaskID(), spokenLine: try requiredText("spokenLine"), gaveUp: gaveUp)
+        case "voice_line_if_every_call_changes":
+            guard let toolNameValues = messageJSON["toolNames"]?.arrayValue else {
+                throw ParseError.missingField(messageType: messageType, fieldName: "toolNames")
+            }
+            let toolNames = toolNameValues.compactMap(\.stringValue)
+            guard toolNames.count == toolNameValues.count else {
+                throw ParseError.missingField(messageType: messageType, fieldName: "toolNames")
+            }
+            self = .voiceLineIfEveryCallChanges(taskID: try requiredTaskID(), spokenLine: try requiredText("spokenLine"), toolNames: toolNames)
         case "approval_settled":
             guard let approved = messageJSON["approved"]?.boolValue else {
                 throw ParseError.missingField(messageType: messageType, fieldName: "approved")
@@ -201,8 +217,13 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
     /// its own session, and its scene state has no `approvalWaiting`, since the harness names the waiting request's kind of
     /// action itself. `approvalAtPress` is the request the card showed at the press and whether a card had shown its whole
     /// summary for a second then, the facts about approvals only the app knows. It goes out as `approvalIDWaitingAtPress`
-    /// and `approvalIDSeenAtPress`, the second null unless the summary was seen.
-    case voiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, tools: [VoiceToolDescriptor], approvalAtPress: ApprovalAtPress?)
+    /// and `approvalIDSeenAtPress`, the second null unless the summary was seen. `waitsForTheFinalTranscript` is true for
+    /// a command started on the partial transcript, which the harness holds before its first call until
+    /// `confirmVoiceCommand` arrives. Such a command never has an approval waiting at the press, seen or not, since the
+    /// harness would settle a partial "yes" or "no" as the answer.
+    case voiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, tools: [VoiceToolDescriptor], approvalAtPress: ApprovalAtPress?, waitsForTheFinalTranscript: Bool = false)
+    /// The final transcript has the words a command waiting for it started on, so the command goes on.
+    case confirmVoiceCommand(taskID: UUID)
     /// A voice command's tool_result, which carries what the tool did, so the brain knows whether to speak, ask the
     /// model again, or stop for a hand-off.
     case voiceToolResult(taskID: UUID, toolUseID: String, outcome: VoiceToolOutcome)
@@ -251,8 +272,8 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
                 "approved": .bool(approved),
                 "scope": .string(scope.rawValue),
             ])
-        case .voiceCommand(let taskID, let transcript, let sceneState, let tools, let approvalAtPress):
-            return .object([
+        case .voiceCommand(let taskID, let transcript, let sceneState, let tools, let approvalAtPress, let waitsForTheFinalTranscript):
+            var voiceCommandFields: [String: JSONValue] = [
                 "type": .string("voice_command"),
                 "taskID": .string(taskID.uuidString),
                 "transcript": .string(transcript),
@@ -260,7 +281,13 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
                 "tools": .array(tools.map(\.workerRequestJSON)),
                 "approvalIDWaitingAtPress": approvalAtPress.map { JSONValue.string($0.approvalID) } ?? .null,
                 "approvalIDSeenAtPress": approvalAtPress.flatMap { $0.wholeSummaryWasSeen ? JSONValue.string($0.approvalID) : nil } ?? .null,
-            ])
+            ]
+            if waitsForTheFinalTranscript {
+                voiceCommandFields["waitsForTheFinalTranscript"] = .bool(true)
+            }
+            return .object(voiceCommandFields)
+        case .confirmVoiceCommand(let taskID):
+            return .object(["type": .string("confirm_voice_command"), "taskID": .string(taskID.uuidString)])
         case .voiceToolResult(let taskID, let toolUseID, let outcome):
             return .object([
                 "type": .string("tool_result"),
@@ -332,6 +359,8 @@ final class HarnessTaskRouter {
             end(taskID: taskID, lastEvent: .failed(reason: reason))
         case .voiceCommandFinished(let taskID, let spokenLine, let gaveUp):
             end(taskID: taskID, lastEvent: .voiceCommandFinished(spokenLine: spokenLine, gaveUp: gaveUp))
+        case .voiceLineIfEveryCallChanges(let taskID, let spokenLine, let toolNames):
+            eventContinuationsByTaskID[taskID]?.yield(.spokenLineIfEveryCallChanges(spokenLine: spokenLine, toolNames: toolNames))
         }
     }
 
@@ -856,12 +885,25 @@ final class AgentHarness {
         transcript: String,
         sceneState: JSONValue,
         tools: [VoiceToolDescriptor],
-        approvalAtPress: ApprovalAtPress?
+        approvalAtPress: ApprovalAtPress?,
+        waitsForTheFinalTranscript: Bool = false
     ) throws -> AsyncStream<HarnessTaskEvent> {
         try launchTheHarnessIfItIsNotRunning()
         let commandEvents = taskRouter.register(taskID: taskID)
-        write(.voiceCommand(taskID: taskID, transcript: transcript, sceneState: sceneState, tools: tools, approvalAtPress: approvalAtPress))
+        write(.voiceCommand(
+            taskID: taskID,
+            transcript: transcript,
+            sceneState: sceneState,
+            tools: tools,
+            approvalAtPress: approvalAtPress,
+            waitsForTheFinalTranscript: waitsForTheFinalTranscript
+        ))
         return commandEvents
+    }
+
+    /// Lets a command started on the partial transcript go on, since the final transcript matched it.
+    func confirmVoiceCommand(taskID: UUID) {
+        write(.confirmVoiceCommand(taskID: taskID))
     }
 
     /// Stops routing a voice command's events, after one last event when there is one, and writes nothing, since the
