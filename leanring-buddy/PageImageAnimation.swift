@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import Darwin
 import ImageIO
 
 struct PageImageAnimationFrame: Equatable {
@@ -83,9 +84,60 @@ enum PageImageAnimation {
         return imageData
     }
 
-    /// The page names the URL, so only https is fetched, for the first request and for every redirect.
+    /// The page names the URL, so only https is fetched, for the first request and for every redirect, and never from
+    /// this Mac or its network (`hostIsLocalOrPrivate`), since any open page could otherwise send a blind GET to a service
+    /// on localhost or the LAN. A public name that resolves to a private address is not caught here.
     nonisolated static func mayDownload(_ imageURL: URL?) -> Bool {
-        imageURL?.scheme == "https"
+        guard let imageURL, imageURL.scheme == "https", let host = imageURL.host, !hostIsLocalOrPrivate(host) else { return false }
+        return true
+    }
+
+    /// True for a name or address that points at this Mac or a private network: `localhost` and its subdomains, `.local`
+    /// and `.internal` names, a name with no dot, and an IP address (in any form `inet_aton` reads, such as `127.1`) that
+    /// is unspecified, loopback, private, link-local, shared (100.64.0.0/10), benchmarking, multicast, or reserved, for IPv4
+    /// and IPv6 (including an IPv4 address mapped into IPv6).
+    nonisolated static func hostIsLocalOrPrivate(_ host: String) -> Bool {
+        let lowercaseHost = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        if lowercaseHost.isEmpty { return true }
+        var ipv4Address = in_addr()
+        if inet_aton(lowercaseHost, &ipv4Address) != 0 {
+            return ipv4AddressIsLocalOrPrivate(UInt32(bigEndian: ipv4Address.s_addr))
+        }
+        let hostWithoutIPv6Zone = lowercaseHost.split(separator: "%", maxSplits: 1).first.map(String.init) ?? lowercaseHost
+        var ipv6Address = in6_addr()
+        if inet_pton(AF_INET6, hostWithoutIPv6Zone, &ipv6Address) == 1 {
+            let ipv6Bytes = withUnsafeBytes(of: ipv6Address) { Array($0) }
+            return ipv6AddressIsLocalOrPrivate(ipv6Bytes)
+        }
+        if !lowercaseHost.contains(".") { return true }
+        return lowercaseHost.hasSuffix(".localhost") || lowercaseHost.hasSuffix(".local") || lowercaseHost.hasSuffix(".internal")
+    }
+
+    nonisolated private static func ipv4AddressIsLocalOrPrivate(_ address: UInt32) -> Bool {
+        let firstByte = address >> 24
+        let secondByte = (address >> 16) & 0xFF
+        switch (firstByte, secondByte) {
+        case (0, _), (10, _), (127, _), (169, 254), (192, 168): return true
+        case (100, 64...127): return true
+        case (172, 16...31): return true
+        case (198, 18...19): return true
+        case (192, 0) where (address >> 8) & 0xFF == 0: return true
+        default: return firstByte >= 224
+        }
+    }
+
+    nonisolated private static func ipv6AddressIsLocalOrPrivate(_ bytes: [UInt8]) -> Bool {
+        guard bytes.count == 16 else { return true }
+        let isUnspecifiedOrLoopback = bytes.dropLast().allSatisfy { $0 == 0 } && bytes[15] <= 1
+        let isMappedIPv4 = bytes[0..<10].allSatisfy { $0 == 0 } && bytes[10] == 0xFF && bytes[11] == 0xFF
+        if isMappedIPv4 {
+            let mappedAddress = bytes[12..<16].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+            return ipv4AddressIsLocalOrPrivate(mappedAddress)
+        }
+        let isLinkLocalOrSiteLocal = bytes[0] == 0xFE && (bytes[1] & 0xC0) == 0x80 || bytes[0] == 0xFE && (bytes[1] & 0xC0) == 0xC0
+        let isUniqueLocal = (bytes[0] & 0xFE) == 0xFC
+        let isMulticast = bytes[0] == 0xFF
+        return isUnspecifiedOrLoopback || isLinkLocalOrSiteLocal || isUniqueLocal || isMulticast
     }
 
     /// Each frame drawn at the captured frame's size over `backgroundColor`, since the page stretches

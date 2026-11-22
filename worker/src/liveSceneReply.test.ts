@@ -49,6 +49,15 @@ describe("live scene reply", () => {
     expect(checkedReply).toMatchObject({ accepted: false, reason: expect.stringContaining("does not parse") });
   });
 
+  it("names a script's parse error by position and never quotes an identifier the model wrote", () => {
+    const pageWithARedeclaredName = liveScenePage.replace("zoomBy(amount) {},", "zoomBy(amount) { let secretName = 1; let secretName = 2; },");
+
+    const checkedReply = checkLiveSceneModelReply(liveSceneModelReply(pageWithARedeclaredName));
+
+    expect(checkedReply).toMatchObject({ accepted: false, reason: expect.stringMatching(/does not parse at line \d+, column \d+$/) });
+    expect(JSON.stringify(checkedReply)).not.toContain("secretName");
+  });
+
   it("rejects a page that reaches an external URL", () => {
     const pageWithAnExternalURL = liveScenePage.replace(
       "</body>",

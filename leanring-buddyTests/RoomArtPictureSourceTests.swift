@@ -4,8 +4,9 @@
 //
 //  Where room art gets its picture, against a stubbed image host: the page's image file is used and scaled to a long side
 //  of 1280 (a screen capture would hold a cookie banner over the product photo), and the screen capture is the fallback
-//  for no URL, a URL that is not https, a redirect to http, a file over 8 MB, a side over 4096 before decoding, a failed
-//  reply, and bytes that are not an image.
+//  for no URL, a URL that is not https or names this Mac or a private network, a redirect to http, a file over 8 MB, a side
+//  over 4096 before decoding, a file under 160 pixels, a failed or stalled download, and bytes that are not a JPEG, PNG,
+//  WebP, GIF, or HEIC image. A cancelled request captures nothing.
 //
 
 import AppKit
@@ -24,6 +25,8 @@ private final class StubbedPictureURLProtocol: URLProtocol, @unchecked Sendable 
         /// An error status whose body is still a valid image, so only the status can refuse it.
         case status(Int, body: Data)
         case redirect(toURL: String)
+        /// A 200 reply that sends one byte and then nothing more, like a server that trickles or hangs.
+        case stalls
     }
 
     static let replies = OSAllocatedUnfairLock<[String: Reply]>(initialState: [:])
@@ -60,6 +63,10 @@ private final class StubbedPictureURLProtocol: URLProtocol, @unchecked Sendable 
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: body)
             client?.urlProtocolDidFinishLoading(self)
+        case .stalls:
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "image/png"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data([0x89]))
         case .redirect(let redirectedURL):
             let redirectResponse = HTTPURLResponse(
                 url: url, statusCode: 302, httpVersion: "HTTP/1.1", headerFields: ["Location": redirectedURL]
@@ -89,6 +96,11 @@ struct RoomArtPictureSourceTests {
         let path = "/\(UUID().uuidString).png"
         StubbedPictureURLProtocol.replies.withLock { replies in replies[path] = reply }
         return URL(string: "https://pictures.stub\(path)")!
+    }
+
+    /// A TIFF, a format ImageIO reads but room art does not.
+    nonisolated private func tiffData(width: Int, height: Int) -> Data {
+        NSBitmapImageRep(data: pngData(width: width, height: height))!.representation(using: .tiff, properties: [:])!
     }
 
     /// A PNG of one color, with an alpha channel, `alpha` 0 for a transparent one.
@@ -139,11 +151,11 @@ struct RoomArtPictureSourceTests {
 
     @Test func aTransparentImageFileIsDrawnOverWhiteNotBlack() async throws {
         let result = await pictureAndWhetherTheScreenWasCaptured(
-            imageFileURL: stubbedImageURL(answeringWith: .image(pngData(width: 64, height: 64, alpha: 0)))
+            imageFileURL: stubbedImageURL(answeringWith: .image(pngData(width: 200, height: 200, alpha: 0)))
         )
         let picture = try #require(result.picture)
         let decodedPicture = try #require(NSBitmapImageRep(data: picture.jpegData))
-        let centerColor = try #require(decodedPicture.colorAt(x: 32, y: 32)?.usingColorSpace(.sRGB))
+        let centerColor = try #require(decodedPicture.colorAt(x: 100, y: 100)?.usingColorSpace(.sRGB))
         #expect(centerColor.redComponent > 0.95 && centerColor.greenComponent > 0.95 && centerColor.blueComponent > 0.95)
     }
 
@@ -213,6 +225,87 @@ struct RoomArtPictureSourceTests {
             imageFileURL: stubbedImageURL(answeringWith: .image(Data("<html>sold out</html>".utf8)))
         )
         #expect(notAnImage.picture == screenCapture)
+    }
+
+    @Test func aFileOfAFormatRoomArtDoesNotReadIsRefusedAndTheScreenIsCaptured() async throws {
+        let tiffFile = tiffData(width: 300, height: 200)
+        #expect(RoomArtPictureSource.picture(ofImageData: tiffFile) == nil)
+        let result = await pictureAndWhetherTheScreenWasCaptured(imageFileURL: stubbedImageURL(answeringWith: .image(tiffFile)))
+        #expect(result.picture == screenCapture)
+        #expect(RoomArtPictureSource.picture(ofImageData: pngData(width: 300, height: 200)) != nil)
+    }
+
+    @Test func aPlaceholderUnder160PixelsIsRefusedAndTheScreenIsCaptured() async {
+        let placeholder = await pictureAndWhetherTheScreenWasCaptured(
+            imageFileURL: stubbedImageURL(answeringWith: .image(pngData(width: 1, height: 1)))
+        )
+        #expect(placeholder.picture == screenCapture)
+        #expect(RoomArtPictureSource.picture(ofImageData: pngData(width: 159, height: 100)) == nil)
+        #expect(RoomArtPictureSource.picture(ofImageData: pngData(width: 160, height: 10)) != nil)
+    }
+
+    @Test func aDownloadThatStallsPastTheDeadlineFallsBackToTheScreenCapture() async {
+        var screenWasCaptured = false
+        let startedAt = ContinuousClock.now
+        let picture = await RoomArtPictureSource.picture(
+            imageFileURL: stubbedImageURL(answeringWith: .stalls),
+            session: stubbedSession(),
+            downloadDeadlineSeconds: 0.3
+        ) {
+            screenWasCaptured = true
+            return screenCapture
+        }
+        // The request's own idle timeout is 5 seconds, so only the deadline can end this one in under 3.
+        #expect(ContinuousClock.now - startedAt < .seconds(3))
+        #expect(picture == screenCapture)
+        #expect(screenWasCaptured)
+    }
+
+    @Test func aCancelledRequestCapturesNothingAndStopsTheDownload() async {
+        let stalledImageURL = stubbedImageURL(answeringWith: .stalls)
+        let session = stubbedSession()
+        let screenCaptureCount = OSAllocatedUnfairLock(initialState: 0)
+        let roomArtRequest = Task {
+            await RoomArtPictureSource.picture(imageFileURL: stalledImageURL, session: session, downloadDeadlineSeconds: 60) {
+                screenCaptureCount.withLock { $0 += 1 }
+                return RoomArtPicture(jpegData: Data("screen capture".utf8), width: 640, height: 360)
+            }
+        }
+        try? await Task.sleep(for: .milliseconds(300))
+        roomArtRequest.cancel()
+        // The 60 second deadline never passes, so the request can only end because the cancel stopped the download.
+        #expect(await roomArtRequest.value == nil)
+        #expect(screenCaptureCount.withLock { $0 } == 0)
+    }
+
+    @Test func aHostOnThisMacOrAPrivateNetworkIsNeverDownloadedFrom() {
+        let refusedHosts = [
+            "localhost", "app.localhost", "printer.local", "wiki.internal", "intranet",
+            "127.0.0.1", "127.1", "2130706433", "0x7f.0.0.1", "0.0.0.0", "10.0.0.5", "172.16.0.1", "172.31.255.255",
+            "192.168.1.1", "169.254.169.254", "100.64.0.1", "198.18.0.1", "224.0.0.1", "255.255.255.255",
+            "::1", "::", "fe80::1", "fd00::1", "fc00::1", "ff02::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1",
+        ]
+        for refusedHost in refusedHosts {
+            #expect(PageImageAnimation.hostIsLocalOrPrivate(refusedHost), "\(refusedHost) should be refused")
+        }
+        let allowedHosts = [
+            "example.com", "cdn.shop.example", "pictures.stub", "a.localhostx.com", "93.184.216.34", "172.15.0.1", "172.32.0.1",
+            "100.63.0.1", "198.20.0.1", "2606:4700::1111", "::ffff:8.8.8.8",
+        ]
+        for allowedHost in allowedHosts {
+            #expect(!PageImageAnimation.hostIsLocalOrPrivate(allowedHost), "\(allowedHost) should be allowed")
+        }
+        #expect(!PageImageAnimation.mayDownload(URL(string: "https://127.0.0.1/a.png")))
+        #expect(!PageImageAnimation.mayDownload(URL(string: "https://[::1]:8443/a.png")))
+        #expect(!PageImageAnimation.mayDownload(URL(string: "https://localhost:3000/a.png")))
+        #expect(PageImageAnimation.mayDownload(URL(string: "https://example.com:8443/a.png")))
+    }
+
+    @Test func aRedirectToAPrivateHostIsRefusedAndTheScreenIsCaptured() async {
+        let result = await pictureAndWhetherTheScreenWasCaptured(
+            imageFileURL: stubbedImageURL(answeringWith: .redirect(toURL: "https://192.168.1.1/a.png"))
+        )
+        #expect(result.picture == screenCapture)
     }
 
     @Test func theLargestPictureReportsItsFileEvenWhenItIsNotStretchedToItsBox() throws {

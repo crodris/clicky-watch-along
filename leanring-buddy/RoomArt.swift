@@ -20,7 +20,8 @@ import simd
 
 // MARK: - The picture and the page
 
-/// A JPEG of the largest picture in Chrome's front tab, captured from the screen. The page's corners are in its pixels.
+/// A JPEG of the largest picture in Chrome's front tab, the page's image file or a screen capture of it
+/// (`RoomArtPictureSource`). The page's corners are in its pixels.
 nonisolated struct RoomArtPicture: Equatable, Sendable {
     let jpegData: Data
     let width: Int

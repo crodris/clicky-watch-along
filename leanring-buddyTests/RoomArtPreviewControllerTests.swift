@@ -636,6 +636,19 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
+    @Test func escapeStopsASlowPictureDownloadAtOnce() async throws {
+        // The picture takes 120 s, and a close that did not cancel it would leave the request waiting that long.
+        let harness = RoomArtHarness(secondsToCaptureThePicture: 120)
+        let openingTask = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
+        try await waitFor("the picture capture to start") { harness.recorder.pictureCaptureStarted }
+        let escapePressedAt = ContinuousClock.now
+        #expect(harness.controller.closeOnEscape())
+        await openingTask.value
+        #expect(ContinuousClock.now - escapePressedAt < .seconds(5))
+        #expect(harness.panel.timesShown == 0)
+        #expect(harness.spokenLines().isEmpty)
+    }
+
     @Test func everyCloseEndsTheSpokenLine() async throws {
         // Escape on an open panel.
         let escapedHarness = RoomArtHarness()
