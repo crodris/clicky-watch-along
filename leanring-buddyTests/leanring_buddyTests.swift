@@ -2257,13 +2257,18 @@ struct leanring_buddyTests {
         #expect(store.agents[0].stepStatuses.isEmpty)
     }
 
-    @Test func aLiveSceneRequestWaitsForTwoAttemptsOfTheSlowestMeasuredBuild() {
-        // The Worker asks the model once more when a page fails its check (maximumLiveSceneAttempts in worker/src/liveScene.ts).
-        let workerAttemptsPerRequest: TimeInterval = 2
-        #expect(
-            LiveSceneClient.liveSceneRequestTimeoutSeconds
-                >= workerAttemptsPerRequest * LiveSceneClient.slowestMeasuredLiveSceneAttemptSeconds
-        )
+    @Test func aBackgroundSceneBuildWaitsForALateGPTFailureAndTwoSlowSonnetAttempts() {
+        let worstCaseSeconds = LiveSceneBuildWait.slowestGPTCallBeforeTheSonnetFallbackSeconds
+            + LiveSceneBuildWait.workerAttemptsPerRequest * LiveSceneBuildWait.slowestMeasuredSonnetAttemptSeconds
+        #expect(LiveSceneBuildWait.inTheBackground.timeoutSeconds >= worstCaseSeconds)
+        #expect(LiveSceneBuildWait.whileTheLearnerWatches.timeoutSeconds == 60)
+
+        let liveSceneClient = LiveSceneClient(workerBaseURL: "http://127.0.0.1:8787")
+        for buildWait in [LiveSceneBuildWait.whileTheLearnerWatches, .inTheBackground] {
+            let configuration = liveSceneClient.sceneSession(for: buildWait).configuration
+            #expect(configuration.timeoutIntervalForRequest == buildWait.timeoutSeconds)
+            #expect(configuration.timeoutIntervalForResource == buildWait.timeoutSeconds)
+        }
     }
 
     @Test func tryItPhrasesBuildASimulationAndOrdinaryTalkDoesNot() async throws {
