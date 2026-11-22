@@ -203,7 +203,7 @@ describe("the app secret on the gated routes", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    for (const path of ["/notion-page", "/study-guide", "/study-guide-status", "/v1/messages", "/try-it-item", "/room-wall"]) {
+    for (const path of ["/notion-page", "/study-guide", "/study-guide-status", "/v1/messages", "/try-it-item", "/room-wall", "/room-floor"]) {
       expect((await worker.fetch(postTo(path, {}), notionEnv)).status).toBe(401);
       expect((await worker.fetch(postTo(path, { "x-clicky-app-secret": "app-secreT" }), notionEnv)).status).toBe(401);
       expect((await worker.fetch(postTo(path, { "x-clicky-app-secret": "app-secret" }), { ...notionEnv, CLICKY_APP_SECRET: undefined })).status).toBe(401);
@@ -224,5 +224,19 @@ describe("the app secret on the gated routes", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ pageURL: "https://www.notion.so/page-1" });
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.notion.com/v1/pages");
+  });
+
+  it("routes /room-floor to the depth service handler once the secret is right", async () => {
+    // With the secret right and no depth service URL, the handler's own 503 shows the route reached it, not a 404.
+    const response = await worker.fetch(
+      new Request("http://local/room-floor", {
+        method: "POST",
+        body: JSON.stringify({ jpegBase64: "AAAA", anchor: { u: 1, v: 2 } }),
+        headers: { "content-type": "application/json", "x-clicky-app-secret": "app-secret" },
+      }),
+      notionEnv,
+    );
+
+    expect(response.status).toBe(503);
   });
 });

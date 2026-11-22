@@ -17,6 +17,7 @@ export const routesThatNeedTheAppSecret = new Set([
   "/v1/messages",
   "/try-it-item",
   "/room-wall",
+  "/room-floor",
 ]);
 
 async function sha256Digest(text: string): Promise<Uint8Array> {
