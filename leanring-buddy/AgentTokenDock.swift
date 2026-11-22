@@ -7,6 +7,8 @@
 //  without activating Clicky or taking the keyboard from Chrome. This file measures how much free space the menu bar
 //  has, and the pure rules in `AgentTokenLayout.swift` decide which tokens fill it. It also runs the serve: a new agent's
 //  token flies in from the blue cursor on the carrier panel (`TetherCarrier`) while its disc shows an open slot, as `AgentTokenServe.swift` plans.
+//  And it runs Bring back, the spark from a disc to the cursor that carries an agent's ending chip (`AgentTokenBringBack.swift`),
+//  the peek card a hovered disc shows (`AgentTokenPeek.swift`), and a disc's right-click menu (`AgentTokenMenu.swift`).
 //
 //  macOS draws no app window in the strip beside the notch during a full-screen space, so no disc shows there, and
 //  nothing here works around that. Endings use the chip at the cursor.
@@ -87,6 +89,7 @@ private final class AgentTokenPanel: NSPanel {
 /// the pointing hand from an always-active tracking area, the way the agent list's rows do, since the panel never becomes key.
 private final class AgentTokenHostingView<Content: View>: NSHostingView<Content> {
     var onClick: (() -> Void)?
+    var onRightClick: ((NSEvent) -> Void)?
     var onHoverChange: ((Bool) -> Void)?
     private var hoverTrackingArea: NSTrackingArea?
 
@@ -94,6 +97,10 @@ private final class AgentTokenHostingView<Content: View>: NSHostingView<Content>
 
     override func mouseDown(with event: NSEvent) {
         onClick?()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onRightClick?(event)
     }
 
     override func updateTrackingAreas() {
@@ -125,12 +132,14 @@ private final class AgentTokenHostingView<Content: View>: NSHostingView<Content>
     }
 }
 
-/// What one disc's SwiftUI view reads besides the store: whether the mouse is over the disc, and whether the disc is an open
-/// slot that the agent's token is still flying to.
+/// What one disc's SwiftUI view reads besides the store: whether the mouse is over the disc, whether the disc is an open
+/// slot that the agent's token is still flying to, and the still ring a Reduce Motion serve leaves around it.
 @MainActor
 final class AgentTokenDiscModel: ObservableObject {
     @Published var isHovered = false
     @Published var isAnOpenSlotAwaitingItsToken: Bool
+    /// The ring a serve leaves around the disc when Reduce Motion is on, in the tether's color, or nil.
+    @Published var stillRingColor: Color?
 
     init(isAnOpenSlotAwaitingItsToken: Bool = false) {
         self.isAnOpenSlotAwaitingItsToken = isAnOpenSlotAwaitingItsToken
@@ -148,6 +157,19 @@ struct AgentTokenDiscContent: View {
         discView
             .frame(width: AgentTokenMetrics.panelWidth)
             .frame(maxHeight: .infinity)
+            .overlay {
+                if let stillRingColor = discModel.stillRingColor {
+                    // The ring fits the panel, which is only as tall as the menu bar, so it is never cut off on a bar of 24 points.
+                    GeometryReader { panelProxy in
+                        Circle()
+                            .stroke(stillRingColor, lineWidth: 1.5)
+                            .frame(width: agentTokenStillRingDiameter(panelHeight: panelProxy.size.height), height: agentTokenStillRingDiameter(panelHeight: panelProxy.size.height))
+                            .position(x: panelProxy.size.width / 2, y: panelProxy.size.height / 2)
+                    }
+                    .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: DS.Move.send.reduceMotionForm.fadeSeconds), value: discModel.stillRingColor != nil)
     }
 
     @ViewBuilder private var discView: some View {
@@ -174,14 +196,19 @@ private final class AgentTokenDisc {
     let panel: AgentTokenPanel
     let hostingView: AgentTokenHostingView<AgentTokenDiscContent>
     let discModel: AgentTokenDiscModel
+    /// How many agents the "+N" disc stands for, which its peek card says.
+    var overflowCount: Int
 
     init(
         tokenSlot: AgentTokenSlot,
         overflowCount: Int,
         isAnOpenSlotAwaitingItsToken: Bool,
         store: BackgroundAgentStore,
+        onHoverChange: @escaping (Bool) -> Void,
+        onRightClick: @escaping (NSEvent) -> Void,
         onClick: @escaping () -> Void
     ) {
+        self.overflowCount = overflowCount
         discModel = AgentTokenDiscModel(isAnOpenSlotAwaitingItsToken: isAnOpenSlotAwaitingItsToken)
         hostingView = AgentTokenHostingView(rootView: AgentTokenDiscContent(
             store: store,
@@ -190,7 +217,11 @@ private final class AgentTokenDisc {
             overflowCount: overflowCount
         ))
         hostingView.onClick = onClick
-        hostingView.onHoverChange = { [discModel] isHovered in discModel.isHovered = isHovered }
+        hostingView.onRightClick = onRightClick
+        hostingView.onHoverChange = { [discModel] isHovered in
+            discModel.isHovered = isHovered
+            onHoverChange(isHovered)
+        }
         panel = AgentTokenPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -246,13 +277,31 @@ final class AgentTokenDockController {
     private var discIDTheLingeringFlightSitsOn: AgentTokenDiscID?
     /// Callers waiting for the token to land (`waitForTheServeToLand`).
     private var callersWaitingForTheLanding: [CheckedContinuation<Void, Never>] = []
+    /// The flight a disc had to wait under, which may slide when that flight's carried token leaves. The landed token's tether
+    /// would then end where the disc used to be, so it ends first (`forgetTheLingeringFlight`).
+    private var flightWhoseDiscWaitedToSlide: CarrierFlight?
+    /// The Bring back sparks in the air, so a push-to-talk press can land them.
+    private var bringBackFlights: [CarrierFlight] = []
+    private let peekController = AgentTokenPeekController()
+    /// The disc the peek card shows for, or the one whose hover is waiting to show it.
+    private var discIDOfThePeek: AgentTokenDiscID?
+    private var peekDelayTask: Task<Void, Never>?
+    /// How long the mouse rests on a disc before its peek shows, so sweeping across the discs shows nothing.
+    private static let secondsBeforeThePeekShows: TimeInterval = 0.3
 
     /// The serve's tether line takes the color of the cursor it leaves, which is the shown theme's accent.
     private let themeSettings: CompanionThemeSettings
+    private let menuActions: AgentDiscMenuActions
 
-    init(store: BackgroundAgentStore, themeSettings: CompanionThemeSettings, onDiscClicked: @escaping (AgentTokenClick) -> Void) {
+    init(
+        store: BackgroundAgentStore,
+        themeSettings: CompanionThemeSettings,
+        menuActions: AgentDiscMenuActions,
+        onDiscClicked: @escaping (AgentTokenClick) -> Void
+    ) {
         self.store = store
         self.themeSettings = themeSettings
+        self.menuActions = menuActions
         self.onDiscClicked = onDiscClicked
     }
 
@@ -358,7 +407,7 @@ final class AgentTokenDockController {
         }
         // A token cannot land on a disc that left, such as an agent cancelled mid-flight.
         if let discIDTheFlightLandsOn, !discIDsOnScreen.contains(discIDTheFlightLandsOn) {
-            finishTheServeAtOnce()
+            landTheServeAtOnce()
         }
         // A display that is gone or shows no disc forgets its positions, so the next tokens start from the left again.
         for displayID in shownAgentIDsByDisplayID.keys where !discIDsOnScreen.contains(where: { $0.displayID == displayID }) {
@@ -376,11 +425,16 @@ final class AgentTokenDockController {
     private func place(discID: AgentTokenDiscID, overflowCount: Int, panelFrame: CGRect, isAnOpenSlotAwaitingItsToken: Bool) {
         if let existingDisc = discsByID[discID] {
             if case .overflow = discID.tokenSlot {
+                existingDisc.overflowCount = overflowCount
                 existingDisc.hostingView.rootView = AgentTokenDiscContent(store: store, discModel: existingDisc.discModel, tokenSlot: .overflow, overflowCount: overflowCount)
             }
             guard existingDisc.panel.frame != panelFrame else { return }
             // The slide happens when the carried token leaves, which refreshes the dock (`forgetTheLingeringFlight`).
-            guard !agentTokenDiscMustWaitForItsFlight(discID, flightLandsOn: discIDTheFlightLandsOn, lingeringFlightSitsOn: discIDTheLingeringFlightSitsOn) else { return }
+            guard !agentTokenDiscMustWaitForItsFlight(discID, flightLandsOn: discIDTheFlightLandsOn, lingeringFlightSitsOn: discIDTheLingeringFlightSitsOn) else {
+                // The disc waits under the flight it is named for: the lingering one when it sits on this disc, else the one in the air.
+                flightWhoseDiscWaitedToSlide = discID == discIDTheLingeringFlightSitsOn ? lingeringFlight : flight
+                return
+            }
             if reduceMotionIsOn {
                 existingDisc.panel.setFrame(panelFrame, display: true)
             } else {
@@ -396,13 +450,11 @@ final class AgentTokenDockController {
             tokenSlot: discID.tokenSlot,
             overflowCount: overflowCount,
             isAnOpenSlotAwaitingItsToken: isAnOpenSlotAwaitingItsToken,
-            store: store
-        ) { [weak self] in
-            guard let self,
-                  let clickedDisc = self.discsByID[discID],
-                  let screen = NSScreen.screens.first(where: { $0.displayID == discID.displayID }) else { return }
-            self.onDiscClicked(AgentTokenClick(discID: discID, discPanelFrame: clickedDisc.panel.frame, screen: screen))
-        }
+            store: store,
+            onHoverChange: { [weak self] isHovered in self?.discHoverChanged(discID, isHovered: isHovered) },
+            onRightClick: { [weak self] event in self?.showTheMenu(ofDiscWithID: discID, for: event) },
+            onClick: { [weak self] in self?.clickDisc(withID: discID) }
+        )
         displayedDisc.panel.setFrame(panelFrame, display: false)
         discsByID[discID] = displayedDisc
         if isAnOpenSlotAwaitingItsToken {
@@ -421,6 +473,7 @@ final class AgentTokenDockController {
     }
 
     private func remove(_ disc: AgentTokenDisc) {
+        if let discID = discsByID.first(where: { $0.value === disc })?.key, discID == discIDOfThePeek { hideThePeek() }
         if reduceMotionIsOn {
             disc.panel.orderOut(nil)
             disc.panel.contentView = nil
@@ -438,6 +491,7 @@ final class AgentTokenDockController {
 
     private func removeEveryDisc() {
         finishTheServeAtOnce()
+        hideThePeek()
         for disc in discsByID.values { remove(disc) }
         discsByID = [:]
         shownAgentIDsByDisplayID = [:]
@@ -452,7 +506,8 @@ final class AgentTokenDockController {
     /// no room for discs, gets no serve (`agentTokenServePlan`). `waitForTheServeToLand` returns once the token has landed.
     /// The discs on the other displays fade in as usual.
     func startServingTheToken(of agentID: UUID) {
-        finishTheServeAtOnce()
+        // Only an earlier serve lands at once. A Bring back spark in the air keeps flying, since its agent did not start this one.
+        landTheServeAtOnce()
         let mouseLocation = NSEvent.mouseLocation
         let displayFramesByID = Dictionary(uniqueKeysWithValues: NSScreen.screens.map { ($0.displayID, $0.frame) })
         guard let cursorDisplayID = agentTokenServeDisplayID(containing: mouseLocation, displayFrames: displayFramesByID) else { return }
@@ -476,12 +531,16 @@ final class AgentTokenDockController {
         case .none:
             return
         case .fadeInAtTheSlot:
-            print("Agent token serve: Reduce Motion is on, so the token fades in at its slot")
+            print("Agent token serve: Reduce Motion is on, so the token fades in at its slot with a still ring")
             slotDisc.discModel.isAnOpenSlotAwaitingItsToken = false
+            // The move's Reduce Motion form: a fade in at the target that leaves a still ring there, in the tether's color.
+            slotDisc.discModel.stillRingColor = themeSettings.shownTheme.cursorColor
             NSAnimationContext.runAnimationGroup { animationContext in
                 animationContext.duration = DS.Move.send.reduceMotionForm.fadeSeconds
                 slotDisc.panel.animator().alphaValue = 1
             }
+            let stillRingModel = slotDisc.discModel
+            DispatchQueue.main.asyncAfter(deadline: .now() + agentTokenServeStillRingSeconds) { stillRingModel.stillRingColor = nil }
         case .fly(let path):
             print("Agent token serve: the token flies to its slot in \(AgentTokenServePath.flightSeconds) s")
             slotDisc.panel.alphaValue = 1
@@ -508,8 +567,14 @@ final class AgentTokenDockController {
         print("Agent token serve: the spoken line waited \(Int(Date().timeIntervalSince(waitStartedAt) * 1000)) ms for the token to land")
     }
 
-    /// A push-to-talk press ends the flight at once, and the token shows in its slot.
+    /// A push-to-talk press ends the flight at once, and the token shows in its slot. It lands a Bring back spark too, and the
+    /// chip it carries shows at once.
     func finishTheServeAtOnce() {
+        landTheServeAtOnce()
+        for bringBackFlight in bringBackFlights { bringBackFlight.landAtOnce() }
+    }
+
+    private func landTheServeAtOnce() {
         guard let flight else { return }
         print("Agent token serve: the token lands at once")
         flight.landAtOnce()
@@ -530,10 +595,161 @@ final class AgentTokenDockController {
     /// The flight's token has left the screen, so the disc under it may slide now if the layout moved it meanwhile. A newer
     /// flight that landed since stays.
     private func forgetTheLingeringFlight(_ goneFlight: CarrierFlight) {
-        guard lingeringFlight === goneFlight else { return }
+        // A disc that waited under this flight slides now, so the line, which still fades for a moment, must not end at its old
+        // place. A newer flight that landed since replaced the lingering one, but the disc still waited under this one.
+        let theTetherMustEnd = agentTokenTetherMustEnd(flightWhoseDiscWaited: flightWhoseDiscWaitedToSlide, goneFlight: goneFlight)
+        if theTetherMustEnd {
+            goneFlight.endTheTetherNow()
+            flightWhoseDiscWaitedToSlide = nil
+        }
+        guard lingeringFlight === goneFlight else {
+            if theTetherMustEnd { refresh() }
+            return
+        }
         lingeringFlight = nil
         discIDTheLingeringFlightSitsOn = nil
         refresh()
+    }
+
+    // MARK: Bring back
+
+    /// Brings an ended agent's result back to the cursor: a spark runs from its disc along the top edge, then down to the
+    /// cursor, tethered in the agent's color, and `showTheChip` runs as it lands, so the chip shows where the spark ends. With
+    /// Reduce Motion on, a still ring fades in at the cursor instead. An agent with no disc on the mouse's display, a display
+    /// with no discs, or a display that is gone gets no spark, and the chip shows at once. A push-to-talk press lands the
+    /// spark at once (`finishTheServeAtOnce`).
+    func bringBack(agentID: UUID, in agentColor: Color, showTheChip: @escaping () -> Void) {
+        let mouseLocation = NSEvent.mouseLocation
+        let displayFramesByID = Dictionary(uniqueKeysWithValues: NSScreen.screens.map { ($0.displayID, $0.frame) })
+        guard let cursorDisplayID = agentTokenServeDisplayID(containing: mouseLocation, displayFrames: displayFramesByID),
+              let screen = NSScreen.screens.first(where: { $0.displayID == cursorDisplayID }),
+              let disc = discsByID[AgentTokenDiscID(displayID: cursorDisplayID, tokenSlot: .agent(agentID))],
+              disc.panel.isVisible else {
+            print("Agent token bring back: no disc on the display the mouse is on, so the chip shows at once")
+            showTheChip()
+            return
+        }
+        let cursorPoint = agentTokenServeStartPoint(mouseLocation: mouseLocation)
+        let carrierFlight: CarrierFlight
+        let onGone: (CarrierFlight) -> Void = { [weak self] goneFlight in self?.bringBackFlights.removeAll { $0 === goneFlight } }
+        if reduceMotionIsOn {
+            print("Agent token bring back: Reduce Motion is on, so a still ring fades in at the cursor")
+            let ringSide = AgentBringBackRingView.diameter + 4
+            carrierFlight = TetherCarrier.shared.play(
+                .bringBackWithReduceMotion(at: cursorPoint, ringSize: CGSize(width: ringSide, height: ringSide)),
+                carrying: AgentBringBackRingView(color: agentColor).frame(width: ringSide, height: ringSide),
+                onDisplay: cursorDisplayID,
+                tetherColor: NSColor(agentColor),
+                onLanded: showTheChip,
+                onGone: onGone
+            )
+        } else {
+            let route = agentTokenBringBackPath(from: CGPoint(x: disc.panel.frame.midX, y: disc.panel.frame.midY), to: cursorPoint, onScreenWithFrame: screen.frame)
+            print("Agent token bring back: the spark runs from its disc to the cursor in \(AgentTokenBringBackPath.flightSeconds) s")
+            let sparkSide = AgentBringBackSparkView.diameter + 6
+            carrierFlight = TetherCarrier.shared.play(
+                .bringBack(along: route, sparkSize: CGSize(width: sparkSide, height: sparkSide)),
+                carrying: AgentBringBackSparkView(color: agentColor).frame(width: sparkSide, height: sparkSide),
+                onDisplay: cursorDisplayID,
+                tetherColor: NSColor(agentColor),
+                onLanded: showTheChip,
+                onGone: onGone
+            )
+        }
+        bringBackFlights.append(carrierFlight)
+    }
+
+    // MARK: Click, hover, and right click
+
+    private func clickDisc(withID discID: AgentTokenDiscID) {
+        hideThePeek()
+        guard let clickedDisc = discsByID[discID],
+              let screen = NSScreen.screens.first(where: { $0.displayID == discID.displayID }) else { return }
+        onDiscClicked(AgentTokenClick(discID: discID, discPanelFrame: clickedDisc.panel.frame, screen: screen))
+    }
+
+    /// The mouse rests on a disc: its peek card shows after a short wait. It leaves: the card goes.
+    private func discHoverChanged(_ discID: AgentTokenDiscID, isHovered: Bool) {
+        peekDelayTask?.cancel()
+        guard isHovered else {
+            if discIDOfThePeek == discID { hideThePeek() }
+            return
+        }
+        discIDOfThePeek = discID
+        peekDelayTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.secondsBeforeThePeekShows))
+            guard !Task.isCancelled, let self else { return }
+            self.showThePeek(forDiscWithID: discID)
+        }
+    }
+
+    private func showThePeek(forDiscWithID discID: AgentTokenDiscID) {
+        guard let disc = discsByID[discID],
+              let screen = NSScreen.screens.first(where: { $0.displayID == discID.displayID }) else { return }
+        let store = store
+        let contentAt: (Date) -> AgentTokenPeekContent?
+        let accentColor: Color
+        switch discID.tokenSlot {
+        case .agent(let agentID):
+            accentColor = store.agents.first(where: { $0.id == agentID })?.displayColor.color ?? DS.Colors.textSecondary
+            contentAt = { now in
+                guard let agent = store.agents.first(where: { $0.id == agentID }) else { return nil }
+                return agentTokenPeekContent(
+                    for: agent,
+                    approvalCapability: store.approvalCapabilitiesByAgentID[agentID],
+                    isWaitingForApproval: store.agentIDsWaitingForApproval.contains(agentID),
+                    at: now
+                )
+            }
+        case .overflow:
+            accentColor = DS.Colors.textSecondary
+            let overflowCount = disc.overflowCount
+            contentAt = { _ in agentTokenOverflowPeekContent(overflowCount: overflowCount) }
+        }
+        discIDOfThePeek = discID
+        peekController.show(contentAt: contentAt, accentColor: accentColor, discPanelFrame: disc.panel.frame, on: screen)
+    }
+
+    private func hideThePeek() {
+        peekDelayTask?.cancel()
+        peekDelayTask = nil
+        discIDOfThePeek = nil
+        peekController.hide()
+    }
+
+    /// Pops the disc's right-click menu: the actions of the agent list's row, one click from the disc.
+    private func showTheMenu(ofDiscWithID discID: AgentTokenDiscID, for event: NSEvent) {
+        guard let disc = discsByID[discID] else { return }
+        hideThePeek()
+        let agent: BackgroundAgent?
+        var isWaitingForApproval = false
+        if case .agent(let agentID) = discID.tokenSlot {
+            agent = store.agents.first { $0.id == agentID }
+            isWaitingForApproval = store.agentIDsWaitingForApproval.contains(agentID)
+        } else {
+            agent = nil
+        }
+        let menuItems = agentDiscMenuItems(for: agent, isWaitingForApproval: isWaitingForApproval, aVideoQuizQuestionIsOpen: store.aVideoQuizQuestionIsOpen)
+        let menu = NSMenu()
+        for menuItem in menuItems {
+            if menuItem == .cancelAgent, !menu.items.isEmpty { menu.addItem(.separator()) }
+            menu.addItem(AgentDiscClosureMenuItem(title: menuItem.title) { [weak self] in
+                self?.run(menuItem, forDiscWithID: discID, agent: agent)
+            })
+        }
+        NSMenu.popUpContextMenu(menu, with: event, for: disc.hostingView)
+    }
+
+    private func run(_ menuItem: AgentDiscMenuItem, forDiscWithID discID: AgentTokenDiscID, agent: BackgroundAgent?) {
+        switch menuItem {
+        case .reviewRequest, .openAgentList: clickDisc(withID: discID)
+        case .showReadyScene: menuActions.showReadyScene()
+        case .hearAnswer: menuActions.hearTaskAnswer()
+        case .openPage:
+            if let pageURL = agent?.finishedResult?.pageURL { NSWorkspace.shared.open(pageURL) }
+        case .cancelAgent:
+            if let agent { menuActions.cancelAgent(agent.id) }
+        }
     }
 
     // MARK: Polling
@@ -578,4 +794,20 @@ final class AgentTokenDockController {
             }
         }
     }
+}
+
+/// A menu item that runs a closure, since the panel that pops the menu is never key and has no responder chain to send to.
+private final class AgentDiscClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(run), keyEquivalent: "")
+        target = self
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError("Created in code only") }
+
+    @objc private func run() { handler() }
 }

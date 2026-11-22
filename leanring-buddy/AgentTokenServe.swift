@@ -42,6 +42,23 @@ func agentTokenServePlan(
     return .fly(agentTokenServePath(from: cursorPoint, to: slotPoint))
 }
 
+/// How long the still ring a Reduce Motion serve leaves around the new disc stays before it fades. The move's Reduce Motion
+/// form is a fade in at the target that leaves a still ring there (`DS.Move.send.reduceMotionForm`).
+let agentTokenServeStillRingSeconds: TimeInterval = 1
+
+/// How wide the still ring is: as wide as the disc's panel allows, and one line width (1.5 points) less than the panel is
+/// tall, since the line draws half outside its frame on each side. A menu bar only a little taller than the 22 point disc,
+/// such as a 24 point bar on a display with no notch, then never cuts the ring off.
+func agentTokenStillRingDiameter(panelHeight: CGFloat) -> CGFloat {
+    min(AgentTokenMetrics.panelWidth - 2, panelHeight - 1.5)
+}
+
+/// Whether the tether of a flight that has left must end at once. It must when a disc had to wait under that very flight, since
+/// that disc slides now and the fading line would end where the disc used to be. Another flight's tether stays.
+func agentTokenTetherMustEnd<Flight: AnyObject>(flightWhoseDiscWaited: Flight?, goneFlight: Flight) -> Bool {
+    flightWhoseDiscWaited === goneFlight
+}
+
 // MARK: - Arc
 
 /// A quadratic bezier arc from the cursor to a slot, shaped like the one the cursor flies when it points at something.
