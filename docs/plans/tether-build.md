@@ -64,6 +64,8 @@ The 6 bigger ideas follow the build order as PRs 13 to 18: Theme Studio designs 
 - Upload PR images to a `pr-assets/<topic>` branch, cropped to Clicky's own windows.
 - Ship with `/ship and merge`; PR bodies go through the `rewrite` skill, as the global rules require.
 - Rebase on `origin/main` right before opening the PR and again before merging, since every PR edits `AGENTS.md`.
+- Stay in your turn until the PR merges. Nothing wakes an agent whose turn has ended, so wait on CI, `watch.sh`, or the app check lock inside the turn, with `t3_background_wait` for a background command, and never end the turn to wait.
+- After an app check, close your project in Xcode (`tell application "Xcode" to close (every workspace document whose path contains "<worktree folder>") saving no`), since about ten open projects stop Xcode from loading new ones.
 - Do not ask Chris anything.
   Make the reversible choice, write it in the PR body's Tradeoffs, and keep going.
   Stop only for something destructive or outside this repository.
