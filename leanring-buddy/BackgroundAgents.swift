@@ -177,8 +177,11 @@ struct BackgroundAgent: Identifiable, Equatable {
     /// guide agents at once. Nil for every other kind.
     let studyGuideVideoKey: String?
     let startedAt: Date
-    /// When the step that runs now began, which times its share of the progress.
+    /// When the step that runs now began, which times its share of the progress. A resume moves it later by the length of
+    /// the pause, so a paused step's progress picks up where it stopped.
     var currentStepStartedAt: Date
+    /// When the learner paused every agent, while this agent is paused, so its progress stops there. Nil while it runs.
+    var pausedAt: Date? = nil
     var endedAt: Date?
     var phase: BackgroundAgentPhase
     /// The learner's own push-to-talk transcript that started a task agent, which its approval card shows as "You said".
@@ -243,15 +246,15 @@ struct BackgroundAgent: Identifiable, Equatable {
         guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount) else {
             return filledFraction
         }
-        let secondsIntoTheStep = max(0, now.timeIntervalSince(currentStepStartedAt))
+        let secondsIntoTheStep = max(0, min(now, pausedAt ?? now).timeIntervalSince(currentStepStartedAt))
         let shareOfTheStepDone = min(1, secondsIntoTheStep / kind.steps[completedStepCount].expectedSeconds)
         return (Double(completedStepCount) + Self.shareOfAStepTheProgressMovesThrough * shareOfTheStepDone) / Double(kind.steps.count)
     }
 
     /// Where the progress heads while the current step runs, and how many seconds until it gets there.
-    /// Nil once the agent has ended.
+    /// Nil once the agent has ended, and while it is paused, since its progress stands still then.
     func progressHeading(at now: Date) -> (fraction: Double, secondsToGetThere: TimeInterval)? {
-        guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount) else { return nil }
+        guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount), pausedAt == nil else { return nil }
         let stepEndsAt = currentStepStartedAt.addingTimeInterval(kind.steps[completedStepCount].expectedSeconds)
         return (
             fraction: (Double(completedStepCount) + Self.shareOfAStepTheProgressMovesThrough) / Double(kind.steps.count),
@@ -369,6 +372,12 @@ final class BackgroundAgentStore: ObservableObject {
     /// summary, since a page or a server may have written that.
     @Published var approvalCapabilitiesByAgentID: [UUID: HarnessCapability] = [:]
 
+    /// True while the learner has paused every agent ("hold on"), until they say "go ahead". No agent starts its next step
+    /// or delivers its result meanwhile (`waitWhileAgentsArePaused`), an agent that starts during the pause starts paused,
+    /// and the discs beside the notch fold into one paused disc. A step already in flight finishes. It ends by itself once
+    /// no agent is running, since nothing is left to hold.
+    @Published private(set) var agentsArePaused = false
+
     /// Read when an agent starts, to pick its color and face. Changing the theme later never changes a running agent.
     private let themeSettings: CompanionThemeSettings
 
@@ -481,6 +490,7 @@ final class BackgroundAgentStore: ObservableObject {
             studyGuideVideoKey: studyGuideVideoKey,
             startedAt: startedAt,
             currentStepStartedAt: startedAt,
+            pausedAt: agentsArePaused ? startedAt : nil,
             endedAt: nil,
             phase: .running(completedStepCount: 0),
             tokenColor: look.tokenColor,
@@ -562,6 +572,46 @@ final class BackgroundAgentStore: ObservableObject {
                   completedStepCount < agent.kind.stepNames.count - 1 else { return }
             agent.phase = .running(completedStepCount: completedStepCount + 1)
             agent.currentStepStartedAt = Date()
+            // A step that finished in flight during a pause starts the next one paused, at no progress.
+            if agent.pausedAt != nil { agent.pausedAt = agent.currentStepStartedAt }
+        }
+    }
+
+    // MARK: Pausing every agent
+
+    var anAgentIsRunning: Bool {
+        agents.contains(where: \.isRunning)
+    }
+
+    /// "Hold on": every running agent stops where it is. Returns false when they were already paused.
+    @discardableResult
+    func pauseEveryAgent(at now: Date = Date()) -> Bool {
+        guard !agentsArePaused else { return false }
+        agentsArePaused = true
+        for agentIndex in agents.indices where agents[agentIndex].isRunning {
+            agents[agentIndex].pausedAt = now
+        }
+        return true
+    }
+
+    /// "Go ahead": every paused agent goes on, its progress from where it stopped. Returns false when none were paused.
+    @discardableResult
+    func resumeEveryAgent(at now: Date = Date()) -> Bool {
+        guard agentsArePaused else { return false }
+        agentsArePaused = false
+        for agentIndex in agents.indices {
+            guard let pausedAt = agents[agentIndex].pausedAt else { continue }
+            agents[agentIndex].currentStepStartedAt += max(0, now.timeIntervalSince(pausedAt))
+            agents[agentIndex].pausedAt = nil
+        }
+        return true
+    }
+
+    /// Returns at once while the agents run. While they are paused, it returns once they resume, or once the calling task
+    /// is cancelled, such as an agent cancelled from the list, so the caller checks for cancellation after it.
+    func waitWhileAgentsArePaused() async {
+        for await agentsArePaused in $agentsArePaused.values where !agentsArePaused {
+            return
         }
     }
 
@@ -608,8 +658,11 @@ final class BackgroundAgentStore: ObservableObject {
         let agentEnded = updateRunningAgent(agentID) { agent in
             agent.phase = endPhase
             agent.endedAt = Date()
+            agent.pausedAt = nil
         }
         guard agentEnded else { return }
+        // The learner cancelled every paused agent from the list, so no paused disc or "go ahead" is left to explain.
+        if agentsArePaused, !anAgentIsRunning { resumeEveryAgent() }
         // The token of a finished or failed agent leaves on its own, so the views that show it need one more refresh then.
         Task {
             try? await Task.sleep(for: .seconds(BackgroundAgent.secondsAnEndedAgentsTokenStays + 0.05))
