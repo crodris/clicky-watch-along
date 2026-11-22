@@ -308,17 +308,18 @@ final class CursorLoopController: ObservableObject {
     /// While a loop or an agent line shows, the front tab's window, tab, URL, and media position are sampled as it starts and once
     /// a second after, and any difference, or a sample that fails, clears it. The first sample catches a tab switch
     /// or window move between the release and the hand-off. This also covers a switch to a duplicate tab.
+    /// The poll holds the controller weakly, so a controller nobody keeps ends its poll instead of polling forever.
     private func startPollingTheFrontTab() {
-        pollTask = Task {
+        pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let mediaThePollWatches = state.mediaThePollWatches else { return }
-                let sampleNow = readTheFrontTabSample()
+                guard let self, let mediaThePollWatches = self.state.mediaThePollWatches else { return }
+                let sampleNow = self.readTheFrontTabSample()
                 guard !Task.isCancelled else { return }
                 if let sampleNow, mediaThePollWatches.isTheSameMediaInTheSameTab(as: sampleNow) {
-                    await waitBetweenFrontTabPolls()
+                    await self.waitBetweenFrontTabPolls()
                     continue
                 }
-                end(because: .tabOrMediaChanged)
+                self.end(because: .tabOrMediaChanged)
                 return
             }
         }
