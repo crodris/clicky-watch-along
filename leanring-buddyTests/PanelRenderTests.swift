@@ -124,6 +124,29 @@ struct PanelRenderTests {
         #expect(bitmap.size.height > CGFloat(rowCount * 120))
     }
 
+    @Test func aLongNamesFullNamePillWrapsInsideItsCard() throws {
+        // The width a card in the panel's grid gives its pill: the card's width less the pill's 4 point inset on each side.
+        let cardWidth = (CompanionPanelView.contentWidth - 32 - CGFloat(ThemeCardGrid.columnCount - 1) * ThemeCardGrid.spacing) / CGFloat(ThemeCardGrid.columnCount)
+        let pillWidth = cardWidth - 8
+        // The widest name a theme can have: 24 characters, each a wide letter.
+        let widestName = String(repeating: "W", count: 24)
+        let widestPillSize = NSHostingController(rootView: ThemeCardFullNamePill(name: widestName)).sizeThatFits(in: CGSize(width: pillWidth, height: 1_000))
+        #expect(widestPillSize.width <= pillWidth)
+        #expect(widestPillSize.height > ThemeCardFullNamePill.oneLineHeight)
+        // A short name keeps the one-line pill.
+        let shortPillSize = NSHostingController(rootView: ThemeCardFullNamePill(name: "Ember")).sizeThatFits(in: CGSize(width: pillWidth, height: 1_000))
+        #expect(abs(shortPillSize.height - ThemeCardFullNamePill.oneLineHeight) < 1)
+        _ = try render(
+            VStack(spacing: 12) {
+                ThemeCardFullNamePill(name: widestName)
+                ThemeCardFullNamePill(name: "Moonlit Harbor at Night")
+                ThemeCardFullNamePill(name: "Ember")
+            }
+            .frame(width: pillWidth),
+            named: "theme-card-full-name-pills"
+        )
+    }
+
     @Test func aTallPageScrollsUnderTheHeaderInsteadOfGrowingTheCard() throws {
         let companionManager = CompanionManager()
         let presentation = PanelPresentation()
@@ -179,6 +202,34 @@ struct PanelRenderTests {
         mouseLocationInTheWindow = CGPoint(x: 200, y: 200)
         hoverView.updateTrackingAreas()
         #expect(reportedHovers == [true, false])
+    }
+
+    @Test func aViewThatMovesAwayFromAStillPointerInsideTheWindowReportsNoHover() {
+        // Three cards in a row, as the theme grid lays them out. Each view keeps AppKit's default of not clipping to its
+        // bounds, as SwiftUI's hosted views do, so its visible rect reaches across the whole window.
+        let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 300, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
+        window.contentView = contentView
+        var reportedHoversByCard: [[Bool]] = [[], [], []]
+        let cardViews = (0..<3).map { cardIndex in
+            let cardView = HoverAndPointerNSView(frame: NSRect(x: CGFloat(cardIndex) * 100, y: 0, width: 100, height: 80))
+            cardView.clipsToBounds = false
+            cardView.mouseLocationInTheWindow = { _ in CGPoint(x: 150, y: 40) }
+            cardView.onHoverChange = { reportedHoversByCard[cardIndex].append($0) }
+            contentView.addSubview(cardView)
+            return cardView
+        }
+        window.orderFrontRegardless()
+        defer { window.close() }
+        // The still pointer sits over the middle card only, so a re-layout marks only that card as hovered.
+        cardViews.forEach { $0.updateTrackingAreas() }
+        #expect(reportedHoversByCard == [[], [true], []])
+        // The middle card is deleted and the last card slides into its place: the hover moves with the pointer's card.
+        cardViews[1].removeFromSuperview()
+        cardViews[2].frame.origin.x = 100
+        cardViews[2].updateTrackingAreas()
+        #expect(reportedHoversByCard == [[], [true], [true]])
     }
 
     // MARK: - The approval badge on a light menu bar

@@ -5,6 +5,8 @@
 //  What Finder's Quick Look shows for a `.clickytheme` file: the theme's cursor, its name, how it moves, its accent and
 //  contrast colors, and how its agents look, on the Tether Card. The Quick Look extension (ClickyThemeQuickLook/) compiles
 //  this file with the theme's own sources and renders it to a PNG, so the app's tests render the same view at 2x.
+//  The thumbnail extension (ClickyThemeThumbnail/) compiles the same files and draws `ThemeFileThumbnailView`, the file's
+//  icon in Finder: the cursor on its disc over the theme's colors. Both read the file with `readThemeFileForQuickLook`.
 //  The preview is one still picture, so it draws the cursor still and has no motion, and no Reduce Motion form is needed.
 //  The extension cannot reach the app's views, so the cursor is drawn here from the theme's fields: the triangle flat in the
 //  accent at its pointer angle, the shapes in the 24 point box, or the picture with its fit, outline, and tint.
@@ -67,13 +69,7 @@ struct ThemeFilePreviewView: View {
         .environment(\.colorScheme, .dark)
     }
 
-    private var agentColors: [Color] {
-        switch theme.agents.ring {
-        case .perKind: return Self.perKindAgentColors
-        case .perAgent(let colorHexes): return colorHexes.map { Color(hex: $0) }
-        case .accent: return [Color(hex: theme.accentHex)]
-        }
-    }
+    private var agentColors: [Color] { quickLookAgentColors(of: theme) }
 
     /// What the agents' faces are, in words, since a roster's portraits never travel in a file.
     private var agentsNote: String {
@@ -105,6 +101,78 @@ struct ThemeFilePreviewView: View {
             }
         }
     }
+}
+
+/// The colors a theme's agents wear, in the order they take them.
+func quickLookAgentColors(of theme: ClickyTheme) -> [Color] {
+    switch theme.agents.ring {
+    case .perKind: return ThemeFilePreviewView.perKindAgentColors
+    case .perAgent(let colorHexes): return colorHexes.map { Color(hex: $0) }
+    case .accent: return [Color(hex: theme.accentHex)]
+    }
+}
+
+/// A `.clickytheme` file as both Quick Look extensions read it: the theme, and its picture when it uses one.
+nonisolated struct ThemeFileForQuickLook: Sendable {
+    let theme: ClickyTheme
+    let pictureJPEG: Data?
+}
+
+/// Reads a `.clickytheme` package with `CustomThemeStore.previewPackage`, the same read and the same `ClickyTheme.parse`
+/// rules an install applies, so a file Clicky would refuse shows Quick Look's plain fallback instead of a theme.
+/// `previewPackage` reads only the package, so the store's own folder is never touched. An extension's sandbox has no folder
+/// of Clicky's, so the store points at the temporary folder.
+nonisolated func readThemeFileForQuickLook(at packageURL: URL) throws -> ThemeFileForQuickLook {
+    let store = CustomThemeStore(themesDirectoryURL: FileManager.default.temporaryDirectory)
+    let packagePreview = try store.previewPackage(at: packageURL)
+    return ThemeFileForQuickLook(theme: packagePreview.theme, pictureJPEG: packagePreview.pictureJPEG)
+}
+
+/// What Finder shows as a `.clickytheme` file's icon: the theme's cursor, still, on a dark disc in its accent rim, over a
+/// row of its accent, contrast, and first agent colors, on a square of the Card's surface. Everything scales with `side`,
+/// since Finder asks for sizes from 16 to 1024 points. It has no words, since Finder writes the file's name under it.
+struct ThemeFileThumbnailView: View {
+    let theme: ClickyTheme
+    let picture: NSImage?
+    let side: CGFloat
+
+    /// The swatches under the disc: the accent and contrast colors, then up to three agent colors.
+    private var swatchColors: [Color] {
+        [Color(hex: theme.accentHex), Color(hex: theme.contrastHex)] + quickLookAgentColors(of: theme).prefix(3)
+    }
+
+    var body: some View {
+        let accentColor = Color(hex: theme.accentHex)
+        VStack(spacing: side * 0.07) {
+            ThemeFilePreviewCursor(theme: theme, picture: picture, drawingSide: side * 0.42)
+                .frame(width: side * 0.6, height: side * 0.6)
+                .background(Circle().fill(DS.Colors.surface1))
+                .overlay(Circle().strokeBorder(accentColor.opacity(0.6), lineWidth: max(1, side * 0.015)))
+            HStack(spacing: side * 0.03) {
+                ForEach(swatchColors.indices, id: \.self) { swatchIndex in
+                    // The faint edge the preview's swatches have, so a black or near-black color shows on the dark card.
+                    RoundedRectangle(cornerRadius: side * 0.02)
+                        .fill(swatchColors[swatchIndex])
+                        .overlay(RoundedRectangle(cornerRadius: side * 0.02).strokeBorder(Color.white.opacity(0.2), lineWidth: max(0.5, side * 0.006)))
+                        .frame(width: side * 0.09, height: side * 0.09)
+                }
+            }
+        }
+        .frame(width: side, height: side)
+        .background(
+            RoundedRectangle(cornerRadius: side * 0.18, style: .continuous)
+                .fill(LinearGradient(colors: [DS.Colors.cardSurfaceTop, DS.Colors.cardSurfaceBottom], startPoint: .top, endPoint: .bottom))
+        )
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+/// The thumbnail as an image `side` points square at `scale` pixels per point. Nil when the renderer gives no image.
+@MainActor
+func themeFileThumbnailImage(theme: ClickyTheme, picture: NSImage?, side: CGFloat, scale: CGFloat) -> CGImage? {
+    let renderer = ImageRenderer(content: ThemeFileThumbnailView(theme: theme, picture: picture, side: side))
+    renderer.scale = scale
+    return renderer.cgImage
 }
 
 /// The theme's cursor, still, drawn to fill `drawingSide`.

@@ -205,6 +205,34 @@ struct ThemeFileExportTests {
         #expect(abs(cursorColor.greenComponent - accentColor.greenComponent) < 0.12)
         #expect(abs(cursorColor.blueComponent - accentColor.blueComponent) < 0.12)
     }
+
+    @MainActor
+    @Test func theThumbnailDrawsEveryBundledThemeSquareWithItsCursorInTheDisc() throws {
+        // Finder asks for many sizes, so the smallest list icon and a large icon view both draw.
+        for side: CGFloat in [16, 128] {
+            for theme in bundledThemesForTests {
+                let thumbnailImage = try #require(themeFileThumbnailImage(theme: theme, picture: nil, side: side, scale: 2))
+                #expect(thumbnailImage.width == Int(side * 2) && thumbnailImage.height == Int(side * 2))
+            }
+        }
+        if let renderDirectory = ProcessInfo.processInfo.environment["CLICKY_RENDER_DIR"] {
+            for theme in bundledThemesForTests {
+                let renderedThumbnail = try #require(themeFileThumbnailImage(theme: theme, picture: nil, side: 128, scale: 2))
+                try NSBitmapImageRep(cgImage: renderedThumbnail).representation(using: .png, properties: [:])?
+                    .write(to: URL(fileURLWithPath: renderDirectory).appendingPathComponent("theme-file-thumbnail-\(theme.id).png"))
+            }
+        }
+        let thumbnailImage = try #require(themeFileThumbnailImage(theme: clickyBlueTheme, picture: nil, side: 128, scale: 2))
+        let bitmap = NSBitmapImageRep(cgImage: thumbnailImage)
+        // The square's rounded corner is clear, so Finder's icon keeps the shape.
+        #expect((bitmap.colorAt(x: 1, y: 1)?.alphaComponent ?? 1) < 0.2)
+        // The disc sits above the swatches, its center 42 percent of the way down, and Clicky blue's triangle fills it there.
+        let cursorColor = try #require(bitmap.colorAt(x: 128, y: Int(256 * 0.42))?.usingColorSpace(.sRGB))
+        let accentColor = try #require(NSColor(hex: clickyBlueTheme.accentHex)?.usingColorSpace(.sRGB))
+        #expect(abs(cursorColor.redComponent - accentColor.redComponent) < 0.12)
+        #expect(abs(cursorColor.greenComponent - accentColor.greenComponent) < 0.12)
+        #expect(abs(cursorColor.blueComponent - accentColor.blueComponent) < 0.12)
+    }
 }
 
 private extension NSColor {
