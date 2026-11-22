@@ -36,21 +36,21 @@ struct VoiceApprovalTests {
         let always = ApprovalVoiceAnswer(toolInput: ["approved": .bool(true), "always": .bool(true)])!
         let no = ApprovalVoiceAnswer(toolInput: ["approved": .bool(false)])!
 
-        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "Yes.") == yes)
-        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "sure, go ahead") == yes)
-        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "do it") == yes)
+        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "Yes.", requestWasSeenAtPress: true) == yes)
+        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "sure, go ahead", requestWasSeenAtPress: true) == yes)
+        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "do it", requestWasSeenAtPress: true) == yes)
         // A page's text could steer the model to a yes on words that are not one.
-        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "pause the video") == nil)
-        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "don\u{2019}t do it") == nil)
-        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "okay, no wait") == nil)
+        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "pause the video", requestWasSeenAtPress: true) == nil)
+        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "don\u{2019}t do it", requestWasSeenAtPress: true) == nil)
+        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "okay, no wait", requestWasSeenAtPress: true) == nil)
         // A yes-word inside another request is not an answer.
-        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "okay, what is this video about") == nil)
-        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "Yes please, go ahead and do it.") == yes)
-        #expect(approvalVoiceAnswerTheLearnerSaid(always, transcript: "always allow it") == always)
-        #expect(approvalVoiceAnswerTheLearnerSaid(always, transcript: "Always.") == always, "a bare always is a yes")
-        #expect(approvalVoiceAnswerTheLearnerSaid(always, transcript: "yes") == nil, "always needs the learner to say always")
+        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "okay, what is this video about", requestWasSeenAtPress: true) == nil)
+        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "Yes please, go ahead and do it.", requestWasSeenAtPress: true) == yes)
+        #expect(approvalVoiceAnswerTheLearnerSaid(always, transcript: "always allow it", requestWasSeenAtPress: true) == always)
+        #expect(approvalVoiceAnswerTheLearnerSaid(always, transcript: "Always.", requestWasSeenAtPress: true) == always, "a bare always is a yes")
+        #expect(approvalVoiceAnswerTheLearnerSaid(always, transcript: "yes", requestWasSeenAtPress: true) == nil, "always needs the learner to say always")
         // A no is always safe, so it needs no check.
-        #expect(approvalVoiceAnswerTheLearnerSaid(no, transcript: "what is this") == no)
+        #expect(approvalVoiceAnswerTheLearnerSaid(no, transcript: "what is this", requestWasSeenAtPress: true) == no)
     }
 
     /// harness/voiceapproval_test.go reads the same file, so the Go check the harness runs and this Swift check cannot
@@ -67,9 +67,11 @@ struct VoiceApprovalTests {
             let transcript = try #require(fixtureCase["transcript"]?.stringValue, "\(caseName) has no transcript")
             let modelInput = try #require(fixtureCase["modelInput"]?.objectValue, "\(caseName) has no modelInput")
             let expectedAnswer = try #require(fixtureCase["expected"], "\(caseName) has no expected")
+            // A case that leaves seenAtPress out is about a request the learner had read.
+            let requestWasSeenAtPress = fixtureCase["seenAtPress"]?.boolValue ?? true
 
             let keptAnswer = ApprovalVoiceAnswer(toolInput: modelInput).flatMap { modelAnswer in
-                approvalVoiceAnswerTheLearnerSaid(modelAnswer, transcript: transcript)
+                approvalVoiceAnswerTheLearnerSaid(modelAnswer, transcript: transcript, requestWasSeenAtPress: requestWasSeenAtPress)
             }
             if expectedAnswer == .null {
                 #expect(keptAnswer == nil, "\(caseName): \(transcript.debugDescription) was kept as \(String(describing: keptAnswer))")

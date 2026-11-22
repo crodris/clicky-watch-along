@@ -208,15 +208,13 @@ final class CompanionManager: ObservableObject {
     /// Where this launch's voice commands run: the harness brain, or the old Worker router when no app secret is set or
     /// the Worker refused it. Read once at launch, since the harness takes the secret from its environment when it starts.
     private var voiceCommandBackend = VoiceCommandBackend(flagIsOn: BrainRunsInTheHarness.isOn(), appSecretIsSet: ClickyAppSecret.isSet())
-    /// The request a voice answer from the latest push-to-talk press may reach: the oldest, when the approval card had
-    /// shown its whole summary for a second at the press, and it is still waiting. The router takes the command, offers
-    /// `answer_approval`, and names the request's capability only for this one, so a yes the app would refuse is never
-    /// asked of the model.
-    private var approvalRequestAVoiceAnswerMayReach: HarnessApprovalRequest? {
-        guard let approvalIDTheLearnerHadSeenAtThePress else { return nil }
-        return agentHarness.approvalDesk.oldestWaitingRequest.flatMap { oldestRequest in
-            oldestRequest.approvalID == approvalIDTheLearnerHadSeenAtThePress ? oldestRequest : nil
-        }
+    /// The request a voice answer from the latest push-to-talk press may reach: the one the card showed at the press,
+    /// while it is still the oldest waiting. The router takes the command, offers `answer_approval`, and names the
+    /// request's capability only for this one. A no answers it at once, and a yes only when `wholeSummaryWasSeen`.
+    private var approvalAtThePressStillWaiting: ApprovalAtPress? {
+        guard let approvalAtThePress,
+              agentHarness.approvalDesk.oldestWaitingRequest?.approvalID == approvalAtThePress.approvalID else { return nil }
+        return approvalAtThePress
     }
 
     /// The text of the chip that says an agent needs the learner's OK, so answering hides that chip and never a newer one.
@@ -259,7 +257,7 @@ final class CompanionManager: ObservableObject {
             },
             tryAgain: { [weak self] agentID in self?.tryTheBackgroundAgentAgain(agentID) },
             answerApproval: { [weak self] approvalID, approved, scope in
-                self?.agentHarness.approvalDesk.answerByClick(approvalID: approvalID, approved: approved, scope: scope)
+                self?.agentHarness.approvalDesk.answerByClick(approvalID: approvalID, approved: approved, scope: scope, on: .agentList)
             }
         )
     )
@@ -425,9 +423,9 @@ final class CompanionManager: ObservableObject {
     private var currentResponseTask: Task<Void, Never>?
 
     private var shortcutTransitionCancellable: AnyCancellable?
-    /// The approval request whose whole summary the card had shown for a second when the learner last pressed
-    /// push-to-talk, or a rehearsal step stood in for a press. A voice answer can reach only this request.
-    private var approvalIDTheLearnerHadSeenAtThePress: String?
+    /// The approval request the card showed when the learner last pressed push-to-talk, or a rehearsal step stood in for
+    /// a press, and whether its whole summary had shown for a second then. A voice answer can reach only this request.
+    private var approvalAtThePress: ApprovalAtPress?
     private var escapeKeyCancellable: AnyCancellable?
     private var settingsDialCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
@@ -967,7 +965,7 @@ final class CompanionManager: ObservableObject {
             guard !showOnboardingVideo else { return }
 
             pushToTalkPressCount += 1
-            approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
+            approvalAtThePress = agentHarness.approvalDesk.approvalAtPress(at: Date())
             pushToTalkPressAcceptance.pressWasAccepted()
             // A screen read from an earlier press is out of date the moment a new press begins.
             forgetTheVoiceCommandScreenRead()
@@ -1169,7 +1167,7 @@ final class CompanionManager: ObservableObject {
             LiveSceneStatusLabel.shared.hide()
             VoiceToolCallChip.shared.recall()
             pushToTalkPressCount += 1
-            approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
+            approvalAtThePress = agentHarness.approvalDesk.approvalAtPress(at: Date())
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
             cursorLoopController.pushToTalkWasPressed()
             let frontTabRead = FrontTabReadAtRelease()
@@ -1346,7 +1344,7 @@ final class CompanionManager: ObservableObject {
             videoIsInFront: frontVideoState != nil,
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: taskAnswerWaitsToBeHeard,
-            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil,
+            approvalIsWaiting: approvalAtThePressStillWaiting != nil,
             themeStudioIsOpen: themeStudioController.isOpen,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
             sceneIsBuilding: sceneIsBuilding,
@@ -2811,7 +2809,7 @@ final class CompanionManager: ObservableObject {
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
             simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
-            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil,
+            approvalIsWaiting: approvalAtThePressStillWaiting != nil,
             themeStudioIsOpen: themeStudioController.isOpen,
             themeStudioShowsIdeas: themeStudioController.state.isShowingIdeas
         )
@@ -2846,9 +2844,9 @@ final class CompanionManager: ObservableObject {
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext), skills: TaskAgentSkillCatalog.currentSkills())
         let offeredToolNames = Set(tools.map(\.name))
         print("Voice command: offering \(tools.count) tools, \(frontVideoState == nil ? "no video" : "a video") in front")
-        // A "yes" answers the request the learner could see when they pressed push-to-talk, never one that came on
-        // screen while they spoke or while the model ran, such as after the shown one's task ended.
-        let approvalIDWaitingWhenTheCommandStarted = approvalRequestAVoiceAnswerMayReach?.approvalID
+        // A "yes" or "no" answers the request the card showed when the learner pressed push-to-talk, never one that came
+        // on screen while they spoke or while the model ran, such as after the shown one's task ended.
+        let approvalWhenTheCommandStarted = approvalAtThePressStillWaiting
         if voiceCommandBackend.runsInTheHarness {
             // The harness names the waiting request's kind of action itself, so this scene state has no approvalWaiting.
             let commandIsResentOnTheOldPath = await runVoiceCommandInTheHarness(
@@ -2856,7 +2854,7 @@ final class CompanionManager: ObservableObject {
                 sceneState: voiceCommandSceneState(pageState: pageState, frontVideoState: frontVideoState, namesTheWaitingApproval: false),
                 tools: tools,
                 offeredToolNames: offeredToolNames,
-                approvalIDWaitingWhenTheCommandStarted: approvalIDWaitingWhenTheCommandStarted,
+                approvalWhenTheCommandStarted: approvalWhenTheCommandStarted,
                 commandStartedAt: commandStartedAt,
                 timing: timing
             )
@@ -2901,7 +2899,7 @@ final class CompanionManager: ObservableObject {
                     transcript: transcript,
                     // Only the model's first reply to the learner's words may answer a request. A later turn has read
                     // tool results, which can hold text a page or a server wrote.
-                    approvalIDTheLearnerIsAnswering: turnIndex == 0 ? approvalIDWaitingWhenTheCommandStarted : nil,
+                    approvalTheLearnerIsAnswering: turnIndex == 0 ? approvalWhenTheCommandStarted : nil,
                     commandStartedAt: commandStartedAt
                 )
             }) else { return }
@@ -2948,7 +2946,7 @@ final class CompanionManager: ObservableObject {
         sceneState: JSONValue,
         tools: [VoiceToolDescriptor],
         offeredToolNames: Set<String>,
-        approvalIDWaitingWhenTheCommandStarted: String?,
+        approvalWhenTheCommandStarted: ApprovalAtPress?,
         commandStartedAt: Date,
         timing: VoiceCommandTimingRecorder
     ) async -> Bool {
@@ -2964,7 +2962,7 @@ final class CompanionManager: ObservableObject {
                 transcript: transcript,
                 sceneState: sceneState,
                 tools: tools,
-                approvalIDSeenAtPress: approvalIDWaitingWhenTheCommandStarted
+                approvalAtPress: approvalWhenTheCommandStarted
             )
         } catch {
             await runTheRouterFailureFallback(transcript: transcript, failureDescription: "the agent harness could not start: \(error)")
@@ -2978,7 +2976,7 @@ final class CompanionManager: ObservableObject {
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
-            approvalIDWaitingWhenTheCommandStarted: approvalIDWaitingWhenTheCommandStarted,
+            approvalWhenTheCommandStarted: approvalWhenTheCommandStarted,
             whenNoEventArrivesInTime: { [weak self] in
                 commandLines.commandWasCancelled()
                 self?.agentHarness.endVoiceCommand(
@@ -2986,7 +2984,7 @@ final class CompanionManager: ObservableObject {
                     lastEvent: .failed(reason: "the agent harness sent nothing in time")
                 )
             },
-            runTool: { toolCall, approvalIDTheLearnerIsAnswering in
+            runTool: { toolCall, approvalTheLearnerIsAnswering in
                 aToolOfTheCommandRan = true
                 timing.mark(\.firstToolCallReceivedAt)
                 // The old path logs each model reply under the debug switch, and here the harness holds the reply, so
@@ -3001,7 +2999,7 @@ final class CompanionManager: ObservableObject {
                     toolCall,
                     offeredToolNames: offeredToolNames,
                     transcript: transcript,
-                    approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering,
+                    approvalTheLearnerIsAnswering: approvalTheLearnerIsAnswering,
                     commandStartedAt: commandStartedAt,
                     handOffMark: commandLines
                 ) ?? .failed(error: "The command was cancelled", state: nil)
@@ -3053,7 +3051,7 @@ final class CompanionManager: ObservableObject {
         _ toolCall: VoiceToolCall,
         offeredToolNames: Set<String>,
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String?,
+        approvalTheLearnerIsAnswering: ApprovalAtPress?,
         commandStartedAt: Date,
         handOffMark: HarnessVoiceCommandLines? = nil
     ) async -> VoiceToolOutcome? {
@@ -3063,7 +3061,7 @@ final class CompanionManager: ObservableObject {
             toolCall,
             offeredToolNames: offeredToolNames,
             transcript: transcript,
-            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering,
+            approvalTheLearnerIsAnswering: approvalTheLearnerIsAnswering,
             handOffMark: handOffMark
         )
         // A push-to-talk press during a slow call, like play_video's check, ends the command here.
@@ -3120,7 +3118,7 @@ final class CompanionManager: ObservableObject {
         _ toolCall: VoiceToolCall,
         offeredToolNames: Set<String>,
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String? = nil,
+        approvalTheLearnerIsAnswering: ApprovalAtPress? = nil,
         handOffMark: HarnessVoiceCommandLines? = nil
     ) async -> VoiceToolOutcome {
         guard offeredToolNames.contains(toolCall.name) else {
@@ -3133,7 +3131,7 @@ final class CompanionManager: ObservableObject {
             appVoiceTool,
             input: toolCall.inputWithoutConfirmation,
             transcript: transcript,
-            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering,
+            approvalTheLearnerIsAnswering: approvalTheLearnerIsAnswering,
             handOffMark: handOffMark
         )
     }
@@ -3145,7 +3143,7 @@ final class CompanionManager: ObservableObject {
         _ appVoiceTool: AppVoiceTool,
         input: [String: JSONValue],
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String?,
+        approvalTheLearnerIsAnswering: ApprovalAtPress?,
         handOffMark: HarnessVoiceCommandLines? = nil
     ) async -> VoiceToolOutcome {
         if appVoiceTool.handsOffToALookAtTheMedia {
@@ -3155,7 +3153,7 @@ final class CompanionManager: ObservableObject {
             appVoiceTool,
             input: input,
             transcript: transcript,
-            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering
+            approvalTheLearnerIsAnswering: approvalTheLearnerIsAnswering
         )
         return voiceToolOutcome(of: toolStep, handOffMark: handOffMark)
     }
@@ -3166,7 +3164,7 @@ final class CompanionManager: ObservableObject {
         _ appVoiceTool: AppVoiceTool,
         input: [String: JSONValue],
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String?
+        approvalTheLearnerIsAnswering: ApprovalAtPress?
     ) async -> AppVoiceToolStep {
         switch appVoiceTool {
         case .answerWithScreen:
@@ -3289,13 +3287,13 @@ final class CompanionManager: ObservableObject {
             if skillChoice.skillWasDropped {
                 print("Task agent: the skill \(input["skill"]?.stringValue ?? "") is not in the catalog, so the task runs with no skill")
             }
-            return .outcome(startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)), skillName: skillChoice.name))
+            return .outcome(startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)), skillName: skillChoice.name, learnerWords: transcript))
         case .hearTaskAnswer:
             return .handOff { self.startSpeakingTheTaskAnswer() }
         case .recordGuess:
             return .outcome(await recordTheSimulationGuess(input["guess"]?.stringValue ?? ""))
         case .answerApproval:
-            return .outcome(answerTheApproval(approvalIDTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript))
+            return .outcome(answerTheApproval(approvalTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript))
         case .designTheme:
             let themeRequest = (input["request"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !themeRequest.isEmpty else { return .outcome(.failed(error: "request must say what the learner wants", state: nil)) }
@@ -3514,10 +3512,11 @@ final class CompanionManager: ObservableObject {
 
     /// Starts a general agent on the learner's task and returns at once, so the router speaks its confirmation and the
     /// video keeps playing.
-    private func startTheTaskAgent(goal: String, skillName: String? = nil) -> VoiceToolOutcome {
+    private func startTheTaskAgent(goal: String, skillName: String? = nil, learnerWords: String) -> VoiceToolOutcome {
         let agentID = backgroundAgentStore.start(kind: .task)
         agentTokenDockController.startServingTheToken(of: agentID)
         backgroundAgentStore.setSubject(goal, for: agentID)
+        backgroundAgentStore.setLearnerWords(learnerWords, for: agentID)
         if let skillName {
             // The first step line, before the agent reports its own, so the learner sees which skill runs.
             backgroundAgentStore.reportStep(TaskAgentSkillCatalog.startingStepText(skillName: skillName), for: agentID)
@@ -3527,7 +3526,8 @@ final class CompanionManager: ObservableObject {
         }
         allowTryingAgain(agentID) { [weak self] in
             guard let self, self.agentMayBeTriedAgainNow(agentKind: .task) else { return false }
-            _ = self.startTheTaskAgent(goal: goal, skillName: skillName)
+            // The new try keeps the words that started the first, so its approval card says them too.
+            _ = self.startTheTaskAgent(goal: goal, skillName: skillName, learnerWords: learnerWords)
             return true
         }
         return .changed(state: .object(["task": .string("started")]))
@@ -3751,22 +3751,30 @@ final class CompanionManager: ObservableObject {
     }
 
     /// The router's `answer_approval` answers the request that was oldest when the learner spoke, the one the agent
-    /// list showed, and only as far as the learner's own words say yes.
+    /// list showed. A no counts at once, with a word of no for an unread request. A yes counts only when the card had
+    /// shown the whole summary for a second at the press and the learner's own words say yes.
     private func answerTheApproval(
-        _ approvalIDTheLearnerIsAnswering: String?,
+        _ approvalTheLearnerIsAnswering: ApprovalAtPress?,
         byVoiceInput input: [String: JSONValue],
         transcript: String
     ) -> VoiceToolOutcome {
         guard let modelAnswer = ApprovalVoiceAnswer(toolInput: input) else {
             return .failed(error: "approved must be true or false", state: nil)
         }
-        guard let approvalIDTheLearnerIsAnswering else {
+        guard let approvalTheLearnerIsAnswering else {
             return .failed(error: "Only your first reply to the learner's words can answer a request", state: nil)
         }
-        guard let learnerAnswer = approvalVoiceAnswerTheLearnerSaid(modelAnswer, transcript: transcript) else {
+        guard !modelAnswer.approved || approvalTheLearnerIsAnswering.wholeSummaryWasSeen else {
+            return .failed(error: "The learner has not read the whole request on the card yet, so only a no counts. Tell them to read it there first", state: nil)
+        }
+        guard let learnerAnswer = approvalVoiceAnswerTheLearnerSaid(
+            modelAnswer,
+            transcript: transcript,
+            requestWasSeenAtPress: approvalTheLearnerIsAnswering.wholeSummaryWasSeen
+        ) else {
             return .failed(error: "The learner's words did not give that answer, so nothing was allowed", state: nil)
         }
-        guard agentHarness.approvalDesk.answer(approvalID: approvalIDTheLearnerIsAnswering, approved: learnerAnswer.approved, scope: learnerAnswer.scope) else {
+        guard agentHarness.approvalDesk.answer(approvalID: approvalTheLearnerIsAnswering.approvalID, approved: learnerAnswer.approved, scope: learnerAnswer.scope) else {
             return .failed(error: "That request is no longer waiting", state: nil)
         }
         return .changed(state: .object(["approval": .string(learnerAnswer.approved ? "allowed" : "declined")]))
@@ -4467,7 +4475,8 @@ final class CompanionManager: ObservableObject {
             sceneStateFields["predictionQuestion"] = .string(simulationLesson.predictionQuestion)
         }
         // Only the capability word, never the summary, which a web page or an MCP server may have written.
-        if namesTheWaitingApproval, let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: approvalRequestAVoiceAnswerMayReach) {
+        if namesTheWaitingApproval, approvalAtThePressStillWaiting != nil,
+           let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: agentHarness.approvalDesk.oldestWaitingRequest) {
             sceneStateFields["approvalWaiting"] = .string(approvalWaitingState)
         }
         if let themeStudioState = voiceCommandThemeStudioState(themeStudioController.state) {

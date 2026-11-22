@@ -208,8 +208,9 @@ struct AgentListActions {
     let hearTaskAnswer: () -> Void
     /// Starts a failed agent's work again, once (`BackgroundAgent.canBeTriedAgain`).
     let tryAgain: (UUID) -> Void
-    /// Answers a task agent's approval request from the Yes, Always, and No buttons. The desk ignores a click that comes
-    /// too soon after the request showed (`HarnessApprovalDesk.answerByClick`).
+    /// Answers a task agent's approval request from the card's Don't allow, Allow once, and For this task buttons. The
+    /// desk takes a no at once and ignores a yes that comes before the list's card showed the whole summary for a second
+    /// (`HarnessApprovalDesk.answerByClick`).
     let answerApproval: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
 }
 
@@ -268,9 +269,9 @@ final class AgentListPanelController {
     static let maximumPanelHeight: CGFloat = 360
     /// The approval card's summary scrolls past this height, so a long one cannot push the rows off the screen.
     static let maximumApprovalSummaryHeight: CGFloat = 200
-    /// The rest of the approval card around its summary: the title line, the buttons, the hint, the padding, and the line
-    /// under the card.
-    static let approvalCardHeightOutsideTheSummary: CGFloat = 110
+    /// The rest of the approval card around its summary at its tallest: the title on two lines and the kind line, "You
+    /// said" on two lines, the status line, the buttons, the two line hint, the gaps and padding, and the line under it.
+    static let approvalCardHeightOutsideTheSummary: CGFloat = 230
     /// The list's tallest, with an approval card above the rows.
     static let maximumPanelHeightWithAnApprovalCard: CGFloat = maximumPanelHeight + maximumApprovalSummaryHeight + approvalCardHeightOutsideTheSummary
     private static let gapFromTheMouse: CGFloat = 12
@@ -280,7 +281,7 @@ final class AgentListPanelController {
     private let store: BackgroundAgentStore
     private let themeSettings: CompanionThemeSettings
     private let actions: AgentListActions
-    /// The queue of requests the learner answers with the Yes, Always, and No buttons of the approval card.
+    /// The queue of requests the learner answers with the buttons of the approval card.
     private let approvalDesk: HarnessApprovalDesk
     private var panel: NonKeyFloatingPanel?
     private var clickOutsideMonitor: Any?
@@ -527,7 +528,7 @@ final class AgentListPanelController {
         discTheListWasOpenedFrom = nil
         // The copy that plays while the list closes shares this state, so it reports nothing to the desk.
         uiState.stopListeningForTheDesk()
-        approvalDesk.theCardHasNotShownTheWholeSummary()
+        approvalDesk.theCardHasNotShownTheWholeSummary(on: .agentList)
         if let clickOutsideMonitor {
             NSEvent.removeMonitor(clickOutsideMonitor)
             self.clickOutsideMonitor = nil
@@ -822,26 +823,28 @@ private struct AgentListView: View {
                 .fill(DS.Colors.borderSubtle)
                 .frame(height: 1)
 
-            // The oldest request sits above the rows, so no scroll position can hide it.
-            if let oldestRequest = approvalDesk.oldestWaitingRequest {
+            // The oldest request sits above the rows, so no scroll position can hide it. For a moment after it ends, the
+            // card says how it ended.
+            if let shownCard = approvalDesk.cardToShow(on: .agentList, at: Date()) {
+                let requestingAgent = store.agents.first { agent in agent.id == shownCard.request.taskID }
                 ApprovalCardView(
-                    approvalRequest: oldestRequest,
-                    agentName: store.agents.first { agent in agent.id == oldestRequest.taskID }.map(\.displayName) ?? "An agent",
-                    isAnswering: approvalDesk.answeringApprovalIDs.contains(oldestRequest.approvalID),
-                    summaryShownSince: approvalDesk.oldestRequestVisibleSince,
+                    shownCard: shownCard,
+                    agentName: requestingAgent?.displayName ?? "An agent",
+                    learnerWords: requestingAgent?.learnerWords,
+                    wholeSummaryShownSince: approvalDesk.wholeSummaryShownSinceBySurface[.agentList],
                     answerApproval: actions.answerApproval,
                     summaryWasShownWhole: { summaryWasShownWhole in
                         uiState.report(toTheDesk: {
                             if summaryWasShownWhole {
-                                approvalDesk.theCardShowedTheWholeSummary(ofApprovalID: oldestRequest.approvalID)
+                                approvalDesk.theCardShowedTheWholeSummary(ofApprovalID: shownCard.request.approvalID, on: .agentList)
                             } else {
-                                approvalDesk.theCardHasNotShownTheWholeSummary()
+                                approvalDesk.theCardHasNotShownTheWholeSummary(on: .agentList)
                             }
                         })
                     }
                 )
                 // A new request gets a new card, so its summary is measured from the top.
-                .id(oldestRequest.approvalID)
+                .id(shownCard.request.approvalID)
 
                 Rectangle()
                     .fill(DS.Colors.borderSubtle)
@@ -1220,137 +1223,325 @@ private struct StepMeterFill: Shape {
 
 // MARK: - Approval card
 
-/// Where the summary text sits in the scroll area's coordinates: its top goes negative as the learner scrolls down.
-private struct ApprovalSummaryFrame: Equatable {
-    var minY: CGFloat
-    var height: CGFloat
-}
+extension HarnessCapability {
+    /// The title's verb, after the agent's name: "Hinata wants to send something out".
+    var approvalCardVerbPhrase: String {
+        switch self {
+        case .sends: return "wants to send something out"
+        case .deletes: return "wants to delete something"
+        case .spends: return "wants to spend money"
+        case .readsPrivate: return "wants to read something private"
+        // The desk declines a capability it does not know before any card shows it.
+        case .unknown: return "wants to do something"
+        }
+    }
 
-private struct ApprovalSummaryFramePreferenceKey: PreferenceKey {
-    static let defaultValue = ApprovalSummaryFrame(minY: 0, height: 0)
-    static func reduce(value: inout ApprovalSummaryFrame, nextValue: () -> ApprovalSummaryFrame) {
-        value = nextValue()
+    /// The line under the title, which says what the kind of action can do.
+    var approvalCardKindLine: String {
+        switch self {
+        case .sends: return "Sends data out of your Mac"
+        case .deletes: return "Deletes data"
+        case .spends: return "Spends money"
+        case .readsPrivate: return "Reads your screen, clipboard, or files"
+        case .unknown: return "An action Clicky cannot name"
+        }
+    }
+
+    /// One icon per kind of action, on the card's amber disc.
+    var approvalCardSymbolName: String {
+        switch self {
+        case .sends: return "paperplane.fill"
+        case .deletes: return "trash.fill"
+        case .spends: return "creditcard.fill"
+        case .readsPrivate: return "eye.fill"
+        case .unknown: return "questionmark"
+        }
     }
 }
 
-private struct ApprovalSummaryScrollAreaHeightPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+/// The share of the summary's height that its seen ranges cover, from 0 to 1, which the rail draws and VoiceOver reads.
+func approvalSummaryShareSeen(seenRanges: [ClosedRange<CGFloat>], summaryHeight: CGFloat) -> Double {
+    guard summaryHeight > 0 else { return 0 }
+    let coveredHeight = mergedApprovalSummaryRanges(seenRanges).reduce(CGFloat(0)) { coveredHeight, range in
+        coveredHeight + (range.upperBound - range.lowerBound)
+    }
+    return min(1, Double(coveredHeight / summaryHeight))
+}
+
+/// The summary split at its line breaks, one row per line, so each row is its own VoiceOver element and moving
+/// through them scrolls the box. The text stays as the harness wrote it, and an empty line keeps its height.
+func approvalSummaryRows(_ summary: String) -> [String] {
+    summary.split(separator: "\n", omittingEmptySubsequences: false).map { row in row.isEmpty ? " " : String(row) }
+}
+
+/// The words on the status line above the buttons for each phase of the card. `reduceMotionIsOn` swaps the ring for
+/// words while the 1 second runs, since the ring is the only sign of the clock.
+func approvalCardStatusText(phase: ApprovalCardPhase, reduceMotionIsOn: Bool) -> String {
+    switch phase {
+    case .waiting(.summaryNotYetSeen): return "Read the whole request to allow it"
+    case .waiting(.readyInAMoment): return reduceMotionIsOn ? "Ready in 1 s" : "All read · one moment"
+    case .waiting(.ready): return "You can answer now"
+    case .sending: return "Sending your answer…"
+    case .ended(.allowed(.once)): return "Allowed once. The task goes on."
+    case .ended(.allowed(.always)): return "Allowed for this task."
+    case .ended(.declined): return "Declined. The agent skips this step."
+    case .ended(.timedOut): return "Declined after 2 minutes with no answer."
+    case .ended(.noReply): return "Sent, but the agent never confirmed it."
     }
 }
 
-/// The oldest approval request, pinned above the agent rows: the harness's summary shown whole as plain text, which a
-/// web page or an MCP server may have written, and the Yes, Always, and No buttons. The summary scrolls inside the card
-/// when it is long, and the card tells the desk whether it has shown all of it, from top to bottom, since an answer
-/// counts only after it has.
-private struct ApprovalCardView: View {
-    let approvalRequest: HarnessApprovalRequest
+/// The approval card's surface, pinned above the agent rows. It shows the oldest request, or for a moment how the last
+/// one ended: the title verb and the kind of action, the learner's own words that started the agent, the harness's
+/// summary shown whole as plain text, which a web page or an MCP server may have written, a rail that fills in each
+/// part of the summary that has been in view, a ring for the 1 second, and three equal buttons with the safe one
+/// first. Don't allow counts at once. Allow once and For this task enable together once this surface has shown the
+/// whole summary for a second, which the card reports to the desk.
+struct ApprovalCardView: View {
+    let shownCard: ShownApprovalCard
     let agentName: String
-    /// The answer went to the harness, whose gate takes the first answer, and its settlement has not come back yet, so
-    /// the card shows no buttons and never a decline that the gate did not take.
-    let isAnswering: Bool
-    /// `HarnessApprovalDesk.oldestRequestVisibleSince`: the same value `answerByClick` checks, so the buttons look ready
-    /// exactly when a click counts.
-    let summaryShownSince: Date?
+    /// The learner's own push-to-talk words that started the agent, or nil when no spoken request did.
+    let learnerWords: String?
+    /// When this surface's card first showed the whole summary (`HarnessApprovalDesk.wholeSummaryShownSinceBySurface`),
+    /// the same value `answerByClick` checks, so the buttons look ready exactly when a click counts.
+    let wholeSummaryShownSince: Date?
     let answerApproval: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
     let summaryWasShownWhole: (Bool) -> Void
+    /// Set by renders and tests, since the environment's Reduce Motion cannot be set from outside.
+    var reduceMotionOverride: Bool? = nil
 
-    @State private var summaryFrame = ApprovalSummaryFrame(minY: 0, height: 0)
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @State private var summaryFrame = CGRect.zero
     @State private var scrollAreaHeight: CGFloat = 0
     @State private var seenRanges = ApprovalSummarySeenRanges()
-    /// Bumped when the 1 second after the whole summary showed has passed, so the card draws again with the buttons ready.
+    /// Bumped while the 1 second runs, so the card draws again with the buttons ready when it has passed.
     @State private var readinessClockTick = Date()
 
     private static let scrollAreaCoordinateSpaceName = "approvalSummaryScrollArea"
+    private static let railWidth: CGFloat = 4
+    private static let ringDiameter: CGFloat = 14
+
+    private var reduceMotionIsOn: Bool { reduceMotionOverride ?? systemReduceMotion }
+    private var approvalRequest: HarnessApprovalRequest { shownCard.request }
+
+    /// The desk's phase, with a waiting card's readiness read again on this card's own clock.
+    private var phase: ApprovalCardPhase {
+        guard case .waiting = shownCard.phase else { return shownCard.phase }
+        // Reads the tick so SwiftUI draws this again when it changes.
+        _ = readinessClockTick
+        return .waiting(approvalAnswerReadiness(wholeSummaryShownSince: wholeSummaryShownSince, at: Date()))
+    }
+
+    private var isWaiting: Bool {
+        if case .waiting = phase { return true }
+        return false
+    }
+
+    private var allowButtonsAreEnabled: Bool { phase == .waiting(.ready) }
+
+    private var percentRead: Int {
+        Int((approvalSummaryShareSeen(seenRanges: seenRanges.ranges, summaryHeight: summaryFrame.height) * 100).rounded(.down))
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(verbatim: "\(agentName) needs your OK. Allow this?")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(DS.Colors.warningText)
-            ScrollView {
-                Text(verbatim: approvalRequest.summary)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                    .background(
-                        GeometryReader { summaryProxy in
-                            let frameInScrollArea = summaryProxy.frame(in: .named(Self.scrollAreaCoordinateSpaceName))
-                            Color.clear.preference(
-                                key: ApprovalSummaryFramePreferenceKey.self,
-                                value: ApprovalSummaryFrame(minY: frameInScrollArea.minY, height: frameInScrollArea.height)
-                            )
-                        }
-                    )
+        VStack(alignment: .leading, spacing: 8) {
+            header
+            if let learnerWords, !learnerWords.isEmpty {
+                youSaid(learnerWords)
             }
-            .frame(maxHeight: AgentListPanelController.maximumApprovalSummaryHeight)
-            .fixedSize(horizontal: false, vertical: true)
-            .coordinateSpace(name: Self.scrollAreaCoordinateSpaceName)
-            .background(
-                GeometryReader { scrollAreaProxy in
-                    Color.clear.preference(key: ApprovalSummaryScrollAreaHeightPreferenceKey.self, value: scrollAreaProxy.size.height)
-                }
-            )
-            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.small).fill(DS.Colors.surface2))
-            .onPreferenceChange(ApprovalSummaryFramePreferenceKey.self) { newSummaryFrame in
-                summaryFrame = newSummaryFrame
-                recordWhatTheScrollAreaShows()
-            }
-            .onPreferenceChange(ApprovalSummaryScrollAreaHeightPreferenceKey.self) { newScrollAreaHeight in
-                scrollAreaHeight = newScrollAreaHeight
-                recordWhatTheScrollAreaShows()
-            }
-            if isAnswering {
-                Text(verbatim: "Sending your answer...")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
-                    // The buttons' own padding (5 point rows and 2 points above), so the card keeps its height while an answer is sent.
-                    .padding(.vertical, 5)
-                    .padding(.top, 2)
-            } else {
+            summaryBox
+            statusRow
+            // Once an answer is on its way the buttons go, so Don't allow never shows dimmed, and the status line says
+            // what happened.
+            if isWaiting {
                 HStack(spacing: 6) {
-                    AgentActionButton(title: "Yes", titleColor: DS.Colors.success, isDimmed: answerReadiness.buttonsAreDimmed) {
-                        answerApproval(approvalRequest.approvalID, true, .once)
-                    }
-                    AgentActionButton(title: "Always", titleColor: DS.Colors.textPrimary, isDimmed: answerReadiness.buttonsAreDimmed) {
-                        answerApproval(approvalRequest.approvalID, true, .always)
-                    }
-                    AgentActionButton(title: "No", titleColor: DS.Colors.destructiveText, isDimmed: answerReadiness.buttonsAreDimmed) {
+                    ApprovalAnswerButton(title: "Don't allow", isEnabled: true) {
                         answerApproval(approvalRequest.approvalID, false, .once)
                     }
+                    .accessibilityHint("Counts at once")
+                    ApprovalAnswerButton(title: "Allow once", isEnabled: allowButtonsAreEnabled) {
+                        answerApproval(approvalRequest.approvalID, true, .once)
+                    }
+                    .accessibilityHint("Available once the whole request has been read")
+                    ApprovalAnswerButton(title: "For this task", isEnabled: allowButtonsAreEnabled) {
+                        answerApproval(approvalRequest.approvalID, true, .always)
+                    }
+                    .accessibilityHint("Allows this tool and kind of access until the agent finishes")
                 }
+                // The panel is never key, so a tooltip would not show. This line says how to answer by voice and what
+                // the third button covers.
+                Text(verbatim: "Or say yes or no. For this task lasts until the agent finishes.")
+                    .font(DS.TypeScale.caption.font)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            // The panel is never key, so a tooltip would not show. One line in the same spot says why the buttons are
-            // dimmed, then how long Always lasts, so the card keeps its height in every state.
-            Text(verbatim: answerReadiness.waitingLine ?? "Always lasts until this task ends. Or say yes or no.")
-                .font(.system(size: 10))
-                .foregroundColor(DS.Colors.textSecondary)
-                .lineLimit(1)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        // Syncs the redraw with the clock: nothing else changes when the second passes. Stops once the answer counts.
-        .task(id: summaryShownSince) {
-            while approvalAnswerReadiness(wholeSummaryShownSince: summaryShownSince, at: Date()) == .readyInAMoment {
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Approval request. \(agentName) \(approvalRequest.capability.approvalCardVerbPhrase)")
+        // Syncs the redraw with the clock: nothing else changes when the second passes. Stops once a yes counts.
+        .task(id: wholeSummaryShownSince) {
+            while approvalAnswerReadiness(wholeSummaryShownSince: wholeSummaryShownSince, at: Date()) == .readyInAMoment {
                 try? await Task.sleep(for: .milliseconds(100))
                 readinessClockTick = Date()
             }
         }
+        .onChange(of: phase) { _, newPhase in
+            switch newPhase {
+            case .waiting(.ready): AccessibilityNotification.Announcement("Ready to answer").post()
+            case .ended: AccessibilityNotification.Announcement(approvalCardStatusText(phase: newPhase, reduceMotionIsOn: reduceMotionIsOn)).post()
+            default: break
+            }
+        }
     }
 
-    private var answerReadiness: ApprovalAnswerReadiness {
-        // Reads the tick so SwiftUI draws this again when it changes.
-        _ = readinessClockTick
-        return approvalAnswerReadiness(wholeSummaryShownSince: summaryShownSince, at: Date())
+    private var header: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: approvalRequest.capability.approvalCardSymbolName)
+                .font(DS.TypeScale.title.font)
+                .foregroundColor(DS.Colors.inkOnAccent)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(DS.Colors.warning))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: "\(agentName) \(approvalRequest.capability.approvalCardVerbPhrase)")
+                    .font(DS.TypeScale.title.font)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Text(verbatim: approvalRequest.capability.approvalCardKindLine)
+                    .font(DS.TypeScale.caption.font)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func youSaid(_ learnerWords: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: "You said, when it started:")
+                .font(DS.TypeScale.caption.font)
+                .foregroundColor(DS.Colors.textSecondary)
+            Text(verbatim: "\u{201C}\(learnerWords)\u{201D}")
+                .font(DS.TypeScale.body.font)
+                .foregroundColor(DS.Colors.textPrimary)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isStaticText)
+        .accessibilityLabel("You said, when it started: \(learnerWords)")
+    }
+
+    private var summaryBox: some View {
+        let summaryRows = approvalSummaryRows(approvalRequest.summary)
+        return HStack(alignment: .top, spacing: 6) {
+            rail
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(summaryRows.enumerated()), id: \.offset) { _, summaryRow in
+                        Text(verbatim: summaryRow)
+                            .font(DS.TypeScale.data.font)
+                            .foregroundColor(DS.Colors.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(8)
+                // A geometry change, not a preference: on macOS 26 the preference fired once with zeros and never again
+                // in the Tether prototype, so the box never counted as read.
+                .onGeometryChange(for: CGRect.self) { summaryProxy in
+                    summaryProxy.frame(in: .named(Self.scrollAreaCoordinateSpaceName))
+                } action: { newSummaryFrame in
+                    summaryFrame = newSummaryFrame
+                    recordWhatTheScrollAreaShows()
+                }
+            }
+            .frame(maxHeight: AgentListPanelController.maximumApprovalSummaryHeight)
+            .fixedSize(horizontal: false, vertical: true)
+            .coordinateSpace(name: Self.scrollAreaCoordinateSpaceName)
+            .onGeometryChange(for: CGFloat.self) { scrollAreaProxy in
+                scrollAreaProxy.size.height
+            } action: { newScrollAreaHeight in
+                scrollAreaHeight = newScrollAreaHeight
+                recordWhatTheScrollAreaShows()
+            }
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(DS.Colors.surface2))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Request details, \(percentRead) percent read")
+        }
+    }
+
+    /// Beside the box, the whole summary scaled to the box's height, filled in amber for each part that has been in
+    /// view, gaps included, so jumping to the end does not look read.
+    private var rail: some View {
+        GeometryReader { railProxy in
+            let summaryHeight = max(summaryFrame.height, 1)
+            ZStack(alignment: .top) {
+                Capsule().fill(DS.Colors.surface4)
+                ForEach(Array(seenRanges.ranges.enumerated()), id: \.offset) { _, seenRange in
+                    Capsule()
+                        .fill(DS.Colors.warning)
+                        .frame(height: max(2, (seenRange.upperBound - seenRange.lowerBound) / summaryHeight * railProxy.size.height))
+                        .offset(y: seenRange.lowerBound / summaryHeight * railProxy.size.height)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                }
+            }
+        }
+        .frame(width: Self.railWidth)
+        .accessibilityHidden(true)
+    }
+
+    private var statusRow: some View {
+        HStack(spacing: 8) {
+            switch phase {
+            case .waiting(.readyInAMoment) where !reduceMotionIsOn:
+                TimelineView(.animation) { timelineContext in
+                    readyRing(progress: approvalReadyClockProgress(wholeSummaryShownSince: wholeSummaryShownSince, at: timelineContext.date))
+                }
+            case .waiting(.ready):
+                readyRing(progress: 1)
+            case .sending:
+                ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: Self.ringDiameter, height: Self.ringDiameter)
+            default:
+                EmptyView()
+            }
+            Text(verbatim: approvalCardStatusText(phase: phase, reduceMotionIsOn: reduceMotionIsOn))
+                .font(DS.TypeScale.caption.font)
+                .foregroundColor(statusTextColor)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(minHeight: Self.ringDiameter, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var statusTextColor: Color {
+        switch phase {
+        case .waiting(.summaryNotYetSeen), .sending, .ended(.declined), .ended(.noReply): return DS.Colors.textSecondary
+        case .waiting: return DS.Colors.warningText
+        case .ended(.allowed): return DS.Colors.success
+        case .ended(.timedOut): return DS.Colors.destructiveText
+        }
+    }
+
+    private func readyRing(progress: Double) -> some View {
+        ZStack {
+            Circle().stroke(DS.Colors.surface4, lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(DS.Colors.warning, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: Self.ringDiameter, height: Self.ringDiameter)
+        .accessibilityHidden(true)
     }
 
     /// Adds the part of the summary the scroll area shows now to the ranges seen, and tells the desk whether the ranges
     /// cover the whole summary. A jump to the end records only the end, so the middle stays unseen until it scrolls by.
     private func recordWhatTheScrollAreaShows() {
-        guard summaryFrame.height > 0, scrollAreaHeight > 0,
+        guard isWaiting, summaryFrame.height > 0, scrollAreaHeight > 0,
               let rangeInView = approvalSummaryRangeInView(
                   summaryMinY: summaryFrame.minY,
                   summaryHeight: summaryFrame.height,
@@ -1361,3 +1552,34 @@ private struct ApprovalCardView: View {
     }
 }
 
+/// One of the card's three equal buttons. They share one look, with no red or green, so no color picks a side. A
+/// disabled button keeps the arrow, shows no hover, and does nothing. Plain `.focusable()` lets Tab reach it with Full
+/// Keyboard Access off, once the card sits on a surface that takes the keyboard.
+private struct ApprovalAnswerButton: View {
+    let title: String
+    let isEnabled: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(verbatim: title)
+                .font(DS.TypeScale.caption.font)
+                .foregroundColor(isEnabled ? DS.Colors.textPrimary : DS.Colors.textTertiary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
+                        .fill(isHovered && isEnabled ? DS.Colors.surface4 : DS.Colors.surface3)
+                )
+                .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.borderSubtle, lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .focusable()
+        .hoverAndPointer(isEnabled: isEnabled) { isHovered = $0 }
+        .accessibilityLabel(title)
+    }
+}
