@@ -144,5 +144,5 @@ The Quick Look extension draws its own still cursor, a small copy of the triangl
 
 Left open by PR 14, for PR 19: no test covers the loop view passing the paused flag to an agent's spark.
 The recap watcher reads the front tab every 3 seconds on the main actor, so a spark may jump while an agent works on that video; this is not measured.
-"Let me try it" timed out at 60 seconds on the local Worker in both of PR 14's app runs.
+"Let me try it" timed out at 60 seconds on the local Worker in both of PR 14's app runs, because Sonnet sometimes thinks for 3,000 to 7,000 tokens first; [#108](https://github.com/crodris/clicky-watch-along/pull/108) closed it, so PR 19 does not take it.
 Sonnet had thought for 3,000 to 7,000 tokens first, and the experiment build timeout PR gave background builds 240 seconds.
