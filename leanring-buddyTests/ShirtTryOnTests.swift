@@ -502,18 +502,30 @@ struct ShirtGarmentTests {
     }
 
     @Test func theInsideOfTheBackLeftOutIsNotTakenForThePhotosBackground() throws {
-        // The same shirt with a light blue and with a black inside of the back: once left out, neither changes the photo's
-        // white, which comes from the background around the whole cutout.
+        // The background is split into black and white, with 1,000 more white pixels than black, so its median is white. The
+        // inside of the back, about 2,500 pixels, would pull that median to its own color if it counted as background, and a
+        // light blue and a black inside of the back would then give two different whites. Left out of the cutout, it is not
+        // background either, so both give the same white.
         let (photo, mask) = flatLayTShirtWithItsInsideBackShowing()
-        var darkCanvas = ShirtTestCanvas(width: 400, height: 500, color: (0, 0, 0))
-        darkCanvas.bytes = photoBytes(photo)
-        for row in 0..<70 {
-            for column in 140..<260 where darkCanvas.pixel(column: column, row: row) == (red: 170, green: 200, blue: 235) {
-                darkCanvas.fill(columns: column..<(column + 1), rows: row..<(row + 1), color: (10, 10, 10))
+        try #require(mask.width == 400 && mask.height == 500)
+        let backgroundPixelIndices = mask.pixels.indices.filter { pixelIndex in mask.pixels[pixelIndex] == 0 }
+        let blackBackgroundPixelCount = (backgroundPixelIndices.count - 1000) / 2
+        func photoWithItsInsideBack(in insideBackColor: (UInt8, UInt8, UInt8)) -> CGImage {
+            var canvas = ShirtTestCanvas(width: 400, height: 500, color: (0, 0, 0))
+            canvas.bytes = photoBytes(photo)
+            for row in 0..<70 {
+                for column in 140..<260 where canvas.pixel(column: column, row: row) == (red: 170, green: 200, blue: 235) {
+                    canvas.fill(columns: column..<(column + 1), rows: row..<(row + 1), color: insideBackColor)
+                }
             }
+            for (position, pixelIndex) in backgroundPixelIndices.enumerated() {
+                let shade: UInt8 = position < blackBackgroundPixelCount ? 0 : 255
+                canvas.fill(columns: (pixelIndex % 400)..<(pixelIndex % 400 + 1), rows: (pixelIndex / 400)..<(pixelIndex / 400 + 1), color: (shade, shade, shade))
+            }
+            return canvas.cgImage
         }
-        let light = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
-        let dark = try #require(ShirtGarment.make(workingPhoto: darkCanvas.cgImage, cutoutMask: mask))
+        let light = try #require(ShirtGarment.make(workingPhoto: photoWithItsInsideBack(in: (170, 200, 235)), cutoutMask: mask))
+        let dark = try #require(ShirtGarment.make(workingPhoto: photoWithItsInsideBack(in: (10, 10, 10)), cutoutMask: mask))
         #expect(dark.frontNeckWasFound && light.frontNeckWasFound)
         #expect(simd_distance(light.photoWhite, dark.photoWhite) < 1e-6, "\(light.photoWhite) against \(dark.photoWhite)")
     }
@@ -1051,9 +1063,10 @@ struct ShirtTryOnRendererTests {
     }
 
     @Test func theNeckMatchMovesOnlyTheShouldersAndLeavesTheHemAndTheSleevesWhereTheyWere() throws {
-        // The same person with their own neckline at row 185 and at row 205. The garment's front neck lands 0.05 shoulder widths
-        // (180 pixels) above it, the shoulder corners follow, and the hem corners stay put. Each sleeve's seam top moves with
-        // the shoulder corners, so it lands where the torso's map puts it, and the rest of the sleeve stays where it was.
+        // The same person with their own neckline at row 185 and at row 205. The garment's front neck lands 0.05 of the 180
+        // pixel shoulder width, 9 pixels, above it, the shoulder corners follow, and the hem corners stay put. Each sleeve's
+        // seam top moves with the shoulder corners, so it lands where the torso's map puts it, and the rest of the sleeve stays
+        // where it was.
         let (photo, mask) = tShirtPhotoAndMask()
         let garment = try #require(ShirtGarment.make(workingPhoto: photo, cutoutMask: mask))
         let context = CIContext()

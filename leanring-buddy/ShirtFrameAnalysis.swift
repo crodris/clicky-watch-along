@@ -166,16 +166,16 @@ nonisolated struct ShirtSmallFrame: Sendable {
         return SIMD3(median[0], median[1], median[2])
     }
 
+    /// The least linear luminance at which a pixel's hue is read: about 20 of 255 in a gray. A navy shirt is above it, and
+    /// a black one below it.
+    static let leastLinearLuminanceWithAHue: Float = 0.006
+
     /// Where the learner's neck meets their own shirt: the first row below the chin, on the center column, whose color is
     /// within 45 (of 255, in RGB) of the old shirt's and whose hue, its share of each linear channel, is within 0.1 of the
     /// old shirt's. The neck in the chin's shadow is as dark as a navy shirt, and only its warmer hue tells them apart.
     /// Below `leastLinearLuminanceWithAHue`, as on a black shirt, the hue is noise and only the color counts. Looked for from
     /// 45 percent of a shoulder width above the shoulder line to 20 percent below it, and averaged over three columns, since
     /// the small frame is sharper than the spike's blurred one.
-    /// The least linear luminance at which a pixel's hue is read: about 20 of 255 in a gray. A navy shirt is above it, and
-    /// a black one below it.
-    static let leastLinearLuminanceWithAHue: Float = 0.006
-
     func bodyNeckRow(oldShirtColor: SIMD3<Float>) -> Double? {
         func linearLuminance(_ color: SIMD3<Float>) -> Float {
             let linear = SIMD3(ShirtColorMath.linearValueOfEachByte[Int(ShirtColorMath.byte(color.x))], ShirtColorMath.linearValueOfEachByte[Int(ShirtColorMath.byte(color.y))], ShirtColorMath.linearValueOfEachByte[Int(ShirtColorMath.byte(color.z))])
