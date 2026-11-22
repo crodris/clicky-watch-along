@@ -224,9 +224,11 @@ nonisolated struct ShirtModelPartSeeds: Equatable, Sendable {
             armBones.append((point(elbow), forearmEnd + (forearmEnd - point(elbow)) * Self.handReachPastTheWristShare))
             let sleevePoint = point(shoulder) + (point(elbow) - point(shoulder)) * Self.sleeveSeedShareDownTheUpperArm
             discs[ShirtModelPart.shirt.rawValue].append((sleevePoint, Self.seedDiscRadius * shoulderWidth))
-            guard let wrist else { continue }
-            for share in stride(from: Self.forearmSeedStartShare, through: 1.0, by: 0.175) {
-                discs[ShirtModelPart.arms.rawValue].append((point(elbow) + (point(wrist) - point(elbow)) * share, Self.seedDiscRadius * shoulderWidth))
+            // A forearm with no wrist seen (a hand in a pocket) is seeded only near its elbow, since its guessed end may lie
+            // on the trousers.
+            let lastSeedShare = wrist == nil ? Self.forearmSeedStartShare + 0.2 : 1.0
+            for share in stride(from: Self.forearmSeedStartShare, through: lastSeedShare, by: 0.1) {
+                discs[ShirtModelPart.arms.rawValue].append((point(elbow) + (forearmEnd - point(elbow)) * share, Self.seedDiscRadius * shoulderWidth))
             }
         }
         if let nose = pose.nose {
@@ -402,10 +404,16 @@ nonisolated enum ShirtModelPartLabels {
 // MARK: - The shirt's geometry from the model's joints
 
 nonisolated enum ShirtOnModelGeometry {
-    /// A sleeve's seam runs from the shoulder seam down the torso's side this far, in shoulder widths, to the armpit.
+    /// The sleeve's cloth reaches this far below the armpit's line, in shoulder widths, under the torso.
+    static let sleeveTuckBelowTheArmpitInShoulderWidths = 0.05
+    /// The armpit lies on the shirt's side this far below the shoulder seams, in shoulder widths.
     static let armholeDepthInShoulderWidths = 0.5
-    /// The hem's ends are measured this far above the hem, in shoulder widths, clear of its curl.
+    /// The shirt's sides are measured this far above the hem, in shoulder widths, clear of its curl, and this share of the
+    /// way down to the hem, below the sleeves.
     static let hemSideRiseInShoulderWidths = 0.06
+    static let upperSideShareOfTheHemDepth = 0.6
+    /// The hem's width over the chest's that a T-shirt's cut can have.
+    static let hemToChestWidthRatios = 0.75...1.33
     /// Below the armpit, cloth outside the seam's line is the sleeve only within this far of the upper arm's bone, so the
     /// shirt's own flared side at the waist stays torso.
     static let sleeveReachFromTheArmBoneInShoulderWidths = 0.24
@@ -413,11 +421,12 @@ nonisolated enum ShirtOnModelGeometry {
     static let openingBandInShoulderWidths = 0.07
 
     /// The shirt's geometry in the cutout, for the renderer. Nil when the cutout has no torso below the shoulders.
-    /// - The torso's top corners are the shoulder seams by the rule the renderer lands them by on the learner
-    ///   (`ShirtTryOnRenderer.bodyTorsoCorners`), so the model's shoulders land on the learner's. Its bottom corners are the
-    ///   hem's two ends, as a flat lay's are, since the renderer lands them at the learner's hips or old hem. The model's hip
-    ///   joints are not used: they sit well inside the hips, so a quad on them tapers far more than the learner's, whose hips
-    ///   are usually estimated, and the perspective map between the two would squash the chest toward the collar.
+    /// - The torso's corners lie on the shirt's own sides, measured below the sleeves and carried up to the shoulder seams'
+    ///   height and down to the hem, as a flat lay's lie on its torso's edges. The renderer lands them on the learner's
+    ///   shoulders and hips and moves the bottom ones out over a looser old shirt, which assumes the garment's side runs
+    ///   straight between them. The model's hip joints are not used: they sit well inside the hips, so a quad on them tapers
+    ///   far more than the learner's, whose hips are usually estimated, and the perspective map between the two would squash
+    ///   the chest toward the collar.
     /// - The front of the neck hole is the first shirt pixel below the model's neck on the body's center line.
     /// - Each sleeve, when its elbow is seen, is the cloth outside the line from the shoulder seam to the armpit.
     /// `isArm` flags the model's forearm and hand pixels (`ShirtModelPart.arms`), which end each sleeve along its arm.
@@ -449,16 +458,30 @@ nonisolated enum ShirtOnModelGeometry {
         let hemDepth = hemDepths.sorted()[hemDepths.count / 2]
 
         let bodyCorners = ShirtTryOnRenderer.bodyTorsoCorners(of: torso).map { SIMD2(Double($0.x), Double($0.y)) }
-        // The hem's two ends: across the body just above the hem, the run of shirt around the middle.
-        let hemSideDepth = hemDepth - hemSideRiseInShoulderWidths
-        var leftmost = 0.0, rightmost = 0.0
-        while leftmost > -1.5, isShirt(frame.photoPoint(atBodyCoordinates: SIMD2(leftmost - 1 / shoulderWidth, hemSideDepth))) { leftmost -= 1 / shoulderWidth }
-        while rightmost < 1.5, isShirt(frame.photoPoint(atBodyCoordinates: SIMD2(rightmost + 1 / shoulderWidth, hemSideDepth))) { rightmost += 1 / shoulderWidth }
-        guard rightmost - leftmost > 0.2 else { return nil }
-        let bottomLeft = frame.photoPoint(atBodyCoordinates: SIMD2(leftmost, hemDepth))
-        let bottomRight = frame.photoPoint(atBodyCoordinates: SIMD2(rightmost, hemDepth))
+        // The shirt's sides: across the body at two depths below the sleeves, the run of shirt around the middle, and the line
+        // through each side's two ends, from the shoulder line down to the hem.
+        func sideEnds(atDepth depth: Double) -> (left: Double, right: Double)? {
+            var leftmost = 0.0, rightmost = 0.0
+            guard isShirt(frame.photoPoint(atBodyCoordinates: SIMD2(0, depth))) else { return nil }
+            while leftmost > -1.5, isShirt(frame.photoPoint(atBodyCoordinates: SIMD2(leftmost - 1 / shoulderWidth, depth))) { leftmost -= 1 / shoulderWidth }
+            while rightmost < 1.5, isShirt(frame.photoPoint(atBodyCoordinates: SIMD2(rightmost + 1 / shoulderWidth, depth))) { rightmost += 1 / shoulderWidth }
+            return rightmost - leftmost > 0.2 ? (leftmost, rightmost) : nil
+        }
+        let upperSideDepth = Self.upperSideShareOfTheHemDepth * hemDepth, lowerSideDepth = hemDepth - hemSideRiseInShoulderWidths
+        guard let upperSides = sideEnds(atDepth: upperSideDepth), let measuredLowerSides = sideEnds(atDepth: lowerSideDepth), lowerSideDepth - upperSideDepth > 0.1 else { return nil }
+        // A hem much narrower or wider than the chest is a hand over it or a hem pulled aside, not the shirt's cut, and a quad
+        // on it would taper so far that the perspective map tears the shirt; the sides then run straight down.
+        let upperWidth = upperSides.right - upperSides.left, lowerWidth = measuredLowerSides.right - measuredLowerSides.left
+        let lowerSides = Self.hemToChestWidthRatios.contains(lowerWidth / upperWidth) ? measuredLowerSides : upperSides
+        let topDepth = frame.bodyCoordinates(of: (bodyCorners[0] + bodyCorners[1]) / 2).y
+        func onTheSide(_ upper: Double, _ lower: Double, atDepth depth: Double) -> SIMD2<Double> {
+            let across = upper + (lower - upper) * (depth - upperSideDepth) / (lowerSideDepth - upperSideDepth)
+            return frame.photoPoint(atBodyCoordinates: SIMD2(across, depth))
+        }
+        let topLeft = onTheSide(upperSides.left, lowerSides.left, atDepth: topDepth), topRight = onTheSide(upperSides.right, lowerSides.right, atDepth: topDepth)
+        let bottomLeft = onTheSide(upperSides.left, lowerSides.left, atDepth: hemDepth), bottomRight = onTheSide(upperSides.right, lowerSides.right, atDepth: hemDepth)
         func cgPoint(_ point: SIMD2<Double>) -> CGPoint { CGPoint(x: point.x, y: point.y) }
-        let torsoCorners = RoomArtCorners(topLeft: cgPoint(bodyCorners[0]), topRight: cgPoint(bodyCorners[1]), bottomRight: cgPoint(bottomRight), bottomLeft: cgPoint(bottomLeft))
+        let torsoCorners = RoomArtCorners(topLeft: cgPoint(topLeft), topRight: cgPoint(topRight), bottomRight: cgPoint(bottomRight), bottomLeft: cgPoint(bottomLeft))
 
         // The torso's columns 60 percent of the way down, for the hem band the base color is read from: the run of shirt
         // around the center line.
@@ -484,7 +507,11 @@ nonisolated enum ShirtOnModelGeometry {
         }
 
         let sleeves = [ShirtSleeveSide.imageLeft, .imageRight].map { side in
-            sleeve(side: side, mask: mask, isArm: isArm, pose: pose, seamTop: side == .imageLeft ? bodyCorners[0] : bodyCorners[1], sideLineBottom: side == .imageLeft ? bottomLeft : bottomRight)
+            sleeve(
+                side: side, mask: mask, isArm: isArm, pose: pose, seamTop: side == .imageLeft ? bodyCorners[0] : bodyCorners[1],
+                armpit: side == .imageLeft ? onTheSide(upperSides.left, lowerSides.left, atDepth: topDepth + armholeDepthInShoulderWidths)
+                    : onTheSide(upperSides.right, lowerSides.right, atDepth: topDepth + armholeDepthInShoulderWidths)
+            )
         }
         return ShirtGarmentMeasurements(
             torsoCorners: torsoCorners, frontNeckPoint: frontNeckPoint, frontNeckWasFound: frontNeckWasFound, topRow: topRow, bottomRow: bottomRow,
@@ -492,11 +519,11 @@ nonisolated enum ShirtOnModelGeometry {
         )
     }
 
-    /// One sleeve, or nil when its elbow is not seen or it has too little cloth. Its seam runs from `seamTop` toward
-    /// `sideLineBottom` for `armholeDepthInShoulderWidths`. It ends along the upper arm where the model's skin starts on it
+    /// One sleeve, or nil when its elbow is not seen or it has too little cloth. Its seam runs from `seamTop`, the shoulder
+    /// seam, down to `armpit`, on the shirt's side. It ends along the upper arm where the model's skin starts on it
     /// (`sleeveEnd`), and its opening is across the arm there. Below the armpit, the cloth outside the seam's line and above
     /// that end hangs in front of the shirt's side, so it is sleeve; below the end it is the side seen past the arm.
-    static func sleeve(side: ShirtSleeveSide, mask: ShirtCutoutMask, isArm: [Bool], pose: ShirtModelPose, seamTop: SIMD2<Double>, sideLineBottom: SIMD2<Double>) -> ShirtSleeveGeometry? {
+    static func sleeve(side: ShirtSleeveSide, mask: ShirtCutoutMask, isArm: [Bool], pose: ShirtModelPose, seamTop: SIMD2<Double>, armpit: SIMD2<Double>) -> ShirtSleeveGeometry? {
         let torso = pose.torso
         let isImageLeft = side == .imageLeft
         guard let elbowPoint = isImageLeft ? torso.imageLeftElbow : torso.imageRightElbow else { return nil }
@@ -505,10 +532,10 @@ nonisolated enum ShirtOnModelGeometry {
         let shoulder = isImageLeft ? SIMD2(Double(torso.imageLeftShoulder.x), Double(torso.imageLeftShoulder.y)) : SIMD2(Double(torso.imageRightShoulder.x), Double(torso.imageRightShoulder.y))
         let elbow = SIMD2(Double(elbowPoint.x), Double(elbowPoint.y))
         let armVector = elbow - shoulder
-        guard simd_length(armVector) > 1, simd_length(sideLineBottom - seamTop) > 1 else { return nil }
+        guard simd_length(armVector) > 1, simd_length(armpit - seamTop) > 1 else { return nil }
         let armDirection = simd_normalize(armVector)
-        let seamDirection = simd_normalize(sideLineBottom - seamTop)
-        let seamBottom = seamTop + seamDirection * armholeDepthInShoulderWidths * shoulderWidth
+        let seamDirection = simd_normalize(armpit - seamTop)
+        let seamBottom = armpit
         // Outward from the seam's line is toward the image edge on this side.
         var outward = SIMD2(-seamDirection.y, seamDirection.x)
         if (isImageLeft && outward.x > 0) || (!isImageLeft && outward.x < 0) { outward = -outward }
@@ -525,7 +552,9 @@ nonisolated enum ShirtOnModelGeometry {
                 let along = simd_dot(pixel - shoulder, armDirection)
                 guard along <= sleeveEnd else { continue }
                 let fromTheBone = simd_length(pixel - shoulder - armDirection * min(max(along, 0), armLength))
-                let aboveTheArmpit = simd_dot(pixel - seamBottom, seamDirection) <= 0
+                // The sleeve reaches a little below the armpit's line, under the torso, which keeps that cloth too, so the two
+                // overlap there and no gap opens between them when their maps differ.
+                let aboveTheArmpit = simd_dot(pixel - seamBottom, seamDirection) <= sleeveTuckBelowTheArmpitInShoulderWidths * shoulderWidth
                 guard aboveTheArmpit || fromTheBone <= sleeveReachFromTheArmBoneInShoulderWidths * shoulderWidth else { continue }
                 isSleevePixel[row * width + column] = true
                 sleeveIndices.append(row * width + column)
@@ -556,7 +585,7 @@ nonisolated enum ShirtOnModelGeometry {
         func cgPoint(_ point: SIMD2<Double>) -> CGPoint { CGPoint(x: point.x, y: point.y) }
         return ShirtSleeveGeometry(
             side: side, seamTop: cgPoint(seamTop), seamBottom: cgPoint(seamBottom), openingOuter: cgPoint(openingOuter), openingInner: cgPoint(openingInner),
-            isSleevePixel: isSleevePixel
+            isSleevePixel: isSleevePixel, splitsFromTheArmpit: true
         )
     }
 }
@@ -600,9 +629,31 @@ extension ShirtGarment {
     /// The split runs on a copy this many times smaller than the working photo, and its costs are scaled back up, so it takes
     /// a fraction of the time and its edges are still smooth.
     nonisolated static let onModelLabelDownscale = 2
-    /// The cutout is pulled in this far from the person's outline, in working photo pixels, where the person mask blends
-    /// the model with the photo's backdrop.
-    nonisolated static let onModelOutlinePullIn = 1
+    /// The cutout's borders with the skin and the trousers come from the split's half-size grid, so they step. A pixel is
+    /// shirt when most of the square of this radius around it is, which rounds the steps off.
+    nonisolated static let onModelBorderRoundingRadius = 2
+
+    /// `flags` with each pixel set when more than half of the square of `radius` around it is set, through a summed area
+    /// table. Pixels past the image's edge count as unset.
+    nonisolated static func roundedCorners(of flags: [Bool], width: Int, height: Int, radius: Int) -> [Bool] {
+        precondition(flags.count == width * height, "One flag per pixel")
+        let tableWidth = width + 1
+        var sums = [Int](repeating: 0, count: tableWidth * (height + 1))
+        for row in 0..<height {
+            var rowSum = 0
+            for column in 0..<width {
+                if flags[row * width + column] { rowSum += 1 }
+                sums[(row + 1) * tableWidth + column + 1] = sums[row * tableWidth + column + 1] + rowSum
+            }
+        }
+        let side = 2 * radius + 1
+        return (0..<(width * height)).map { index in
+            let row = index / width, column = index % width
+            let top = max(0, row - radius), bottom = min(height, row + radius + 1), left = max(0, column - radius), right = min(width, column + radius + 1)
+            let setCount = sums[bottom * tableWidth + right] - sums[top * tableWidth + right] - sums[bottom * tableWidth + left] + sums[top * tableWidth + left]
+            return 2 * setCount > side * side
+        }
+    }
 
     /// The garment from a photo of the shirt worn by a model, nil when no model is found or the shirt cannot be cut out of
     /// them. `itemCorners` say where the shirt is, so the model wearing it is picked. The whole photo is used, since the
@@ -646,13 +697,16 @@ extension ShirtGarment {
         guard photoPixels.count == width * height * 4, personMask.count == width * height else { return nil }
         let isPerson = personMask.map { $0 >= 128 }
         guard let labels = onModelPartLabels(photoPixels: photoPixels, isPerson: isPerson, width: width, height: height, pose: pose) else { return nil }
-        let shirtPixels = zip(labels, isPerson).map { label, person in person && label == .shirt ? UInt8(255) : 0 }
-        let shirtMask = ShirtCutoutMask(width: width, height: height, pixels: shirtPixels).keepingTheLargestPiece()
+        let shirtPixels = zip(labels, isPerson).map { label, person in person && label == .shirt }
+        let shirtMask = ShirtCutoutMask(
+            width: width, height: height,
+            pixels: roundedCorners(of: shirtPixels, width: width, height: height, radius: onModelBorderRoundingRadius).map { $0 ? 255 : 0 }
+        ).keepingTheLargestPiece()
         let isArm = labels.map { $0 == .arms }
         guard let measurements = ShirtOnModelGeometry.measurements(of: shirtMask, isArm: isArm, pose: pose) else { return nil }
         // The photo's own white is read from its backdrop, off the person well clear of their outline.
         let backgroundMask = personMask.map { $0 < 26 }
-        return make(photoPixels: photoPixels, cutoutMask: shirtMask, measurements: measurements, backgroundMask: backgroundMask, modelPose: pose)
+        return make(photoPixels: photoPixels, cutoutMask: shirtMask, outlineMask: shirtMask, measurements: measurements, backgroundMask: backgroundMask, modelPose: pose)
     }
 
     /// Each pixel's part at the working photo's size: the split runs on a smaller copy, and each part's path costs are
@@ -769,8 +823,8 @@ nonisolated enum ShirtOnModelSleeveLanding {
             (second.x - first.x) * (third.y - first.y) - (second.y - first.y) * (third.x - first.x)
         }
         let source = sleeve.quadrilateral
-        for (first, second, third) in [(0, 1, 2), (0, 2, 3)] {
-            let sourceTurn = turn(source[first], source[second], source[third]), landingTurn = turn(landing[first], landing[second], landing[third])
+        for triangle in [sleeve.triangleIndices.first, sleeve.triangleIndices.second] {
+            let sourceTurn = turn(source[triangle[0]], source[triangle[1]], source[triangle[2]]), landingTurn = turn(landing[triangle[0]], landing[triangle[1]], landing[triangle[2]])
             guard abs(landingTurn) > 1e-6, (sourceTurn > 0) == (landingTurn > 0) else { return nil }
         }
         return landing

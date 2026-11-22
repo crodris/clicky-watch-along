@@ -526,6 +526,12 @@ nonisolated struct ShirtSleeveGeometry: Equatable, Sendable {
     let openingInner: CGPoint
     /// The sleeve's own pixels, one per photo pixel.
     let isSleevePixel: [Bool]
+    /// Whether the sleeve hangs down, as one worn by a model does. It is then split along the diagonal from the armpit to the
+    /// opening's outer end, instead of from the seam's top to the opening's inner end: a flat sleeve sticks out from the
+    /// torso, so its first diagonal crosses it well, but a hanging sleeve's opening ends just below the armpit, so that
+    /// diagonal would run along the seam and leave a sliver of a triangle whose map tears the cloth at the seam. And the
+    /// torso keeps the sleeve's cloth below the armpit, which hangs in front of the shirt's side (`ShirtGarment.make`).
+    var splitsFromTheArmpit = false
 
     var seamCenter: CGPoint { CGPoint(x: (seamTop.x + seamBottom.x) / 2, y: (seamTop.y + seamBottom.y) / 2) }
     var openingCenter: CGPoint { CGPoint(x: (openingOuter.x + openingInner.x) / 2, y: (openingOuter.y + openingInner.y) / 2) }
@@ -534,6 +540,9 @@ nonisolated struct ShirtSleeveGeometry: Equatable, Sendable {
     var openingWidth: Double { hypot(openingOuter.x - openingInner.x, openingOuter.y - openingInner.y) }
     /// Seam top, opening outer, opening inner, seam bottom: the quadrilateral the renderer maps onto the arm.
     var quadrilateral: [CGPoint] { [seamTop, openingOuter, openingInner, seamBottom] }
+    /// The two triangles of `quadrilateral` the sleeve's halves are mapped by, as indices into it: the first half's, which
+    /// reaches a little past the diagonal under the second, then the second half's. The two share the diagonal.
+    var triangleIndices: (first: [Int], second: [Int]) { splitsFromTheArmpit ? ([0, 1, 3], [3, 1, 2]) : ([0, 1, 2], [0, 2, 3]) }
 
     /// The sleeve beyond `edgeColumn` (the torso's left edge for `imageLeft`, its right edge for `imageRight`), or nil when
     /// the cutout has none there or it is not separate from the torso below the armpit, such as a jacket whose sleeves hang
@@ -849,21 +858,21 @@ extension ShirtCutoutMask {
 /// One sleeve of the garment as the renderer draws it on its own: its pixels and where they lie in the working photo.
 ///
 /// On a hanging arm a sleeve's seam runs down the arm while its opening runs across it, where on the flat lay the two are
-/// nearly parallel, so no single map from the photo to the arm keeps both. The sleeve is split along the diagonal from the
-/// seam's top to the underside of the opening, and the renderer maps each half with its own affine transform: the outer half
-/// by its triangle (seam top, opening outer, opening inner) and the inner half by its own (seam top, opening inner, seam
-/// bottom). The two maps agree on the diagonal, so the halves meet with no seam of their own.
+/// nearly parallel, so no single map from the photo to the arm keeps both. The sleeve is split along a diagonal of its
+/// quadrilateral (`ShirtSleeveGeometry.triangleIndices`), from the seam's top to the underside of the opening on a flat lay,
+/// and the renderer maps each half with the affine transform of its own triangle. The two maps agree on the diagonal, so the
+/// halves meet with no seam of their own.
 nonisolated struct ShirtGarmentSleeve: @unchecked Sendable {
     // @unchecked because CIImage is immutable, so sharing one across queues is safe.
 
-    /// The outer half reaches this many photo pixels past the diagonal, under the inner half, so no hairline gap shows.
+    /// The first half reaches this many photo pixels past the diagonal, under the second half, so no hairline gap shows.
     static let halvesOverlapPixels = 1.5
 
     let geometry: ShirtSleeveGeometry
-    /// The sleeve's outer and inner halves, each premultiplied RGBA with everything else clear, cropped to `boundingBox` and
-    /// moved to the origin.
-    let outerHalf: CIImage
-    let innerHalf: CIImage
+    /// The sleeve's two halves, the first triangle's and the second's, each premultiplied RGBA with everything else clear,
+    /// cropped to `boundingBox` and moved to the origin.
+    let firstHalf: CIImage
+    let secondHalf: CIImage
     /// Where the halves lie in the working photo, top left origin, y down.
     let boundingBox: CGRect
 }
@@ -942,18 +951,24 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
               let measurements = neckOpening == nil ? wholeMeasurements : ShirtGarmentMeasurements(mask: cutoutMask) else { return nil }
         // The background is what lies outside the whole cutout, so the inside of the back left out at the neck is not read
         // as the photo's white.
-        return make(photoPixels: photoPixels, cutoutMask: cutoutMask, measurements: measurements, backgroundMask: wholeMask.pixels.map { $0 == 0 }, modelPose: nil)
+        return make(
+            photoPixels: photoPixels, cutoutMask: cutoutMask, outlineMask: wholeMask, measurements: measurements, backgroundMask: wholeMask.pixels.map { $0 == 0 }, modelPose: nil
+        )
     }
 
     /// The garment from a working photo's pixels (tight RGBA rows), its cutout, and the shirt's geometry in it, the step a
-    /// flat lay and an on-model photo share (ShirtOnModel.swift makes the second). `backgroundMask` marks the photo's own
-    /// background, which the photo's white is read from, nil when it is everything outside the cutout. `modelPose` is the
-    /// model's joints for an on-model photo, which the renderer maps the sleeves by.
+    /// flat lay and an on-model photo share (ShirtOnModel.swift makes the second). `outlineMask` is the cutout whose outline
+    /// the photo's background bleeds in across: a flat lay's whole cutout before its neck opening is left out, or the
+    /// cutout itself. `backgroundMask` marks the photo's own background, which the photo's white is read from, nil when it
+    /// is everything outside the cutout. `modelPose` is the model's joints for an on-model photo, which the renderer maps
+    /// the sleeves by.
     static func make(
-        photoPixels: [UInt8], cutoutMask: ShirtCutoutMask, measurements: ShirtGarmentMeasurements, backgroundMask: [Bool]?, modelPose: ShirtModelPose?
+        photoPixels: [UInt8], cutoutMask: ShirtCutoutMask, outlineMask: ShirtCutoutMask, measurements: ShirtGarmentMeasurements, backgroundMask: [Bool]?,
+        modelPose: ShirtModelPose?
     ) -> ShirtGarment? {
         let width = cutoutMask.width, height = cutoutMask.height
-        guard photoPixels.count == width * height * 4, backgroundMask.map({ $0.count == width * height }) ?? true else { return nil }
+        guard photoPixels.count == width * height * 4, outlineMask.width == width, outlineMask.height == height,
+              backgroundMask.map({ $0.count == width * height }) ?? true else { return nil }
         let garmentPixelCount = cutoutMask.pixels.reduce(0) { $0 + ($1 != 0 ? 1 : 0) }
         guard garmentPixelCount > 0 else { return nil }
 
@@ -994,7 +1009,7 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
         let edgeAlpha = cutoutMask.featheredEdgeAlpha()
         // The background bleeds in only along the whole cutout's outline. The collar ring around the neck opening keeps its own
         // colors, since a ring narrower than the cleaned band would take the body's.
-        let cleanedPixels = wholeMask.colorsWithTheBackgroundBleedRemoved(from: photoPixels)
+        let cleanedPixels = outlineMask.colorsWithTheBackgroundBleedRemoved(from: photoPixels)
         guard let cutoutImage = premultipliedImage(colors: cleanedPixels, alpha: edgeAlpha, width: width, height: height) else { return nil }
 
         // The sleeves apart from the torso, when the cutout has both. Each sleeve keeps a narrow strip of the torso along its
@@ -1011,9 +1026,15 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
                 func include(column: Int, row: Int) {
                     boxLeft = min(boxLeft, column); boxRight = max(boxRight, column); boxTop = min(boxTop, row); boxBottom = max(boxBottom, row)
                 }
+                // A sleeve hanging on a model lies in front of the shirt's side below the armpit. The torso keeps that cloth
+                // too and is drawn over the sleeve there, since the two are mapped apart and a cut in the torso along the
+                // sleeve's hem would open a hairline of skin where the maps differ.
+                let seamTop = SIMD2(Double(geometry.seamTop.x), Double(geometry.seamTop.y)), seamBottom = SIMD2(Double(geometry.seamBottom.x), Double(geometry.seamBottom.y))
+                let downTheSeam = simd_length(seamBottom - seamTop) > 0 ? simd_normalize(seamBottom - seamTop) : SIMD2(0, 1)
                 for index in geometry.isSleevePixel.indices where geometry.isSleevePixel[index] {
                     sleeveAlpha[index] = edgeAlpha[index]
-                    torsoAlpha[index] = 0
+                    let isBelowTheArmpit = simd_dot(SIMD2(Double(index % width), Double(index / width)) - seamBottom, downTheSeam) > 0
+                    if !(geometry.splitsFromTheArmpit && isBelowTheArmpit) { torsoAlpha[index] = 0 }
                     include(column: index % width, row: index / width)
                 }
                 // A flat lay's seam is one column. A model's seam leans with the body, so its column is found on each row.
@@ -1031,29 +1052,35 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
                         if step < 3 { torsoAlpha[index] = UInt8(Int(torsoAlpha[index]) * (step + 1) / 4) }
                     }
                 }
-                // The halves, split along the diagonal from the seam's top to the opening's underside. Each pixel's distance from
-                // the diagonal is positive on the outer side.
-                let diagonalStart = SIMD2(Double(geometry.seamTop.x), Double(geometry.seamTop.y))
-                let diagonal = SIMD2(Double(geometry.openingInner.x), Double(geometry.openingInner.y)) - diagonalStart
+                // The halves, split along the diagonal the two triangles share. Each pixel's distance from the diagonal is
+                // positive on the first triangle's side.
+                let quadrilateral = geometry.quadrilateral.map { SIMD2(Double($0.x), Double($0.y)) }
+                let triangles = geometry.triangleIndices
+                let shared = triangles.first.filter { triangles.second.contains($0) }
+                guard shared.count == 2, let firstOnly = triangles.first.first(where: { !shared.contains($0) }) else { continue }
+                let diagonalStart = quadrilateral[shared[0]]
+                let diagonal = quadrilateral[shared[1]] - diagonalStart
                 guard simd_length(diagonal) > 1 else { continue }
                 var acrossTheDiagonal = SIMD2(-diagonal.y, diagonal.x) / simd_length(diagonal)
-                if simd_dot(SIMD2(Double(geometry.openingOuter.x), Double(geometry.openingOuter.y)) - diagonalStart, acrossTheDiagonal) < 0 { acrossTheDiagonal = -acrossTheDiagonal }
-                var outerAlpha = [UInt8](repeating: 0, count: sleeveAlpha.count), innerAlpha = [UInt8](repeating: 0, count: sleeveAlpha.count)
+                if simd_dot(quadrilateral[firstOnly] - diagonalStart, acrossTheDiagonal) < 0 { acrossTheDiagonal = -acrossTheDiagonal }
+                var firstAlpha = [UInt8](repeating: 0, count: sleeveAlpha.count), secondAlpha = [UInt8](repeating: 0, count: sleeveAlpha.count)
                 for index in sleeveAlpha.indices where sleeveAlpha[index] != 0 {
                     let distance = simd_dot(SIMD2(Double(index % width), Double(index / width)) - diagonalStart, acrossTheDiagonal)
-                    if distance >= -ShirtGarmentSleeve.halvesOverlapPixels { outerAlpha[index] = sleeveAlpha[index] }
-                    if distance <= 0 { innerAlpha[index] = sleeveAlpha[index] }
+                    // A hanging sleeve's first half holds the whole sleeve: its second half is stretched down over the old
+                    // sleeve, which pulls the two maps apart enough near the diagonal that a thin overlap leaves holes.
+                    if geometry.splitsFromTheArmpit || distance >= -ShirtGarmentSleeve.halvesOverlapPixels { firstAlpha[index] = sleeveAlpha[index] }
+                    if distance <= 0 { secondAlpha[index] = sleeveAlpha[index] }
                 }
                 guard boxRight >= boxLeft, boxBottom >= boxTop,
-                      let outerImage = premultipliedImage(colors: cleanedPixels, alpha: outerAlpha, width: width, height: height),
-                      let innerImage = premultipliedImage(colors: cleanedPixels, alpha: innerAlpha, width: width, height: height) else { continue }
+                      let firstImage = premultipliedImage(colors: cleanedPixels, alpha: firstAlpha, width: width, height: height),
+                      let secondImage = premultipliedImage(colors: cleanedPixels, alpha: secondAlpha, width: width, height: height) else { continue }
                 let boundingBox = CGRect(x: boxLeft, y: boxTop, width: boxRight - boxLeft + 1, height: boxBottom - boxTop + 1)
                 // Core Image's y grows up, so the box's top row is the image's top edge.
                 let boxInCoreImage = CGRect(x: boundingBox.minX, y: Double(height) - boundingBox.maxY, width: boundingBox.width, height: boundingBox.height)
                 func croppedToTheBox(_ image: CIImage) -> CIImage {
                     image.cropped(to: boxInCoreImage).transformed(by: CGAffineTransform(translationX: -boxInCoreImage.minX, y: -boxInCoreImage.minY))
                 }
-                sleeves.append(ShirtGarmentSleeve(geometry: geometry, outerHalf: croppedToTheBox(outerImage), innerHalf: croppedToTheBox(innerImage), boundingBox: boundingBox))
+                sleeves.append(ShirtGarmentSleeve(geometry: geometry, firstHalf: croppedToTheBox(firstImage), secondHalf: croppedToTheBox(secondImage), boundingBox: boundingBox))
             }
             if sleeves.count == 2 {
                 torsoWithoutSleeves = premultipliedImage(colors: cleanedPixels, alpha: torsoAlpha, width: width, height: height)

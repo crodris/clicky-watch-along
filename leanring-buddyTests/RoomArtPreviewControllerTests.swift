@@ -308,14 +308,17 @@ private final class CutoutStub {
     var secondsBeforeTheGarmentIsReady = 0.0
     private(set) var furnitureCutoutsAsked = 0
     private(set) var garmentsAsked = 0
+    /// How the product photo showed the garment, for each garment asked.
+    private(set) var garmentPhotosAsked: [RoomArtGarmentPhoto] = []
 
     func cutOutTheFurniture() -> CGImage? {
         furnitureCutoutsAsked += 1
         return furnitureCutout
     }
 
-    func makeTheGarment() async -> ShirtGarment? {
+    func makeTheGarment(photoShows: RoomArtGarmentPhoto) async -> ShirtGarment? {
         garmentsAsked += 1
+        garmentPhotosAsked.append(photoShows)
         if secondsBeforeTheGarmentIsReady > 0 { try? await Task.sleep(for: .seconds(secondsBeforeTheGarmentIsReady)) }
         return garment
     }
@@ -478,7 +481,7 @@ private struct RoomArtHarness {
                 measureTheWall: { wallRequest in try await worker.measureTheWall(wallRequest) },
                 measureTheFloor: { floorRequest in try await worker.measureTheFloor(floorRequest) },
                 cutOutTheFurniture: { _, _ in cutouts.cutOutTheFurniture() },
-                makeTheShirtGarment: { _, _ in await cutouts.makeTheGarment() },
+                makeTheShirtGarment: { _, _, photoShows in await cutouts.makeTheGarment(photoShows: photoShows) },
                 makeFrameSource: { camera },
                 clearTheLiveScene: { recorder.timesTheSceneWasClearedBeforeThePanel.append(panel.timesShown) },
                 speak: { line, isAFailure in
@@ -1272,15 +1275,30 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
-    @Test func aShirtPhotographedOnAModelIsRefusedAndNoGarmentIsMade() async throws {
+    @Test func aShirtPhotographedOnAModelIsTriedOnFromTheModelPhoto() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(shirtReading(photoShows: .onModel))
         let harness = RoomArtHarness(worker: worker)
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: "could I see this shirt on me")
+        try await waitFor("the shirt try-on to start") { harness.frameProcessor.shirtTryOnStarted }
+        harness.frameProcessor.settleTheShirtFraming(on: .ready)
 
-        try await waitFor("the panel to refuse the model photo") { harness.controller.phase == .failed(.shirtPhotoOnAModel) }
-        #expect(harness.spokenLines() == ["I can only try on a shirt from a flat photo of it, and this photo shows it on a model."])
+        try await waitFor("the shirt to show on the learner") { harness.controller.phase == .showingTheShirt(title: "Linen shirt") }
+        #expect(harness.cutouts.garmentPhotosAsked == [.onModel])
+        #expect(harness.spokenLines() == ["Here it is on you."])
+        harness.controller.close()
+    }
+
+    @Test func aShirtOnAHangerIsRefusedAndNoGarmentIsMade() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(shirtReading(photoShows: .onHanger))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "could I see this shirt on me")
+
+        try await waitFor("the panel to refuse the hanger photo") { harness.controller.phase == .failed(.shirtPhotoNotFlat) }
+        #expect(harness.spokenLines() == ["I can only try on a shirt from a photo of it laid flat or worn by a model."])
         #expect(harness.recorder.spokenLineFailureFlags == [true])
         #expect(harness.cutouts.garmentsAsked == 0)
         #expect(!harness.frameProcessor.shirtTryOnStarted)

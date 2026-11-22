@@ -661,14 +661,14 @@ struct RoomArtReadingPlanTests {
         #expect(roomArtReadingPlan(for: .furniture(unsizedTable)) == .fail(.sizeNotOnThePage))
     }
 
-    @Test func onlyATopPhotographedFlatIsTriedOn() {
+    @Test func onlyATopPhotographedFlatOrOnAModelIsTriedOn() {
         for garment in [RoomArtGarment.tshirt, .shirt, .sweater, .hoodie, .jacket] {
             #expect(roomArtReadingPlan(for: .clothing(clothing(garment: garment))) == .tryOnTheShirt(clothing(garment: garment)))
         }
         #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .dress))) == .fail(.onlyTopsSoFar))
         #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .other))) == .fail(.onlyTopsSoFar))
-        // A photo on a model would bring the model's body into the cutout.
-        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onModel))) == .fail(.shirtPhotoOnAModel))
+        // A photo on a model is cut out around the model's body (ShirtOnModel.swift).
+        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onModel))) == .tryOnTheShirt(clothing(photoShows: .onModel)))
         #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onHanger))) == .fail(.shirtPhotoNotFlat))
         #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .other))) == .fail(.shirtPhotoNotFlat))
     }
@@ -676,7 +676,7 @@ struct RoomArtReadingPlanTests {
     @Test func anythingElseCannotBeTried() {
         #expect(roomArtReadingPlan(for: .other(title: "Brass lamp")) == .fail(.notSomethingToTry))
         #expect(RoomArtFailure.notSomethingToTry.spokenLine == "That doesn't look like wall art, furniture, or a shirt.")
-        #expect(RoomArtFailure.shirtPhotoOnAModel.spokenLine == "I can only try on a shirt from a flat photo of it, and this photo shows it on a model.")
+        #expect(RoomArtFailure.shirtPhotoNotFlat.spokenLine == "I can only try on a shirt from a photo of it laid flat or worn by a model.")
     }
 }
 

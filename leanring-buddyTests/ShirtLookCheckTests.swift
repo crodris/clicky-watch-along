@@ -75,6 +75,12 @@ struct ShirtLookMetrics: Codable {
     var haloInsideWorstRimRatio = 0.0
     /// Where that sector points from the garment's center, in degrees, 0 to the image right and 90 down.
     var haloInsideWorstSectorDegrees = 0.0
+    /// The same ratio with the rim counted only where the person mask is confident (230 or more), away from the person's soft
+    /// outline. There the camera blends the person with the wall, and the renderer shows the room in place of the old shirt's
+    /// dark blend, so a dark garment's rim against a light wall is brighter than its own cloth by design. A light rim from the
+    /// product photo's background or a soft garment mask still shows here.
+    var haloInsideWorstRimRatioOnThePerson = 0.0
+    var haloInsideWorstSectorDegreesOnThePerson = 0.0
     /// The share of the old shirt's pixels in the torso that the composite left showing: nothing was drawn over them (the
     /// drawn coverage is under one half) and they are as they were. A navy stripe drawn over a navy shirt changes a pixel
     /// little but covers it.
@@ -439,6 +445,7 @@ func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetrics {
     let sectorCount = 16
     var rimSums = [Double](repeating: 0, count: sectorCount), rimClothSums = [Double](repeating: 0, count: sectorCount), rimCounts = [Int](repeating: 0, count: sectorCount)
     var interiorSums = [Double](repeating: 0, count: sectorCount), interiorClothSums = [Double](repeating: 0, count: sectorCount), interiorCounts = [Int](repeating: 0, count: sectorCount)
+    var personRimSums = [Double](repeating: 0, count: sectorCount), personRimClothSums = [Double](repeating: 0, count: sectorCount), personRimCounts = [Int](repeating: 0, count: sectorCount)
     for pixel in 0..<pixelCount where isCloth[pixel] {
         let isRim = !shrunkBy4[pixel], isInterior = shrunkBy6[pixel] && !shrunkBy16[pixel]
         guard isRim || isInterior else { continue }
@@ -446,19 +453,25 @@ func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetrics {
         let sector = min(sectorCount - 1, Int((angle + .pi) / (2 * .pi) * Double(sectorCount)))
         let drawn = inputs.composite.luminance(at: pixel), cloth = inputs.warpedGarment.luminance(at: pixel)
         if isRim { rimSums[sector] += drawn; rimClothSums[sector] += cloth; rimCounts[sector] += 1 }
+        if isRim, inputs.person.channel(0, at: pixel) >= 230 { personRimSums[sector] += drawn; personRimClothSums[sector] += cloth; personRimCounts[sector] += 1 }
         if isInterior { interiorSums[sector] += drawn; interiorClothSums[sector] += cloth; interiorCounts[sector] += 1 }
     }
-    var worstRimRatio = 0.0
-    for sector in 0..<sectorCount where rimCounts[sector] >= 200 && interiorCounts[sector] >= 200 {
-        let rimLight = rimSums[sector] / max(rimClothSums[sector], 1e-6)
-        let interiorLight = interiorSums[sector] / max(interiorClothSums[sector], 1e-6)
-        let ratio = rimLight / max(interiorLight, 1e-6)
-        if ratio > worstRimRatio {
-            worstRimRatio = ratio
-            metrics.haloInsideWorstSectorDegrees = (Double(sector) + 0.5) / Double(sectorCount) * 360 - 180
+    func worstRatio(rimSums: [Double], rimClothSums: [Double], rimCounts: [Int]) -> (ratio: Double, sectorDegrees: Double) {
+        var worst = (ratio: 0.0, sectorDegrees: 0.0)
+        for sector in 0..<sectorCount where rimCounts[sector] >= 200 && interiorCounts[sector] >= 200 {
+            let rimLight = rimSums[sector] / max(rimClothSums[sector], 1e-6)
+            let interiorLight = interiorSums[sector] / max(interiorClothSums[sector], 1e-6)
+            let ratio = rimLight / max(interiorLight, 1e-6)
+            if ratio > worst.ratio { worst = (ratio, (Double(sector) + 0.5) / Double(sectorCount) * 360 - 180) }
         }
+        return worst
     }
-    metrics.haloInsideWorstRimRatio = worstRimRatio
+    let worstRim = worstRatio(rimSums: rimSums, rimClothSums: rimClothSums, rimCounts: rimCounts)
+    metrics.haloInsideWorstRimRatio = worstRim.ratio
+    metrics.haloInsideWorstSectorDegrees = worstRim.sectorDegrees
+    let worstRimOnThePerson = worstRatio(rimSums: personRimSums, rimClothSums: personRimClothSums, rimCounts: personRimCounts)
+    metrics.haloInsideWorstRimRatioOnThePerson = worstRimOnThePerson.ratio
+    metrics.haloInsideWorstSectorDegreesOnThePerson = worstRimOnThePerson.sectorDegrees
 
     // The old shirt left showing inside the torso.
     var torsoOldShirtCount = 0, stillShowingCount = 0
@@ -666,6 +679,48 @@ private func quadraticFitResidual(_ points: [(across: Double, down: Double)]) ->
 
 // MARK: - The check
 
+/// The standing photo, its pose and person mask, read once and shared by every shirt.
+struct ShirtLookScene {
+    let frame: CIImage
+    let frameExtent: CGRect
+    let torso: BodyTorso
+    let personMask: CIImage
+    let original: LookPixels
+    let person: LookPixels
+    let fullSizeFrame: ShirtSmallFrame
+    let oldShirtColor: SIMD3<Float>
+
+    init(photosFolder: URL, context: CIContext) throws {
+        let sRGB = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let standingPhoto = try loadImage(at: photosFolder.appendingPathComponent("standing.jpg"))
+        frame = CIImage(cgImage: standingPhoto)
+        frameExtent = frame.extent
+        var frameBuffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, standingPhoto.width, standingPhoto.height, kCVPixelFormatType_32BGRA, [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &frameBuffer)
+        let cameraFrame = try #require(frameBuffer)
+        context.render(frame, to: cameraFrame, bounds: frameExtent, colorSpace: sRGB)
+        torso = try #require(ShirtPoseTracker.detectTorso(in: cameraFrame))
+        let segmentation = VNGeneratePersonSegmentationRequest()
+        segmentation.qualityLevel = .balanced
+        segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
+        try VNImageRequestHandler(cvPixelBuffer: cameraFrame, orientation: .up).perform([segmentation])
+        personMask = CIImage(cvPixelBuffer: try #require(segmentation.results?.first?.pixelBuffer), options: [.colorSpace: NSNull()])
+        let personMaskExtent = personMask.extent
+        let personMaskAtFrameSize = personMask
+            .transformed(by: CGAffineTransform(scaleX: frameExtent.width / personMaskExtent.width, y: frameExtent.height / personMaskExtent.height))
+            .cropped(to: frameExtent)
+        original = LookPixels(frame, extent: frameExtent, context: context, colorSpace: sRGB)
+        person = LookPixels(personMaskAtFrameSize, extent: frameExtent, context: context, colorSpace: nil)
+        let original = original, person = person
+        fullSizeFrame = ShirtSmallFrame(
+            width: original.width, height: original.height, rgba: original.bytes,
+            personMask: (0..<(original.width * original.height)).map { person.channel(0, at: $0) }, torso: torso
+        )
+        oldShirtColor = try #require(fullSizeFrame.measureOldShirtColor())
+    }
+}
+
+
 func loadImage(at url: URL) throws -> CGImage {
     let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
     return try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
@@ -686,28 +741,9 @@ struct ShirtLookCheckTests {
         let context = CIContext()
         let sRGB = try #require(CGColorSpace(name: CGColorSpace.sRGB))
 
-        let standingPhoto = try loadImage(at: photosFolder.appendingPathComponent("standing.jpg"))
-        let frame = CIImage(cgImage: standingPhoto)
-        let frameExtent = frame.extent
-        var frameBuffer: CVPixelBuffer?
-        CVPixelBufferCreate(nil, standingPhoto.width, standingPhoto.height, kCVPixelFormatType_32BGRA, [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &frameBuffer)
-        let cameraFrame = try #require(frameBuffer)
-        context.render(frame, to: cameraFrame, bounds: frameExtent, colorSpace: sRGB)
-        let torso = try #require(ShirtPoseTracker.detectTorso(in: cameraFrame))
-        let segmentation = VNGeneratePersonSegmentationRequest()
-        segmentation.qualityLevel = .balanced
-        segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
-        try VNImageRequestHandler(cvPixelBuffer: cameraFrame, orientation: .up).perform([segmentation])
-        let personMask = CIImage(cvPixelBuffer: try #require(segmentation.results?.first?.pixelBuffer), options: [.colorSpace: NSNull()])
-        let personMaskExtent = personMask.extent
-        let personMaskAtFrameSize = personMask
-            .transformed(by: CGAffineTransform(scaleX: frameExtent.width / personMaskExtent.width, y: frameExtent.height / personMaskExtent.height))
-            .cropped(to: frameExtent)
-
-        let original = LookPixels(frame, extent: frameExtent, context: context, colorSpace: sRGB)
-        let person = LookPixels(personMaskAtFrameSize, extent: frameExtent, context: context, colorSpace: nil)
-        let fullSizeFrame = ShirtSmallFrame(width: original.width, height: original.height, rgba: original.bytes, personMask: (0..<(original.width * original.height)).map { person.channel(0, at: $0) }, torso: torso)
-        let oldShirtColor = try #require(fullSizeFrame.measureOldShirtColor())
+        let scene = try ShirtLookScene(photosFolder: photosFolder, context: context)
+        let frame = scene.frame, frameExtent = scene.frameExtent, torso = scene.torso, personMask = scene.personMask
+        let original = scene.original, person = scene.person, oldShirtColor = scene.oldShirtColor
 
         let flatLayNames = try FileManager.default.contentsOfDirectory(atPath: photosFolder.path).filter { $0.hasPrefix("uE") && $0.hasSuffix(".jpg") }.sorted()
         #expect(!flatLayNames.isEmpty)

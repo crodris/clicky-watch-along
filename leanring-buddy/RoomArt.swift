@@ -771,11 +771,9 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
     case furnitureNotCutOut
     /// The clothing is not a top, such as a dress, which the shirt overlay cannot draw.
     case onlyTopsSoFar
-    /// The product photo shows the shirt on a model, whose body would come along with the cutout.
-    case shirtPhotoOnAModel
-    /// The product photo shows the shirt on a hanger or some other way that is not a flat lay.
+    /// The product photo shows the shirt on a hanger or some other way, neither laid flat nor worn by a model.
     case shirtPhotoNotFlat
-    /// Vision found no garment in the flat lay photo.
+    /// Vision found no garment in the product photo.
     case garmentNotCutOut
     /// A request to the Worker never got an answer: the Worker is not running, the connection failed, or it timed out.
     case workerUnreachable
@@ -795,8 +793,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .floorNotFound: return "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor."
         case .furnitureNotCutOut: return "I couldn't cut the furniture out of its photo."
         case .onlyTopsSoFar: return "I can try on shirts, sweaters, and jackets so far."
-        case .shirtPhotoOnAModel: return "I can only try on a shirt from a flat photo of it, and this photo shows it on a model."
-        case .shirtPhotoNotFlat: return "I can only try on a shirt from a flat photo of it."
+        case .shirtPhotoNotFlat: return "I can only try on a shirt from a photo of it laid flat or worn by a model."
         case .garmentNotCutOut: return "I couldn't lift the shirt out of its photo."
         case .workerUnreachable: return "I couldn't reach Clicky's Worker."
         }
@@ -817,8 +814,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .floorNotFound: return "Tilt the screen down so the floor shows, then click the floor"
         case .furnitureNotCutOut: return "Couldn't cut the furniture out of its photo"
         case .onlyTopsSoFar: return "Only shirts, sweaters, and jackets so far"
-        case .shirtPhotoOnAModel: return "The photo shows the shirt on a model, not laid flat"
-        case .shirtPhotoNotFlat: return "The photo is not a flat photo of the shirt"
+        case .shirtPhotoNotFlat: return "The photo shows the shirt neither laid flat nor worn"
         case .garmentNotCutOut: return "Couldn't lift the shirt out of its photo"
         case .workerUnreachable: return "Couldn't reach Clicky's Worker"
         }
@@ -828,8 +824,8 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
 // MARK: - What the reading asks for
 
 /// What the panel does with the page's reading. Only wall art and furniture whose page states a size are placed, so a size
-/// the model guessed never reaches the room, and only a top photographed flat is tried on, since a photo on a model would
-/// bring the model's body into the cutout.
+/// the model guessed never reaches the room, and only a top photographed laid flat or worn by a model is tried on, since a
+/// photo on a hanger shows neither the shirt's flat shape nor a body to map from.
 nonisolated enum RoomArtReadingPlan: Equatable, Sendable {
     case hangOnTheWall(RoomArtWallArtReading)
     case standOnTheFloor(RoomArtFurnitureReading, size: RoomArtFurnitureSize)
@@ -853,8 +849,7 @@ nonisolated func roomArtReadingPlan(for pageReading: RoomArtPageReading) -> Room
     case .clothing(let clothingReading):
         guard roomArtGarmentsThatCanBeTriedOn.contains(clothingReading.garment) else { return .fail(.onlyTopsSoFar) }
         switch clothingReading.photoShows {
-        case .flatLay: return .tryOnTheShirt(clothingReading)
-        case .onModel: return .fail(.shirtPhotoOnAModel)
+        case .flatLay, .onModel: return .tryOnTheShirt(clothingReading)
         case .onHanger, .other: return .fail(.shirtPhotoNotFlat)
         }
     case .other:

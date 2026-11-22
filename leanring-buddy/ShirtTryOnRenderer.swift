@@ -816,12 +816,12 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
             guard var landing = landingResult else { return nil }
             // The seam's top lands where the torso's shoulder does (`shoulderHomography`), so the two meet at the shoulder.
             landing[0] = applyingPerspective(shoulderHomography, to: sleeve.geometry.seamTop)
-            let geometry = sleeve.geometry
-            guard let outerMap = Self.affineTransform(from: [geometry.seamTop, geometry.openingOuter, geometry.openingInner], to: [landing[0], landing[1], landing[2]]),
-                  let innerMap = Self.affineTransform(from: [geometry.seamTop, geometry.openingInner, geometry.seamBottom], to: [landing[0], landing[2], landing[3]]) else { return nil }
-            let outerHalf = sleeve.outerHalf.transformed(by: Self.coreImageTransform(ofPhotoBox: sleeve.boundingBox, mappedBy: outerMap, frameExtent: frameExtent))
-            let innerHalf = sleeve.innerHalf.transformed(by: Self.coreImageTransform(ofPhotoBox: sleeve.boundingBox, mappedBy: innerMap, frameExtent: frameExtent))
-            layers.append((geometry.side, landing, innerHalf.composited(over: outerHalf)))
+            let source = sleeve.geometry.quadrilateral, triangles = sleeve.geometry.triangleIndices
+            guard let firstMap = Self.affineTransform(from: triangles.first.map { source[$0] }, to: triangles.first.map { landing[$0] }),
+                  let secondMap = Self.affineTransform(from: triangles.second.map { source[$0] }, to: triangles.second.map { landing[$0] }) else { return nil }
+            let firstHalf = sleeve.firstHalf.transformed(by: Self.coreImageTransform(ofPhotoBox: sleeve.boundingBox, mappedBy: firstMap, frameExtent: frameExtent))
+            let secondHalf = sleeve.secondHalf.transformed(by: Self.coreImageTransform(ofPhotoBox: sleeve.boundingBox, mappedBy: secondMap, frameExtent: frameExtent))
+            layers.append((sleeve.geometry.side, landing, secondHalf.composited(over: firstHalf)))
         }
         return layers
     }

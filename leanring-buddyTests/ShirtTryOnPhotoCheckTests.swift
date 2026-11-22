@@ -24,16 +24,7 @@ import Vision
 
 private let photoCheckEnvironment = ProcessInfo.processInfo.environment
 
-private func loadImage(at url: URL) throws -> CGImage {
-    let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
-    return try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
-}
-
-private func savePNG(_ image: CGImage, to url: URL) throws {
-    let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
-    CGImageDestinationAddImage(destination, image, nil)
-    #expect(CGImageDestinationFinalize(destination))
-}
+// `loadImage(at:)` and `savePNG(_:to:)` are shared with the look checks, in ShirtLookCheckTests.swift.
 
 private func pixelBuffer(of image: CIImage, context: CIContext) throws -> CVPixelBuffer {
     var buffer: CVPixelBuffer?

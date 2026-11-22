@@ -794,9 +794,9 @@ final class RoomArtPreviewController: ObservableObject {
         /// The furniture cut out of its product photo, nil when Vision finds none. Vision takes a while, so it runs off the
         /// main actor.
         var cutOutTheFurniture: (_ picture: CGImage, _ itemCorners: RoomArtCorners) async -> CGImage?
-        /// The top cut out of its flat lay photo (`ShirtGarment.make`), nil when Vision finds no garment. It runs off the
-        /// main actor.
-        var makeTheShirtGarment: (_ picture: CGImage, _ itemCorners: RoomArtCorners) async -> ShirtGarment?
+        /// The top cut out of its product photo, nil when no garment is found: `ShirtGarment.make` for a flat lay and
+        /// `make(onModelPhoto:itemCorners:)` for a photo of it worn by a model. It runs off the main actor.
+        var makeTheShirtGarment: (_ picture: CGImage, _ itemCorners: RoomArtCorners, _ photoShows: RoomArtGarmentPhoto) async -> ShirtGarment?
         var makeFrameSource: () -> RoomFrameSource
         /// Clears a scene or pop-out on screen, whose window sits above the panel's and would hide it.
         var clearTheLiveScene: () -> Void
@@ -847,10 +847,12 @@ final class RoomArtPreviewController: ObservableObject {
                         furnitureCutout(picture: pictureToCut, itemCorners: itemCorners, context: CIContext())
                     }.value
                 },
-                makeTheShirtGarment: { picture, itemCorners in
+                makeTheShirtGarment: { picture, itemCorners, photoShows in
                     nonisolated(unsafe) let pictureToCut = picture
                     return await Task.detached(priority: .userInitiated) {
-                        ShirtGarment.make(productPhoto: pictureToCut, itemCorners: itemCorners)
+                        photoShows == .onModel
+                            ? ShirtGarment.make(onModelPhoto: pictureToCut, itemCorners: itemCorners)
+                            : ShirtGarment.make(productPhoto: pictureToCut, itemCorners: itemCorners)
                     }.value
                 },
                 makeFrameSource: { makeRoomFrameSource() },
@@ -1216,7 +1218,7 @@ final class RoomArtPreviewController: ObservableObject {
             )))
 
         case .tryOnTheShirt(let clothingReading):
-            print("Room art: \"\(clothingReading.title)\" is a \(clothingReading.garment.rawValue) laid flat, size \(clothingReading.chosenSizeLabel)")
+            print("Room art: \"\(clothingReading.title)\" is a \(clothingReading.garment.rawValue) photographed \(clothingReading.photoShows.rawValue), size \(clothingReading.chosenSizeLabel)")
             apply(phase.startingTheShirt(title: clothingReading.title))
             // The camera looks for the learner while the garment is cut out, so the coaching can start at once.
             frameProcessor.startTheShirtTryOn(onTheFramingSettled: { [weak self] settledKind in
@@ -1225,7 +1227,7 @@ final class RoomArtPreviewController: ObservableObject {
                     self.theShirtFramingSettled(on: settledKind)
                 }
             })
-            let garment = await environment.makeTheShirtGarment(pictureImage, clothingReading.itemCorners)
+            let garment = await environment.makeTheShirtGarment(pictureImage, clothingReading.itemCorners, clothingReading.photoShows)
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
             guard let garment else {
                 apply(phase.afterTheGarmentFailed())
