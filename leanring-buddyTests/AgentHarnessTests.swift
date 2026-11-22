@@ -633,10 +633,13 @@ struct AgentHarnessTests {
         let desk = HarnessApprovalDesk(timeoutSeconds: 0.1, answerSettleGraceSeconds: 0.1, secondsAnEndedCardStays: 60) { _, _, _ in }
         desk.receive(anApprovalRequest("approval-1"))
 
-        let deadline = Date().addingTimeInterval(10)
-        while !desk.waitingRequests.isEmpty, Date() < deadline {
+        // Wait for the card itself: it shows "sending" for the 0.1 s grace after the request leaves the waiting list, and a
+        // loaded machine read it inside that gap.
+        let deadline = Date().addingTimeInterval(30)
+        while desk.cardToShow(on: .agentList, at: Date())?.phase != .ended(.timedOut), Date() < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
+        #expect(desk.waitingRequests.isEmpty)
         #expect(desk.cardToShow(on: .agentList, at: Date())?.phase == .ended(.timedOut))
     }
 
