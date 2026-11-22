@@ -16,7 +16,7 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// What the generation service does for the furniture: a model from the product photo, and the item painted into the
+/// What the generation service does for the furniture: a model from the furniture's cutout over white, and the item painted into the
 /// keyframe inside a mask. Either throws when the service is not set up (the Worker answers 503 without its key) or fails,
 /// and the furniture then falls back to the next look.
 protocol RoomFurnitureGenerating {

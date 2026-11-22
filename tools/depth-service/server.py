@@ -5,7 +5,7 @@ POST /wall   -> { jpegBase64, maskPngBase64?, anchor: { u, v }, focalPx? }
                 200 { center, right, up, focalPx, principal, distanceMeters, wallAngleDegrees,
                       planeInlierShare, inferenceSeconds, seconds }
                 400 { error } for a bad body (a frame that is not a JPEG, or an image or mask side over 4096 pixels,
-                included, the size read from the header before any pixel is decoded), 422 { error } when under 200 bare wall points remain
+                with the size read from the header before any pixel is decoded), 422 { error } when under 200 bare wall points remain
                 or the plane is not finite.
 POST /floor  -> the same body, where anchor is the pixel the furniture's front-bottom center stands on.
                 200 { center, right, up, forward, focalPx, principal, distanceMeters,
