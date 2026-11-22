@@ -66,10 +66,10 @@ var themeStoreWithNoSavedThemes: CustomThemeStore {
 /// Theme settings backed by their own UserDefaults suite, so a test never reads or changes the app's saved theme.
 @MainActor
 func makeThemeSettings(startingWith theme: ClickyTheme = clickyBlueTheme, customThemeStore: CustomThemeStore = themeStoreWithNoSavedThemes) -> CompanionThemeSettings {
-    // One suite for every test in this process, since macOS keeps an empty preferences file for each suite even after its
-    // domain is removed. Sharing it is safe because each test sets the theme and Shuffle right after this reads them and
-    // never reads the saved values back. The name has the process ID, so another test run on this Mac that runs at the
-    // same time has its own suite. The name is a plain string UserDefaults accepts, so the optional is never nil.
+    // One suite for every test in this process. Sharing it is safe because each test sets the theme and Shuffle right
+    // after this reads them and never reads the saved values back. The name has the process ID, so another test run on
+    // this Mac that runs at the same time has its own suite. The name is a plain string UserDefaults accepts, so the
+    // optional is never nil.
     let testDefaults = UserDefaults(suiteName: testDefaultsSuiteName("BundledThemeTests"))!
     let themeSettings = CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: customThemeStore, bundledThemes: bundledThemesForTests)
     themeSettings.theme = theme
@@ -86,9 +86,45 @@ func makeBackgroundAgentStore(theme: ClickyTheme = clickyBlueTheme) -> Backgroun
 /// process's ID. Every test run on this Mac runs as the same macOS user, and two runs at the same time, such as two
 /// `swift-check` runs of different worktrees or two CI runners, share one preferences file per suite name, so each would
 /// clear or overwrite the other's values. The bundle ID keeps two CI runners apart, and the process ID keeps every other
-/// pair of runs apart. The name stays the same for every test of one process, so a test can open its suite again.
+/// pair of runs apart. The name stays the same for every test of one process, so a test can open its suite again. No later
+/// process uses the name, so the process deletes the suite's preferences file when it exits (`TestSuiteNames`), since macOS
+/// keeps a file for every suite name, and every run would otherwise leave more of them in ~/Library/Preferences.
 func testDefaultsSuiteName(_ testName: String) -> String {
-    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(testName)-\(ProcessInfo.processInfo.processIdentifier)"
+    let suiteName = "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(testName)-\(ProcessInfo.processInfo.processIdentifier)"
+    TestSuiteNames.shared.record(suiteName)
+    return suiteName
+}
+
+/// The suite names this process made, and the removal of their preferences files when the process exits.
+final class TestSuiteNames: @unchecked Sendable {
+    static let shared = TestSuiteNames()
+
+    private let lock = NSLock()
+    private var suiteNames: Set<String> = []
+    private var removalAtExitIsRegistered = false
+
+    func record(_ suiteName: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        suiteNames.insert(suiteName)
+        guard !removalAtExitIsRegistered else { return }
+        removalAtExitIsRegistered = true
+        // A C function pointer cannot capture, so the handler reads the shared instance.
+        atexit { TestSuiteNames.shared.removeEverySuite() }
+    }
+
+    /// Empties each suite and deletes its preferences file. Best effort: a file that is not there, or a host that keeps its
+    /// preferences somewhere else, leaves nothing worse than the files that were left before.
+    func removeEverySuite() {
+        lock.lock()
+        let suiteNamesToRemove = suiteNames
+        lock.unlock()
+        let preferencesFolderURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences", isDirectory: true)
+        for suiteName in suiteNamesToRemove {
+            UserDefaults.standard.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: preferencesFolderURL.appendingPathComponent("\(suiteName).plist"))
+        }
+    }
 }
 
 /// A UserDefaults suite of its own, named by `testDefaultsSuiteName`, emptied before and after `body`.
