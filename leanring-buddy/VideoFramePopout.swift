@@ -353,6 +353,10 @@ struct ChromePageGeometry: Decodable, Equatable {
     let height: Double
     /// The image's URL when it sits wholly inside the viewport, stretched to its box. Nil for a video.
     let imageSourceURL: String?
+    /// The image's own file URL, whether or not it sits wholly inside the viewport or is stretched to its box. Nil for a
+    /// video. Room art downloads this file instead of capturing the screen over the picture. Optional with a default,
+    /// so a page script that does not send it still decodes.
+    var imageFileURL: String? = nil
 
     /// Page layout can move an element by a point or two without anything the learner would call a change, such as a
     /// scrollbar appearing, so numbers within this many points count as the same. The page zoom must match closely.
@@ -380,6 +384,9 @@ struct LargestVisibleMediaInFrontTab {
     let pageGeometry: ChromePageGeometry
     /// Set only for an image whose own frames line up with a capture of `screenRect`.
     let imageSourceURL: URL?
+
+    /// The page's file for the picture, which room art downloads in place of a screen capture. Nil for a video.
+    var imageFileURL: URL? { pageGeometry.imageFileURL.flatMap(URL.init(string:)) }
 }
 
 /// The element's place on screen. The page zoom is the page's device pixel ratio divided by the

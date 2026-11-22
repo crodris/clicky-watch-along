@@ -1,6 +1,6 @@
 import { parse as parseJavaScript } from "acorn";
 import { z } from "zod";
-import { zodIssuesOnOneLine } from "./anthropic";
+import { zodIssueCodesByPath } from "./anthropic";
 
 export const liveSceneQuizSchema = z.object({
   question: z.string().min(1),
@@ -48,6 +48,16 @@ const controlElementsASimulationMustNotDraw = controlElementNames.flatMap((contr
 // http(s) URL is a network request the generated page is not allowed to make.
 const svgNamespacePrefix = "www\\.w3\\.org\\/2000\\/svg";
 
+function scriptParseErrorPosition(parseError: unknown): string {
+  if (typeof parseError === "object" && parseError !== null && "loc" in parseError) {
+    const { loc } = parseError;
+    if (typeof loc === "object" && loc !== null && "line" in loc && "column" in loc && typeof loc.line === "number" && typeof loc.column === "number") {
+      return `at line ${loc.line}, column ${loc.column}`;
+    }
+  }
+  return "at an unknown position";
+}
+
 function firstScriptSyntaxError(html: string): string | undefined {
   for (const scriptMatch of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
     const scriptAttributes = scriptMatch[1] ?? "";
@@ -59,7 +69,8 @@ function firstScriptSyntaxError(html: string): string | undefined {
     try {
       parseJavaScript(scriptText, { ecmaVersion: "latest", sourceType: isModuleScript ? "module" : "script" });
     } catch (parseError) {
-      return parseError instanceof Error ? parseError.message : String(parseError);
+      // Acorn's message quotes the identifier it stopped at, which the model wrote, so only the position goes in the reason.
+      return scriptParseErrorPosition(parseError);
     }
   }
   return undefined;
@@ -104,7 +115,7 @@ export function checkLiveSceneModelReply(modelReply: string, kind: LiveSceneRequ
   // for a tour that never ends. About 1 in 10 pages had one on 2026-11-03, so check here and let the retry run.
   const scriptSyntaxError = firstScriptSyntaxError(html);
   if (scriptSyntaxError !== undefined) {
-    return { accepted: false, reason: `A page script does not parse: ${scriptSyntaxError}` };
+    return { accepted: false, reason: `A page script does not parse ${scriptSyntaxError}` };
   }
 
   const lowercaseHTML = html.toLowerCase();
@@ -129,7 +140,9 @@ export function checkLiveSceneModelReply(modelReply: string, kind: LiveSceneRequ
 
   const parsedQuiz = liveSceneQuizSchema.safeParse(quizJSON);
   if (!parsedQuiz.success) {
-    return { accepted: false, reason: zodIssuesOnOneLine(parsedQuiz.error) };
+    // The reason goes into the Worker log and the 422 body, so it names each problem by field and issue code and never
+    // quotes the model's own value, which could carry instructions to anything that reads the reason.
+    return { accepted: false, reason: `The json block breaks the quiz schema at ${zodIssueCodesByPath(parsedQuiz.error)}` };
   }
 
   return { accepted: true, html, quiz: parsedQuiz.data };

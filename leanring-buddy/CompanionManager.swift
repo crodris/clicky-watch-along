@@ -378,11 +378,7 @@ final class CompanionManager: ObservableObject {
     /// "Show me how this would look in my room": the live camera panel with the picture from Chrome's front tab on the wall.
     private lazy var roomArtPreviewController = RoomArtPreviewController(environment: .live(
         workerBaseURL: Self.workerBaseURL,
-        capturePicture: { [weak self] in
-            await self?.captureThePictureForTheThemeStudio().map { picture in
-                RoomArtPicture(jpegData: picture.jpegData, width: picture.width, height: picture.height)
-            }
-        },
+        capturePicture: { [weak self] in await self?.pictureForRoomArt() },
         clearTheLiveScene: { [weak self] in self?.clearTheLiveSceneForTheRoomArtPanel() },
         // Every room art line but "Here it is" reports a failure, so the cursor shakes as it is said.
         speak: { [weak self] line, isAFailure in self?.speakARoomArtLine(line, isAFailure: isAFailure) },
@@ -4303,6 +4299,27 @@ final class CompanionManager: ObservableObject {
             liveScenePhase = .idle
         default:
             break
+        }
+    }
+
+    /// The largest picture in Chrome's front tab for room art: the page's image file when it names one, else a screen capture
+    /// of it (`RoomArtPictureSource`), since a capture also holds a cookie banner or any other page element over the picture.
+    /// Nil when Chrome has no picture on screen.
+    private func pictureForRoomArt() async -> RoomArtPicture? {
+        let largestMedia: LargestVisibleMediaInFrontTab?
+        do {
+            largestMedia = try ChromeVideoTab.largestVisibleMediaInFrontTabOrNone()
+        } catch {
+            print("Room art: could not read the largest picture from Chrome: \(error)")
+            return nil
+        }
+        guard let largestMedia else { return nil }
+        return await RoomArtPictureSource.picture(imageFileURL: largestMedia.imageFileURL) {
+            guard let pictureGrab = try? await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(largestMedia.screenRect),
+                  let jpegData = Data(base64Encoded: pictureGrab.jpeg) else {
+                return nil
+            }
+            return RoomArtPicture(jpegData: jpegData, width: pictureGrab.width, height: pictureGrab.height)
         }
     }
 

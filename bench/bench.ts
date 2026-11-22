@@ -276,6 +276,22 @@ function framePartsCase(id: string, frameFileName: string, expected: FramePartsE
   };
 }
 
+/** A "show me" request for a 3D model. The reply must hold a page and a quiz with an answer part. */
+function modelSceneCase(id: string, screenshotFileName: string, question: string, description: string): BenchCase {
+  return {
+    id,
+    route: "/live-scene",
+    description,
+    requestBody: () => ({ question, screenshotBase64: fixtureBase64(screenshotFileName), screenshotMediaType: "image/jpeg" }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const quiz = isRecord(reply?.quiz) ? reply.quiz : {};
+      const passed = typeof reply?.html === "string" && typeof quiz.answerLabel === "string";
+      return { passed, detail: passed ? `answer ${String(quiz.answerLabel)}` : "no page or quiz" };
+    },
+  };
+}
+
 /** A "let me try it" request over a physics frame. The reply must hold a page with the controls the app's panel reads. */
 function simulationCase(id: string, frameFileName: string, description: string): BenchCase {
   return {
@@ -572,22 +588,9 @@ export const benchCases: BenchCase[] = [
       return { passed: reply?.isFamousPlace === false, detail: `isFamousPlace ${String(reply?.isFamousPlace)}` };
     },
   },
-  {
-    id: "live-scene",
-    route: "/live-scene",
-    description: "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture",
-    requestBody: () => ({
-      question: "show me the inside of a heart",
-      screenshotBase64: fixtureBase64("screen.jpg"),
-      screenshotMediaType: "image/jpeg",
-    }),
-    checkReply: (replyText) => {
-      const reply = parseJSONObject(replyText);
-      const quiz = isRecord(reply?.quiz) ? reply.quiz : {};
-      const passed = typeof reply?.html === "string" && typeof quiz.answerLabel === "string";
-      return { passed, detail: passed ? `answer ${String(quiz.answerLabel)}` : "no page or quiz" };
-    },
-  },
+  modelSceneCase("live-scene", "screen.jpg", "show me the inside of a heart", "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture"),
+  modelSceneCase("live-scene-engine", "turbofan-cutaway-frame.jpg", "show me this engine in 3D", "Builds a 3D model of the jet engine in a cutaway frame"),
+  modelSceneCase("live-scene-bicycle", "bicycle-diagram-frame.jpg", "show me this in 3D", "Builds a 3D model of the bicycle in a diagram frame"),
   simulationCase("simulation-projectile", "projectile-frame.jpg", "Builds a simulation over a cannon frame for \"let me try it\""),
   simulationCase("simulation-lever", "lever-frame.jpg", "Builds a simulation over a lever frame for \"let me try it\""),
   simulationCase("simulation-pendulum", "pendulum-frame.jpg", "Builds a simulation over a pendulum frame for \"let me try it\""),
