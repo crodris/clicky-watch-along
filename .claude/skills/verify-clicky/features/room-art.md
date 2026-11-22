@@ -1,19 +1,26 @@
 # Room art
 
-When the learner says "show me how this would look in my room" or "on my wall" with a store page in Chrome's front tab, Clicky hangs that page's art on their wall in a live camera panel, at its real size, and keeps it there while the laptop turns.
-The app reads the front tab and its largest picture, calls `/try-it-item` (Claude reads the kind of item, its size, and its corners) and `/room-wall` (the local depth service measures the wall) at the same time, and tracks the wall with ECC from then on.
-While the wall is measured, Clicky's loop outlines the wall spot in the panel and follows it as the camera turns.
-Only wall art is placed so far, so a chair or a shirt gets "I can hang wall art so far. Furniture and clothes are coming next.".
+When the learner says "show me how this would look in my room", "on my wall", or "could I see this shirt on me" with a store page in Chrome's front tab, Clicky tries the item in a live camera panel: wall art hangs on their wall and furniture stands on their floor, each at its real size and kept there while the laptop turns, and a top laid flat in its photo is drawn over the shirt they wear.
+The app reads the front tab and its largest picture, opens the panel, and calls `/try-it-item` (Claude reads the kind of item, its size, and its corners) while the camera starts.
+The kind decides what follows: `/room-wall` for wall art, `/room-floor` for furniture (the local depth service measures the surface), each tracked with ECC from then on, and no depth call at all for a shirt.
+While a surface is measured, Clicky's loop outlines the spot in the panel and follows it as the camera turns, and for a shirt it traces the learner's torso until the shirt shows.
 
 ## Sub-features
 
 - `room-art-route` is `/try-it-item`, which returns the title, the item's corners in the photo (`itemCorners`), and an `item` that names its `kind` (`wallArt`, `furniture`, `clothing`, or `other`) and holds that kind's one object.
   For wall art and furniture the object has `sizeFoundOnPage`, the size in cm, and the other sizes, and for clothing it has the garment, sleeves, size label, what the photo shows, and the print.
 - `room-wall-route` is `/room-wall`, which forwards to the depth service and returns the wall plane. It answers 503 without `DEPTH_SERVICE_URL`, 422 when the service finds no bare wall or the wall is nearer than 0.3 m, farther than 12 m, or under 30% on one plane, and 502 when the service is down.
-- `room-art-panel` is the camera panel: the art at its corners, the learner in front of it, and the line "Here it is at 16 by 20 inches.", with the size in inches to the nearest half inch from the measured centimeters.
-- `room-art-tracking` keeps the art on the wall while the camera turns, and says "Lost the wall. Turn back, or click the wall to place it again." while the art hides.
-- `room-art-loop` is Clicky's loop around the wall spot while the wall is measured: the cursor loop's line and spark in the theme's accent, following the wall as the camera turns, and leaving with a 0.35 s fade when the art shows or the measurement fails.
-- `room-art-kinds` are the lines for what the page shows: "I can hang wall art so far. Furniture and clothes are coming next." for furniture and clothing, and "That doesn't look like something that hangs on a wall." for anything else.
+- `room-floor-route` is `/room-floor`, the same body with the anchor where the furniture's front-bottom center stands, which returns the floor plane (`forward` and `floorTiltDegrees` in place of the wall's angle), with the same 503, 422, and 502 answers.
+- `room-art-panel` is the camera panel: the art at its corners, the learner in front of it, and the line "Here it is at 16 by 20 inches.", with the size in inches to the nearest half inch from the measured centimeters. The status line says "Reading the page…" while the page is read.
+- `room-art-furniture` is a piece of furniture standing on the floor: the cutout at the page's height and its own shape as the instant placeholder, with a soft shadow across its base, the line "Here it is, 31.5 inches wide and 29.5 tall.", and, when no floor is found and none can be inferred from the wall, "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor." with the camera still running, after which a click on the floor measures there.
+- `room-art-furniture-model` is the store's own 3D model replacing the cutout with a crossfade: found in the page (a store GLB on IKEA and Target; only a GLB is read, so a store with only a USDZ, such as Article, gets the generated model or the painted composite), rendered with the keyframe's camera and light, a top-down contact shadow, and the camera's grain, moving with the room. A click renders it again where the learner clicked.
+- `room-art-furniture-composite` is the painted composite replacing the render or the cutout about 20 s later, only when the painted piece is no shorter than 85 percent of the measured box's front and no taller than 115 percent of its outline, measured down to the box's lowest corner, and not cut off along the top of the pasted region. The log line `the painted item is N% of the measured box's outline (painted rows ..., box outline ..., front face ...)` says where the painting sits against the box. A Debug build writes each painting to the temporary folder as `clicky-room-furniture-painting-<ms>.png`, with `-keyframe.jpg`, `-mask.png`, and `-box.json` beside it, so a refused painting can be judged again offline (`RoomFurniturePaintedComposite.itemLayers`).
+- `room-art-furniture-wall` is the wall measured on the floor's keyframe from the cached depth: a floor not level with the wall is refused as a desk, and with no floor in view the piece stands against the wall on a floor inferred 1.05 m below the camera.
+- `room-art-page-sizes` is the page read opening collapsed Measurements, Dimensions, Product details, and Specifications sections, so IKEA's height reaches `/try-it-item`, with only size-like pairs added from the page's structured data.
+- `room-art-shirt` is a flat lay top drawn over the learner: the coaching in the status line ("I can't see you yet. Step in front of the camera." or "Stand back so I can see your shoulders and chest."), said once before the shirt shows, then "Here it is on you." and the status "On you".
+- `room-art-tracking` keeps the art on the wall, or the furniture on the floor, while the camera turns, and says "Lost the wall. Turn back, or click the wall to place it again." (or the floor's line) while the item hides.
+- `room-art-loop` is Clicky's loop around the wall or floor spot while it is measured, and around the learner's torso while a shirt is prepared: the cursor loop's line and spark in the theme's accent, following the room or the body, and leaving with a 0.35 s fade when the item shows or the measurement fails.
+- `room-art-kinds` are the lines for what the page cannot try: "That doesn't look like wall art, furniture, or a shirt." for a lamp, "I can try on shirts, sweaters, and jackets so far." for a dress, "I can only try on a shirt from a flat photo of it, and this photo shows it on a model." for a model photo, and "I couldn't find the size on that page." for wall art or furniture with no size.
 - `room-art-picture` is the picture room art hangs and sends to `/try-it-item`: the image file the page names (downloaded over https, at most 8 MB, scaled to a long side of 1280), so a cookie banner or any other element over the photo never hangs with the art, and a screen capture of the picture only when there is no file to use.
 - `room-art-checks` are the lines before the camera opens: no app secret, a page that is not https, and page text that could not be read.
 
@@ -37,7 +44,9 @@ Preconditions:
 - **`/room-wall`.** Build a body from a frame of a room video with the anchor at its center, then post it.
   Run `RUN="$(readlink .verify-clicky/current)" && ffmpeg -loglevel error -y -ss 1 -i <video of a room> -frames:v 1 "$RUN/wall.jpg" && python3 -I -c "import base64,json,subprocess,sys;size=dict(line.split(': ') for line in subprocess.check_output(['sips','-g','pixelWidth','-g','pixelHeight',sys.argv[1]],text=True).split(chr(10))[1:3]);print(json.dumps({'jpegBase64':base64.b64encode(open(sys.argv[1],'rb').read()).decode(),'anchor':{'u':int(size['  pixelWidth'])//2,'v':int(size['  pixelHeight'])//3}}))" "$RUN/wall.jpg" > "$RUN/room-wall-body.json"`, then `$V post /room-wall "$RUN/room-wall-body.json"`.
   It answers 200 with `distanceMeters` near the real distance in about 14 s.
-  With the depth service stopped it answers 502, and the app says "Is the depth service running?".
+  With the depth service stopped it answers 502, and the app says "I couldn't measure your room. Is the depth service running?".
+- **`/room-floor`.** The same body from a frame that shows the floor, with the anchor on the floor in the lower part of the frame (`'v':int(size['  pixelHeight'])*3//4`), posted with `$V post /room-floor "$RUN/room-floor-body.json"`.
+  It answers 200 with `floorTiltDegrees` under 25 and `distanceMeters` near the real distance, or 422 when no floor shows there.
 - **Panel with a recorded camera.** Run `$V app-launch --room-camera-file <video of a room> "how would this look in my room"`.
   The log shows `Room art:` lines for the page read and the wall, then `Room art: N fps, track N ms, segment N ms` every 5 s.
   Run `$V shot room-art-loop` in the first seconds, while the wall is measured: Clicky's loop outlines a bare patch of wall in the theme's accent, with the white spark on it, and it is gone about a second after the art shows.
@@ -52,9 +61,22 @@ Preconditions:
 - **Loop following the wall.** Launch with a video that turns, and take two shots a second apart while the wall is still measured, about 14 s with Depth Pro.
   Run `$V app-launch --room-camera-file <video that turns> "how would this look in my room"`, then `$V shot room-art-loop-1; sleep 1; $V shot room-art-loop-2`.
   The loop moves with the wall between the two shots, not with the frame.
-- **A chair or a shirt.** With a store page for a chair in Chrome's front tab, run `$V app-launch --room-camera-file <video of a room> "how would this chair look in my room"`.
-  The panel opens, the measurement runs, then Clicky says "I can hang wall art so far. Furniture and clothes are coming next.", the status line says "Only wall art so far. Furniture and clothes are coming next", and the cursor shakes once.
-  With a page for a lamp, Clicky says "That doesn't look like something that hangs on a wall." instead.
+- **Furniture on the floor.** Make a camera video from a room photo that shows the floor, such as a slow 10 s zoom with `ffmpeg -loop 1 -i room.jpg -vf "scale=1600:-2,zoompan=z='1+0.0008*on':d=300:s=1280x720:fps=30" -t 10 room-floor.mp4`, open a furniture page that states its size (IKEA's LACK side table or a POÄNG chair), and run `$V app-launch --room-camera-file room-floor.mp4 "how would this table look in my room"`.
+  The log shows `Room art: "<title>" at <size>`, then `Room art: floor N m away, tilted N degrees`, and no wall line.
+  Run `$V shot room-art-floor-loop` while the floor is measured: the loop outlines a wide, low patch of open floor. For furniture, the log line `moved the piece to where all of it shows` comes as the loop glides to the middle of the piece's footprint, so it fades out where the piece appears.
+  Run `$V shot room-art-floor` once "Here it is, <width> inches wide and <height> tall." plays: the whole piece stands on the floor, at least 4 percent inside every edge of the frame, near the lower middle, with its base on the floor and a soft shadow under it, and the log says `Room furniture: moved the piece to where all of it shows`.
+  A piece too big for any spot stands where most of it shows, and Clicky says "Step back so I can show the whole piece." after "Here it is".
+- **The store's model and the composite.** With the same video, open IKEA's LACK side table (https://www.ikea.com/us/en/p/lack-side-table-white-30449908/), Target's Threshold chair (https://www.target.com/p/-/A-87737798), or Article's Sven sofa, and run the same `app-launch`.
+  The log shows `Room art: opened N collapsed sections of the page before reading it` on IKEA, `Room furniture: the page names N model files, ...`, `found the store's own model at <host>`, `rendered in N ms`, and `showing the storeModel from <host>` within about a second of "Here it is".
+  Run `$V shot room-art-furniture-model` then: the store's model stands on the floor at the spot, lit like the room, with a soft shadow under it and its feet on the floor.
+  About 20 s later the log says `showing the painted composite`, or `painting 1 is shorter than the box's front, taller than its outline, or cut off, so it is not shown`, a second painting, and `no painting stood at the measured size, so the look before it stays` when that one is refused too, and `$V shot room-art-furniture-composite` shows the result.
+  On a page with no model the log says `no generated model` without a fal key, then the composite replaces the cutout.
+  The gated room check renders a model on a recorded frame with no app at all: `ROOM_FURNITURE_FRAME=<frame> ROOM_FURNITURE_FLOOR_REPLY=<the /floor reply for it> ROOM_FURNITURE_MODEL=<glb> ROOM_FURNITURE_SIZE_CM=55x45x55 ROOM_FURNITURE_OUT=<folder> tools/swift-check.sh --filter RoomFurnitureRoomCheck`, which writes `<model>-composite.png` and `<model>-metrics.json`, and with `ROOM_FURNITURE_WORKER`, `ROOM_FURNITURE_APP_SECRET`, and `ROOM_FURNITURE_PRODUCT_JPEG` (the furniture's cutout over white) also `<model>-render-and-painting.png` (about $0.045).
+- **A shirt on the learner.** Make a camera video from a photo of a person standing with their shoulders and chest in view (a slow zoom as above), open a flat lay shirt page (a Uniqlo UT page, whose main photo shows the shirt laid flat), and run `$V app-launch --room-camera-file standing.mp4 "could I see this shirt on me"`.
+  The log shows `Room art: "<title>" is a tshirt laid flat`, and no wall or floor line.
+  Run `$V shot room-art-shirt` once "Here it is on you." plays: the shirt covers the learner's own from the shoulders to the hips, the print on the chest, with no white fringe or blocky patches at its edge.
+  With a page whose photo shows the shirt on a model, Clicky says "I can only try on a shirt from a flat photo of it, and this photo shows it on a model." and the cursor shakes once.
+  With a page for a lamp, Clicky says "That doesn't look like wall art, furniture, or a shirt." instead.
 - **Checks before the camera.** Run `$V app-launch --no-app-secret "how would this look in my room"`: Clicky says "Clicky needs its app secret for this. See the README's Worker setup." and no panel opens.
   With an `http://` page in Chrome's front tab, it says "I can only read store pages served over https.".
 - **Worker not reachable.** `app-launch` refuses to start without the Worker it started, so this failure is driven by the unit test, not the app.
@@ -63,6 +85,8 @@ Preconditions:
 
 ## Gotchas
 
-- Depth Pro takes about 14 s warm and about 100 s for its first load, so start the service before the run.
+- Depth Pro takes about 14 s warm and about 100 s for its first load, so start the service before the run. A shirt makes no depth call, so it needs no service.
+- A Debug build draws the shirt at a few frames a second, since its frame analysis runs unoptimized; judge the shirt's look, not its frame rate, in a Debug build.
 - A second Depth Pro process on the same GPU slows both. Stop any other one first.
+- The depth service keeps the last two depth maps, so furniture's wall request on the floor's keyframe answers in under a second with `depthWasCached` true. A restart empties it.
 - The depth service refuses a request with an `Origin` header (403) or without `content-type: application/json` (415). `$V post` goes through the Worker, which sends neither an Origin header nor a non-JSON body, but a hand-written `curl` to port 8801 needs `-H 'content-type: application/json'`.

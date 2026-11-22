@@ -382,7 +382,7 @@
     },
     {
       "name": "make_study_guide",
-      "description": "Write a Notion study guide for the YouTube video in Chrome's front tab. It runs in the background for up to a minute while the video keeps playing, and a chip under the cursor shows when the page is ready, with nothing spoken. Use it when the learner asks for a study guide, notes, or a summary page in Notion. Put an extra wish, such as only the part about the engine, in focus. Your confirmation is a few plain words that it has started, such as \"writing it now\", never that it is done.",
+      "description": "Write a Notion study guide for the YouTube video in Chrome's front tab. It runs in the background for up to a minute while the video keeps playing, and a chip above the cursor shows when the page is ready, with nothing spoken. Use it when the learner asks for a study guide, notes, or a summary page in Notion. Put an extra wish, such as only the part about the engine, in focus. Your confirmation is a few plain words that it has started, such as \"writing it now\", never that it is done.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -599,7 +599,7 @@
     },
     {
       "name": "show_art_in_my_room",
-      "description": "Try the item on Chrome's front tab in the learner's room, in their live camera view. Wall art hangs on their wall at its real size from the page. Furniture and clothes are read too, but not placed yet, and the app says so. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room', also when the item is a chair or a shirt.",
+      "description": "Try the item on Chrome's front tab in the learner's live camera view. Wall art hangs on their wall and furniture stands on their floor, each at its real size from the page, and a shirt is drawn over the shirt they wear. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room', 'how would this chair look in my room', 'could I see this shirt on me', 'how would this look on me', and 'can I try this on'.",
       "inputSchema": {
         "type": "object",
         "properties": {},

@@ -61,14 +61,16 @@ enum PageImageAnimation {
         )
     }
 
-    /// The bytes of the file at an https URL, the one download every page image use shares (the animation's frames and
-    /// room art's picture). Https only for the first request and every redirect, no cookies or credentials (the session),
-    /// at most `largestDownloadByteCount` bytes, and a 200 reply, since a refused redirect leaves the 3xx reply behind.
+    /// The bytes of the file at an https URL, the one download every page file use shares (the animation's frames, room
+    /// art's picture, and a store's 3D model). Https only for the first request and every redirect, no cookies or credentials
+    /// (the session), at most `largestByteCount` bytes (`largestDownloadByteCount` unless the caller needs a bigger file,
+    /// such as a model), and a 200 reply, since a refused redirect leaves the 3xx reply behind.
     /// Nil for anything else. The session is a parameter so a test can stub the network.
     @concurrent nonisolated static func downloadedImageData(
         atImageURL imageURL: URL,
         timeoutSeconds: TimeInterval,
-        session: URLSession = downloadSession
+        session: URLSession = downloadSession,
+        largestByteCount: Int = largestDownloadByteCount
     ) async -> Data? {
         guard mayDownload(imageURL) else { return nil }
         var imageData = Data()
@@ -78,10 +80,10 @@ enum PageImageAnimation {
                 delegate: HTTPSOnlyRedirects()
             )
             guard (response as? HTTPURLResponse)?.statusCode == 200,
-                  response.expectedContentLength <= largestDownloadByteCount else { return nil }
+                  response.expectedContentLength <= largestByteCount else { return nil }
             for try await byte in imageBytes {
                 imageData.append(byte)
-                guard imageData.count <= largestDownloadByteCount else { return nil }
+                guard imageData.count <= largestByteCount else { return nil }
             }
         } catch {
             print("Page image: could not download \(imageURL.host ?? "the page image"): \(error.localizedDescription)")
@@ -270,7 +272,9 @@ enum PageImageAnimation {
     }
 }
 
-/// A redirect may only move to another https URL on a public host (`PageImageAnimation.mayDownload`).
+/// A redirect may only move to another https URL on a public host (`PageImageAnimation.mayDownload`). That is the only limit
+/// on where a redirect goes, so a store model download that passed the page's host filter (`candidatesThePageMayOffer`) may
+/// still end on another public host.
 /// The completion-handler form is used because Swift 6.3 crashes emitting the async form's thunk under main-actor default isolation.
 nonisolated final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(

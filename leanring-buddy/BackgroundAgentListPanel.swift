@@ -55,6 +55,13 @@ enum AgentListWindowMargins {
         )
     }
 
+    /// Whether the window lets a mouse event at `mouseLocation` pass to the app under it. The window server routes a click
+    /// to any pixel with some alpha, and the margin's shadow pixels are faint but not clear, so the window ignores the
+    /// mouse while the pointer is in the margin, and the click reaches the page under the shadow.
+    static func windowPassesTheMouseThrough(at mouseLocation: CGPoint, windowFrame: CGRect) -> Bool {
+        !cardFrame(inWindowFrame: windowFrame).contains(mouseLocation)
+    }
+
     /// The frame that keeps the window's Card inside `visibleFrame` when the window is kept inside it, which is how
     /// `agentListPanelOrigin` clamps a panel.
     static func frameToKeepTheWindowIn(forCardVisibleFrame visibleFrame: CGRect) -> CGRect {
@@ -199,6 +206,21 @@ func agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: Bool) -> Bool {
     !aVideoQuizQuestionIsOpen
 }
 
+/// What a click on a disc does to the agent list.
+enum AgentListStepForADiscClick: Equatable {
+    case openUnderTheDisc
+    case close
+    case stayOpen
+}
+
+/// A click on the disc the list is open from closes it. A menu item that opens the list, such as Review request from the
+/// disc's right-click menu or from its chip in the menu bar panel, only opens it, so a list already open from that disc stays
+/// instead of closing into the disc and opening again.
+func agentListStepForADiscClick(listIsOpenFromThisDisc: Bool, theClickOnlyOpens: Bool) -> AgentListStepForADiscClick {
+    guard listIsOpenFromThisDisc else { return .openUnderTheDisc }
+    return theClickOnlyOpens ? .stayOpen : .close
+}
+
 /// What a row's buttons do besides cancelling a running agent.
 struct AgentListActions {
     let cancelAgent: (UUID) -> Void
@@ -285,9 +307,13 @@ final class AgentListPanelController {
     private let approvalDesk: HarnessApprovalDesk
     private var panel: NonKeyFloatingPanel?
     private var clickOutsideMonitor: Any?
-    /// Sees a click that lands on the window's own shadow margin, which the global monitor never gets, since the window
-    /// server delivers it to this panel.
+    /// Sees a click that lands on the window's own shadow margin in the moment before `clickThroughTimer` lets it pass,
+    /// which the global monitor never gets, since the window server delivers it to this panel.
     private var clickInTheShadowMonitor: Any?
+    /// Reads the mouse 60 times a second while the list is open and lets the mouse pass through the shadow margin
+    /// (`AgentListWindowMargins.windowPassesTheMouseThrough`). A global monitor misses moves over this panel, and the panel
+    /// is never key, so a poll is the one reading that sees the pointer on both sides of the Card's edge.
+    private var clickThroughTimer: Timer?
     /// Where the Card's top-left corner sits, fixed when it opens so a row that expands grows the Card downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
@@ -298,8 +324,13 @@ final class AgentListPanelController {
     /// Where the Card Glides out of and closes back into: the disc it was opened from, or the cursor. Nil when no display
     /// holds it, and the list then crossfades.
     private var glideOrigin: GlideOrigin?
-    /// The open Glide, held so a close before it lands can end it where it is.
-    private var openingFlight: CarrierFlight?
+    /// The open Glide, held so a close before it lands can end it where it is. Readable by tests.
+    private(set) var openingFlight: CarrierFlight?
+    /// Where the real list's approval card sits in its window, top-left origin, or nil while none shows.
+    private var approvalCardFrameInTheWindow: CGRect?
+    /// The center of an agent's disc on a display, which `CompanionManager` reads from the dock, so an ended approval card
+    /// can Glide back into it.
+    var discCenterOfTheAgent: (_ agentID: UUID, _ displayID: CGDirectDisplayID) -> CGPoint? = { _, _ in nil }
 
     private struct GlideOrigin {
         let point: CGPoint
@@ -335,13 +366,20 @@ final class AgentListPanelController {
 
     /// A click on an agent token: open the list under that disc with the agent's row expanded, and "+N" with none.
     /// A click on the disc the list is already open from closes it, and a click on another disc, including the same
-    /// agent's disc on another display, moves it there. The list Glides out of the disc's center.
-    func toggle(from discID: AgentTokenDiscID, discPanelFrame: CGRect, on screen: NSScreen) {
-        let discWasAlreadyOpen = discTheListWasOpenedFrom == discID
-        let listWasOpen = isOpen
-        if listWasOpen && discWasAlreadyOpen {
+    /// agent's disc on another display, moves it there. The list Glides out of the disc's center. A menu item that opens the
+    /// list (`opensOnly`) leaves a list already open from that disc where it is (`agentListStepForADiscClick`).
+    func toggle(from discID: AgentTokenDiscID, discPanelFrame: CGRect, on screen: NSScreen, opensOnly: Bool = false) {
+        switch agentListStepForADiscClick(
+            listIsOpenFromThisDisc: isOpen && discTheListWasOpenedFrom == discID,
+            theClickOnlyOpens: opensOnly
+        ) {
+        case .stayOpen:
+            return
+        case .close:
             closeWithGlide()
             return
+        case .openUnderTheDisc:
+            break
         }
         // Moving to another disc leaves no time for a close, which would play toward the disc it left.
         close()
@@ -396,6 +434,27 @@ final class AgentListPanelController {
         resizePanel(to: initialSize)
         showThePanel(agentListPanel)
         installClickOutsideMonitor()
+        letTheMousePassThroughTheShadow(of: agentListPanel)
+    }
+
+    private func letTheMousePassThroughTheShadow(of agentListPanel: NonKeyFloatingPanel) {
+        let updateWhetherThePanelTakesTheMouse = { [weak agentListPanel] in
+            guard let agentListPanel else { return }
+            let passesTheMouseThrough = AgentListWindowMargins.windowPassesTheMouseThrough(at: NSEvent.mouseLocation, windowFrame: agentListPanel.frame)
+            if agentListPanel.ignoresMouseEvents != passesTheMouseThrough {
+                agentListPanel.ignoresMouseEvents = passesTheMouseThrough
+                if let contentView = agentListPanel.contentView {
+                    refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: passesTheMouseThrough)
+                }
+            }
+        }
+        updateWhetherThePanelTakesTheMouse()
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in
+            MainActor.assumeIsolated { updateWhetherThePanelTakesTheMouse() }
+        }
+        // The common modes keep it running while a menu or a drag tracks the mouse.
+        RunLoop.main.add(timer, forMode: .common)
+        clickThroughTimer = timer
     }
 
     /// Shows the list: it Glides out of its origin on the carrier and the real panel appears at the landing, or, with Reduce
@@ -442,11 +501,16 @@ final class AgentListPanelController {
             approvalDesk: approvalDesk,
             actions: actions,
             uiState: uiState,
-            entrance: entrance
-        ) { [weak self] contentSize in
-            guard reportsItsSize else { return }
-            self?.resizePanel(to: contentSize)
-        }
+            entrance: entrance,
+            onContentSizeChange: { [weak self] contentSize in
+                guard reportsItsSize else { return }
+                self?.resizePanel(to: contentSize)
+            },
+            onApprovalCardFrameChange: { [weak self] approvalCardFrameInTheWindow in
+                guard reportsItsSize else { return }
+                self?.approvalCardFrameInTheWindow = approvalCardFrameInTheWindow
+            }
+        )
     }
 
     /// The list as the carrier carries it: the same view at the window's size, which reports no size back to the panel.
@@ -476,6 +540,41 @@ final class AgentListPanelController {
         )
     }
 
+    /// An ended approval card's time ran out while it was the card on screen: a copy Glides from where it sat into its
+    /// agent's disc on the list's display, closing at 0.7x with the tether, the way the list closes into its origin. The
+    /// real card leaves the list at once. Nothing plays with Reduce Motion on, with the list closed or still opening, or
+    /// when the agent has no disc on that display, such as one in "+N", and the card then just leaves.
+    func glideTheEndedApprovalCardIntoItsDisc(_ endedCard: ShownApprovalCard) {
+        guard let panel, uiState.deskIsListening, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+              let approvalCardFrameInTheWindow, let screen = panel.screen,
+              let discCenter = discCenterOfTheAgent(endedCard.request.taskID, screen.displayID) else { return }
+        let cardScreenFrame = CGRect(
+            x: panel.frame.minX + approvalCardFrameInTheWindow.minX,
+            y: panel.frame.maxY - approvalCardFrameInTheWindow.maxY,
+            width: approvalCardFrameInTheWindow.width,
+            height: approvalCardFrameInTheWindow.height
+        )
+        let requestingAgent = store.agents.first { $0.id == endedCard.request.taskID }
+        print("Approval card: the ended card Glides into its agent's disc")
+        TetherCarrier.shared.play(
+            .glideClose(from: cardScreenFrame, into: discCenter),
+            carrying: ApprovalCardView(
+                shownCard: endedCard,
+                agentName: requestingAgent?.displayName ?? "An agent",
+                learnerWords: requestingAgent?.learnerWords,
+                wholeSummaryShownSince: nil,
+                answerApproval: { _, _, _ in },
+                summaryWasShownWhole: { _ in }
+            )
+            .frame(width: cardScreenFrame.width, height: cardScreenFrame.height)
+            .background(DS.Colors.cardSurfaceTop)
+            .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous)),
+            onDisplay: screen.displayID,
+            tetherColor: NSColor(requestingAgent?.displayColor.color ?? themeSettings.shownTheme.cursorColor),
+            onLanded: {}
+        )
+    }
+
     /// Closes the list at once, with no move. Opening another surface over it, and the app stopping, use this.
     func close() {
         let closingPanel = tearDownTheOpenList()
@@ -486,11 +585,20 @@ final class AgentListPanelController {
 
     /// Closes the list back into its origin: the Card shrinks into the disc or cursor it opened from at 0.7x of the Glide,
     /// with the tether line, or, with Reduce Motion on, crossfades out in place.
-    func closeWithGlide() {
+    /// Returns the close's flight, or nil when none plays. A list closed during its glide-in never showed, so its glide-in
+    /// copy goes at once with the teardown and no close plays from the whole Card.
+    @discardableResult
+    func closeWithGlide() -> CarrierFlight? {
         let origin = glideOrigin
         let closingFrame = panel?.frame
         let closingUIState = uiState
-        guard let closingPanel = tearDownTheOpenList(), let closingFrame else { return }
+        let theGlideInWasStillPlaying = openingFlight != nil
+        guard let closingPanel = tearDownTheOpenList(), let closingFrame else { return nil }
+        guard !theGlideInWasStillPlaying else {
+            closingPanel.orderOut(nil)
+            closingPanel.contentView = nil
+            return nil
+        }
         let reduceMotionIsOn = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         guard let origin, !reduceMotionIsOn else {
             NSAnimationContext.runAnimationGroup({ animationContext in
@@ -500,12 +608,12 @@ final class AgentListPanelController {
                 closingPanel.orderOut(nil)
                 closingPanel.contentView = nil
             })
-            return
+            return nil
         }
         // The carrier draws the Card for the move, so the real panel goes at once.
         closingPanel.orderOut(nil)
         closingPanel.contentView = nil
-        TetherCarrier.shared.play(
+        return TetherCarrier.shared.play(
             .glideClose(from: closingFrame, into: origin.point),
             carrying: AgentListView(
                 store: store,
@@ -537,16 +645,19 @@ final class AgentListPanelController {
             NSEvent.removeMonitor(clickInTheShadowMonitor)
             self.clickInTheShadowMonitor = nil
         }
+        clickThroughTimer?.invalidate()
+        clickThroughTimer = nil
         if let resizeObserver {
             NotificationCenter.default.removeObserver(resizeObserver)
             self.resizeObserver = nil
         }
-        // A Glide still playing ends where it is, so its tether and copy of the list never outlast the list.
+        // A Glide still playing ends where it is, so its tether and copy of the list never outlast the list. The copy goes at
+        // once with it, since the real list will not show, so a close during the glide-in never shows the whole list.
         let flightToEnd = openingFlight
         openingFlight = nil
         let closingPanel = panel
         panel = nil
-        flightToEnd?.landAtOnce()
+        flightToEnd?.landAtOnce(hidingTheCarriedView: true)
         return closingPanel
     }
 
@@ -632,14 +743,20 @@ final class HoverAndPointerNSView: NSView {
     /// no mouse to read.
     var mouseLocationInTheWindow: (NSWindow) -> CGPoint = { $0.mouseLocationOutsideOfEventStream }
 
-    private func reportTheHoverWhereTheMouseAlreadyIs() {
+    /// Also run by the agent list when its window starts passing the mouse through, so a hover the margin cut off does not
+    /// stay behind (`refreshTheRowHovers`).
+    func reportTheHoverWhereTheMouseAlreadyIs() {
         guard let window, window.isVisible else { return }
         reportTheHover(atMouseLocationInTheView: convert(mouseLocationInTheWindow(window), from: nil))
     }
 
     /// Reports a hover from where the mouse is, in this view's coordinates, with no mouse event needed.
+    ///
+    /// A view that does not clip to its bounds, as SwiftUI's hosted views do not, has a visible rect that reaches past its
+    /// own bounds, as far as the window when nothing above it clips. So the check is the visible part of the bounds, or a
+    /// re-layout under a still pointer, such as the theme grid after a delete, would mark every card that moved as hovered.
     func reportTheHover(atMouseLocationInTheView mouseLocationInTheView: CGPoint) {
-        reportTheHover(visibleRect.contains(mouseLocationInTheView))
+        reportTheHover(visibleRect.intersection(bounds).contains(mouseLocationInTheView))
         if reportedHover { NSCursor.pointingHand.set() }
     }
 
@@ -664,6 +781,27 @@ final class HoverAndPointerNSView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// A row's tracking area misses every move while the agent list's window ignores the mouse. When the window takes the mouse
+/// again, each row adds its area again, so AppKit reads its inside state from where the pointer is now, a later exit still
+/// arrives, and the row reports its hover there. When the window starts passing the mouse through, each row reports again,
+/// so no hover stays behind in the margin.
+func refreshTheRowHovers(in contentView: NSView, windowPassesTheMouseThrough: Bool) {
+    for hoverView in hoverAndPointerViews(in: contentView) {
+        if windowPassesTheMouseThrough {
+            hoverView.reportTheHoverWhereTheMouseAlreadyIs()
+        } else {
+            hoverView.updateTrackingAreas()
+        }
+    }
+}
+
+/// Every hover view inside a view, at any depth.
+func hoverAndPointerViews(in view: NSView) -> [HoverAndPointerNSView] {
+    view.subviews.flatMap { subview -> [HoverAndPointerNSView] in
+        (subview as? HoverAndPointerNSView).map { [$0] } ?? hoverAndPointerViews(in: subview)
+    }
 }
 
 private struct HoverAndPointerView: NSViewRepresentable {
@@ -782,6 +920,9 @@ private struct AgentListView: View {
     @ObservedObject var approvalDesk: HarnessApprovalDesk
     @ObservedObject var uiState: AgentListUIState
     let onContentSizeChange: (CGSize) -> Void
+    /// Where the approval card sits in the window, top-left origin, which only the real list reports, so an ended card can
+    /// Glide from there into its agent's disc. Nil while no card shows.
+    let onApprovalCardFrameChange: (CGRect?) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// False until the rows have risen, for the copy of the list that plays on the carrier.
@@ -798,7 +939,8 @@ private struct AgentListView: View {
         actions: AgentListActions,
         uiState: AgentListUIState,
         entrance: AgentListEntrance,
-        onContentSizeChange: @escaping (CGSize) -> Void
+        onContentSizeChange: @escaping (CGSize) -> Void,
+        onApprovalCardFrameChange: @escaping (CGRect?) -> Void = { _ in }
     ) {
         self.store = store
         self.themeSettings = themeSettings
@@ -806,6 +948,7 @@ private struct AgentListView: View {
         self.actions = actions
         self.uiState = uiState
         self.onContentSizeChange = onContentSizeChange
+        self.onApprovalCardFrameChange = onApprovalCardFrameChange
         _rowsHaveRisen = State(initialValue: entrance == .none)
     }
 
@@ -880,6 +1023,8 @@ private struct AgentListView: View {
                 )
                 // A new request gets a new card, so its summary is measured from the top.
                 .id(shownCard.request.approvalID)
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { onApprovalCardFrameChange($0) }
+                .onDisappear { onApprovalCardFrameChange(nil) }
 
                 Rectangle()
                     .fill(DS.Colors.borderSubtle)
@@ -903,6 +1048,7 @@ private struct AgentListView: View {
                                 resultsMayBeDeliveredNow: agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: store.aVideoQuizQuestionIsOpen),
                                 isExpanded: uiState.expandedAgentID == agent.id,
                                 approvalState: approvalState,
+                                approvalSettledMark: store.approvalSettledMarksByAgentID[agent.id],
                                 onToggle: {
                                     withAnimation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)) {
                                         uiState.expandedAgentID = uiState.expandedAgentID == agent.id ? nil : agent.id
@@ -958,6 +1104,8 @@ private struct AgentRowView: View {
     let resultsMayBeDeliveredNow: Bool
     let isExpanded: Bool
     let approvalState: AgentListApprovalState
+    /// What the disc's "!" turned into after the agent's request was settled, for a moment.
+    let approvalSettledMark: AgentTokenApprovalSettledMark?
     let onToggle: () -> Void
     let actions: AgentListActions
 
@@ -1045,7 +1193,7 @@ private struct AgentRowView: View {
     /// not scaled, since the disc's orbiting dot and approval pulse are Core Animation layers pinned to the disc's size, which
     /// a SwiftUI scale does not reach.
     private var rowDisc: some View {
-        AgentTokenDiscView(agent: agent, isWaitingForApproval: approvalState != .none)
+        AgentTokenDiscView(agent: agent, isWaitingForApproval: approvalState != .none, approvalSettledMark: approvalSettledMark)
             .frame(width: Self.discSlotDiameter, height: Self.discSlotDiameter)
     }
 

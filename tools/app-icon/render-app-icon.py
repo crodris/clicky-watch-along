@@ -77,28 +77,47 @@ ARC_LAYER = """\
 RING_LAYER = """\
 <circle cx="668" cy="430" r="150" fill="none" stroke="#9cc0ff" stroke-width="14" opacity=".75"/>"""
 
-CURSOR_LAYER = """\
+# The cursor is the app's own triangle (`Triangle` in CursorGlyph.swift): equilateral, centered on its centroid, and
+# turned to the app's pointer angle, its tip up and to the left. The app draws its tip straight up and turns it 35 degrees
+# to the left. Here the tip lies along +x, so the same direction is a turn of -125 degrees (90 + 35, to the left).
+CURSOR_ROTATION_DEGREES = -125
+
+
+def equilateral_triangle_path(side: float) -> str:
+    """An equilateral triangle with its centroid at the origin and its tip along +x."""
+    height = side * math.sqrt(3) / 2
+    tip_x = 2 * height / 3
+    base_x = -height / 3
+    return f"M{tip_x:.1f} 0 L {base_x:.1f} {side / 2:.1f} L {base_x:.1f} {-side / 2:.1f} Z"
+
+
+CURSOR_PATH = equilateral_triangle_path(260)
+# The light edge runs from the tip along the side that faces up once the cursor is turned, as the app's light top edge does.
+CURSOR_TIP_EDGE = CURSOR_PATH.split(" L ")[0] + " L " + CURSOR_PATH.split(" L ")[1]
+
+CURSOR_LAYER = f"""\
 <defs>
-  <linearGradient id="cursor-gradient" x1="0" y1="0" x2="1" y2="1">
+  <linearGradient id="cursor-gradient" x1="1" y1=".5" x2="0" y2=".5">
     <stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#cfe0ff"/>
   </linearGradient>
 </defs>
-<g transform="translate(650 420) rotate(-35)">
-  <path d="M-95 -120 L 150 0 L -95 120 Z" fill="url(#cursor-gradient)"/>
-  <path d="M-95 -120 L 150 0" stroke="#fff" stroke-width="10" opacity=".9"/>
+<g transform="translate(650 420) rotate({CURSOR_ROTATION_DEGREES})">
+  <path d="{CURSOR_PATH}" fill="url(#cursor-gradient)"/>
+  <path d="{CURSOR_TIP_EDGE}" stroke="#fff" stroke-width="10" opacity=".9"/>
 </g>"""
 
 # The cursor's own shadow stays out of the layers: Icon Composer adds its own shadow, and in its
 # tinted and clear modes a drawn one would show as a second triangle. It is drawn into the PNGs only.
-CURSOR_SHADOW = """\
-<g transform="translate(650 420) rotate(-35)">
-  <path d="M-95 -120 L 150 0 L -95 120 Z" fill="#0a1a4a" opacity=".35" transform="translate(10 22)"/>
+# Its offset sits outside the turn, so the shadow falls down and to the right whatever way the cursor points.
+CURSOR_SHADOW = f"""\
+<g transform="translate(662 442) rotate({CURSOR_ROTATION_DEGREES})">
+  <path d="{CURSOR_PATH}" fill="#0a1a4a" opacity=".35"/>
 </g>"""
 
 # At 64 pixels and below the arc and ring turn to mush, so only a large white cursor stays.
-SIMPLE_CURSOR_LAYER = """\
-<g transform="translate(560 512) rotate(-35)">
-  <path d="M-170 -210 L 250 0 L -170 210 Z" fill="#fff"/>
+SIMPLE_CURSOR_LAYER = f"""\
+<g transform="translate(512 512) rotate({CURSOR_ROTATION_DEGREES})">
+  <path d="{equilateral_triangle_path(440)}" fill="#fff"/>
 </g>"""
 
 SHADOW_FILTER = f"""\

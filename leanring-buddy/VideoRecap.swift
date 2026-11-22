@@ -105,26 +105,11 @@ nonisolated struct FrontVideoEndReading: Equatable, Sendable {
         pageURL = String(parts[1])
     }
 
-    /// The page's largest video, so a preview or a second player is never the one read. The script holds no double quote or
-    /// backslash, since it sits inside an AppleScript string.
+    /// The page's largest video, so a preview or a second player is never the one read.
     static let pageScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (!video) { return 'no-video'; } return (video.ended ? '1' : '0') + '|' + location.href; })()"
 }
 
-/// The AppleScript that runs `javaScript` in the active tab of Chrome's front window, in one Apple Event, and answers an
-/// empty text when Chrome has no window. The watch asks every few seconds, so it never looks the tab up first.
-nonisolated func appleScriptToRunJavaScriptInTheFrontTab(_ javaScript: String, timeoutSeconds: Int) -> String {
-    """
-    tell application "Google Chrome"
-        if (count of windows) is 0 then return ""
-        with timeout of \(timeoutSeconds) seconds
-            execute (active tab of front window) javascript "\(javaScript)"
-        end timeout
-    end tell
-    """
-}
-
-/// How often the watch reads the front tab. A video ends once, so a few seconds late is fine, and each read blocks the main
-/// actor for a moment.
+/// How often the watch reads the front tab. A video ends once, so a few seconds late is fine.
 let videoEndWatchSecondsBetweenReads: TimeInterval = 3
 
 /// What the watch remembers between reads.
@@ -168,6 +153,67 @@ let videoEndWatchSecondsToWaitAfterAFailedRead: TimeInterval = 30
 /// or started a scene during the half second the discs flew, or Clicky may be busy with something the Card would cover.
 nonisolated func videoRecapCardMayShowAfterTheGather(gatherWasCancelled: Bool, clickyIsBusy: Bool) -> Bool {
     !gatherWasCancelled && !clickyIsBusy
+}
+
+/// What keeps the end-of-video recap Card back: anything Clicky is doing or showing that the Card would cover or interrupt.
+/// Each fact is named, so a test can turn each one on alone and see the Card wait.
+struct VideoRecapBusyFacts: Equatable {
+    var aSceneIsUp = false
+    /// Listening, thinking, or speaking.
+    var clickyIsNotIdle = false
+    var speechIsPlaying = false
+    var aQuizQuestionIsOpen = false
+    var aQuizIsRunning = false
+    var aCardIsShowing = false
+    var theThemeStudioIsOpen = false
+    var theSettingsDialIsOpen = false
+    var theAgentListIsOpen = false
+    /// The menu bar panel holds the keyboard, and the Card would unfold over the learner's reading or typing.
+    var theMenuBarPanelIsOpen = false
+    var theRoomArtPanelIsOpen = false
+    var anAddThemeCardIsOpen = false
+    var anApprovalWaits = false
+
+    var clickyIsBusy: Bool {
+        aSceneIsUp || clickyIsNotIdle || speechIsPlaying || aQuizQuestionIsOpen || aQuizIsRunning || aCardIsShowing
+            || theThemeStudioIsOpen || theSettingsDialIsOpen || theAgentListIsOpen || theMenuBarPanelIsOpen
+            || theRoomArtPanelIsOpen || anAddThemeCardIsOpen || anApprovalWaits
+    }
+}
+
+/// The discs a recap's gather hid, so they go back to the same places, and the display they were on. The dock asks it before
+/// it shows a disc for any other reason, such as a "go ahead" flight that lands or the paused disc fading in after "hold on",
+/// since a recap that starts within half a second of either would otherwise leave that disc showing beside the Card.
+struct AgentTokenRecapGather: Equatable {
+    struct GatheredDisc: Equatable {
+        let discID: AgentTokenDiscID
+        let overflowCount: Int
+        /// The disc's center when it was gathered, where it goes back to when it has left its place since.
+        let center: CGPoint
+    }
+
+    private(set) var gatheredDiscs: [GatheredDisc] = []
+    private(set) var gatheredDisplayID: CGDirectDisplayID?
+
+    mutating func gathered(_ discs: [GatheredDisc], onDisplay displayID: CGDirectDisplayID) {
+        gatheredDiscs = discs
+        gatheredDisplayID = discs.isEmpty ? nil : displayID
+    }
+
+    /// Whether the gather hides this disc, so nothing else may show it until the recap ends.
+    func hides(_ discID: AgentTokenDiscID) -> Bool {
+        gatheredDiscs.contains { $0.discID == discID }
+    }
+
+    /// Ends the gather and returns the discs to show again, once: a second call returns none. The dock ends it before any of
+    /// the gather's flights lands, since a landing runs the recap's `onGathered`, and the send back that a cancelled gather
+    /// then asks for must find nothing left to fly.
+    mutating func end() -> (discs: [GatheredDisc], displayID: CGDirectDisplayID?) {
+        let ended = (discs: gatheredDiscs, displayID: gatheredDisplayID)
+        gatheredDiscs = []
+        gatheredDisplayID = nil
+        return ended
+    }
 }
 
 /// Whether the discs a recap gathered must show again while its Card is open. They must when an agent waits for the learner's

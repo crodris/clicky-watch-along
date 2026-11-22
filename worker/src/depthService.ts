@@ -1,0 +1,131 @@
+/**
+ * What /room-wall and /room-floor share: the request both send to the local depth service (tools/depth-service), the
+ * forwarding with its timeout and error mapping, and the reply fields every plane has. Each route supplies its service
+ * path, its own reply schema, and its own plausibility checks.
+ *
+ * A plane the service could not measure (its 422) and one that fails a plausibility check answer 422, which the app reads
+ * as "point the camera at a bare wall" or "at bare floor". A service that is down, slow, failing, or answering garbage
+ * answers 502. The Worker holds the service's address, so the app never learns where it runs.
+ */
+
+import { z, type ZodType } from "zod";
+import { jsonResponse, parseJSONRequest } from "./anthropic";
+
+const maximumJPEGBase64Length = 4_000_000;
+const maximumMaskBase64Length = 1_000_000;
+const depthServiceTimeoutMilliseconds = 60_000;
+const maximumServiceErrorLength = 300;
+
+/** A photo of the learner's room, an optional mask of the people in it, and the pixel the art or furniture goes on. */
+export const depthServiceRequestSchema = z.object({
+  jpegBase64: z.string().min(1).max(maximumJPEGBase64Length),
+  maskPngBase64: z.string().min(1).max(maximumMaskBase64Length).optional(),
+  anchor: z.object({ u: z.number().finite(), v: z.number().finite() }),
+});
+
+const vector3Schema = z.tuple([z.number(), z.number(), z.number()]);
+
+/** The fields the service reports for every plane, wall or floor. A route's reply schema extends this one. */
+export const planeReplyShape = {
+  center: vector3Schema,
+  right: vector3Schema,
+  up: vector3Schema,
+  focalPx: z.number().positive(),
+  principal: z.tuple([z.number(), z.number()]),
+  distanceMeters: z.number().positive(),
+  planeInlierShare: z.number().min(0).max(1),
+  inferenceSeconds: z.number(),
+  seconds: z.number(),
+};
+
+/** The service's error as one line: its JSON `error` field when it has one, else its text, with whitespace collapsed. */
+function serviceErrorOnOneLine(errorBodyText: string): string {
+  let errorText = errorBodyText;
+  try {
+    const errorJSON: unknown = JSON.parse(errorBodyText);
+    if (typeof errorJSON === "object" && errorJSON !== null && "error" in errorJSON && typeof errorJSON.error === "string") {
+      errorText = errorJSON.error;
+    }
+  } catch {
+    // Not JSON, so the text itself is the error.
+  }
+  const oneLine = errorText.replace(/\s+/g, " ").trim().slice(0, maximumServiceErrorLength);
+  return oneLine.length > 0 ? oneLine : "no error text";
+}
+
+export interface DepthServiceRoute<Reply> {
+  /** The Worker route's name, such as "/room-wall", which prefixes every log line. */
+  routeName: string;
+  /** The service's path for this measurement, such as "/wall". */
+  servicePath: string;
+  /** Passthrough, so the app reads the service's reply as it was sent, extra fields included. */
+  replySchema: ZodType<Reply>;
+  /** Why a measured plane cannot be real, or undefined when it can. */
+  implausibility: (reply: Reply) => string | undefined;
+  /** The one line logged for a plane that passed every check. */
+  successLogLine: (reply: Reply, totalSeconds: number) => string;
+}
+
+export async function forwardToDepthService<Reply>(
+  request: Request,
+  depthServiceURL: string | undefined,
+  route: DepthServiceRoute<Reply>,
+): Promise<Response> {
+  const { routeName } = route;
+  const parsedRequest = await parseJSONRequest(request, depthServiceRequestSchema);
+  if (!parsedRequest.ok) {
+    return parsedRequest.response;
+  }
+  if (depthServiceURL === undefined || depthServiceURL === "") {
+    return jsonResponse({ error: "The depth service isn't configured" }, 503);
+  }
+
+  const startedAtMilliseconds = Date.now();
+  let serviceResponse: Response;
+  try {
+    serviceResponse = await fetch(`${depthServiceURL.replace(/\/+$/, "")}${route.servicePath}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(parsedRequest.requestBody),
+      signal: AbortSignal.timeout(depthServiceTimeoutMilliseconds),
+    });
+  } catch (error) {
+    console.error(`[${routeName}] The depth service request failed:`, error);
+    return jsonResponse({ error: "The depth service could not be reached" }, 502);
+  }
+
+  const serviceReplyText = await serviceResponse.text();
+  if (!serviceResponse.ok) {
+    const serviceError = serviceErrorOnOneLine(serviceReplyText);
+    console.error(`[${routeName}] The depth service answered ${serviceResponse.status}: ${serviceError}`);
+    // A 422 is the service measuring the photo and finding no plane to use, so the app asks for a bare wall or floor.
+    // Every other status means the service itself failed, and the app asks whether it runs.
+    if (serviceResponse.status === 422) {
+      return jsonResponse({ error: serviceError }, 422);
+    }
+    return jsonResponse({ error: `The depth service answered ${serviceResponse.status}: ${serviceError}` }, 502);
+  }
+
+  let serviceReplyJSON: unknown;
+  try {
+    serviceReplyJSON = JSON.parse(serviceReplyText);
+  } catch {
+    return jsonResponse({ error: "The depth service's reply was not JSON" }, 502);
+  }
+  const parsedReply = route.replySchema.safeParse(serviceReplyJSON);
+  if (!parsedReply.success) {
+    const problem = parsedReply.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
+    console.error(`[${routeName}] The depth service's reply failed validation: ${problem}`);
+    return jsonResponse({ error: `The depth service's reply was not what the Worker expects: ${problem}` }, 502);
+  }
+
+  const reply = parsedReply.data;
+  const implausibility = route.implausibility(reply);
+  if (implausibility !== undefined) {
+    console.error(`[${routeName}] The measured plane is not plausible: ${implausibility}`);
+    return jsonResponse({ error: implausibility }, 422);
+  }
+  const totalSeconds = (Date.now() - startedAtMilliseconds) / 1000;
+  console.log(route.successLogLine(reply, totalSeconds));
+  return jsonResponse(reply, 200);
+}

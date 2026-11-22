@@ -124,6 +124,29 @@ struct PanelRenderTests {
         #expect(bitmap.size.height > CGFloat(rowCount * 120))
     }
 
+    @Test func aLongNamesFullNamePillWrapsInsideItsCard() throws {
+        // The width a card in the panel's grid gives its pill: the card's width less the pill's 4 point inset on each side.
+        let cardWidth = (CompanionPanelView.contentWidth - 32 - CGFloat(ThemeCardGrid.columnCount - 1) * ThemeCardGrid.spacing) / CGFloat(ThemeCardGrid.columnCount)
+        let pillWidth = cardWidth - 8
+        // The widest name a theme can have: 24 characters, each a wide letter.
+        let widestName = String(repeating: "W", count: 24)
+        let widestPillSize = NSHostingController(rootView: ThemeCardFullNamePill(name: widestName)).sizeThatFits(in: CGSize(width: pillWidth, height: 1_000))
+        #expect(widestPillSize.width <= pillWidth)
+        #expect(widestPillSize.height > ThemeCardFullNamePill.oneLineHeight)
+        // A short name keeps the one-line pill.
+        let shortPillSize = NSHostingController(rootView: ThemeCardFullNamePill(name: "Ember")).sizeThatFits(in: CGSize(width: pillWidth, height: 1_000))
+        #expect(abs(shortPillSize.height - ThemeCardFullNamePill.oneLineHeight) < 1)
+        _ = try render(
+            VStack(spacing: 12) {
+                ThemeCardFullNamePill(name: widestName)
+                ThemeCardFullNamePill(name: "Moonlit Harbor at Night")
+                ThemeCardFullNamePill(name: "Ember")
+            }
+            .frame(width: pillWidth),
+            named: "theme-card-full-name-pills"
+        )
+    }
+
     @Test func aTallPageScrollsUnderTheHeaderInsteadOfGrowingTheCard() throws {
         let companionManager = CompanionManager()
         let presentation = PanelPresentation()
@@ -181,11 +204,95 @@ struct PanelRenderTests {
         #expect(reportedHovers == [true, false])
     }
 
+    @Test func onlyTheViewUnderAStillPointerReportsAHoverAfterARelayout() {
+        // Three cards in a row, as the theme grid lays them out. Each view keeps AppKit's default of not clipping to its
+        // bounds, as SwiftUI's hosted views do, so its visible rect reaches across the whole window.
+        let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 300, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
+        window.contentView = contentView
+        var reportedHoversByCard: [[Bool]] = [[], [], []]
+        let cardViews = (0..<3).map { cardIndex in
+            let cardView = HoverAndPointerNSView(frame: NSRect(x: CGFloat(cardIndex) * 100, y: 0, width: 100, height: 80))
+            cardView.clipsToBounds = false
+            cardView.mouseLocationInTheWindow = { _ in CGPoint(x: 150, y: 40) }
+            cardView.onHoverChange = { reportedHoversByCard[cardIndex].append($0) }
+            contentView.addSubview(cardView)
+            return cardView
+        }
+        window.orderFrontRegardless()
+        defer { window.close() }
+        // The still pointer sits over the middle card only, so a re-layout marks only that card as hovered.
+        cardViews.forEach { $0.updateTrackingAreas() }
+        #expect(reportedHoversByCard == [[], [true], []])
+        // The middle card is deleted and the last card slides into its place: the hover moves with the pointer's card.
+        cardViews[1].removeFromSuperview()
+        cardViews[2].frame.origin.x = 100
+        cardViews[2].updateTrackingAreas()
+        #expect(reportedHoversByCard == [[], [true], [true]])
+    }
+
+    @Test func theAgentListsFlipsRefreshEachRowsHoverFromWhereThePointerIs() {
+        let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
+        let rowHoverView = HoverAndPointerNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
+        contentView.addSubview(rowHoverView)
+        var mouseLocationInTheWindow = CGPoint(x: 200, y: 200)
+        rowHoverView.mouseLocationInTheWindow = { _ in mouseLocationInTheWindow }
+        var reportedHovers: [Bool] = []
+        rowHoverView.onHoverChange = { reportedHovers.append($0) }
+        window.contentView = contentView
+        window.orderFrontRegardless()
+        defer { window.close() }
+        // The pointer crossed into the row while the window ignored the mouse, so no entry arrived; the flip to taking the
+        // mouse finds it there.
+        mouseLocationInTheWindow = CGPoint(x: 40, y: 20)
+        refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: false)
+        #expect(reportedHovers == [true])
+        // The pointer left the row for the shadow margin, and the flip to passing the mouse through clears the hover.
+        mouseLocationInTheWindow = CGPoint(x: 200, y: 200)
+        refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: true)
+        #expect(reportedHovers == [true, false])
+    }
+
     // MARK: - The approval badge on a light menu bar
+
+    @Test func theSettledMarksAndAPausedChipKeepTheirShapesInsideTheDisc() throws {
+        let startedAt = Date(timeIntervalSinceNow: -30)
+        var agent = BackgroundAgent(
+            id: UUID(), kind: .task, subject: "Booster", studyGuideVideoKey: nil, startedAt: startedAt,
+            currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0)
+        )
+        let allowedDisc = AgentTokenDiscView(agent: agent, approvalSettledMark: .allowed)
+        let notAllowedDisc = AgentTokenDiscView(agent: agent, approvalSettledMark: .notAllowed)
+        agent.pausedAt = Date()
+        let pausedChip = AgentTokenDiscView(agent: agent).grayscale(1)
+        let bitmap = try render(HStack(spacing: 12) { allowedDisc; notAllowedDisc; pausedChip }, named: "disc-settled-marks-and-paused-chip")
+        // Three 22 point discs, 12 points apart, inside the 24 point padding.
+        #expect(bitmap.size.width == 24 * 2 + 3 * AgentTokenMetrics.discDiameter + 2 * 12)
+    }
+
+    @Test func theProblemBadgeKeepsItsDarkRimAndIsRedOnALightAndADarkMenuBar() throws {
+        for (menuBarHex, foreground, fileName) in [("#F2F2F2", NSColor.black, "menu-icon-problem-light-bar"), ("#1E1E1E", NSColor.white, "menu-icon-problem-dark-bar")] {
+            let problemIcon = MenuBarIconArt.image(for: .idle, cursor: .triangle, badge: .problem, foreground: foreground)
+            let iconView = Image(nsImage: problemIcon).frame(width: MenuBarIconArt.size.width, height: MenuBarIconArt.size.height)
+            let bitmap = try render(iconView, named: fileName, background: Color(hex: menuBarHex))
+            let padding: CGFloat = 24
+            let pixelsPerPoint = scale(of: bitmap)
+            let badgeCenterX = Int((padding + MenuBarIconArt.badgeCenter.x) * pixelsPerPoint)
+            let badgeCenterY = Int((padding + MenuBarIconArt.badgeCenter.y) * pixelsPerPoint)
+            let badgePixel = try #require(bitmap.colorAt(x: badgeCenterX, y: badgeCenterY)?.usingColorSpace(.sRGB))
+            #expect(badgePixel.redComponent > 0.8 && badgePixel.greenComponent < 0.45 && badgePixel.blueComponent < 0.45)
+            let rimOffset = Int((MenuBarIconArt.badgeDiameter / 2 + 0.5) * pixelsPerPoint)
+            let rimPixel = try #require(bitmap.colorAt(x: badgeCenterX + rimOffset, y: badgeCenterY)?.usingColorSpace(.sRGB))
+            #expect(luminance(rimPixel) < 0.35)
+        }
+    }
 
     @Test func theApprovalBadgeKeepsItsDarkRimOnALightAndADarkMenuBar() throws {
         for (menuBarHex, foreground, fileName) in [("#F2F2F2", NSColor.black, "menu-icon-badge-light-bar"), ("#1E1E1E", NSColor.white, "menu-icon-badge-dark-bar")] {
-            let badgedIcon = MenuBarIconArt.image(for: .idle, cursor: .triangle, badgeOnAForeground: foreground)
+            let badgedIcon = MenuBarIconArt.image(for: .idle, cursor: .triangle, badge: .needsYourOK, foreground: foreground)
             let iconView = Image(nsImage: badgedIcon).frame(width: MenuBarIconArt.size.width, height: MenuBarIconArt.size.height)
             let bitmap = try render(iconView, named: fileName, background: Color(hex: menuBarHex))
             let padding: CGFloat = 24

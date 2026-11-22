@@ -98,6 +98,31 @@ extension ThemeOrigin {
     }
 }
 
+/// The pill that shows a focused card's whole name. A name too wide for the card wraps inside it, growing the pill upward
+/// over the name it repeats, so the pill never reaches past the card's edges into the next card or the panel's edge.
+struct ThemeCardFullNamePill: View {
+    let name: String
+
+    /// One caption line and its padding, the pill's height for a name that fits on one line.
+    static let oneLineHeight: CGFloat = 22
+
+    var body: some View {
+        Text(name)
+            .font(DS.TypeScale.caption.font)
+            .fontWeight(.semibold)
+            .foregroundColor(DS.Colors.textPrimary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .frame(minHeight: Self.oneLineHeight)
+            .background(RoundedRectangle(cornerRadius: 7).fill(DS.Colors.calloutSurface))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(DS.Colors.keyboardFocusRing, lineWidth: 1))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
 // MARK: - The card
 
 struct ThemeCard: View {
@@ -127,8 +152,6 @@ struct ThemeCard: View {
     @FocusState private var nameFieldIsFocused: Bool
 
     static let cornerRadius = DS.CornerRadius.medium
-    /// The full-name pill over a focused card's swatch row: one caption line and its padding.
-    static let fullNamePillHeight: CGFloat = 22
     private static let secondsAnArmedDeleteWaits: Double = 3
     /// Two lines of the title type, so a long name keeps the card's height.
     private static let nameHeight: CGFloat = 34
@@ -302,21 +325,11 @@ struct ThemeCard: View {
     /// The whole name over the bottom of a card that holds the keyboard focus, since a long name is cut to two lines.
     @ViewBuilder private var fullNameOverTheFocusedCard: some View {
         if showsTheFocusRing && cardItselfHasTheFocus {
-            Text(theme.name)
-                .font(DS.TypeScale.caption.font)
-                .fontWeight(.semibold)
-                .foregroundColor(DS.Colors.textPrimary)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, 8)
-                .frame(height: ThemeCard.fullNamePillHeight)
-                .background(RoundedRectangle(cornerRadius: 7).fill(DS.Colors.calloutSurface))
-                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(DS.Colors.keyboardFocusRing, lineWidth: 1))
+            ThemeCardFullNamePill(name: theme.name)
                 // It sits over the card's own swatch row. Below the card it would sit under the next row's cards, which
                 // a grid draws later whatever the focused card's z-index.
+                .padding(.horizontal, 4)
                 .padding(.bottom, 6)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
         }
     }
 

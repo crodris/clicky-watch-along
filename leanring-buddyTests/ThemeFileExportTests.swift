@@ -205,6 +205,70 @@ struct ThemeFileExportTests {
         #expect(abs(cursorColor.greenComponent - accentColor.greenComponent) < 0.12)
         #expect(abs(cursorColor.blueComponent - accentColor.blueComponent) < 0.12)
     }
+
+    @MainActor
+    @Test func thePreviewShadesTheTriangleLightAtTheTipAndDeepAtTheBase() throws {
+        // The app's own triangle (CursorTriangleGlyph), not a flat fill: its gradient runs light at the tip to deep at the
+        // base. The triangle points up and to the left at -35 degrees, so its tip side lies up and left of the disc's center.
+        let bitmap = try renderedPreview(of: clickyBlueTheme)
+        let discCenter = CGPoint(x: 24 + 66, y: ThemeFilePreviewView.size.height / 2)
+        let towardTheTip = CGPoint(x: -sin(35 * Double.pi / 180), y: -cos(35 * Double.pi / 180))
+        func lightness(pointsAlongTheTriangle: Double) throws -> CGFloat {
+            let point = CGPoint(x: discCenter.x + towardTheTip.x * pointsAlongTheTriangle, y: discCenter.y + towardTheTip.y * pointsAlongTheTriangle)
+            let color = try #require(bitmap.colorAt(x: Int(point.x * 2), y: Int(point.y * 2))?.usingColorSpace(.sRGB))
+            return (color.redComponent + color.greenComponent + color.blueComponent) / 3
+        }
+        // The triangle fills a 63 point frame, with its tip 36 points above its center and its base 18 points below.
+        let nearTheTip = try lightness(pointsAlongTheTriangle: 18)
+        let nearTheBase = try lightness(pointsAlongTheTriangle: -14)
+        #expect(nearTheTip > nearTheBase + 0.08, "near the tip \(nearTheTip), near the base \(nearTheBase)")
+    }
+
+    @MainActor
+    @Test func theThumbnailDrawsEveryBundledThemeSquareWithItsCursorInTheDisc() throws {
+        // Finder asks for many sizes, so the smallest list icon and a large icon view both draw.
+        for side: CGFloat in [16, 128] {
+            for theme in bundledThemesForTests {
+                let thumbnailImage = try #require(themeFileThumbnailImage(theme: theme, picture: nil, side: side, scale: 2))
+                #expect(thumbnailImage.width == Int(side * 2) && thumbnailImage.height == Int(side * 2))
+            }
+        }
+        if let renderDirectory = ProcessInfo.processInfo.environment["CLICKY_RENDER_DIR"] {
+            for theme in bundledThemesForTests {
+                let renderedThumbnail = try #require(themeFileThumbnailImage(theme: theme, picture: nil, side: 128, scale: 2))
+                try NSBitmapImageRep(cgImage: renderedThumbnail).representation(using: .png, properties: [:])?
+                    .write(to: URL(fileURLWithPath: renderDirectory).appendingPathComponent("theme-file-thumbnail-\(theme.id).png"))
+            }
+        }
+        let thumbnailImage = try #require(themeFileThumbnailImage(theme: clickyBlueTheme, picture: nil, side: 128, scale: 2))
+        let bitmap = NSBitmapImageRep(cgImage: thumbnailImage)
+        // The square's rounded corner is clear, so Finder's icon keeps the shape.
+        #expect((bitmap.colorAt(x: 1, y: 1)?.alphaComponent ?? 1) < 0.2)
+        // The disc sits above the swatches, its center 42 percent of the way down, and Clicky blue's triangle fills it there.
+        let cursorColor = try #require(bitmap.colorAt(x: 128, y: Int(256 * 0.42))?.usingColorSpace(.sRGB))
+        let accentColor = try #require(NSColor(hex: clickyBlueTheme.accentHex)?.usingColorSpace(.sRGB))
+        #expect(abs(cursorColor.redComponent - accentColor.redComponent) < 0.12)
+        #expect(abs(cursorColor.greenComponent - accentColor.greenComponent) < 0.12)
+        #expect(abs(cursorColor.blueComponent - accentColor.blueComponent) < 0.12)
+    }
+
+    @MainActor
+    @Test func aPictureThemesSmallestThumbnailStillShowsThePicture() throws {
+        // A solid red picture with a white outline. At Finder's 16 point list size the cursor is about 7 points wide, so a
+        // fixed 4 point outline on each side would cover it whole and the disc's middle would be white.
+        let theme = try ClickyTheme.parse(themeJSON: goodPictureCursorThemeIdea, id: "idea-1", pictureIsAvailable: true)
+        let picture = NSImage(size: NSSize(width: 40, height: 40), flipped: false) { drawingRect in
+            NSColor(red: 1, green: 0, blue: 0, alpha: 1).setFill()
+            drawingRect.fill()
+            return true
+        }
+        let thumbnailImage = try #require(themeFileThumbnailImage(theme: theme, picture: picture, side: 16, scale: 2))
+        let bitmap = NSBitmapImageRep(cgImage: thumbnailImage)
+        // The disc's center is 42 percent of the way down, and the picture there is red with the theme's light blue tint.
+        let middleColor = try #require(bitmap.colorAt(x: 16, y: Int(32 * 0.42))?.usingColorSpace(.sRGB))
+        #expect(middleColor.redComponent > 0.6)
+        #expect(middleColor.greenComponent < 0.6)
+    }
 }
 
 private extension NSColor {

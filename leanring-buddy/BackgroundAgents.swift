@@ -382,6 +382,10 @@ final class BackgroundAgentStore: ObservableObject {
     /// show the "!" badge and a notch in the ring.
     @Published var agentIDsWaitingForApproval: Set<UUID> = []
 
+    /// The mark each agent's disc shows in place of its "!" for a moment after its request is settled, which
+    /// `CompanionManager` sets from the approval desk's ending.
+    @Published var approvalSettledMarksByAgentID: [UUID: AgentTokenApprovalSettledMark] = [:]
+
     /// The capability of each waiting agent's oldest request, which the disc's peek card names. It never holds the request's
     /// summary, since a page or a server may have written that.
     @Published var approvalCapabilitiesByAgentID: [UUID: HarnessCapability] = [:]

@@ -239,10 +239,24 @@ func agentDiscAccessibilityLabel(agentName: String, peekContent: AgentTokenPeekC
 // MARK: - Keyboard focus on a disc
 
 /// The disc that takes the panel's keyboard focus for an agent: the agent's disc on the display with the mouse, else its
-/// disc on any display, else none, as for an agent counted in "+N".
-func agentDiscIDTakingTheKeyboardFocus(among discIDs: [AgentTokenDiscID], agentID: UUID, mouseDisplayID: CGDirectDisplayID?) -> AgentTokenDiscID? {
-    let discIDsOfTheAgent = discIDs.filter { $0.tokenSlot == .agent(agentID) }
-    return discIDsOfTheAgent.first { $0.displayID == mouseDisplayID } ?? discIDsOfTheAgent.first
+/// disc on any display. While every agent is paused the paused disc stands for each of them, so the focus goes there, and
+/// after "go ahead" it comes back to the agent's own disc. A disc the end-of-video recap hid (`hiddenDiscIDs`) never takes
+/// it, since its ring and peek card would show under a disc that is not there. None is left for an agent counted in "+N".
+/// A menu item run for the agent passes `thePausedDiscMayStandForTheAgent` false, since the paused disc's list opens under
+/// the menu bar with no row expanded: an agent with no disc of its own gets Review request next to the mouse with its row
+/// expanded, and Open agent list next to the mouse with no row expanded, as for an agent counted in "+N".
+func agentDiscIDTakingTheKeyboardFocus(
+    among discIDs: [AgentTokenDiscID],
+    agentID: UUID,
+    mouseDisplayID: CGDirectDisplayID?,
+    hiddenDiscIDs: Set<AgentTokenDiscID> = [],
+    thePausedDiscMayStandForTheAgent: Bool = true
+) -> AgentTokenDiscID? {
+    let shownDiscIDs = discIDs.filter { !hiddenDiscIDs.contains($0) }
+    let discIDsOfTheAgent = shownDiscIDs.filter { $0.tokenSlot == .agent(agentID) }
+    let pausedDiscIDs = thePausedDiscMayStandForTheAgent ? shownDiscIDs.filter { $0.tokenSlot == .paused } : []
+    let candidates = discIDsOfTheAgent.isEmpty ? pausedDiscIDs : discIDsOfTheAgent
+    return candidates.first { $0.displayID == mouseDisplayID } ?? candidates.first
 }
 
 // MARK: - Escape and height

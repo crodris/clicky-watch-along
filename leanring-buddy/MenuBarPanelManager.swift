@@ -46,7 +46,7 @@ final class WorkerReachability: ObservableObject {
     private let workerRootURL: URL?
     private let session: URLSession
 
-    /// How long the panel waits between checks while the Worker cannot be reached and the panel is open.
+    /// How long the panel waits between checks while the Worker cannot be reached.
     static let secondsBetweenChecksWhileUnreachable: TimeInterval = 10
 
     init(workerBaseURL: String) {
@@ -82,7 +82,7 @@ final class MenuBarPanelManager: NSObject {
     /// What the panel's view reads about the window: open or not, and the page it shows.
     private let presentation = PanelPresentation()
     private let workerReachability: WorkerReachability
-    /// Checks the Worker every 10 seconds while the panel is open and the Worker cannot be reached.
+    /// Checks the Worker every 10 seconds while it cannot be reached.
     private var reachabilityTask: Task<Void, Never>?
     /// Keeps the status item's icon in step with the voice state, the shown theme, and the approval desk.
     private var statusIconController: MenuBarStatusIconController?
@@ -102,6 +102,7 @@ final class MenuBarPanelManager: NSObject {
             guard let panel = self?.panel else { return false }
             return menuPanelTookTheEscape(panelIsKey: panel.isKeyWindow, panelClosedOnEscapeAt: panel.closedOnEscapeAt, now: Date())
         }
+        companionManager.menuPanelIsOpen = { [weak self] in self?.panel?.isVisible == true }
         companionManager.menuPanelShowsTheApprovalCard = { [weak self] in
             guard let self else { return false }
             return self.panel?.isVisible == true && self.presentation.page == .home
@@ -161,18 +162,36 @@ final class MenuBarPanelManager: NSObject {
         button.action = #selector(statusItemClicked)
         button.target = self
         let companionManager = companionManager
+        let workerReachability = workerReachability
+        // Not the manager's whole objectWillChange, which fires with the microphone level many times a second.
+        let iconChanges: [AnyPublisher<Void, Never>] = [
+            companionManager.$voiceState.map { _ in () }.eraseToAnyPublisher(),
+            companionManager.themeSettings.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            companionManager.backgroundAgentStore.$agentIDsWaitingForApproval.map { _ in () }.eraseToAnyPublisher(),
+            companionManager.$hasAccessibilityPermission.map { _ in () }.eraseToAnyPublisher(),
+            companionManager.$hasScreenRecordingPermission.map { _ in () }.eraseToAnyPublisher(),
+            companionManager.$hasMicrophonePermission.map { _ in () }.eraseToAnyPublisher(),
+            companionManager.$hasScreenContentPermission.map { _ in () }.eraseToAnyPublisher(),
+            companionManager.$hasSpeechRecognitionPermission.map { _ in () }.eraseToAnyPublisher(),
+            workerReachability.$isUnreachable.map { _ in () }.eraseToAnyPublisher(),
+        ]
         statusIconController = MenuBarStatusIconController(
             button: button,
-            changes: Publishers.Merge3(
-                companionManager.$voiceState.map { _ in () },
-                companionManager.themeSettings.objectWillChange.map { _ in () },
-                companionManager.backgroundAgentStore.$agentIDsWaitingForApproval.map { _ in () }
-            ).eraseToAnyPublisher(),
+            changes: Publishers.MergeMany(iconChanges).eraseToAnyPublisher(),
             voiceState: { companionManager.voiceState },
             shownCursor: { companionManager.themeSettings.shownTheme.cursor },
-            approvalIsWaiting: { !companionManager.backgroundAgentStore.agentIDsWaitingForApproval.isEmpty }
+            badge: {
+                menuBarIconBadge(
+                    approvalIsWaiting: !companionManager.backgroundAgentStore.agentIDsWaitingForApproval.isEmpty,
+                    setupIsFinished: companionManager.setupIsFinished,
+                    aRequiredPermissionIsOff: firstRequiredSetupStepThatIsOff(setupStepStates(for: companionManager.setupFacts)) != nil,
+                    workerIsUnreachable: workerReachability.isUnreachable
+                )
+            }
         )
         logTheStatusItemPlace()
+        // One check at launch, so the icon's red badge says the Worker is offline before the panel is ever opened.
+        startCheckingTheWorker()
     }
 
     /// Logs where the icon is and whether macOS shows it, since a status item can sit behind the notch when the menu bar is
@@ -236,12 +255,12 @@ final class MenuBarPanelManager: NSObject {
         if panelWasShowing { companionManager.theMenuPanelStoppedShowingTheApprovalCard() }
         // A disc keeps no focus ring once the panel that held the keyboard is gone.
         companionManager.endTheKeyboardFocusOnTheAgentDisc(of: nil)
-        reachabilityTask?.cancel()
-        reachabilityTask = nil
+        // The Worker check keeps going while it cannot be reached, so the icon's red badge goes once it answers again.
         removeClickOutsideMonitor()
     }
 
-    /// One check when the panel opens, then one every 10 seconds while the Worker cannot be reached, until the panel closes.
+    /// One check at launch and each time the panel opens, then one every 10 seconds while the Worker cannot be reached, with
+    /// the panel open or closed, since the menu bar icon's red badge reads it too. A GET of the Worker's root makes no model call.
     private func startCheckingTheWorker() {
         reachabilityTask?.cancel()
         let workerReachability = workerReachability
@@ -337,7 +356,7 @@ final class MenuBarPanelManager: NSObject {
     // MARK: - Click Outside Dismissal
 
     /// Installs a global event monitor that hides the panel when the user clicks
-    /// anywhere outside it — the same transient dismissal behavior as NSPopover.
+    /// anywhere outside it - the same transient dismissal behavior as NSPopover.
     /// Uses a short delay so that system permission dialogs (triggered by Grant
     /// buttons in the panel) don't immediately dismiss the panel when they appear.
     private func installClickOutsideMonitor() {
@@ -372,7 +391,7 @@ final class MenuBarPanelManager: NSObject {
                 guard panel.isVisible else { return }
 
                 // If permissions aren't all granted yet, a system dialog
-                // may have focus — don't dismiss during onboarding.
+                // may have focus - don't dismiss during onboarding.
                 if !self.companionManager.allPermissionsGranted && !NSApp.isActive {
                     return
                 }

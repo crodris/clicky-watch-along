@@ -3,10 +3,10 @@
 //  leanring-buddy
 //
 //  Bring back: when an agent ends, a spark runs from its disc in the menu bar along the screen's top edge, then drops down
-//  to the cursor, and the ending chip shows there as it lands. The run along the edge stays off the page, and only the drop
-//  to the cursor passes over it, since the route does not read where the video is. A 1 point tether line in the agent's
-//  color traces the route behind the spark and fades 250 ms after the landing. With Reduce Motion on, nothing travels: a
-//  still ring fades in at the cursor, and the chip follows it.
+//  to the cursor, and the ending chip shows there as it lands. The run along the edge stays off the page, and when the
+//  cursor loop knows where the video is, the drop comes down beside it and turns in to the cursor only at its end. A 1 point
+//  tether line in the agent's color traces the route behind the spark and fades 250 ms after the landing. With Reduce Motion
+//  on, nothing travels: a still ring fades in at the cursor, and the chip follows it.
 //
 //  This file is the pure route and the plans the carrier plays (`TetherCarrier`), plus the two small views the carrier
 //  draws. `AgentTokenDockController.bringBack` reads the screens and runs the move. Every point is in global AppKit screen
@@ -19,7 +19,7 @@ import SwiftUI
 // MARK: - Route
 
 /// The spark's route: a quadratic arc from the disc up to the top edge and along it to an elbow past the cursor, then a
-/// second arc down and in to the cursor. The two arcs share the move's time by `shareOfTheMoveAlongTheEdge`.
+/// cubic drop straight down beside the cursor that turns in to it at the end. The two arcs share the move's time by `shareOfTheMoveAlongTheEdge`.
 struct AgentTokenBringBackPath: Equatable {
     let start: CGPoint
     let edgeControl: CGPoint
@@ -37,9 +37,6 @@ struct AgentTokenBringBackPath: Equatable {
     static let runBelowTheTopEdge: CGFloat = 3
     /// How far the elbow sits under the run's own height, which gives the first arc a small downward finish.
     static let elbowDropBelowTheRun: CGFloat = 8
-    /// How much of the way from the cursor to the run's height the second arc's control point rises: the spark drops almost
-    /// straight down, then turns in to the cursor.
-    static let dropControlShareOfTheHeight: CGFloat = 0.14
 
     /// The Bring back move's time, 0.6 seconds.
     static var flightSeconds: TimeInterval { DS.Move.bringBack.curve.seconds() }
@@ -51,7 +48,18 @@ struct AgentTokenBringBackPath: Equatable {
         if easedProgress <= alongTheEdge {
             return Self.quadraticPoint(from: start, control: edgeControl, to: elbow, at: easedProgress / alongTheEdge)
         }
-        return Self.quadraticPoint(from: elbow, control: dropControl, to: end, at: (easedProgress - alongTheEdge) / (1 - alongTheEdge))
+        // The drop is a cubic whose two control points both sit at `dropControl`, beside the cursor at its height, so the spark
+        // comes straight down first and turns in late. A quadratic cut diagonally across a video under the elbow.
+        return Self.cubicPoint(from: elbow, control: dropControl, to: end, at: (easedProgress - alongTheEdge) / (1 - alongTheEdge))
+    }
+
+    private static func cubicPoint(from startPoint: CGPoint, control: CGPoint, to endPoint: CGPoint, at share: Double) -> CGPoint {
+        let remainingShare = 1 - share
+        let controlWeight = 3 * remainingShare * share
+        return CGPoint(
+            x: remainingShare * remainingShare * remainingShare * startPoint.x + controlWeight * control.x + share * share * share * endPoint.x,
+            y: remainingShare * remainingShare * remainingShare * startPoint.y + controlWeight * control.y + share * share * share * endPoint.y
+        )
     }
 
     private static func quadraticPoint(from startPoint: CGPoint, control: CGPoint, to endPoint: CGPoint, at share: Double) -> CGPoint {
@@ -68,21 +76,40 @@ struct AgentTokenBringBackPath: Equatable {
 /// - `discCenter`: the center of the disc's panel, in the menu bar.
 /// - `cursorPoint`: where the ending chip's tail will point, which is the blue cursor glyph.
 /// - `screenFrame`: the display's frame, whose top edge the spark runs along.
-func agentTokenBringBackPath(from discCenter: CGPoint, to cursorPoint: CGPoint, onScreenWithFrame screenFrame: CGRect) -> AgentTokenBringBackPath {
+/// - `mediaRect`: the video or image the cursor loop is around, which the drop keeps clear of, or nil when none is known.
+func agentTokenBringBackPath(from discCenter: CGPoint, to cursorPoint: CGPoint, onScreenWithFrame screenFrame: CGRect, keepingClearOf mediaRect: CGRect? = nil) -> AgentTokenBringBackPath {
     let runY = screenFrame.maxY - AgentTokenBringBackPath.runBelowTheTopEdge
     // The elbow goes to the side of the cursor with room for it, the right one when both fit, and stays off the screen's edges.
     let distance = AgentTokenBringBackPath.elbowDistanceFromTheCursor
-    let roomOnTheRight = screenFrame.maxX - AgentTokenBringBackPath.sideMargin - cursorPoint.x
+    let lowestElbowX = screenFrame.minX + AgentTokenBringBackPath.sideMargin
+    let highestElbowX = screenFrame.maxX - AgentTokenBringBackPath.sideMargin
+    let roomOnTheRight = highestElbowX - cursorPoint.x
     let wantedElbowX = roomOnTheRight >= distance ? cursorPoint.x + distance : cursorPoint.x - distance
-    let elbowX = min(max(wantedElbowX, screenFrame.minX + AgentTokenBringBackPath.sideMargin), screenFrame.maxX - AgentTokenBringBackPath.sideMargin)
+    let elbowX = agentTokenBringBackElbowX(
+        wantedElbowX: min(max(wantedElbowX, lowestElbowX), highestElbowX),
+        cursorPoint: cursorPoint,
+        elbowXRange: lowestElbowX...highestElbowX,
+        mediaRect: mediaRect
+    )
     let elbow = CGPoint(x: elbowX, y: runY - AgentTokenBringBackPath.elbowDropBelowTheRun)
     return AgentTokenBringBackPath(
         start: discCenter,
         edgeControl: CGPoint(x: (discCenter.x + elbowX) / 2, y: runY),
         elbow: elbow,
-        dropControl: CGPoint(x: elbowX, y: cursorPoint.y + (elbow.y - cursorPoint.y) * AgentTokenBringBackPath.dropControlShareOfTheHeight),
+        dropControl: CGPoint(x: elbowX, y: cursorPoint.y),
         end: cursorPoint
     )
+}
+
+/// Where the drop comes down. A drop above the media whose column runs through it would cross the video, so the elbow
+/// moves just past the media's nearer side, with the side margin, when that side is on the screen. The drop then runs beside
+/// the video and turns in to the cursor only at its end. A media that fills the screen's width leaves the elbow where it was.
+func agentTokenBringBackElbowX(wantedElbowX: CGFloat, cursorPoint: CGPoint, elbowXRange: ClosedRange<CGFloat>, mediaRect: CGRect?) -> CGFloat {
+    let margin = AgentTokenBringBackPath.sideMargin
+    guard let mediaRect, mediaRect.maxY > cursorPoint.y,
+          wantedElbowX > mediaRect.minX - margin, wantedElbowX < mediaRect.maxX + margin else { return wantedElbowX }
+    let sidesBesideTheMedia = [mediaRect.minX - margin, mediaRect.maxX + margin].filter { elbowXRange.contains($0) }
+    return sidesBesideTheMedia.min { abs($0 - cursorPoint.x) < abs($1 - cursorPoint.x) } ?? wantedElbowX
 }
 
 // MARK: - Plans
@@ -153,4 +180,23 @@ struct AgentBringBackRingView: View {
             .frame(width: Self.diameter, height: Self.diameter)
             .shadow(color: .black.opacity(0.35), radius: 1.5, x: 0, y: 1)
     }
+}
+
+// MARK: - What a push-to-talk press ends
+
+/// What a push-to-talk press ends on screen, in the order the press handler ends them (`CompanionManager.handleShortcutTransition`).
+/// The order matters twice, so a test pins it.
+enum PushToTalkPressStep: CaseIterable {
+    /// The recap's gather ends and its discs show in their places at once. It comes first: landing the gather's flights before
+    /// the gather knows it was cancelled would unfold the recap Card over the request the press starts.
+    case endTheRecapGather
+    /// A serve, a Bring back spark, and a pause's moves land at once. A landing spark shows the chip it carries.
+    case landTheFlights
+    /// A scrub on its way to the moment lands at once: the video seeks now, and the cursor goes back to the mouse.
+    case landTheScrub
+    case hideTheStatusLabel
+    /// The chip shrinks into the cursor. It comes after the landing, so the chip a Bring back spark carries shows first and
+    /// then shrinks like any chip already up.
+    case recallTheChip
+    case endTheCursorLoop
 }

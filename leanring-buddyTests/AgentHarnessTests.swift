@@ -633,6 +633,40 @@ struct AgentHarnessTests {
         #expect(desk.cardToShow(on: .agentList, at: now) == nil, "the ended card goes")
     }
 
+    /// The disc turns its "!" into a mark when a card ends, and the list Glides the card into the disc only when it was the
+    /// card on screen as its time ran out.
+    @Test func theDeskSaysWhenACardEndsAndWhenAnEndedCardOnScreenLeaves() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let delays = ScheduledDelays()
+        let desk = HarnessApprovalDesk(timeoutSeconds: 60, answerSettleGraceSeconds: 61, secondsAnEndedCardStays: 3, currentDate: { now }, scheduleAfter: delays.schedule) { _, _, _ in }
+        var endings: [ApprovalCardEnding] = []
+        var leftCardIDs: [String] = []
+        desk.onACardEnded = { _, ending in endings.append(ending) }
+        desk.onAnEndedCardLeft = { leftCardIDs.append($0.request.approvalID) }
+
+        desk.receive(anApprovalRequest("approval-1"))
+        desk.settle(approvalID: "approval-1", approved: true, scope: .once)
+        #expect(endings == [.allowed(.once)])
+        #expect(agentTokenApprovalSettledMark(for: endings[0]) == .allowed)
+        #expect(delays.runTheNext(afterSeconds: 3))
+        #expect(leftCardIDs == ["approval-1"])
+
+        // A card that ended while a newer request waits never showed, so it does not Glide when its time runs out.
+        desk.receive(anApprovalRequest("approval-2"))
+        desk.settle(approvalID: "approval-2", approved: false, scope: .once)
+        desk.receive(anApprovalRequest("approval-3"))
+        #expect(endings.last.map(agentTokenApprovalSettledMark(for:)) == .notAllowed)
+        #expect(delays.runTheNext(afterSeconds: 3))
+        #expect(leftCardIDs == ["approval-1"])
+    }
+
+    @Test func everyEndingButAnAllowIsAGrayDashOnTheDisc() {
+        #expect(agentTokenApprovalSettledMark(for: .allowed(.always)) == .allowed)
+        #expect(agentTokenApprovalSettledMark(for: .declined) == .notAllowed)
+        #expect(agentTokenApprovalSettledMark(for: .timedOut) == .notAllowed)
+        #expect(agentTokenApprovalSettledMark(for: .noReply) == .notAllowed)
+    }
+
     @Test func anAnswerCountsOnlyOnceTheCardHasShownTheWholeSummaryForASecond() {
         var now = Date(timeIntervalSince1970: 1_000)
         var answeredIDs: [String] = []

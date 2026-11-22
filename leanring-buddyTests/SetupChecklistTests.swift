@@ -119,11 +119,20 @@ struct SetupChecklistTests {
         #expect(setupTurnedOffCaption(for: .screenRecording).contains("quit and reopen"))
     }
 
-    @Test func theDisclosureNamesEveryCaptureAndBothPlacesTheyGo() {
+    @Test func theDisclosureNamesEveryCaptureAndEveryPlaceItGoes() {
         for capture in ["every display", "pop-out", "3D build", "experiment", "quiz question", "agent", "Theme Studio"] {
             #expect(setupCaptureDisclosure.contains(capture))
         }
         #expect(setupCaptureDisclosure.contains("Anthropic") && setupCaptureDisclosure.contains("OpenAI"))
+        // The room art's camera frames and the furniture's product photo have their own destinations.
+        for roomArtWords in ["camera", "depth service", "fal.ai"] {
+            #expect(setupCaptureDisclosure.contains(roomArtWords))
+        }
+        // The shirt try-on uses the camera too, and its frames never leave this Mac.
+        #expect(setupCaptureDisclosure.contains("Showing art, furniture, or a shirt uses your camera."))
+        #expect(setupCaptureDisclosure.contains("A shirt's camera frames stay on this Mac."))
+        // Reading the store page sends its text and picture to Anthropic, which the disclosure names too.
+        #expect(setupCaptureDisclosure.contains("It also sends the store page's text and picture through Clicky's own server to Anthropic."))
         // macOS keeps speech recognition on the Mac only where the Mac supports it, so the step never promises it.
         #expect(!SetupStep.speechRecognition.purpose.lowercased().contains("on-device"))
         #expect(!SetupStep.speechRecognition.purpose.lowercased().contains("on your mac"))

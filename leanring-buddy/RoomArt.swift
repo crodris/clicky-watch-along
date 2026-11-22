@@ -2,14 +2,17 @@
 //  RoomArt.swift
 //  leanring-buddy
 //
-//  "Show me how this would look in my room": Clicky reads the wall art on Chrome's front tab and its size from the page,
-//  opens a live camera panel, and hangs the art on the learner's wall at its real size.
+//  "Show me how this would look in my room": Clicky reads the item on Chrome's front tab and its size from the page, opens a
+//  live camera panel, and shows the item in the learner's room at its real size: wall art hung on the wall, furniture stood
+//  on the floor, or a shirt tried on the learner's own body.
 //
 //  This file holds the pure parts: the Worker replies parsed into Swift types (`POST /try-it-item` reads the page and says
-//  what kind of item it shows, `POST /room-wall` measures the wall with Depth Pro), the art's corners projected from the wall
-//  plane, the bare wall spot the art goes to first, the wall's light, the phase state machine behind the panel, the clients,
-//  and the phrase that asks for it. `RoomTracker` keeps the art on the wall, `RoomCamera` supplies the frames, `RoomArtLoop`
-//  draws Clicky's loop around the spot while it is measured, and `RoomArtPreview` runs and draws the panel.
+//  what kind of item it shows, `POST /room-wall` measures the wall and `POST /room-floor` the floor with Depth Pro), the
+//  art's corners projected from the wall plane and the furniture's from the floor plane, the bare wall or floor spot the item
+//  goes to first, the wall's light, the phase state machine behind the panel, the clients, and the phrase that asks for it.
+//  `RoomTracker` keeps the item in place, `RoomCamera` supplies the frames, `RoomArtLoop` draws Clicky's loop around the spot
+//  while it is measured, `RoomArtPreview` runs and draws the panel, `RoomFloor` and the `RoomFurniture` files place and
+//  draw the furniture, and `ShirtTryOn` overlays the shirt.
 //
 
 import CoreGraphics
@@ -111,9 +114,8 @@ nonisolated struct RoomArtSize: Equatable, Sendable {
     let heightCentimeters: Double
 }
 
-/// What `POST /try-it-item` read from the page and its picture, by the kind of item the learner wants to try. Only wall art
-/// is placed so far. Furniture and clothing keep what the Worker read for the PRs that place them, and the app says they
-/// are coming.
+/// What `POST /try-it-item` read from the page and its picture, by the kind of item the learner wants to try. Wall art hangs
+/// on the wall, furniture stands on the floor, and a top is drawn over the learner (`roomArtReadingPlan`).
 nonisolated enum RoomArtPageReading: Equatable, Sendable {
     case wallArt(RoomArtWallArtReading)
     /// Wall art whose page text states no size, so Clicky says so instead of hanging a size the model guessed.
@@ -372,13 +374,15 @@ nonisolated struct RoomArtwork: Equatable, @unchecked Sendable {
     }
 }
 
+/// A length in inches rounded to the nearest half inch, with no unit: "16", or "8.5".
+nonisolated func roomArtInchesInWords(centimeters: Double) -> String {
+    let halfInches = (centimeters / 2.54 * 2).rounded()
+    return halfInches.truncatingRemainder(dividingBy: 2) == 0 ? String(Int(halfInches / 2)) : String(format: "%.1f", halfInches / 2)
+}
+
 /// A size in inches rounded to the nearest half inch, width first: "16 by 20 inches", or "8.5 by 11 inches".
 nonisolated func roomArtSizeInInches(widthCentimeters: Double, heightCentimeters: Double) -> String {
-    func inchesInWords(_ centimeters: Double) -> String {
-        let halfInches = (centimeters / 2.54 * 2).rounded()
-        return halfInches.truncatingRemainder(dividingBy: 2) == 0 ? String(Int(halfInches / 2)) : String(format: "%.1f", halfInches / 2)
-    }
-    return "\(inchesInWords(widthCentimeters)) by \(inchesInWords(heightCentimeters)) inches"
+    "\(roomArtInchesInWords(centimeters: widthCentimeters)) by \(roomArtInchesInWords(centimeters: heightCentimeters)) inches"
 }
 
 /// The longer side of a flattened artwork, in pixels: sharp at any size it lands on the wall in a 1280 by 720 frame.
@@ -501,40 +505,78 @@ nonisolated struct RoomWallRequest: Equatable, Sendable {
     }
 }
 
-// MARK: - Where the art goes first
+// MARK: - Where the item goes first
 
 /// The window `bareWallSpot` scores around each candidate spot, as shares of the frame. The loop drawn while the wall is
 /// measured is sized to the same window, so it outlines the wall the spot was chosen for.
 nonisolated enum RoomArtBareWallWindow {
     static let widthShareOfTheFrame = 0.24
     static let heightShareOfTheFrame = 0.3
+    /// The rows a spot's center may sit on, as shares of the frame's height: the upper middle, where art hangs.
+    static let centerRowShares = 0.25...0.55
+}
+
+/// The window `bareFloorSpot` scores, as shares of the frame: wide and low, the shape of floor seen at a slant. The loop
+/// drawn while the floor is measured is sized to it.
+nonisolated enum RoomArtBareFloorWindow {
+    static let widthShareOfTheFrame = 0.3
+    static let heightShareOfTheFrame = 0.18
+    /// The lower part of the frame, where the floor shows when the screen is tilted down. The depth service fits the floor
+    /// in a window around and below the anchor, so the lowest rows are left for it. The window's bottom edge stays above
+    /// 0.9 of the height, where the panel's status line starts (`statusLineTopShareOfThePanel`), so the line Clicky's loop
+    /// draws around the window never runs behind "Measuring your floor…".
+    static let centerRowShares = 0.62...0.80
+    /// The share of the panel's height above its status line: 16 points of padding and a 33 point line on a 540 point panel.
+    static let statusLineTopShareOfThePanel = 0.9
+    /// How much more a spot at the frame's side edge costs than one in the middle, as a share of its texture: furniture
+    /// standing at the edge is cut off by the frame, and the darkest, plainest floor is often a far corner. At 1.0 the
+    /// plain dark corner of room-floor.mp4's wood floor still won, so the loop outlined that corner while the piece then
+    /// stood in the middle (`roomFurnitureSpotWhereTheWholePieceFits`); at 2.0 the spot is the lower middle there.
+    static let costOfTheSideEdges = 2.0
 }
 
 /// The spot of the frame with the least texture, away from the person, in the upper part of the frame where art hangs, and
 /// far enough from the edges for the art to fit, in the image's pixels. `grayscale` is the frame at the track size and
 /// `roomMask` is 0 on the person and 1 on the room, at the same size.
 nonisolated func bareWallSpot(grayscale: RoomGrayscaleImage, roomMask: [Float]) -> CGPoint {
+    quietestSpot(
+        grayscale: grayscale, roomMask: roomMask,
+        windowWidthShare: RoomArtBareWallWindow.widthShareOfTheFrame, windowHeightShare: RoomArtBareWallWindow.heightShareOfTheFrame,
+        centerRowShares: RoomArtBareWallWindow.centerRowShares,
+        spotWhenNothingFits: CGPoint(x: Double(grayscale.width) / 2, y: Double(grayscale.height) / 3)
+    )
+}
+
+/// Where furniture stands first: the open floor with the least texture, away from the person, in the lower part of the
+/// frame, leaning toward the middle so the whole piece stays in view, in the image's pixels. The spot is the furniture's
+/// front-bottom center, the anchor `POST /room-floor` takes. An open patch of floor has less texture than the edge of a rug
+/// or another piece of furniture, so the piece lands in the open.
+nonisolated func bareFloorSpot(grayscale: RoomGrayscaleImage, roomMask: [Float]) -> CGPoint {
+    quietestSpot(
+        grayscale: grayscale, roomMask: roomMask,
+        windowWidthShare: RoomArtBareFloorWindow.widthShareOfTheFrame, windowHeightShare: RoomArtBareFloorWindow.heightShareOfTheFrame,
+        centerRowShares: RoomArtBareFloorWindow.centerRowShares,
+        costOfTheSideEdges: RoomArtBareFloorWindow.costOfTheSideEdges,
+        spotWhenNothingFits: CGPoint(x: Double(grayscale.width) / 2, y: Double(grayscale.height) * 0.8)
+    )
+}
+
+/// The center of the window of the given shape with the least texture, with every pixel within 15 of the person counted as
+/// the most texture there is, so the spot stays off them. Centers run along `centerRowShares` of the height, and far
+/// enough from the side edges for the window to fit. `costOfTheSideEdges` raises a window's score in step with its
+/// distance from the middle column, up to that share more at the edge, with each pixel counted as at least 1 so a blank
+/// window still prefers the middle; 0 leaves the score as the texture alone.
+nonisolated private func quietestSpot(
+    grayscale: RoomGrayscaleImage,
+    roomMask: [Float],
+    windowWidthShare: Double,
+    windowHeightShare: Double,
+    centerRowShares: ClosedRange<Double>,
+    costOfTheSideEdges: Double = 0,
+    spotWhenNothingFits: CGPoint
+) -> CGPoint {
     let width = grayscale.width, height = grayscale.height
-    let pixels = grayscale.pixels
-    // The Sobel gradient's size at each pixel.
-    var texture = [Float](repeating: 0, count: width * height)
-    if width >= 3 && height >= 3 {
-        for row in 1..<(height - 1) {
-            for column in 1..<(width - 1) {
-                let index = row * width + column
-                let alongX = (pixels[index - width + 1] + 2 * pixels[index + 1] + pixels[index + width + 1])
-                    - (pixels[index - width - 1] + 2 * pixels[index - 1] + pixels[index + width - 1])
-                let alongY = (pixels[index + width - 1] + 2 * pixels[index + width] + pixels[index + width + 1])
-                    - (pixels[index - width - 1] + 2 * pixels[index - width] + pixels[index - width + 1])
-                texture[index] = (alongX * alongX + alongY * alongY).squareRoot()
-            }
-        }
-    }
-    // A pixel within 15 of the person counts as the most texture there is, so the spot stays off them.
-    let personNearby = grownSquare(roomMask.map { $0 < 0.5 }, width: width, height: height, reach: 15)
-    for index in texture.indices where personNearby[index] {
-        texture[index] = 1_000
-    }
+    let texture = textureWithThePersonMarked(grayscale: grayscale, roomMask: roomMask)
 
     // A summed table, so each window's total is four lookups.
     var summed = [Double](repeating: 0, count: (width + 1) * (height + 1))
@@ -551,16 +593,20 @@ nonisolated func bareWallSpot(grayscale: RoomGrayscaleImage, roomMask: [Float]) 
             - summed[bottom * (width + 1) + left] + summed[top * (width + 1) + left]
     }
 
-    let windowWidth = Int((Double(width) * RoomArtBareWallWindow.widthShareOfTheFrame).rounded())
-    let windowHeight = Int((Double(height) * RoomArtBareWallWindow.heightShareOfTheFrame).rounded())
-    var bestSpot = CGPoint(x: Double(width) / 2, y: Double(height) / 3)
+    let windowWidth = Int((Double(width) * windowWidthShare).rounded())
+    let windowHeight = Int((Double(height) * windowHeightShare).rounded())
+    var bestSpot = spotWhenNothingFits
     var bestScore = Double.infinity
-    let firstRow = Int((Double(height) * 0.25).rounded()), lastRow = Int((Double(height) * 0.55).rounded())
+    let firstRow = Int((Double(height) * centerRowShares.lowerBound).rounded()), lastRow = Int((Double(height) * centerRowShares.upperBound).rounded())
     let firstColumn = (windowWidth + 1) / 2 + 4, lastColumn = width - windowWidth / 2 - 4
-    guard firstColumn <= lastColumn else { return bestSpot }
+    guard firstColumn <= lastColumn, firstRow <= lastRow else { return bestSpot }
     for row in stride(from: firstRow, through: lastRow, by: 4) {
         for column in stride(from: firstColumn, through: lastColumn, by: 4) {
-            let score = windowTotal(left: column - windowWidth / 2, top: row - windowHeight / 2, right: column + (windowWidth + 1) / 2, bottom: row + (windowHeight + 1) / 2)
+            let texture = windowTotal(left: column - windowWidth / 2, top: row - windowHeight / 2, right: column + (windowWidth + 1) / 2, bottom: row + (windowHeight + 1) / 2)
+            let shareOfTheWayToTheSideEdge = abs(Double(column) - Double(width) / 2) / (Double(width) / 2)
+            let score = costOfTheSideEdges == 0
+                ? texture
+                : (texture + Double(windowWidth * windowHeight)) * (1 + costOfTheSideEdges * shareOfTheWayToTheSideEdge)
             if score < bestScore {
                 bestScore = score
                 bestSpot = CGPoint(x: column, y: row)
@@ -568,6 +614,31 @@ nonisolated func bareWallSpot(grayscale: RoomGrayscaleImage, roomMask: [Float]) 
         }
     }
     return bestSpot
+}
+
+/// The Sobel gradient's size at each pixel of `grayscale`, with every pixel within 15 of the person set to 1,000, the most
+/// texture there is, so a spot search stays off them.
+nonisolated func textureWithThePersonMarked(grayscale: RoomGrayscaleImage, roomMask: [Float]) -> [Float] {
+    let width = grayscale.width, height = grayscale.height
+    let pixels = grayscale.pixels
+    var texture = [Float](repeating: 0, count: width * height)
+    if width >= 3 && height >= 3 {
+        for row in 1..<(height - 1) {
+            for column in 1..<(width - 1) {
+                let index = row * width + column
+                let alongX = (pixels[index - width + 1] + 2 * pixels[index + 1] + pixels[index + width + 1])
+                    - (pixels[index - width - 1] + 2 * pixels[index - 1] + pixels[index + width - 1])
+                let alongY = (pixels[index + width - 1] + 2 * pixels[index + width] + pixels[index + width + 1])
+                    - (pixels[index - width - 1] + 2 * pixels[index - width] + pixels[index - width + 1])
+                texture[index] = (alongX * alongX + alongY * alongY).squareRoot()
+            }
+        }
+    }
+    let personNearby = grownSquare(roomMask.map { $0 < 0.5 }, width: width, height: height, reach: 15)
+    for index in texture.indices where personNearby[index] {
+        texture[index] = 1_000
+    }
+    return texture
 }
 
 /// Whether each pixel is within `reach` pixels (a square) of a marked pixel, by a row pass and a column pass.
@@ -683,18 +754,29 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
     case cameraAccessDenied
     case noCamera
     /// The item is neither wall art, furniture, nor clothing, such as a lamp.
-    case notWallArt
-    /// The item is furniture or clothing, which Clicky reads but does not place yet.
-    case onlyWallArtSoFar
+    case notSomethingToTry
     /// The page text could not be read or was empty, or `POST /try-it-item` failed.
     case pageNotRead
-    /// The page is wall art, but its text states no size.
+    /// The page is wall art or furniture, but its text states no size, so nothing is placed at a size the model guessed.
     case sizeNotOnThePage
-    /// `POST /room-wall` answered 503 (no depth service configured) or 502 (the depth service is down).
+    /// A measurement route answered 503 (no depth service configured) or 502 (the depth service is down).
     case depthServiceUnavailable
     /// `POST /room-wall` answered 422 (no bare wall there, or a wall too near, too far, or not flat), or its reply could
     /// not place the art.
     case wallNotMeasured
+    /// `POST /room-floor` answered 422 (no floor in view there, or one too tilted, near, or far), or its reply could not
+    /// stand the furniture on it. The panel stays open and a click on the floor measures again.
+    case floorNotFound
+    /// Vision found no furniture in the product photo, so nothing can stand on the floor.
+    case furnitureNotCutOut
+    /// The clothing is not a top, such as a dress, which the shirt overlay cannot draw.
+    case onlyTopsSoFar
+    /// The product photo shows the shirt on a model, whose body would come along with the cutout.
+    case shirtPhotoOnAModel
+    /// The product photo shows the shirt on a hanger or some other way that is not a flat lay.
+    case shirtPhotoNotFlat
+    /// Vision found no garment in the flat lay photo.
+    case garmentNotCutOut
     /// A request to the Worker never got an answer: the Worker is not running, the connection failed, or it timed out.
     case workerUnreachable
 
@@ -705,12 +787,17 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .pageNotHTTPS: return "I can only read store pages served over https."
         case .cameraAccessDenied: return "I need camera access for that. You can turn it on in System Settings."
         case .noCamera: return "I couldn't find a camera to show your room."
-        case .notWallArt: return "That doesn't look like something that hangs on a wall."
-        case .onlyWallArtSoFar: return "I can hang wall art so far. Furniture and clothes are coming next."
-        case .pageNotRead: return "I couldn't read the size from that page."
+        case .notSomethingToTry: return "That doesn't look like wall art, furniture, or a shirt."
+        case .pageNotRead: return "I couldn't read that page."
         case .sizeNotOnThePage: return "I couldn't find the size on that page."
-        case .depthServiceUnavailable: return "I couldn't measure your wall. Is the depth service running?"
+        case .depthServiceUnavailable: return "I couldn't measure your room. Is the depth service running?"
         case .wallNotMeasured: return "I couldn't measure your wall. Try pointing the camera at a bare wall."
+        case .floorNotFound: return "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor."
+        case .furnitureNotCutOut: return "I couldn't cut the furniture out of its photo."
+        case .onlyTopsSoFar: return "I can try on shirts, sweaters, and jackets so far."
+        case .shirtPhotoOnAModel: return "I can only try on a shirt from a flat photo of it, and this photo shows it on a model."
+        case .shirtPhotoNotFlat: return "I can only try on a shirt from a flat photo of it."
+        case .garmentNotCutOut: return "I couldn't lift the shirt out of its photo."
         case .workerUnreachable: return "I couldn't reach Clicky's Worker."
         }
     }
@@ -722,148 +809,325 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .pageNotHTTPS: return "The page is not served over https"
         case .cameraAccessDenied: return "Camera access is off. Turn it on in System Settings, Privacy & Security, Camera."
         case .noCamera: return "No camera found"
-        case .notWallArt: return "That doesn't look like wall art"
-        case .onlyWallArtSoFar: return "Only wall art so far. Furniture and clothes are coming next"
-        case .pageNotRead: return "Couldn't read the size from the page"
+        case .notSomethingToTry: return "That doesn't look like wall art, furniture, or a shirt"
+        case .pageNotRead: return "Couldn't read the page"
         case .sizeNotOnThePage: return "Couldn't find the size on the page"
-        case .depthServiceUnavailable: return "Couldn't measure the wall. Is the depth service running?"
+        case .depthServiceUnavailable: return "Couldn't measure the room. Is the depth service running?"
         case .wallNotMeasured: return "Couldn't measure the wall"
+        case .floorNotFound: return "Tilt the screen down so the floor shows, then click the floor"
+        case .furnitureNotCutOut: return "Couldn't cut the furniture out of its photo"
+        case .onlyTopsSoFar: return "Only shirts, sweaters, and jackets so far"
+        case .shirtPhotoOnAModel: return "The photo shows the shirt on a model, not laid flat"
+        case .shirtPhotoNotFlat: return "The photo is not a flat photo of the shirt"
+        case .garmentNotCutOut: return "Couldn't lift the shirt out of its photo"
         case .workerUnreachable: return "Couldn't reach Clicky's Worker"
+        }
+    }
+}
+
+// MARK: - What the reading asks for
+
+/// What the panel does with the page's reading. Only wall art and furniture whose page states a size are placed, so a size
+/// the model guessed never reaches the room, and only a top photographed flat is tried on, since a photo on a model would
+/// bring the model's body into the cutout.
+nonisolated enum RoomArtReadingPlan: Equatable, Sendable {
+    case hangOnTheWall(RoomArtWallArtReading)
+    case standOnTheFloor(RoomArtFurnitureReading, size: RoomArtFurnitureSize)
+    case tryOnTheShirt(RoomArtClothingReading)
+    case fail(RoomArtFailure)
+}
+
+/// The garments the shirt overlay can draw: tops, whose body is the learner's torso. A dress reaches past the hips, so its
+/// hem would land on the wrong place.
+nonisolated let roomArtGarmentsThatCanBeTriedOn: Set<RoomArtGarment> = [.tshirt, .shirt, .sweater, .hoodie, .jacket]
+
+nonisolated func roomArtReadingPlan(for pageReading: RoomArtPageReading) -> RoomArtReadingPlan {
+    switch pageReading {
+    case .wallArt(let wallArtReading):
+        return .hangOnTheWall(wallArtReading)
+    case .sizeNotOnThePage:
+        return .fail(.sizeNotOnThePage)
+    case .furniture(let furnitureReading):
+        guard let chosenSize = furnitureReading.chosenSize else { return .fail(.sizeNotOnThePage) }
+        return .standOnTheFloor(furnitureReading, size: chosenSize)
+    case .clothing(let clothingReading):
+        guard roomArtGarmentsThatCanBeTriedOn.contains(clothingReading.garment) else { return .fail(.onlyTopsSoFar) }
+        switch clothingReading.photoShows {
+        case .flatLay: return .tryOnTheShirt(clothingReading)
+        case .onModel: return .fail(.shirtPhotoOnAModel)
+        case .onHanger, .other: return .fail(.shirtPhotoNotFlat)
+        }
+    case .other:
+        return .fail(.notSomethingToTry)
+    }
+}
+
+// MARK: - Surfaces and what stands on them
+
+/// The two surfaces an item is measured on: wall art hangs on a wall and furniture stands on a floor.
+nonisolated enum RoomArtSurfaceKind: Equatable, Sendable {
+    case wall
+    case floor
+}
+
+/// A measured surface in the keyframe camera's space.
+nonisolated enum RoomArtSurface: Equatable, Sendable {
+    case wall(WallPlane)
+    case floor(FloorPlane)
+
+    var kind: RoomArtSurfaceKind {
+        switch self {
+        case .wall: return .wall
+        case .floor: return .floor
+        }
+    }
+
+    /// Where `item` lands in the keyframe on this surface, or nil when a corner is not in front of the camera or the item
+    /// belongs on the other surface.
+    func keyframeCorners(of item: RoomArtPlacedItem) -> RoomArtCorners? {
+        switch (self, item) {
+        case (.wall(let wall), .wallArt(let artwork)):
+            return wall.keyframeCorners(widthMeters: artwork.widthMeters, heightMeters: artwork.heightMeters)
+        case (.floor(let floor), .furniture(let furniture)):
+            return floor.keyframeCorners(widthMeters: furniture.drawnWidthMeters, heightMeters: furniture.heightMeters)
+        case (.wall, .furniture), (.floor, .wallArt):
+            return nil
+        }
+    }
+}
+
+/// What is placed on a surface: the art flattened from its photo, or the furniture cut out of its photo.
+nonisolated enum RoomArtPlacedItem: Equatable, Sendable {
+    case wallArt(RoomArtwork)
+    case furniture(RoomFurniture)
+
+    var surfaceKind: RoomArtSurfaceKind {
+        switch self {
+        case .wallArt: return .wall
+        case .furniture: return .floor
+        }
+    }
+
+    /// The picture drawn on the surface.
+    var image: CGImage {
+        switch self {
+        case .wallArt(let artwork): return artwork.flattenedImage
+        case .furniture(let furniture): return furniture.cutoutImage
+        }
+    }
+
+    /// What Clicky says once it shows, with the size from the measured centimeters.
+    var hereItIsLine: String {
+        switch self {
+        case .wallArt(let artwork): return "Here it is at \(artwork.sizeInWords)."
+        case .furniture(let furniture): return "Here it is, \(furniture.sizeInWords)."
+        }
+    }
+
+    var showingStatusLine: String {
+        switch self {
+        case .wallArt(let artwork): return "On your wall at \(artwork.sizeInWords)"
+        case .furniture(let furniture): return "On your floor, \(furniture.sizeInWords)"
+        }
+    }
+}
+
+extension RoomArtSurfaceKind {
+    var measuringStatusLine: String {
+        switch self {
+        case .wall: return "Measuring your wall…"
+        case .floor: return "Measuring your floor…"
+        }
+    }
+
+    /// The status line while the tracker has lost the room and the item is hidden.
+    var lostLine: String {
+        switch self {
+        case .wall: return "Lost the wall. Turn back, or click the wall to place it again."
+        case .floor: return "Lost the floor. Turn back, or click the floor to place it again."
+        }
+    }
+
+    /// Why a measured surface that cannot place the item failed.
+    var cannotPlaceFailure: RoomArtFailure {
+        switch self {
+        case .wall: return .wallNotMeasured
+        case .floor: return .floorNotFound
         }
     }
 }
 
 // MARK: - Phase
 
-/// One measurement: a keyframe, the wall measured on it, and the page read if it was not read before. A reply carries the
-/// measurement it belongs to, so a reply from an earlier measurement or an earlier panel changes nothing.
+/// One measurement: a keyframe and the surface measured on it. A reply carries the measurement it belongs to, so a reply
+/// from an earlier measurement or an earlier panel changes nothing.
 nonisolated struct RoomArtMeasurementID: Hashable, Sendable {
     let number: Int
 }
 
-/// What the panel is doing.
+/// What the panel is doing. The page is read as the panel opens, and its kind picks the rest: wall art and furniture are
+/// measured on their surface and tracked, and a shirt is drawn over the learner with no measurement at all.
 nonisolated enum RoomArtPhase: Equatable, Sendable {
     case closed
-    /// The panel is open and waits for the camera's first frame with a person mask.
-    case startingCamera
-    /// The first keyframe is taken, and the page and the wall are being read at once.
-    case measuring(id: RoomArtMeasurementID, artwork: RoomArtwork?, wall: WallPlane?)
-    /// The art is on the wall. `moveFailure` is why the last click could not move it, shown in the status line until the
-    /// next move, with the art back where it was.
-    case showing(artwork: RoomArtwork, wall: WallPlane, moveFailure: RoomArtFailure?)
-    /// A click moves the art: a new keyframe and a new wall measurement. The art is read once, so moving it keeps it, and
-    /// the wall it hung on comes back if the new one is not measured.
-    case moving(id: RoomArtMeasurementID, artwork: RoomArtwork, wallBeforeTheMove: WallPlane)
+    /// The panel is open: the camera starts and the page is read at once.
+    case readingThePage
+    /// The item is read and ready, and the keyframe waits for the camera's first frame with a person mask.
+    case waitingForTheCamera(RoomArtPlacedItem)
+    /// The keyframe is taken and its surface is being measured.
+    case measuring(id: RoomArtMeasurementID, item: RoomArtPlacedItem)
+    /// The item is on its surface. `moveFailure` is why the last click could not move it, shown in the status line until
+    /// the next move, with the item back where it was.
+    case showing(item: RoomArtPlacedItem, surface: RoomArtSurface, moveFailure: RoomArtFailure?)
+    /// A click moves the item: a new keyframe and a new measurement. The surface it stood on comes back if the new one is
+    /// not measured.
+    case moving(id: RoomArtMeasurementID, item: RoomArtPlacedItem, surfaceBeforeTheMove: RoomArtSurface)
+    /// The first floor measurement found no floor, so the camera keeps running and a click on the floor measures again.
+    case waitingForAFloorClick(RoomArtPlacedItem)
+    /// A flat lay top: the garment is being cut out of its photo while the camera looks for the learner.
+    case preparingTheShirt(title: String)
+    /// The garment is ready, and the learner is not yet standing where the shirt can be drawn.
+    case waitingToSeeTheLearner(title: String)
+    /// The shirt is drawn over the learner every frame they stand in view.
+    case showingTheShirt(title: String)
     case failed(RoomArtFailure)
 
     var isOpen: Bool { self != .closed }
 
     // MARK: Transitions
 
-    /// The learner asked to see the art. A panel already open starts over.
+    /// The learner asked to try the item. A panel already open starts over.
     func opening() -> RoomArtPhase {
-        .startingCamera
+        .readingThePage
     }
 
-    /// A keyframe was taken: the first one once the camera runs, or a click that moves the art. One measurement runs at a
-    /// time, so a click during one, or with nothing on the wall yet, changes nothing.
+    /// Wall art or furniture was read and its picture prepared, so its surface can be measured once the camera has a frame.
+    func withTheItemReady(_ item: RoomArtPlacedItem) -> RoomArtPhase {
+        guard case .readingThePage = self else { return self }
+        return .waitingForTheCamera(item)
+    }
+
+    /// A flat lay top was read, so the garment is cut out while the camera looks for the learner.
+    func startingTheShirt(title: String) -> RoomArtPhase {
+        guard case .readingThePage = self else { return self }
+        return .preparingTheShirt(title: title)
+    }
+
+    /// The page could not be read, or what it shows cannot be tried, so the panel says why.
+    func afterThePageFailed(_ failure: RoomArtFailure) -> RoomArtPhase {
+        guard case .readingThePage = self else { return self }
+        return .failed(failure)
+    }
+
+    /// A keyframe was taken: the first one once the item is ready and the camera runs, a click that moves the item, or a
+    /// click on the floor after none was found. One measurement runs at a time, so a click during one changes nothing.
     func startingAMeasurement(id: RoomArtMeasurementID) -> RoomArtPhase {
         switch self {
-        case .startingCamera:
-            return .measuring(id: id, artwork: nil, wall: nil)
-        case .showing(let artwork, let wall, _):
-            return .moving(id: id, artwork: artwork, wallBeforeTheMove: wall)
-        case .closed, .measuring, .moving, .failed:
+        case .waitingForTheCamera(let item), .waitingForAFloorClick(let item):
+            return .measuring(id: id, item: item)
+        case .showing(let item, let surface, _):
+            return .moving(id: id, item: item, surfaceBeforeTheMove: surface)
+        case .closed, .readingThePage, .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt, .failed:
             return self
         }
     }
 
-    func withArtworkRead(_ artwork: RoomArtwork, measurementID: RoomArtMeasurementID) -> RoomArtPhase {
-        guard case .measuring(let measuringID, _, let wall) = self, measuringID == measurementID else { return self }
-        if let wall { return Self.showingOrFailed(artwork: artwork, wall: wall) }
-        return .measuring(id: measuringID, artwork: artwork, wall: nil)
-    }
-
-    func withWallMeasured(_ wall: WallPlane, measurementID: RoomArtMeasurementID) -> RoomArtPhase {
+    func withTheSurfaceMeasured(_ surface: RoomArtSurface, measurementID: RoomArtMeasurementID) -> RoomArtPhase {
         switch self {
-        case .measuring(let measuringID, let artwork, _) where measuringID == measurementID:
-            if let artwork { return Self.showingOrFailed(artwork: artwork, wall: wall) }
-            return .measuring(id: measuringID, artwork: nil, wall: wall)
-        case .moving(let movingID, let artwork, let wallBeforeTheMove) where movingID == measurementID:
-            guard Self.artCanHang(artwork, on: wall) else {
-                return .showing(artwork: artwork, wall: wallBeforeTheMove, moveFailure: .wallNotMeasured)
+        case .measuring(let measuringID, let item) where measuringID == measurementID && surface.kind == item.surfaceKind:
+            guard surface.keyframeCorners(of: item) != nil else { return Self.afterTheFirstMeasurementFailed(item.surfaceKind.cannotPlaceFailure, item: item) }
+            return .showing(item: item, surface: surface, moveFailure: nil)
+        case .moving(let movingID, let item, let surfaceBeforeTheMove) where movingID == measurementID && surface.kind == item.surfaceKind:
+            guard surface.keyframeCorners(of: item) != nil else {
+                return .showing(item: item, surface: surfaceBeforeTheMove, moveFailure: item.surfaceKind.cannotPlaceFailure)
             }
-            return .showing(artwork: artwork, wall: wall, moveFailure: nil)
+            return .showing(item: item, surface: surface, moveFailure: nil)
         default:
             return self
         }
     }
 
-    /// A reply of this measurement failed. The first measurement's failure ends the panel, and a move's failure puts the
-    /// art back on the wall it hung on.
+    /// A measurement failed. A first measurement's failure ends the panel, except a floor that was not found, which waits
+    /// for a click on the floor. A move's failure puts the item back where it stood.
     func afterTheMeasurementFailed(_ failure: RoomArtFailure, measurementID: RoomArtMeasurementID) -> RoomArtPhase {
         switch self {
-        case .measuring(let measuringID, _, _) where measuringID == measurementID:
-            return .failed(failure)
-        case .moving(let movingID, let artwork, let wallBeforeTheMove) where movingID == measurementID:
-            return .showing(artwork: artwork, wall: wallBeforeTheMove, moveFailure: failure)
+        case .measuring(let measuringID, let item) where measuringID == measurementID:
+            return Self.afterTheFirstMeasurementFailed(failure, item: item)
+        case .moving(let movingID, let item, let surfaceBeforeTheMove) where movingID == measurementID:
+            return .showing(item: item, surface: surfaceBeforeTheMove, moveFailure: failure)
         default:
             return self
         }
     }
 
-    /// Whether every corner of the art lands in front of the camera on this wall.
-    private static func artCanHang(_ artwork: RoomArtwork, on wall: WallPlane) -> Bool {
-        wall.keyframeCorners(widthMeters: artwork.widthMeters, heightMeters: artwork.heightMeters) != nil
-    }
-
-    /// The first measurement's art on its wall, or a failure when no corner placement exists there.
-    private static func showingOrFailed(artwork: RoomArtwork, wall: WallPlane) -> RoomArtPhase {
-        guard artCanHang(artwork, on: wall) else { return .failed(.wallNotMeasured) }
-        return .showing(artwork: artwork, wall: wall, moveFailure: nil)
-    }
-
-    /// The camera could not start.
-    func afterTheCameraFailed(_ failure: RoomArtFailure) -> RoomArtPhase {
-        guard case .startingCamera = self else { return self }
+    private static func afterTheFirstMeasurementFailed(_ failure: RoomArtFailure, item: RoomArtPlacedItem) -> RoomArtPhase {
+        if failure == .floorNotFound, case .furniture = item { return .waitingForAFloorClick(item) }
         return .failed(failure)
+    }
+
+    /// The garment is cut out. `learnerIsInFrame` says the framing already settled on ready, so the shirt shows at once.
+    func withTheGarmentReady(learnerIsInFrame: Bool) -> RoomArtPhase {
+        guard case .preparingTheShirt(let title) = self else { return self }
+        return learnerIsInFrame ? .showingTheShirt(title: title) : .waitingToSeeTheLearner(title: title)
+    }
+
+    func afterTheGarmentFailed() -> RoomArtPhase {
+        guard case .preparingTheShirt = self else { return self }
+        return .failed(.garmentNotCutOut)
+    }
+
+    /// The framing settled on ready for the first time since the garment was ready.
+    func afterTheLearnerStoodInFrame() -> RoomArtPhase {
+        guard case .waitingToSeeTheLearner(let title) = self else { return self }
+        return .showingTheShirt(title: title)
+    }
+
+    /// The camera could not start. It starts while the page is read, so this can come in any open phase before a frame.
+    func afterTheCameraFailed(_ failure: RoomArtFailure) -> RoomArtPhase {
+        switch self {
+        case .closed, .failed: return self
+        default: return .failed(failure)
+        }
     }
 
     func closing() -> RoomArtPhase {
         .closed
     }
 
-    /// The panel's one-line status.
+    /// The panel's one-line status with nothing lost and no coaching.
     var statusLine: String {
+        statusLine(theSurfaceIsLost: false, shirtCoachingLine: nil)
+    }
+
+    /// The panel's one-line status. `theSurfaceIsLost` says the tracker lost the room long enough to hide the item, which
+    /// only matters while it shows, and `shirtCoachingLine` is the settled framing's advice while the shirt cannot be drawn.
+    func statusLine(theSurfaceIsLost: Bool, shirtCoachingLine: String?) -> String {
         switch self {
         case .closed: return ""
-        case .startingCamera: return "Starting the camera…"
-        case .measuring(_, let artwork, _):
-            return artwork == nil ? "Reading the page and measuring your wall…" : "Measuring your wall…"
-        case .moving: return "Measuring your wall…"
-        case .showing(let artwork, _, let moveFailure): return moveFailure?.statusLine ?? "On your wall at \(artwork.sizeInWords)"
+        case .readingThePage: return "Reading the page…"
+        case .waitingForTheCamera: return "Starting the camera…"
+        case .measuring(_, let item): return item.surfaceKind.measuringStatusLine
+        case .moving(_, let item, _): return item.surfaceKind.measuringStatusLine
+        case .showing(let item, _, let moveFailure):
+            if theSurfaceIsLost { return item.surfaceKind.lostLine }
+            return moveFailure?.statusLine ?? item.showingStatusLine
+        case .waitingForAFloorClick: return RoomArtFailure.floorNotFound.statusLine
+        case .preparingTheShirt: return shirtCoachingLine ?? "Getting the shirt ready…"
+        case .waitingToSeeTheLearner: return shirtCoachingLine ?? "Looking for you…"
+        case .showingTheShirt: return shirtCoachingLine ?? "On you"
         case .failed(let failure): return failure.statusLine
         }
     }
 
-    /// The status line while the tracker has lost the room and the art is hidden, which only happens while it shows.
-    func statusLine(theWallIsLost: Bool) -> String {
-        guard theWallIsLost, case .showing = self else { return statusLine }
-        return roomArtLostTheWallLine
-    }
-
     /// Whether the status line says what went wrong, so the panel draws it in the failure color.
-    func statusLineIsAFailure(theWallIsLost: Bool) -> Bool {
+    func statusLineIsAFailure(theSurfaceIsLost: Bool) -> Bool {
         switch self {
-        case .failed: return true
-        case .showing(_, _, let moveFailure): return moveFailure != nil && !theWallIsLost
-        case .closed, .startingCamera, .measuring, .moving: return false
+        case .failed, .waitingForAFloorClick: return true
+        case .showing(_, _, let moveFailure): return moveFailure != nil && !theSurfaceIsLost
+        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt:
+            return false
         }
     }
 }
-
-/// What the status line says while the tracker has lost the room, so the hidden art does not vanish without a word.
-nonisolated let roomArtLostTheWallLine = "Lost the wall. Turn back, or click the wall to place it again."
 
 // MARK: - When a line may play
 
@@ -901,12 +1165,13 @@ nonisolated func roomArtLineStep(
 
 // MARK: - The phrase that asks for it
 
-/// Whether the learner asks to see this item placed in their own room: a room phrase ("in my room", "on my wall", "on the
-/// wall behind me", ...) right after either a placing verb and the item ("show this", "put it", "can I see this", "hang
-/// that print") or the item and a look ("how would this look", "what would that poster look like", "would this look good",
-/// "how would this look hanging"). The item is "this",
-/// "it", or "that", or "this", "that", or "the" and one noun. So "how does the router in my house work", "what would look
-/// good in my room", and "I put a poster in my room" name no item to place, and none of them asks.
+/// Whether the learner asks to see this item placed in their own room or on themselves: a room phrase ("in my room", "on my
+/// wall", "on the wall behind me", "on me", ...) right after either a placing verb and the item ("show this", "put it",
+/// "can I see this", "hang that print", "could I see this shirt") or the item and a look ("how would this look", "what
+/// would that poster look like", "would this look good", "how would this look hanging"), or "try" with the item and "on"
+/// ending the request ("can I try this on", "try on that shirt"). The item is "this", "it", or "that", or "this", "that",
+/// or "the" and one noun. So "how does the router in my house work", "what would look good in my room", "I put a poster in
+/// my room", "what's on me", and "let me try this on the next video" name no item to place, and none of them asks.
 nonisolated func asksToSeeArtInMyRoom(_ transcript: String) -> Bool {
     let apostrophes = CharacterSet(charactersIn: "'\u{2019}")
     let words = transcript.lowercased()
@@ -916,7 +1181,7 @@ nonisolated func asksToSeeArtInMyRoom(_ transcript: String) -> Bool {
     let roomPhrases: [[String]] = [
         ["in", "my", "room"], ["on", "my", "wall"], ["in", "my", "living", "room"], ["in", "my", "bedroom"],
         ["in", "my", "office"], ["in", "my", "house"], ["in", "my", "home"], ["in", "my", "apartment"],
-        ["in", "my", "space"], ["on", "the", "wall", "behind", "me"],
+        ["in", "my", "space"], ["on", "the", "wall", "behind", "me"], ["on", "me"],
     ]
     let placingVerbs: Set<String> = [
         "show", "see", "try", "put", "hang", "place", "preview", "picture", "visualize", "imagine",
@@ -960,6 +1225,21 @@ nonisolated func asksToSeeArtInMyRoom(_ transcript: String) -> Bool {
         return !itemStarts(endingAt: itemEnd).isEmpty
     }
 
+    /// "try this on", "try that shirt on", or "try on this shirt", ending the request but for a "please" or "now", so "let
+    /// me try this on the next video" asks nothing.
+    func asksToTryTheItemOn() -> Bool {
+        var lastIndex = words.count - 1
+        while lastIndex >= 0, ["please", "now"].contains(words[lastIndex]) { lastIndex -= 1 }
+        guard lastIndex >= 2 else { return false }
+        if words[lastIndex] == "on" {
+            return itemStarts(endingAt: lastIndex - 1).contains { itemStart in itemStart >= 1 && words[itemStart - 1] == "try" }
+        }
+        return itemStarts(endingAt: lastIndex).contains { itemStart in
+            itemStart >= 2 && words[itemStart - 1] == "on" && words[itemStart - 2] == "try"
+        }
+    }
+    if asksToTryTheItemOn() { return true }
+
     for roomPhrase in roomPhrases where words.count >= roomPhrase.count {
         for roomPhraseStart in 0...(words.count - roomPhrase.count) where Array(words[roomPhraseStart..<(roomPhraseStart + roomPhrase.count)]) == roomPhrase {
             if itemStarts(endingAt: roomPhraseStart - 1).contains(where: aPlacingVerbComesBefore(itemStart:)) { return true }
@@ -975,22 +1255,26 @@ nonisolated enum RoomArtWorkerError: Error, Equatable {
     case workerReturned(statusCode: Int, body: String)
 }
 
-/// The two Worker routes behind the panel.
+/// The three Worker routes behind the panel: the page reader and the two depth service measurements.
 @MainActor
 final class RoomArtClient {
     private let tryItItemURL: URL
     private let roomWallURL: URL
+    private let roomFloorURL: URL
     private let session: URLSession
 
-    /// Depth Pro takes about 14 seconds on the wall, and Sonnet several on the page. Past this the panel says it failed.
+    /// Depth Pro takes about 14 seconds on a frame, and Sonnet several on the page. Past this the panel says it failed.
     private static let timeoutSeconds: TimeInterval = 90
 
     init(workerBaseURL: String) {
-        guard let tryItItemURL = URL(string: "\(workerBaseURL)/try-it-item"), let roomWallURL = URL(string: "\(workerBaseURL)/room-wall") else {
+        guard let tryItItemURL = URL(string: "\(workerBaseURL)/try-it-item"),
+              let roomWallURL = URL(string: "\(workerBaseURL)/room-wall"),
+              let roomFloorURL = URL(string: "\(workerBaseURL)/room-floor") else {
             preconditionFailure("Worker base URL did not form the room art URLs: \(workerBaseURL)")
         }
         self.tryItItemURL = tryItItemURL
         self.roomWallURL = roomWallURL
+        self.roomFloorURL = roomFloorURL
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = Self.timeoutSeconds
         configuration.timeoutIntervalForResource = Self.timeoutSeconds
@@ -1022,18 +1306,32 @@ final class RoomArtClient {
         }
         return try WallPlane(responseData: responseData)
     }
+
+    /// `floorRequest.anchor` is the keyframe pixel the furniture's front-bottom center stands on. The body is the wall's.
+    func measureTheFloor(_ floorRequest: RoomWallRequest) async throws -> FloorPlane {
+        let (responseData, statusCode) = try await WorkerJSONPost.send(
+            try JSONEncoder().encode(floorRequest.json),
+            to: roomFloorURL,
+            using: session,
+            sendsAppSecret: true
+        )
+        guard statusCode == 200 else {
+            throw RoomArtWorkerError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
+        }
+        return try FloorPlane(responseData: responseData)
+    }
 }
 
-/// What a failed wall measurement means to the learner: a transport error says the Worker could not be reached, 401 says
-/// the app secret is missing, 503 (no depth service configured) and 502 (it is down) ask whether it runs, and anything
-/// else, a 422 included, says the wall could not be measured.
-nonisolated func roomArtFailure(forAFailedWallMeasurement error: Error) -> RoomArtFailure {
+/// What a failed wall or floor measurement means to the learner: a transport error says the Worker could not be reached,
+/// 401 says the app secret is missing, 503 (no depth service configured) and 502 (it is down) ask whether it runs, and
+/// anything else, a 422 or a reply that is not a plane included, says the surface could not be measured.
+nonisolated func roomArtFailure(forAFailedMeasurementOf surfaceKind: RoomArtSurfaceKind, error: Error) -> RoomArtFailure {
     if error is URLError { return .workerUnreachable }
-    guard case RoomArtWorkerError.workerReturned(let statusCode, _) = error else { return .wallNotMeasured }
+    guard case RoomArtWorkerError.workerReturned(let statusCode, _) = error else { return surfaceKind.cannotPlaceFailure }
     switch statusCode {
     case 401: return .appSecretMissing
     case 502, 503: return .depthServiceUnavailable
-    default: return .wallNotMeasured
+    default: return surfaceKind.cannotPlaceFailure
     }
 }
 

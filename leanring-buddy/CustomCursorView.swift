@@ -217,30 +217,6 @@ struct CustomCursorView: View {
     }
 }
 
-/// The triangle: the accent shaded light at the tip to deep at the base, with a light edge along its top, so it reads as an object
-/// on a page and not a flat shape. An accent that is not a `#RRGGBB` color draws flat.
-private struct CursorTriangleGlyph: View {
-    let accentHex: String
-
-    var body: some View {
-        if let shades = CursorGlyphShade.shades(accentHex: accentHex) {
-            Triangle()
-                .fill(LinearGradient(colors: [shades.light.color, shades.middle.color, shades.deep.color], startPoint: .top, endPoint: .bottom))
-                .overlay {
-                    // The edge is stroked on the outline and clipped to the triangle, so only its inner half shows.
-                    Triangle()
-                        .stroke(
-                            LinearGradient(colors: [Color.white.opacity(0.6), Color.white.opacity(0)], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.6)),
-                            lineWidth: 1.2
-                        )
-                        .clipShape(Triangle())
-                }
-        } else {
-            Triangle().fill(Color(hex: accentHex))
-        }
-    }
-}
-
 private struct CustomCursorShapeView: View {
     let shape: CustomCursorShape
 

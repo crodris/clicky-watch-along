@@ -503,3 +503,19 @@ struct ThemeStudioTetherTests {
         #expect(harness.studio.ideasArrivalCount == 2)
     }
 }
+
+@MainActor
+struct ThemeStudioCardGlideInCloseTests {
+    @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && !NSScreen.screens.isEmpty, "the card Glides only with Reduce Motion off and a screen"))
+    func aCardClosedDuringItsGlideInShowsNothingWhole() throws {
+        let harness = StudioHarness()
+        let cardPanel = ThemeStudioPanelController(onSaveClicked: { _ in })
+        cardPanel.show(studio: harness.studio)
+        let glideIn = try #require(cardPanel.openingFlight, "the card should Glide out of the cursor")
+        #expect(!glideIn.carriedViewIsHidden)
+        // Escape before the Glide lands. The carried copy would otherwise rest whole for 0.05 seconds over the closing card.
+        cardPanel.hide(because: .dismissed)
+        #expect(glideIn.carriedViewIsHidden)
+        #expect(cardPanel.openingFlight == nil)
+    }
+}

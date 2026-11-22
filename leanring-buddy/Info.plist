@@ -46,7 +46,7 @@
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Clicky controls Chrome to pause the YouTube video you are watching so it can quiz you.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Clicky uses your camera to show how a picture would look on your wall.</string>
+	<string>Clicky uses your camera to show how art, furniture, or a shirt would look in your room or on you.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Clicky uses your microphone so you can talk to it</string>
 	<key>NSScreenCaptureUsageDescription</key>
