@@ -232,3 +232,14 @@ nonisolated func roomFurnitureCompositeMaskPNG(projectedBox: [CGPoint], frameWid
     guard CGImageDestinationFinalize(destination) else { return nil }
     return pngData as Data
 }
+
+/// Whether a painting request that failed may succeed when asked for again: not for a service with no key (503), a wrong
+/// app secret (401), or a request the Worker refused (400), which fail the same way every time.
+nonisolated func roomFurniturePaintingIsWorthAskingForAgain(after error: Error) -> Bool {
+    switch error {
+    case RoomFurnitureGenerationError.serviceIsNotSetUp: return false
+    case RoomFurnitureGenerationError.workerReturned(let statusCode, _): return statusCode != 400 && statusCode != 401
+    case RoomFurnitureGenerationError.inputCouldNotBeRead: return false
+    default: return true
+    }
+}

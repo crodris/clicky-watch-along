@@ -322,8 +322,11 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
     var generatedModelData: Data?
     var maskPNG: Data? = Data([7])
     var paintedImage: CGImage?
-    /// What turning the painting into a layer gives back: nil stands for a painting at the wrong height.
-    var paintedLayersAreKept = true
+    /// The first painting whose layer is kept, counting from 1; the ones before it stand for paintings at the wrong
+    /// height, and nil keeps none.
+    var firstKeptPainting: Int? = 1
+    /// How many paintings fail with a 502 before the stub answers.
+    var failingPaintings = 0
     var renderSucceeds = true
     private(set) var storeModelSearches: [String] = []
     private(set) var modelsGenerated = 0
@@ -341,6 +344,7 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
     ) async throws -> CGImage {
         paintings += 1
         guard let paintedImage else { throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "") }
+        if paintings <= failingPaintings { throw RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "") }
         return paintedImage
     }
 
@@ -364,7 +368,10 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
             self.renders.append(renderRequest.look)
             return self.renderSucceeds ? Self.layers(renderRequest.look) : nil
         }
-        environment.paintedItemLayers = { _, _, _, _ in self.paintedLayersAreKept ? Self.layers(.paintedComposite) : nil }
+        environment.paintedItemLayers = { _, _, _, _ in
+            guard let firstKeptPainting = self.firstKeptPainting, self.paintings >= firstKeptPainting else { return nil }
+            return Self.layers(.paintedComposite)
+        }
     }
 }
 
@@ -982,21 +989,65 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
-    @Test func aPaintingAtTheWrongHeightKeepsTheCutout() async throws {
+    @Test func twoPaintingsAtTheWrongHeightKeepTheCutout() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)
         let looks = FurnitureLookStub()
         looks.paintedImage = furnitureCutoutImage()
-        looks.paintedLayersAreKept = false
+        looks.firstKeptPainting = nil
         let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
 
-        try await waitFor("the painting to be asked for") { looks.paintings == 1 }
+        try await waitFor("the second painting to be asked for") { looks.paintings == 2 }
         try await Task.sleep(for: .milliseconds(200))
+        #expect(looks.paintings == 2)
         #expect(harness.frameProcessor.furnitureLayersShown.isEmpty)
         #expect(harness.artIsShowing())
         harness.controller.close()
+    }
+
+    @Test func aPaintingAtTheWrongHeightIsAskedForOnceMore() async throws {
+        // With no model, a refused painting would leave the flat cutout, so the second painting replaces it.
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        looks.firstKeptPainting = 2
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the second painting to replace the cutout") { !harness.frameProcessor.furnitureLayersShown.isEmpty }
+        #expect(looks.paintings == 2)
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
+        harness.controller.close()
+    }
+
+    @Test func aFailedPaintingRequestIsAskedForOnceMore() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        looks.failingPaintings = 1
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the second painting after the 502") { !harness.frameProcessor.furnitureLayersShown.isEmpty }
+        #expect(looks.paintings == 2)
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
+        harness.controller.close()
+    }
+
+    @Test func onlyAPaintingFailureThatMayPassIsAskedForAgain() {
+        #expect(roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "")))
+        #expect(roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 504, body: "")))
+        #expect(roomFurniturePaintingIsWorthAskingForAgain(after: URLError(.timedOut)))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 401, body: "")))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 400, body: "")))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.inputCouldNotBeRead(reason: "")))
     }
 
     @Test func aModelThatDoesNotRenderFallsBackToThePainting() async throws {

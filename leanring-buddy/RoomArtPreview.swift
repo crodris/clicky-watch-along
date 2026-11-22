@@ -1479,35 +1479,41 @@ extension RoomArtPreviewController {
         guard let productPhotoJPEG,
               let projectedBox = floor.keyframeBoxCorners(widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters),
               let maskPNG = environment.compositeMaskPNG(projectedBox, keyframeImage.width, keyframeImage.height, Self.compositeShadowMarginPixels) else { return }
-        do {
-            let painted = try await environment.furnitureGeneration.paintTheItemIntoTheKeyframe(
-                keyframeJPEG: keyframe.measurementRequest.keyframeJPEGData,
-                keyframeWidth: keyframeImage.width,
-                keyframeHeight: keyframeImage.height,
-                productJPEG: productPhotoJPEG,
-                maskPNG: maskPNG,
-                itemTitle: furniture.title,
-                itemSizeWords: furniture.sizeInWords
-            )
-            guard !Task.isCancelled, thisOpening == openingNumber else { return }
-            #if DEBUG
-            // Verification reads the painting the height check judged, kept or refused. Debug builds only.
-            writeThePaintingForVerification(painted)
-            #endif
-            guard let layers = await environment.paintedItemLayers(painted, keyframeImage, maskPNG, projectedBox) else {
-                print("Room furniture: the painted item is shorter than the box's front or taller than its outline, so the look before it stays")
-                return
+        // The service paints each request afresh, so a painting refused for its height, or a failed request, is asked for
+        // once more before the piece is left with the look before it, which with no model is the flat cutout.
+        for attempt in 1...Self.mostPaintingAttempts {
+            do {
+                let painted = try await environment.furnitureGeneration.paintTheItemIntoTheKeyframe(
+                    keyframeJPEG: keyframe.measurementRequest.keyframeJPEGData,
+                    keyframeWidth: keyframeImage.width,
+                    keyframeHeight: keyframeImage.height,
+                    productJPEG: productPhotoJPEG,
+                    maskPNG: maskPNG,
+                    itemTitle: furniture.title,
+                    itemSizeWords: furniture.sizeInWords
+                )
+                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                #if DEBUG
+                // Verification reads the painting the height check judged, kept or refused. Debug builds only.
+                writeThePaintingForVerification(painted)
+                #endif
+                if let layers = await environment.paintedItemLayers(painted, keyframeImage, maskPNG, projectedBox) {
+                    guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                    frameProcessor.showTheFurnitureLayers(layers, keyframeNumber: keyframe.keyframeNumber)
+                    print("Room furniture: showing the painted composite")
+                    return
+                }
+                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                print("Room furniture: painting \(attempt) is shorter than the box's front, taller than its outline, or cut off, so it is not shown")
+            } catch {
+                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                print("Room furniture: no painted composite from painting \(attempt): \(error)")
+                // A Worker with no OpenAI key stays that way for this panel, so later placements do not ask again.
+                if case RoomFurnitureGenerationError.serviceIsNotSetUp = error { compositeServiceIsUnavailable = true }
+                guard roomFurniturePaintingIsWorthAskingForAgain(after: error) else { return }
             }
-            guard !Task.isCancelled, thisOpening == openingNumber else { return }
-            frameProcessor.showTheFurnitureLayers(layers, keyframeNumber: keyframe.keyframeNumber)
-            print("Room furniture: showing the painted composite")
-        } catch {
-            guard !Task.isCancelled, thisOpening == openingNumber else { return }
-            print("Room furniture: no painted composite: \(error)")
-            // A Worker with no OpenAI key stays that way for this panel, so later placements do not ask again. Any other
-            // failure may pass, so the next placement asks again.
-            if case RoomFurnitureGenerationError.serviceIsNotSetUp = error { compositeServiceIsUnavailable = true }
         }
+        print("Room furniture: no painting stood at the measured size, so the look before it stays")
     }
 
     #if DEBUG
@@ -1518,6 +1524,9 @@ extension RoomArtPreviewController {
         if CGImageDestinationFinalize(destination) { print("Room furniture: wrote the painting to \(fileURL.path)") }
     }
     #endif
+
+    /// How many paintings one placement asks for before it keeps the look before them.
+    fileprivate static let mostPaintingAttempts = 2
 
     /// The painted composite's mask reaches this far past the box's floor footprint, so the item's shadow on the floor is
     /// painted too.
