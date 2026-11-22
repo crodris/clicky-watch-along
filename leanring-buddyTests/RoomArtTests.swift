@@ -897,6 +897,34 @@ struct RoomArtLineTests {
         #expect(step(dictation: true, presses: 5) == .drop)
         #expect(step(thinking: true, opening: true, presses: 5) == .drop)
     }
+
+    @Test func aRequestStartsAtThePressThatAskedSoOnlyALaterPressDropsItsLine() {
+        var request = RoomArtRequestRecord()
+        request.start(atPushToTalkPressCount: 7)
+        func lineStep(presses: Int, thinking: Bool = false) -> RoomArtLineStep {
+            request.lineStep(dictationIsInProgress: false, clickyIsThinking: thinking, audioIsPlaying: false, pushToTalkPressCount: presses)
+        }
+        #expect(lineStep(presses: 7) == .speakNow)
+        // While the page is read, the request's own thinking state does not hold its line back.
+        #expect(lineStep(presses: 7, thinking: true) == .speakNow)
+        #expect(lineStep(presses: 8) == .drop)
+    }
+
+    @Test func aCancelledRequestLeavesTheOpeningToTheNewerRequest() {
+        var request = RoomArtRequestRecord()
+        request.start(atPushToTalkPressCount: 2)
+        let cancelledRequestOwnsTheVoiceState = request.openingReturned(requestWasCancelled: true)
+        #expect(!cancelledRequestOwnsTheVoiceState)
+        #expect(request.isOpeningThePanel)
+        // Thinking still means the room art's own opening, so a line still speaks over it.
+        #expect(request.lineStep(dictationIsInProgress: false, clickyIsThinking: true, audioIsPlaying: false, pushToTalkPressCount: 2) == .speakNow)
+
+        let finishedRequestOwnsTheVoiceState = request.openingReturned(requestWasCancelled: false)
+        #expect(finishedRequestOwnsTheVoiceState)
+        #expect(!request.isOpeningThePanel)
+        // The opening is over, so thinking now is a newer request's, and the line waits for it.
+        #expect(request.lineStep(dictationIsInProgress: false, clickyIsThinking: true, audioIsPlaying: false, pushToTalkPressCount: 2) == .waitForQuiet)
+    }
 }
 
 struct RoomCameraTests {

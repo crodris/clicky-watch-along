@@ -1163,6 +1163,41 @@ nonisolated func roomArtLineStep(
     return mayStart ? .speakNow : .waitForQuiet
 }
 
+/// What CompanionManager keeps about the newest room art request: the push-to-talk press count when it started, so only a
+/// later press counts as the learner's next request, and whether it still reads the page and its picture, which holds the
+/// thinking state until the panel opens.
+struct RoomArtRequestRecord: Equatable {
+    private(set) var pushToTalkPressCountWhenItStarted = 0
+    private(set) var isOpeningThePanel = false
+
+    /// The press that asked was counted before the request starts, so the request starts at the current count.
+    mutating func start(atPushToTalkPressCount pushToTalkPressCount: Int) {
+        pushToTalkPressCountWhenItStarted = pushToTalkPressCount
+        isOpeningThePanel = true
+    }
+
+    /// The panel's opening returned, and the result says whether this request still owns the voice state. A push-to-talk
+    /// press that cancelled the request started a newer request, which owns the voice state and, when it is another room
+    /// art request, the opening flag too, so a cancelled request leaves both and returns false.
+    mutating func openingReturned(requestWasCancelled: Bool) -> Bool {
+        guard !requestWasCancelled else { return false }
+        isOpeningThePanel = false
+        return true
+    }
+
+    /// `roomArtLineStep` for this request.
+    func lineStep(dictationIsInProgress: Bool, clickyIsThinking: Bool, audioIsPlaying: Bool, pushToTalkPressCount: Int) -> RoomArtLineStep {
+        roomArtLineStep(
+            dictationIsInProgress: dictationIsInProgress,
+            clickyIsThinking: clickyIsThinking,
+            audioIsPlaying: audioIsPlaying,
+            roomArtIsOpeningThePanel: isOpeningThePanel,
+            pushToTalkPressCount: pushToTalkPressCount,
+            pushToTalkPressCountWhenTheRoomArtStarted: pushToTalkPressCountWhenItStarted
+        )
+    }
+}
+
 // MARK: - The phrase that asks for it
 
 /// Whether the learner asks to see this item placed in their own room or on themselves: a room phrase ("in my room", "on my

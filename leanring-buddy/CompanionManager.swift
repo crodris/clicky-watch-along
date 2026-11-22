@@ -397,10 +397,9 @@ final class CompanionManager: ObservableObject {
     private var roomArtSpeechTask: Task<Void, Never>?
     /// The playback token of the room art's own spoken line, so a close stops that exact line and never a newer answer.
     private var roomArtLineToken: SpokenLineToken?
-    /// The press count when the learner asked to see the art, so a line that lands after a newer press is dropped.
-    private var pushToTalkPressCountWhenTheRoomArtStarted = 0
-    /// The room art request holds the thinking state while it reads the page and its picture, until the panel opens.
-    private var roomArtIsOpeningThePanel = false
+    /// The newest room art request: its press count, so a line that lands after a newer press is dropped, and whether it
+    /// still reads the page and its picture, which holds the thinking state until the panel opens.
+    private var roomArtRequest = RoomArtRequestRecord()
     /// The playback token of the studio's own spoken line, so closing the card stops that exact line and never an unrelated
     /// answer that is playing when the card closes. Once the line has ended, the token matches nothing and stops nothing.
     private var themeStudioLineToken: SpokenLineToken?
@@ -3193,82 +3192,67 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Escape only cancels a text field being edited in Clicky's own window, such as a saved theme's rename field, when one
-    /// is, does nothing more when the menu bar panel took it as its own close, only cancels the settings dial when it is
-    /// open, only closes the agent list when that is open, and then closes the Theme Studio card when that is open, keeping
-    /// the old theme, then answers an "Add theme?" card with a no, then closes the room art panel (or stops its page read),
-    /// then stops a recap's disc gather, then closes the quiz summary Card, and then ends an open instant replay, leaving the
-    /// pop-out on screen. Otherwise it ends the scene and anything Clicky is still saying about it.
-    /// During a video quiz question it skips that question and plays the video on.
-    /// With no scene on screen, it skips the answer Clicky is giving.
+    /// Runs the one step `escapeStep(for:)` picks from what is open now: a surface ahead of the scene takes the Escape alone,
+    /// then a video quiz question is skipped, then the answer Clicky is giving stops when no scene is up, and a finished
+    /// scene clears with anything Clicky is still saying about it.
     private func closeLiveSceneOnEscape() {
-        // A text field being edited in Clicky's own window, such as a saved theme's rename field, takes Escape as its
-        // cancel. The event tap sees that key too, so it closes nothing else, such as the studio card or a scene.
-        if NSApp.keyWindow?.firstResponder is NSText {
-            return
+        var noSceneIsUp = false
+        var aFinishedSceneShowsAllItsLabels = false
+        switch liveScenePhase {
+        case .idle: noSceneIsUp = true
+        case .allLabelsShowing: aFinishedSceneShowsAllItsLabels = true
+        default: break
         }
-        // The menu bar panel takes Escape as its own close, so it skips no quiz question and clears no scene. The panel may
-        // close before this runs, so it also counts an Escape it closed on a moment ago.
-        if menuPanelTookTheEscape() {
+        let escapeFacts = EscapeFacts(
+            // The event tap also sees an Escape a text field takes as its cancel.
+            aTextFieldIsBeingEdited: NSApp.keyWindow?.firstResponder is NSText,
+            // The panel may close before this runs, so this also counts an Escape it closed on a moment ago.
+            theMenuPanelTookTheEscape: menuPanelTookTheEscape(),
+            theSettingsDialIsOpen: settingsDialController.isOpen,
+            theAgentListIsOpen: agentListPanelController.isOpen,
+            theThemeStudioIsOpen: themeStudioController.isOpen,
+            anAddThemeCardIsOpen: themeInstallConfirmation.isOpen,
+            theRoomArtPanelTakesEscape: roomArtPreviewController.takesEscape,
+            theRecapIsGatheringTheDiscs: videoRecapIsGatheringTheDiscs,
+            theQuizSummaryIsShowing: videoQuizSummaryPanelController.isShowing,
+            anInstantReplayIsOpen: instantReplay.isOpen,
+            aPopOutIsReturningToSource: LiveSceneOverlay.shared.isReturningToSource,
+            aVideoQuizQuestionIsOpen: videoQuizQuestionIsActive,
+            noSceneIsUp: noSceneIsUp,
+            aFinishedSceneShowsAllItsLabels: aFinishedSceneShowsAllItsLabels
+        )
+        switch escapeStep(for: escapeFacts) {
+        case .leaveItToTheTextField, .leaveItToTheMenuPanel, .leaveItToTheSettingsDial, .nothing:
             return
-        }
-        // With the settings dial open, Escape only cancels it. The monitor sends Escape ahead of the dial's own
-        // cancel, so the dial is still open here.
-        if settingsDialController.isOpen {
-            return
-        }
-        // With the agent list open, Escape only closes it, back into the disc it opened from.
-        if agentListPanelController.isOpen {
+        case .closeTheAgentList:
             agentListPanelController.closeWithGlide()
-            return
-        }
-        // With the Theme Studio card open, Escape closes it and keeps the old theme, ahead of any scene behavior.
-        if themeStudioController.closeOnEscape() {
-            return
-        }
-        // An "Add theme?" card is answered with a no.
-        if themeInstallConfirmation.cancelOnEscape() {
-            return
-        }
-        // With the room art panel open, or its page still being read, Escape closes it, stops the camera, and ends its
-        // spoken line (`stopTheRoomArtSpeech`, which every close runs), ahead of any scene behavior.
-        if roomArtPreviewController.closeOnEscape() {
-            return
-        }
-        // Escape while the discs gather for the recap stops it, and the discs go back.
-        if videoRecapIsGatheringTheDiscs {
+        case .closeTheThemeStudio:
+            _ = themeStudioController.closeOnEscape()
+        case .declineTheAddThemeCard:
+            _ = themeInstallConfirmation.cancelOnEscape()
+        case .closeTheRoomArtPanel:
+            // Every close runs `stopTheRoomArtSpeech`, so the camera and the spoken line stop together.
+            _ = roomArtPreviewController.closeOnEscape()
+        case .stopTheRecapGather:
             cancelTheVideoRecapGather()
-            return
-        }
-        // With the quiz summary open, Escape closes it.
-        if videoQuizSummaryPanelController.isShowing {
+        case .closeTheQuizSummary:
             videoQuizSummaryPanelController.close(animated: true)
-            return
-        }
-        // An open instant replay ends next, with the camera and the cursor stopped where they are and the pop-out
-        // still on screen, so a second Escape sends the pop-out back as before.
-        if instantReplay.endIfOpen() {
-            return
-        }
-        // A second Escape while a pop-out lands in its frame hides it at once.
-        if LiveSceneOverlay.shared.isReturningToSource {
+        case .endTheInstantReplay:
+            // The camera and the cursor stop where they are.
+            _ = instantReplay.endIfOpen()
+        case .hideThePopOutAtOnce:
             clearTheLiveSceneAndReleaseTheBuddy()
-            return
-        }
-        if videoQuizQuestionIsActive {
+        case .skipTheQuizQuestion:
             skipTheVideoQuizQuestion()
-            return
-        }
-        if case .idle = liveScenePhase {
+        case .stopTheReply:
             stopTheReplyOnEscape()
-            return
+        case .clearTheFinishedScene:
+            currentResponseTask?.cancel()
+            elevenLabsTTSClient.stopPlayback()
+            voiceState = .idle
+            clearFinishedLiveScene()
+            scheduleTransientHideIfNeeded()
         }
-        guard case .allLabelsShowing = liveScenePhase else { return }
-        currentResponseTask?.cancel()
-        elevenLabsTTSClient.stopPlayback()
-        voiceState = .idle
-        clearFinishedLiveScene()
-        scheduleTransientHideIfNeeded()
     }
 
     /// A pop-out or explored scene is on screen, touring or finished, with no quiz question waiting on it.
@@ -4281,21 +4265,16 @@ final class CompanionManager: ObservableObject {
     /// the panel and its spoken line say the rest. Like any hand-off, it takes over the reply. `learnerRequest` is the
     /// learner's words, which tell the page reader which item they mean.
     private func startShowingTheArtInMyRoom(learnerRequest: String) {
-        // The request that asked already pressed push-to-talk, so only a later press is the learner's next request.
-        pushToTalkPressCountWhenTheRoomArtStarted = pushToTalkPressCount
+        roomArtRequest.start(atPushToTalkPressCount: pushToTalkPressCount)
         roomArtSpeechTask?.cancel()
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         // A scene that finished building would play over the panel, so it is cancelled first.
         cancelTheSceneStillBuilding()
         voiceState = .processing
-        roomArtIsOpeningThePanel = true
         currentResponseTask = Task {
             await self.roomArtPreviewController.showTheArtInTheRoom(learnerRequest: learnerRequest)
-            // A push-to-talk press cancelled this task, and the newer request owns the voice state and, when it is another
-            // room art request, the opening flag too.
-            guard !Task.isCancelled else { return }
-            self.roomArtIsOpeningThePanel = false
+            guard self.roomArtRequest.openingReturned(requestWasCancelled: Task.isCancelled) else { return }
             if self.voiceState == .processing { self.voiceState = .idle }
             self.scheduleTransientHideIfNeeded()
         }
@@ -4309,13 +4288,11 @@ final class CompanionManager: ObservableObject {
         roomArtSpeechTask?.cancel()
         roomArtSpeechTask = Task {
             while !Task.isCancelled {
-                let lineStep = roomArtLineStep(
+                let lineStep = self.roomArtRequest.lineStep(
                     dictationIsInProgress: self.buddyDictationManager.isDictationInProgress,
                     clickyIsThinking: self.voiceState == .processing,
                     audioIsPlaying: self.elevenLabsTTSClient.isPlaying,
-                    roomArtIsOpeningThePanel: self.roomArtIsOpeningThePanel,
-                    pushToTalkPressCount: self.pushToTalkPressCount,
-                    pushToTalkPressCountWhenTheRoomArtStarted: self.pushToTalkPressCountWhenTheRoomArtStarted
+                    pushToTalkPressCount: self.pushToTalkPressCount
                 )
                 switch lineStep {
                 case .drop:
