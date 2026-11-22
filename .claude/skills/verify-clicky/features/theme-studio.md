@@ -14,7 +14,7 @@ The learner picks or refines by voice or click, the real cursor previews the hig
 - `studio-refine` sends the ideas on the card and `basedOnIdea` back to the route (`design_theme`), dims the old ideas while it runs, and returns to them with "Sorry, I couldn't design that one." when it fails.
 - `studio-picture` captures the largest picture in Chrome's front tab for "make my theme from this picture", draws the loop, and lets an idea use it as the cursor (whole or round, with an outline and a tint) or as the agent tokens' faces.
 - `studio-save` writes `theme.json` and `picture.jpg`, sets `companionTheme` to `custom:<id>`, closes the card, stops the line Clicky is saying about the ideas, and plays the theme's done sound.
-  A click on Save shows a chip under the cursor, "Theme saved", or "Couldn't save the theme" when the write fails, and the card stays open on a failure. The voice tool's chip comes from the router instead.
+  A click on Save shows a chip above the cursor, "Theme saved", or "Couldn't save the theme" when the write fails, and the card stays open on a failure. The voice tool's chip comes from the router instead.
 - `studio-close` closes the card and keeps the old theme, from `close_theme_studio`, the Close button, or Escape, and stops the line Clicky is saying about the ideas, or a line still waiting to be said.
   It stops only the studio's own line, so an answer Clicky is giving for a request the router handed off keeps playing.
 - `studio-router` sends every word spoken with the card open to `/voice-command`, with no keyword branch ahead of it, so "two" or "save it" reaches the router even while a scene builds. Quiz phrases such as "can we stop" are the router's too, unless a quiz question is open.
@@ -67,7 +67,7 @@ Preconditions:
   Post `{"name":"debug_seed_agents","arguments":{"kinds":["task","task","task"]}}`: the three tokens beside the notch take the first three theme agent colors, and with a picture theme their faces are the picture. Run `$V shot studio-agents`.
   Relaunch the app: the theme is still applied, and the menu bar panel lists it after the built-in themes.
 - **Save click.** Open the card again and click Save with the real mouse: read the button's point from a `$V shot`, then run `swift demo/scripts/mouse/mouse.swift click <x> <y>`.
-  The card closes, a "Theme saved" chip shows under the cursor for about 1.4 seconds, and `companionTheme` is `custom:<id>`.
+  The card closes, a "Theme saved" chip shows above the cursor for about 1.4 seconds, and `companionTheme` is `custom:<id>`.
   Run `chmod a-w ~/Library/Application\ Support/Clicky/Themes`, open the card, and click Save again: the card stays open and the chip says "Couldn't save the theme".
   Put it back with `chmod u+w` on the same folder.
 - **Rename and delete.** Start from a saved theme (the Save step) and the idle Debug app, then click the Clicky menu bar icon with the real mouse, reading the point from a `$V shot`.

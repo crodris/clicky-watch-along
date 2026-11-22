@@ -4,7 +4,8 @@
 //
 //  The ring around the cursor, which gives Clicky's voice states one home: a ring of ticks that follows
 //  your voice while you speak, and three dots orbiting the cursor while Clicky thinks. Speaking hides the
-//  ring, because the response bubble types with the voice. While a loop shows around the media Clicky is
+//  ring, because the speech Callout brightens its words with the voice. A status line's Callout sits above the cursor and
+//  leaves the ring alone, so the ring keeps showing under it. While a loop shows around the media Clicky is
 //  looking at, the loop's spark is the thinking light instead, and the dots stay away.
 //
 //  The cues hand off to one another instead of cutting: on release the ticks shrink into the dots (0.3 s), and when speech
@@ -17,7 +18,7 @@ import SwiftUI
 /// What is moving at the cursor. One cue at a time: ticks while listening, the dots or the loop's spark
 /// while thinking, and the response bubble while speaking.
 enum CursorCue: Equatable {
-    /// Nothing moves at the cursor. A status label such as "Building your 3D scene" counts, since the ring hides under it.
+    /// Nothing moves at the cursor.
     case idle
     case listening
     case thinkingWithDots
@@ -26,9 +27,8 @@ enum CursorCue: Equatable {
     case speaking
 }
 
-func cursorCue(voiceState: CompanionVoiceState, loopIsShowing: Bool, aStatusLabelIsShowing: Bool) -> CursorCue {
+func cursorCue(voiceState: CompanionVoiceState, loopIsShowing: Bool) -> CursorCue {
     if loopIsShowing { return .thinkingWithLoop }
-    if aStatusLabelIsShowing { return .idle }
     switch voiceState {
     case .idle: return .idle
     case .listening: return .listening
@@ -122,9 +122,8 @@ enum CursorRingHandoff: Equatable {
     static let ticksIntoDotsSeconds: TimeInterval = 0.3
     static let dotsIntoSpeechSeconds: TimeInterval = 0.38
 
-    /// Where the speech bubble's tail touches, from the cursor's center. It is the top left corner of the bubble Clicky shows
-    /// beside the cursor today, and the speech bubble sets its own tail point when it replaces that bubble.
-    static let defaultSpeechTailOffset = CGPoint(x: 10, y: 7)
+    /// Where the speech Callout's tail tip touches, from the cursor's center: just above the triangle (`speechCalloutCenter`).
+    static let defaultSpeechTailOffset = CGPoint(x: 0, y: -tetherCalloutTipRiseAboveTheCursor)
 
     var seconds: TimeInterval {
         switch self {
