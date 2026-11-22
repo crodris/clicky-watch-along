@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -591,16 +593,20 @@ func TestAHandedOffResultThenACancelEndTheCommandAsHandedOff(t *testing.T) {
 }
 
 // Commands and tasks share one stdin reader and one app write queue, so a task waiting on a slow MCP server, with a
-// large tool result on its way to it, must not hold up a command.
+// large tool result on its way to it, must not hold up a command. The MCP server stays stopped on a named pipe until
+// the test opens it, so the test waits on the command's first call and measures no time.
 func TestACommandGetsItsFirstCallWhileATaskWaitsOnTheMCPServersAndAResultIsInFlight(t *testing.T) {
-	const mcpServerStartDelay = 5 * time.Second
 	directory := t.TempDir()
+	mcpServerStartGatePath := filepath.Join(directory, "start.gate")
+	if err := syscall.Mkfifo(mcpServerStartGatePath, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	config := map[string]any{"mcpServers": map[string]any{"slow": map[string]any{
 		"command": os.Args[0],
 		"env": map[string]string{
-			"CLICKY_TEST_MCP_SERVER":         "1",
-			"CLICKY_TEST_MCP_LOG":            filepath.Join(directory, "ran.log"),
-			"CLICKY_TEST_MCP_START_DELAY_MS": fmt.Sprint(mcpServerStartDelay.Milliseconds()),
+			"CLICKY_TEST_MCP_SERVER":     "1",
+			"CLICKY_TEST_MCP_LOG":        filepath.Join(directory, "ran.log"),
+			"CLICKY_TEST_MCP_START_GATE": mcpServerStartGatePath,
 		},
 	}}}
 	configPath := filepath.Join(directory, "mcp.json")
@@ -615,26 +621,42 @@ func TestACommandGetsItsFirstCallWhileATaskWaitsOnTheMCPServersAndAResultIsInFli
 		writeStreamedMessage(writer, "tool_use", toolUseBlock("toolu_finish", "finish", `{"spokenSummary":"Done."}`))
 	})
 	driver := startHarnessWith(t, configuration{workerBaseURL: worker.server.URL, appSecret: "test-secret", mcpConfigPath: configPath, lookupEnvironment: noEnvironment})
-	startedAt := time.Now()
+	// Opening the pipe for writing releases the server, once it reaches its own open. The open runs in a goroutine, so a
+	// server that never starts fails the test at its next wait and not in a hang. Cleanup releases the server too, since
+	// a test that failed first would otherwise leave it blocked, and the harness cannot stop while its task connects.
+	// Cleanups run last in first out, so this one runs before the harness stops.
+	var releaseTheMCPServerOnce sync.Once
+	releaseTheMCPServer := func() {
+		releaseTheMCPServerOnce.Do(func() {
+			go func() {
+				startGate, err := os.OpenFile(mcpServerStartGatePath, os.O_WRONLY, 0)
+				if err == nil {
+					startGate.Close()
+				}
+			}()
+		})
+	}
+	t.Cleanup(releaseTheMCPServer)
 	driver.send(startTaskLine("task-1", "read my note"))
 	// A screenshot-sized result for the task, which it cannot read yet, since it is still connecting.
 	largeResultText := strings.Repeat("x", 4_000_000)
 	driver.send(toolResultLine("task-1", "toolu_screenshot", string(mustMarshal(largeResultText)), false))
 	driver.send(voiceCommandLine("command-1", "turn it left"))
 
+	// The MCP server cannot start before the gate opens, so a first call that arrives proves the command never waited
+	// on it, and a command that did wait fails here at the test timeout.
 	if got := driver.expectLine("tool_call"); !strings.Contains(got, `"taskID":"command-1"`) {
 		t.Fatalf("the first call was %s", got)
-	}
-	if elapsed := time.Since(startedAt); elapsed >= mcpServerStartDelay {
-		t.Errorf("the command's first call came after %s, once the MCP server had started", elapsed)
 	}
 	for _, request := range worker.requests() {
 		if !requestIsTheBrains(request) {
 			t.Error("the task reached the Worker before its MCP server started, so the test proved nothing")
 		}
 	}
+	// The command ends while the server is still stopped, so the task cannot finish ahead of it.
 	driver.send(voiceToolResultLine("command-1", "toolu_rotate", voiceToolChanged, `{"ok":true,"state":null}`))
 	driver.expectLine("voice_command_finished")
+	releaseTheMCPServer()
 	driver.expectLine("task_finished")
 }
 
