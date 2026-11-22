@@ -81,14 +81,25 @@ func makeBackgroundAgentStore(theme: ClickyTheme = clickyBlueTheme) -> Backgroun
     BackgroundAgentStore(themeSettings: makeThemeSettings(startingWith: theme))
 }
 
-/// The name of a fixed UserDefaults suite for a test that reads its saved values back, after the test host's bundle ID.
-/// Every CI runner on the Mac runs as the same macOS user and builds the app with its own bundle ID, so the bundle ID
-/// keeps the tests of two runners that run at the same time from clearing or overwriting each other's values. The name
-/// stays fixed for each runner, since macOS keeps an empty preferences file for each suite even after its domain is removed.
-/// `tools/swift-check.sh` runs every checkout's tests under one test runner's bundle ID, and parallel worktrees run it at
-/// the same time, so the name also carries a hash of the checkout's path, which stays fixed for each checkout.
-func fixedTestDefaultsSuiteName(_ testName: String) -> String {
-    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(checkoutPathHash)-\(testName)"
+/// The name of a UserDefaults suite for a test that reads its saved values back, unique to this checkout and this test run.
+/// Every CI runner on the Mac runs as the same macOS user and builds the app with its own bundle ID, so the bundle ID keeps
+/// the tests of two runners that run at the same time from clearing or overwriting each other's values.
+/// `tools/swift-check.sh` runs every checkout's tests under one test runner's bundle ID, so the name also carries a hash of
+/// the checkout's path.
+/// Two runs from the same checkout at the same time would still share a name, and one run's `removePersistentDomain` made
+/// the other read an empty suite (a test expecting Inarizaki read Clicky blue), so the name also carries the process ID.
+/// macOS keeps an empty preferences file for every suite name even after its domain is removed, and a name per run would
+/// leave one file for each run, so `removeTestDefaultsSuite` deletes it.
+func perRunTestDefaultsSuiteName(_ testName: String) -> String {
+    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(checkoutPathHash)-\(ProcessInfo.processInfo.processIdentifier)-\(testName)"
+}
+
+/// Empties a suite named by `perRunTestDefaultsSuiteName` and deletes the preferences file macOS keeps for it.
+func removeTestDefaultsSuite(named suiteName: String) {
+    UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+    let preferencesFileURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Preferences/\(suiteName).plist")
+    try? FileManager.default.removeItem(at: preferencesFileURL)
 }
 
 /// A 64-bit FNV-1a hash of the checkout's path, in hex. Swift's own `hashValue` changes with every process, and a path
@@ -102,13 +113,13 @@ private let checkoutPathHash: String = {
     return String(hash, radix: 16)
 }()
 
-/// A UserDefaults suite of its own, named by `fixedTestDefaultsSuiteName`, emptied before and after `body`.
+/// A UserDefaults suite of its own, named by `perRunTestDefaultsSuiteName`, emptied before and after `body`.
 @MainActor
 func withEmptyDefaults(suiteName: String, _ body: @MainActor (UserDefaults) throws -> Void) throws {
-    let runnerSuiteName = fixedTestDefaultsSuiteName(suiteName)
+    let runnerSuiteName = perRunTestDefaultsSuiteName(suiteName)
     let testDefaults = try #require(UserDefaults(suiteName: runnerSuiteName))
     testDefaults.removePersistentDomain(forName: runnerSuiteName)
-    defer { testDefaults.removePersistentDomain(forName: runnerSuiteName) }
+    defer { removeTestDefaultsSuite(named: runnerSuiteName) }
     try body(testDefaults)
 }
 
@@ -233,6 +244,19 @@ struct BundledThemeTests {
         #expect(ThemeSettingValue.migrated(fromSavedValue: "random") == ("bundled:clicky-blue", true))
         #expect(ThemeSettingValue.migrated(fromSavedValue: "custom:moonlit-3f9a") == ("custom:moonlit-3f9a", false))
         #expect(ThemeSettingValue.migrated(fromSavedValue: "bundled:school-nekoma") == ("bundled:school-nekoma", false))
+    }
+
+    @Test func aTestRunAndItsSuiteFileAreOwnedByThatRunAlone() throws {
+        // Another run of the same checkout has another process ID, so its suite never shares this one's values.
+        let suiteName = perRunTestDefaultsSuiteName("BundledThemeTests-SuiteName")
+        #expect(suiteName.contains("-\(ProcessInfo.processInfo.processIdentifier)-"))
+
+        let testDefaults = try #require(UserDefaults(suiteName: suiteName))
+        testDefaults.set("bundled:school-inarizaki", forKey: CompanionThemeSettings.userDefaultsKey)
+        removeTestDefaultsSuite(named: suiteName)
+        #expect(testDefaults.string(forKey: CompanionThemeSettings.userDefaultsKey) == nil)
+        let preferencesFileURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences/\(suiteName).plist")
+        #expect(!FileManager.default.fileExists(atPath: preferencesFileURL.path))
     }
 
     @Test func aLaunchReadsAnOlderSettingWithoutRewritingItAndRandomIsClickyBlueWithShuffleOn() async throws {
