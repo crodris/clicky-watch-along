@@ -36,6 +36,9 @@ final class CursorLoopController: ObservableObject {
     private let waitBetweenFrontTabPolls: () async -> Void
     /// The wait for a finished agent's spark to complete its last lap. Tests pass one that returns at once.
     private let waitForAFinishingSparkLap: () async -> Void
+    /// The wait an idle must outlast to end a loop. Tests pass one that returns at once, so the voice state it reads afterwards
+    /// is the one the test set, with no clock of a busy machine in between.
+    private let waitForAnIdleToHold: () async -> Void
     /// Whether an agent's spark may join the line and draw now: false while a scene covers the media, a quiz question is open, or
     /// Show Clicky is off (`agentSparksMayDraw(clickyCursorIsEnabled:aSceneIsOnScreen:aQuizQuestionIsOpen:theRoomArtPanelIsOpen:)`). `CompanionManager`
     /// sets it, since the controller does not know those states. It is read when an agent starts, when a release reads the
@@ -54,6 +57,10 @@ final class CursorLoopController: ObservableObject {
     /// The voice state goes idle for a moment after a request is submitted, when the dictation session finishes
     /// and before the request sets its own processing state, so an idle ends a loop only after it holds this long.
     static let secondsAnIdleMustHoldToEndTheLoop: TimeInterval = 0.3
+    /// The real wait an idle must outlast. A newer voice state cancels it early.
+    static func sleepForAnIdleToHold() async {
+        try? await Task.sleep(for: .seconds(secondsAnIdleMustHoldToEndTheLoop))
+    }
     private static let chromeBundleIdentifier = "com.google.Chrome"
     /// The real wait for a finishing lap, as long as the spark takes to run it.
     static func sleepForAFinishingSparkLap() async {
@@ -65,12 +72,14 @@ final class CursorLoopController: ObservableObject {
         readTheFrontTabSample: @escaping () -> FrontTabSample? = CursorLoopController.readTheFrontTabSample,
         waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls,
         waitForAFinishingSparkLap: @escaping () async -> Void = CursorLoopController.sleepForAFinishingSparkLap,
+        waitForAnIdleToHold: @escaping () async -> Void = CursorLoopController.sleepForAnIdleToHold,
         appActivationNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
     ) {
         self.readTheMediaInTheFrontTab = readTheMediaInTheFrontTab
         self.readTheFrontTabSample = readTheFrontTabSample
         self.waitBetweenFrontTabPolls = waitBetweenFrontTabPolls
         self.waitForAFinishingSparkLap = waitForAFinishingSparkLap
+        self.waitForAnIdleToHold = waitForAnIdleToHold
         self.appActivationNotificationCenter = appActivationNotificationCenter
         // The front app changing is a system event, so a notification is the only way to hear it.
         appActivationObserver = appActivationNotificationCenter.addObserver(
@@ -149,7 +158,7 @@ final class CursorLoopController: ObservableObject {
         }
         idleMustHoldTask?.cancel()
         idleMustHoldTask = Task {
-            try? await Task.sleep(for: .seconds(Self.secondsAnIdleMustHoldToEndTheLoop))
+            await waitForAnIdleToHold()
             // A request that has not handed off yet may sit idle for its whole router call, so only a loop that
             // is showing ends here. A cancelled request never hands off, and the next press ends its turn.
             guard !Task.isCancelled, latestVoiceState == .idle, state.loopIsShowing else { return }
