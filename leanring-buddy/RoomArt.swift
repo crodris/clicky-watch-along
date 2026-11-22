@@ -863,7 +863,8 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
 
 /// What the panel does with the page's reading. Only wall art and furniture whose page states a size are placed, so a size
 /// the model guessed never reaches the room, and only a top photographed laid flat or worn by a model is tried on, since a
-/// photo on a hanger shows neither the shirt's flat shape nor a body to map from.
+/// photo on a hanger shows neither the shirt's flat shape nor a body to map from. A long-sleeved top on a model is refused
+/// too, since the model's forearms are cut away with the arms and each sleeve would end at the upper arm.
 nonisolated enum RoomArtReadingPlan: Equatable, Sendable {
     case hangOnTheWall(RoomArtWallArtReading)
     case standOnTheFloor(RoomArtFurnitureReading, size: RoomArtFurnitureSize)
