@@ -365,12 +365,41 @@ struct InstantReplayTests {
         let repositoryRootURL = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
         let companionManagerSource = try String(contentsOf: repositoryRootURL.appendingPathComponent("leanring-buddy/CompanionManager.swift"), encoding: .utf8)
         #expect(companionManagerSource.components(separatedBy: "elevenLabsTTSClient.speakText(").count - 1 == 1)
+        // A line whose audio was fetched ahead plays through its own wrapper, which ends an open replay first too.
+        #expect(companionManagerSource.components(separatedBy: "elevenLabsTTSClient.play(").count - 1 == 1)
+        let playWrapperStart = try #require(companionManagerSource.range(of: "private func playLineEndingAnOpenReplay("))
+        let playWrapperSource = companionManagerSource[playWrapperStart.upperBound...]
+        let playReplayEnd = try #require(playWrapperSource.range(of: "instantReplay.endForAnotherAnswer()"))
+        let playLineStart = try #require(playWrapperSource.range(of: "elevenLabsTTSClient.play(lineFetch)"))
+        #expect(playReplayEnd.upperBound <= playLineStart.lowerBound)
         let wrapperStart = try #require(companionManagerSource.range(of: "private func speakTextEndingAnOpenReplay("))
         let wrapperSource = companionManagerSource[wrapperStart.upperBound...]
         let replayEnd = try #require(wrapperSource.range(of: "instantReplay.endForAnotherAnswer()"))
         let lineStart = try #require(wrapperSource.range(of: "elevenLabsTTSClient.speakText(text)"))
         // The replay ends before the line starts, so the camera and the cursor are still before the answer is heard.
         #expect(replayEnd.upperBound <= lineStart.lowerBound)
+    }
+
+    @Test func theTranscriptRouteReplaysOnlyWhileStopsAreRecorded() {
+        var popOutWithStops = TranscriptRouteContext(
+            themeStudioIsOpen: false,
+            phaseIsWaitingForAQuizAnswer: false,
+            liveSceneIsUpWithNoQuizQuestion: true,
+            sceneIsBuilding: false,
+            sceneIsOnScreen: true,
+            brainTakesEveryRequest: false,
+            backgroundSceneIsReady: false,
+            taskAnswerIsReady: false,
+            approvalIsWaiting: false,
+            backgroundAgentIsRunning: false,
+            backgroundAgentsArePaused: false,
+            replayStopsAreRecorded: true
+        )
+        #expect(transcriptRoute(for: "show me again", in: popOutWithStops, videoIsInFront: { true }) == .replayTheExplanation)
+        // A partial or final transcript that is not the whole phrase goes to the router as before.
+        #expect(transcriptRoute(for: "show me the wing again", in: popOutWithStops, videoIsInFront: { true }) == .voiceCommandRouter)
+        popOutWithStops.replayStopsAreRecorded = false
+        #expect(transcriptRoute(for: "show me again", in: popOutWithStops, videoIsInFront: { true }) == .voiceCommandRouter)
     }
 
     @Test func showMeAgainRunsAheadOfTheRouterOnlyWhenNothingElseHoldsTheWords() {

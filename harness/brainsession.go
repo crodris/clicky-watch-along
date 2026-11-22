@@ -57,7 +57,7 @@ type sessionCommand struct {
 }
 
 // brainSession holds the messages of the commands so far. A command works on a snapshot (sessionRun) and writes back
-// only when it ends whole, so a command the learner cancels leaves no trace. The mutex lets reset_session and
+// only when it ends whole, so a command the learner cancels keeps no message in it. The mutex lets reset_session and
 // seed_session, which the stdin reader handles, change the session while a command runs.
 type brainSession struct {
 	mutex sync.Mutex
@@ -157,6 +157,8 @@ func (session *brainSession) begin(transcript string, sceneState json.RawMessage
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 
+	// The fold happens for every command that begins, one started on the partial transcript and later discarded
+	// included. It only rewrites old commands as text, which the next command's begin would do the same way.
 	cacheIsCold := session.now().Sub(session.lastRequestAt) >= cacheLifetime
 	if len(session.commands) > commandsKeptWholeInAFold && (cacheIsCold || len(session.commands) > mostCommandsBeforeAFold) {
 		session.foldAllButTheNewestCommands()
@@ -179,14 +181,17 @@ func (session *brainSession) begin(transcript string, sceneState json.RawMessage
 	scene := sceneIdentityOf(sceneState)
 	pageMayStillRefuseChanges := pageTourIsStillGoing(sceneState)
 	return &sessionRun{
-		session:                   session,
-		generation:                session.generation,
-		history:                   history,
-		breakpoint:                breakpoint,
-		transcript:                transcript,
-		interruptedBefore:         interruptedBefore,
-		own:                       []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(brainUserMessageText(transcript, sceneState, interruptedBefore)))},
-		scene:                     scene,
+		session:           session,
+		generation:        session.generation,
+		history:           history,
+		breakpoint:        breakpoint,
+		transcript:        transcript,
+		interruptedBefore: interruptedBefore,
+		own:               []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(brainUserMessageText(transcript, sceneState, interruptedBefore)))},
+		scene:             scene,
+		// A cancelled or discarded command writes these back in abandon, so the stale changes this drops stay dropped even
+		// for a command started on the partial transcript. It drops only what the final command, reading the same scene,
+		// would drop.
 		changes:                   changesThatStillApply(session.appliedChanges, scene),
 		pageMayStillRefuseChanges: pageMayStillRefuseChanges,
 	}

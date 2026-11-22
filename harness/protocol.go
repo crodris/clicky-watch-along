@@ -14,7 +14,8 @@ import (
 // has a "type" string, and every task message carries the task's ID, which is the UUID string of the agent in the
 // app's BackgroundAgentStore. A voice command reuses the task messages (tool_call, tool_result, cancel_task, task_failed)
 // with the command's own UUID in taskID, and adds voice_command and voice_command_finished. The Swift side of it is
-// leanring-buddy/AgentHarness.swift.
+// leanring-buddy/AgentHarness.swift. A voice command's turn that has calls also sends voice_line_if_every_call_changes
+// before its first tool_call.
 
 // inboundMessage is a message the app sends, already parsed and checked.
 type inboundMessage interface {
@@ -81,13 +82,28 @@ func (outcome voiceToolOutcome) isKnown() bool {
 // the waiting request, a yes counts only for the request seen at the press, and a no counts for it either way, since a
 // wrong no costs only a retry. It names the request's kind of action in the scene state itself, so the app sends no
 // approvalWaiting.
+//
+// WaitsForTheFinalTranscript is true for a command the app started on the partial transcript at push-to-talk release,
+// before the final transcript arrived. The brain runs its first turn at once, but sends no tool_call and commits nothing
+// to the session until confirm_voice_command says the final transcript matched. A cancel_task before that keeps no message,
+// no action line, and no new change, though the fold and the drop of stale changes that every command's begin does still
+// happen (brainloop.go, brainsession.go). Such a command never has an approval waiting at the press, whether its card was
+// read or not: the harness settles answer_approval from the transcript's own words, and a partial "yes" or "no" could
+// answer a request the learner never meant to answer. parseInboundMessage refuses the pair of fields together.
 type voiceCommandMessage struct {
-	TaskID                   string           `json:"taskID"`
-	Transcript               string           `json:"transcript"`
-	SceneState               json.RawMessage  `json:"sceneState"`
-	Tools                    []voiceToolOffer `json:"tools"`
-	ApprovalIDWaitingAtPress *string          `json:"approvalIDWaitingAtPress"`
-	ApprovalIDSeenAtPress    *string          `json:"approvalIDSeenAtPress"`
+	TaskID                     string           `json:"taskID"`
+	Transcript                 string           `json:"transcript"`
+	SceneState                 json.RawMessage  `json:"sceneState"`
+	Tools                      []voiceToolOffer `json:"tools"`
+	ApprovalIDWaitingAtPress   *string          `json:"approvalIDWaitingAtPress"`
+	ApprovalIDSeenAtPress      *string          `json:"approvalIDSeenAtPress"`
+	WaitsForTheFinalTranscript bool             `json:"waitsForTheFinalTranscript"`
+}
+
+// confirmVoiceCommandMessage lets a command that waits for the final transcript go on, since the final transcript the app
+// heard has the same words as the partial one the command started on.
+type confirmVoiceCommandMessage struct {
+	TaskID string `json:"taskID"`
 }
 
 // seedApprovalRequestMessage puts a waiting request in the approval gate with no task behind it, so the brain evals have
@@ -159,6 +175,7 @@ func (pauseTaskMessage) inboundMessage()           {}
 func (resumeTaskMessage) inboundMessage()          {}
 func (approvalResultMessage) inboundMessage()      {}
 func (voiceCommandMessage) inboundMessage()        {}
+func (confirmVoiceCommandMessage) inboundMessage() {}
 func (resetSessionMessage) inboundMessage()        {}
 func (seedSessionMessage) inboundMessage()         {}
 func (seedApprovalRequestMessage) inboundMessage() {}
@@ -202,6 +219,18 @@ func parseInboundMessage(line []byte) (inboundMessage, error) {
 		}
 		if message.TaskID == "" || message.Transcript == "" || len(message.Tools) == 0 {
 			return nil, fmt.Errorf("voice_command needs a taskID, a transcript, and at least one tool")
+		}
+		if message.WaitsForTheFinalTranscript && (message.ApprovalIDWaitingAtPress != nil || message.ApprovalIDSeenAtPress != nil) {
+			return nil, fmt.Errorf("a voice_command that waits for the final transcript cannot name an approval, since a partial yes or no could answer it")
+		}
+		return message, nil
+	case "confirm_voice_command":
+		var message confirmVoiceCommandMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil, fmt.Errorf("confirm_voice_command is malformed: %w", err)
+		}
+		if message.TaskID == "" {
+			return nil, fmt.Errorf("confirm_voice_command needs a taskID")
 		}
 		return message, nil
 	case "reset_session":
@@ -336,6 +365,19 @@ type voiceCommandFinishedMessage struct {
 	GaveUp     bool   `json:"gaveUp"`
 }
 
+// voiceLineIfEveryCallChangesMessage is the line a voice command will speak if every call of the turn that follows
+// changes the screen (spokenLineIfEveryCallChanges in brain.go). It goes out before the turn's first tool_call, so the app
+// can fetch the line's audio while the calls run. The app plays that audio only when voice_command_finished carries the
+// same spokenLine, and drops it otherwise, such as after a lookup, a failure, or a hand-off. ToolNames are the turn's calls
+// as the model named them, in order, so the app can skip the fetch for a turn that hands off or looks something up, whose
+// line never plays.
+type voiceLineIfEveryCallChangesMessage struct {
+	Type       string     `json:"type"`
+	TaskID     string     `json:"taskID"`
+	SpokenLine string     `json:"spokenLine"`
+	ToolNames  []toolName `json:"toolNames"`
+}
+
 // approvalSettledMessage tells the app which answer the gate took for a request, whoever gave it: a click's
 // approval_result or a voice command's answer_approval. The first answer wins, so this is the one outcome the app's
 // desk shows, and the desk drops the request's card only when it arrives. Scope is "always" only for a yes the learner
@@ -355,14 +397,15 @@ type logMessage struct {
 	Message string `json:"message"`
 }
 
-func (readyMessage) outboundMessage()                {}
-func (approvalRequestMessage) outboundMessage()      {}
-func (toolCallMessage) outboundMessage()             {}
-func (taskFinishedMessage) outboundMessage()         {}
-func (taskFailedMessage) outboundMessage()           {}
-func (logMessage) outboundMessage()                  {}
-func (voiceCommandFinishedMessage) outboundMessage() {}
-func (approvalSettledMessage) outboundMessage()      {}
+func (readyMessage) outboundMessage()                       {}
+func (approvalRequestMessage) outboundMessage()             {}
+func (toolCallMessage) outboundMessage()                    {}
+func (taskFinishedMessage) outboundMessage()                {}
+func (taskFailedMessage) outboundMessage()                  {}
+func (logMessage) outboundMessage()                         {}
+func (voiceCommandFinishedMessage) outboundMessage()        {}
+func (voiceLineIfEveryCallChangesMessage) outboundMessage() {}
+func (approvalSettledMessage) outboundMessage()             {}
 
 func newReadyMessage() readyMessage {
 	return readyMessage{Type: "ready"}
@@ -381,6 +424,14 @@ func newVoiceToolCallMessage(taskID string, toolUseID string, name toolName, inp
 
 func newVoiceCommandFinishedMessage(taskID string, spokenLine string, gaveUp bool) voiceCommandFinishedMessage {
 	return voiceCommandFinishedMessage{Type: "voice_command_finished", TaskID: taskID, SpokenLine: spokenLine, GaveUp: gaveUp}
+}
+
+func newVoiceLineIfEveryCallChangesMessage(taskID string, spokenLine string, calls []toolCall) voiceLineIfEveryCallChangesMessage {
+	toolNames := make([]toolName, len(calls))
+	for callIndex, call := range calls {
+		toolNames[callIndex] = call.Name
+	}
+	return voiceLineIfEveryCallChangesMessage{Type: "voice_line_if_every_call_changes", TaskID: taskID, SpokenLine: spokenLine, ToolNames: toolNames}
 }
 
 func newApprovalSettledMessage(approvalID string, approved bool, scope string) approvalSettledMessage {

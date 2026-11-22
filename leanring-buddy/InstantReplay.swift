@@ -180,7 +180,7 @@ nonisolated func instantReplayControlOrigin(windowSize: CGSize, shadowMargin: CG
 
 /// Whether "show me again" runs ahead of the router: only while the narration recorded stops for the scene on screen, no
 /// quiz question is open, and the Theme Studio card, which holds every spoken word, is closed.
-func replayPhraseRunsAheadOfTheRouter(asksToReplay: Bool, stopsAreRecorded: Bool, quizQuestionIsOpen: Bool, themeStudioIsOpen: Bool) -> Bool {
+nonisolated func replayPhraseRunsAheadOfTheRouter(asksToReplay: Bool, stopsAreRecorded: Bool, quizQuestionIsOpen: Bool, themeStudioIsOpen: Bool) -> Bool {
     asksToReplay && stopsAreRecorded && !quizQuestionIsOpen && !themeStudioIsOpen
 }
 
