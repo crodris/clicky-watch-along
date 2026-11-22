@@ -19,6 +19,8 @@ extension Notification.Name {
     static let clickyDismissPanel = Notification.Name("clickyDismissPanel")
     /// Sent by the settings dial's More slice to open the panel the menu bar icon opens.
     static let clickyShowPanel = Notification.Name("clickyShowPanel")
+    /// Sent by the Debug tool server's `debug_click_menu_bar_icon`: clicks the status item's button, as a click on the icon does.
+    static let clickyClickMenuBarIcon = Notification.Name("clickyClickMenuBarIcon")
 }
 
 /// Custom NSPanel subclass that can become the key window even with
@@ -37,7 +39,10 @@ final class MenuBarPanelManager: NSObject {
     private var clickOnShadowMarginMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
     private var showPanelObserver: NSObjectProtocol?
+    private var clickMenuBarIconObserver: NSObjectProtocol?
     private var savedThemesSubscription: AnyCancellable?
+    /// Keeps the status item's icon in step with the voice state, the shown theme, and the approval desk.
+    private var statusIconController: MenuBarStatusIconController?
 
     private let companionManager: CompanionManager
     private let panelWidth: CGFloat = CompanionPanelView.contentWidth
@@ -57,6 +62,13 @@ final class MenuBarPanelManager: NSObject {
             queue: .main
         ) { [weak self] _ in
             self?.hidePanel()
+        }
+        clickMenuBarIconObserver = NotificationCenter.default.addObserver(
+            forName: .clickyClickMenuBarIcon,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.statusItem?.button?.performClick(nil) }
         }
         showPanelObserver = NotificationCenter.default.addObserver(
             forName: .clickyShowPanel,
@@ -81,55 +93,47 @@ final class MenuBarPanelManager: NSObject {
         if let observer = showPanelObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = clickMenuBarIconObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     // MARK: - Status Item
 
     private func createStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // A fixed width, so the icon's states never move the status items beside it.
+        statusItem = NSStatusBar.system.statusItem(withLength: MenuBarIconArt.size.width)
 
         guard let button = statusItem?.button else { return }
 
-        button.image = makeClickyMenuBarIcon()
-        button.image?.isTemplate = true
         button.action = #selector(statusItemClicked)
         button.target = self
+        let companionManager = companionManager
+        statusIconController = MenuBarStatusIconController(
+            button: button,
+            changes: Publishers.Merge3(
+                companionManager.$voiceState.map { _ in () },
+                companionManager.themeSettings.objectWillChange.map { _ in () },
+                companionManager.backgroundAgentStore.$agentIDsWaitingForApproval.map { _ in () }
+            ).eraseToAnyPublisher(),
+            voiceState: { companionManager.voiceState },
+            shownCursor: { companionManager.themeSettings.shownTheme.cursor },
+            approvalIsWaiting: { !companionManager.backgroundAgentStore.agentIDsWaitingForApproval.isEmpty }
+        )
+        logTheStatusItemPlace()
     }
 
-    /// Draws the clicky triangle as a menu bar icon. Uses the same shape
-    /// and rotation as the in-app cursor so the menu bar icon matches.
-    private func makeClickyMenuBarIcon() -> NSImage {
-        let iconSize: CGFloat = 18
-        let image = NSImage(size: NSSize(width: iconSize, height: iconSize))
-        image.lockFocus()
-
-        let triangleSize = iconSize * 0.7
-        let cx = iconSize * 0.50
-        let cy = iconSize * 0.50
-        let height = triangleSize * sqrt(3.0) / 2.0
-
-        let top = CGPoint(x: cx, y: cy + height / 1.5)
-        let bottomLeft = CGPoint(x: cx - triangleSize / 2, y: cy - height / 3)
-        let bottomRight = CGPoint(x: cx + triangleSize / 2, y: cy - height / 3)
-
-        let angle = 35.0 * .pi / 180.0
-        func rotate(_ point: CGPoint) -> CGPoint {
-            let dx = point.x - cx, dy = point.y - cy
-            let cosA = CGFloat(cos(angle)), sinA = CGFloat(sin(angle))
-            return CGPoint(x: cx + cosA * dx - sinA * dy, y: cy + sinA * dx + cosA * dy)
+    /// Logs where the icon is and whether macOS shows it, since a status item can sit behind the notch when the menu bar is
+    /// full, and a check that cannot find it has to know that from the log (`verify-clicky.sh menu-icon`).
+    private func logTheStatusItemPlace() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let buttonWindow = self?.statusItem?.button?.window else {
+                print("Menu bar icon: no window, so macOS is not showing it")
+                return
+            }
+            let isVisible = buttonWindow.occlusionState.contains(.visible)
+            print("Menu bar icon: frame \(buttonWindow.frame), on screen \(buttonWindow.screen?.localizedName ?? "none"), visible \(isVisible)")
         }
-
-        let path = NSBezierPath()
-        path.move(to: rotate(top))
-        path.line(to: rotate(bottomLeft))
-        path.line(to: rotate(bottomRight))
-        path.close()
-
-        NSColor.black.setFill()
-        path.fill()
-
-        image.unlockFocus()
-        return image
     }
 
     /// Opens the panel automatically on app launch so the user sees

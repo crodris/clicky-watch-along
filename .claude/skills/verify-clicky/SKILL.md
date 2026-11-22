@@ -191,7 +191,8 @@ A record whose PID now belongs to another process is removed, and that process i
 - Push-to-talk itself.
   It needs the microphone and real speech; `$V key push-to-talk-tap` sends only a press with no words.
   Rehearsal steps enter the pipeline right after transcription, so the transcription providers (AssemblyAI, OpenAI, Apple Speech) stay unverified.
-- The menu bar panel, the model picker, and the permission prompts.
+- The menu bar panel's contents, the model picker, and the permission prompts.
+  `$V menu-icon click` opens the panel itself, and `$V menu-icon status` says where the icon is, since a status item beside the notch may be missing from the window list.
 - Mouse drag orbit and trackpad pinch.
 - Streamed `/chat` logs no usage line.
   Prove it through the app log line `🌐 Claude streaming request:` and the spoken reply.
