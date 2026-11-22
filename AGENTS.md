@@ -906,7 +906,7 @@ Each build runs at most 4 build tasks at once (`xcodebuild -jobs 4`), since thre
 The developer's Screen Recording and Accessibility grants belong to the `Clicky.app` their Xcode builds, and CI never replaces that app.
 The test host only checks those permissions and never requests them.
 macOS keeps one Accessibility grant per bundle ID for the whole Mac, across users, and an unsigned app with that ID that checks it resets the grant, so CI builds with `CLICKY_BUNDLE_ID_SUFFIX=.ci-<runner name>`, with each character other than a letter or digit turned into `-`, and the app of the runner named `clicky-mac-2` is `com.crodris.clicky-watch-along.ci-clicky-mac-2`.
-The runner name in the suffix keeps test hosts that run at the same time from sharing the app's own defaults, and a test that reads a fixed suite back names it after the bundle ID too (`fixedTestDefaultsSuiteName`).
+The runner name in the suffix keeps test hosts that run at the same time from sharing the app's own defaults, and a test that reads a fixed suite back names it after the bundle ID too (`fixedTestDefaultsSuiteName`), or after the checkout's folder under `tools/swift-check.sh`, which runs with no bundle ID while sessions in other worktrees run it at the same time.
 The project's app bundle ID is `com.crodris.clicky-watch-along$(CLICKY_BUNDLE_ID_SUFFIX)`, and the suffix is empty everywhere else.
 Before that, on 2026-11-20, each CI test run on the Mac runner could turn off the developer's Accessibility grant.
 The developer's home folder must stay mode 700, so CI jobs cannot read their files or tokens.

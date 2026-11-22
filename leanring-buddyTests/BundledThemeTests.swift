@@ -80,8 +80,10 @@ func makeBackgroundAgentStore(theme: ClickyTheme = clickyBlueTheme) -> Backgroun
 /// Every CI runner on the Mac runs as the same macOS user and builds the app with its own bundle ID, so the bundle ID
 /// keeps the tests of two runners that run at the same time from clearing or overwriting each other's values. The name
 /// stays fixed for each runner, since macOS keeps an empty preferences file for each suite even after its domain is removed.
+/// `tools/swift-check.sh` runs with no bundle ID, and sessions in several worktrees run it at the same time, so there the
+/// checkout's folder name keeps them apart.
 func fixedTestDefaultsSuiteName(_ testName: String) -> String {
-    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(testName)"
+    "\(Bundle.main.bundleIdentifier ?? "clicky-tests-\(repositoryRootURL.lastPathComponent)")-\(testName)"
 }
 
 /// A UserDefaults suite of its own, named by `fixedTestDefaultsSuiteName`, emptied before and after `body`.
