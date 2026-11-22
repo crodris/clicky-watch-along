@@ -71,6 +71,8 @@ enum RoomArtPictureSource {
         deadlineSeconds: TimeInterval = downloadDeadlineSeconds,
         requestTimeoutSeconds: TimeInterval = downloadTimeoutSeconds
     ) async -> RoomArtPicture? {
+        // A request cancelled before it got here sends nothing to the page's host.
+        guard !Task.isCancelled else { return nil }
         // The request's own timeout only trips on silence, so a server that trickles bytes is stopped by this race. The
         // race returns at the first result and never waits for the losing download to wind down, since a cancelled
         // download can take as long as its idle timeout to end, and a task group would wait for it.

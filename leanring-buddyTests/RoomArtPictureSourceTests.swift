@@ -264,7 +264,7 @@ struct RoomArtPictureSourceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func aCancelledRequestCapturesNothingAndStopsTheDownload() async {
+    func aCancelledRequestCapturesNothing() async {
         let stalledImageURL = stubbedImageURL(answeringWith: .stalls)
         let session = stubbedSession()
         let screenCaptureCount = OSAllocatedUnfairLock(initialState: 0)
@@ -282,9 +282,24 @@ struct RoomArtPictureSourceTests {
         try? await Task.sleep(for: .milliseconds(300))
         roomArtRequest.cancel()
         // Neither the deadline nor the idle timeout passes in 600 seconds, so the request can only end because the cancel
-        // stopped the download.
+        // ended its wait.
         #expect(await roomArtRequest.value == nil)
         #expect(screenCaptureCount.withLock { $0 } == 0)
+    }
+
+    @Test func aRequestCancelledBeforeTheDownloadStartsSendsNothingToTheHost() async throws {
+        let imageURL = stubbedImageURL(answeringWith: .image(pngData(width: 200, height: 200)))
+        let session = stubbedSession()
+        let cancelledRequest = Task {
+            // Waits until the cancel arrives, so the download is asked for by a task that is already cancelled.
+            while !Task.isCancelled { await Task.yield() }
+            return await RoomArtPictureSource.downloadedPicture(atImageURL: imageURL, session: session)
+        }
+        cancelledRequest.cancel()
+        #expect(await cancelledRequest.value == nil)
+        // A request that did start would have reached the stub by now.
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(!StubbedPictureURLProtocol.startedRequests.withLock { $0.contains("https://\(imageURL.path)") })
     }
 
     @Test func aHostOnThisMacOrAPrivateNetworkIsNeverDownloadedFrom() {
