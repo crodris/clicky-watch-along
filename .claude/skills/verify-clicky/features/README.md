@@ -52,7 +52,7 @@ It then uses exactly four H2 sections in this order.
 - [Video quiz](./video-quiz.md) covers planning quiz moments from a YouTube transcript and pausing the video at each one.
 - [Frame pop-out](./frame-popout.md) covers lifting the subject of a video frame, or of a page image, out in 3D with part labels.
 - [Landmark scan](./landmark.md) covers recognizing a famous place in a video frame and showing Google's 3D scan of it.
-- [Room art](./room-art.md) covers hanging a store page's wall art on the learner's wall in a live camera panel at its real size.
+- [Room art](./room-art.md) covers hanging a store page's wall art on the learner's wall in a live camera panel at its real size, the item kinds the page reader tells apart, and Clicky's loop around the wall spot while it is measured.
 - [Interrupting a reply](./interrupt-reply.md) covers stopping Clicky mid-answer with Escape or a push-to-talk tap.
 - [Let me try it simulation](./simulation.md) covers the science experiment a learner builds with "let me try it": the guess, the trials, the guess check, and the challenge.
 - [Voice commands](./voice-commands.md) covers follow-up commands that change the scene or video on screen through `/voice-command` and the voice tools.

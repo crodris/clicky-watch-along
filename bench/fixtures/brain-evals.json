@@ -582,6 +582,15 @@
       "why": "\"show me\" usually builds a scene, but \"on my wall\" asks for the camera panel."
     },
     {
+      "id": "nothing-chair-in-my-room",
+      "context": "nothing",
+      "say": "how would this chair look in my room",
+      "accept": [
+        "show_art_in_my_room"
+      ],
+      "why": "The room panel reads furniture and clothes too, and the app then says only wall art is placed so far. The router still hands off to it, and never answers from the screen."
+    },
+    {
       "id": "nothing-whats-on-my-wall",
       "context": "nothing",
       "say": "what kind of art would go well on my wall",

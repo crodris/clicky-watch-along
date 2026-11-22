@@ -14,7 +14,7 @@
  *   POST /video-quiz-plan → OpenAI Responses API (GPT-6.2 Sol), or Anthropic Messages API when OpenAI cannot answer (quiz pause moments for a video transcript)
  *   POST /video-frame-parts → Anthropic Messages API (subject box and part labels in a video frame)
  *   POST /landmark     → Anthropic Messages API (famous place and coordinates in a video frame)
- *   POST /room-art     → Anthropic Messages API (Sonnet reads a store page and its product photo for the size as hung and the artwork's corners)
+ *   POST /try-it-item → Anthropic Messages API (Sonnet reads a store page and its product photo for wall art, furniture, or clothing: its kind, size or garment details, and the item's corners)
  *   POST /room-wall    → the local depth service (tools/depth-service) at DEPTH_SERVICE_URL, which measures the wall plane in a photo of the learner's room
  *   POST /voice-command → Anthropic Messages API (Haiku picks the app's tools for a spoken follow-up command)
  *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)
@@ -37,7 +37,7 @@ import { handleVideoQuizPlan } from "./videoQuizPlan";
 import { handleVideoFrameParts } from "./videoFrameParts";
 import { handleMapTiles, isMapTilesRequest } from "./mapTiles";
 import { handleLandmark } from "./landmark";
-import { handleRoomArt } from "./roomArt";
+import { handleTryItItem } from "./tryItItem";
 import { handleRoomWall } from "./roomWall";
 import { handleVoiceCommand } from "./voiceCommand";
 import { handlePictureFlows } from "./pictureFlows";
@@ -63,7 +63,7 @@ interface Env {
   NOTION_API_KEY?: string;
   /** Where the local depth service runs (tools/depth-service), which /room-wall forwards to. Unset answers 503. */
   DEPTH_SERVICE_URL?: string;
-  /** The secret the app sends in x-clicky-app-secret. The Notion routes, /v1/messages, /room-art, and /room-wall refuse a request without it. */
+  /** The secret the app sends in x-clicky-app-secret. The Notion routes, /v1/messages, /try-it-item, and /room-wall refuse a request without it. */
   CLICKY_APP_SECRET?: string;
   /** Local benchmark runs only: a gemini-* BENCH_MODEL calls Google's OpenAI-compatible endpoint with this key. */
   GEMINI_API_KEY?: string;
@@ -133,8 +133,8 @@ export default {
         return await handleLandmark(request, env.ANTHROPIC_API_KEY);
       }
 
-      if (url.pathname === "/room-art") {
-        return await handleRoomArt(request, env.ANTHROPIC_API_KEY);
+      if (url.pathname === "/try-it-item") {
+        return await handleTryItItem(request, env.ANTHROPIC_API_KEY);
       }
 
       if (url.pathname === "/room-wall") {
