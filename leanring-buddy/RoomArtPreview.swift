@@ -154,6 +154,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     /// try-on is prepared, with the torso it was traced on, so the loop follows the body between traces.
     private var latestShirtOutline: (outline: [CGPoint], torso: BodyTorso)?
     private var shirtOutlineIsBeingTraced = false
+    private var shirtOutlineFailureWasLogged = false
     private var lastShirtOutlineStartedAt: CFTimeInterval = 0
     private let shirtOutlineQueue = DispatchQueue(label: "com.crodris.clicky.room-art.shirt-outline", qos: .utility)
     private static let secondsBetweenShirtOutlines = 0.5
@@ -229,6 +230,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             lastShirtTorsoDrawn = nil
             frozenShirt = nil
             latestShirtOutline = nil
+            shirtOutlineFailureWasLogged = false
             shirtPoseTracker.reset()
             shirtRenderer.reset()
             trackerBeforeTheMove = nil
@@ -352,7 +354,14 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     /// Traces the learner's own top on `shirtOutlineQueue` at most every `secondsBetweenShirtOutlines`, one trace at a time,
     /// from a small copy of the frame and the person mask made here.
     private func traceTheShirtOutlineIfDue(in cameraFrame: CVPixelBuffer, torso: BodyTorso, now: CFTimeInterval) {
-        guard !shirtOutlineIsBeingTraced, now - lastShirtOutlineStartedAt >= Self.secondsBetweenShirtOutlines, let latestPersonMask else { return }
+        guard !shirtOutlineIsBeingTraced, now - lastShirtOutlineStartedAt >= Self.secondsBetweenShirtOutlines else { return }
+        guard let latestPersonMask else {
+            if !shirtOutlineFailureWasLogged {
+                shirtOutlineFailureWasLogged = true
+                print("Shirt outline: no person mask yet to trace the learner's own top in")
+            }
+            return
+        }
         let frameImage = CIImage(cvPixelBuffer: cameraFrame)
         let frameExtent = frameImage.extent
         let scale = min(1, Double(ShirtPaintMask.outlineLongestSide) / Double(max(frameExtent.width, frameExtent.height)))
@@ -380,7 +389,15 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 .map { ShirtOutline.scaled($0, fromMaskScale: Double(smallWidth) / frameExtent.width) }
             self.processingQueue.async {
                 self.shirtOutlineIsBeingTraced = false
-                guard sessionWhenStarted == self.sessionNumber, let outline else { return }
+                guard sessionWhenStarted == self.sessionNumber else { return }
+                guard let outline else {
+                    if !self.shirtOutlineFailureWasLogged {
+                        self.shirtOutlineFailureWasLogged = true
+                        print("Shirt outline: the learner's own top was not found in a \(smallWidth)x\(smallHeight) copy of the frame")
+                    }
+                    return
+                }
+                if self.latestShirtOutline == nil { print("Shirt outline: traced the learner's own top, \(outline.count) points") }
                 self.latestShirtOutline = (outline, torso)
             }
         }
