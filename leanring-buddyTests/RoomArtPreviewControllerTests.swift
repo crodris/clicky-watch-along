@@ -13,6 +13,7 @@ import CoreVideo
 import Foundation
 import ImageIO
 import QuartzCore
+import SceneKit
 import SwiftUI
 import Testing
 import UniformTypeIdentifiers
@@ -27,36 +28,67 @@ private final class RecordingPanel: RoomArtPanelPresenting {
 }
 
 /// Stands in for `RoomArtFrameProcessor`: the first frame of a session counts as segmented, a keyframe is a fixed stand-in
-/// at the anchor asked for, and hanging or putting back the art is recorded.
+/// at the anchor asked for, and placing or putting back the item and the shirt calls are recorded.
 nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @unchecked Sendable {
     let processingQueue = DispatchQueue(label: "com.crodris.clicky.tests.room-art-frames")
     let metalLayer = CAMetalLayer()
-    /// Where a keyframe with no anchor centers the art, as the bare wall spot would.
-    static let bareWallSpot = CGPoint(x: 200, y: 150)
+    /// Where a keyframe with no anchor centers the item, as the bare wall or floor spot would.
+    static let bareSpot = CGPoint(x: 200, y: 150)
+    static let bareWallSpot = CGPoint(x: 220, y: 90)
+    /// A gray 640 by 360 keyframe, the size the stub Worker's planes are measured for, so a render or a painting can read it.
+    static let keyframeJPEG: Data = {
+        let context = CGContext(data: nil, width: 640, height: 360, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.setFillColor(CGColor(gray: 0.6, alpha: 1))
+        context?.fill(CGRect(x: 0, y: 0, width: 640, height: 360))
+        let jpegData = NSMutableData()
+        guard let image = context?.makeImage(), let destination = CGImageDestinationCreateWithData(jpegData, UTType.jpeg.identifier as CFString, 1, nil) else { return Data() }
+        CGImageDestinationAddImage(destination, image, nil)
+        CGImageDestinationFinalize(destination)
+        return jpegData as Data
+    }()
 
     private let lock = NSLock()
     private var onFirstSegmentedFrame: (@Sendable () -> Void)?
-    private var onTheWallLostOrFound: (@Sendable (Bool) -> Void)?
-    private var recordedArtHungCount = 0
-    private var recordedArtPutBackCount = 0
+    private var onTheSurfaceLostOrFound: (@Sendable (Bool) -> Void)?
+    private var onTheShirtFramingSettled: (@Sendable (ShirtFramingKind) -> Void)?
+    private var recordedSurfacesShownOn: [RoomArtSurfaceKind] = []
+    private var recordedItemPutBackCount = 0
     private var recordedKeyframeAnchors: [CGPoint?] = []
+    private var recordedKeyframeSurfaces: [RoomArtSurfaceKind] = []
+    private var recordedShirtTryOnStarted = false
+    private var recordedGarmentWorn = false
     private var latestLoop: RoomArtLoopSnapshot?
+    private var recordedFurnitureLayersShown: [(look: RoomFurnitureLook, keyframeNumber: Int)] = []
+    private var recordedLoopOutlines: [(point: CGPoint, keyframeNumber: Int)] = []
+    private var keyframesTaken = 0
 
-    var artHungCount: Int { lock.withLock { recordedArtHungCount } }
-    var artPutBackCount: Int { lock.withLock { recordedArtPutBackCount } }
+    /// Each furniture look the controller handed over, with the keyframe it was made for.
+    var furnitureLayersShown: [(look: RoomFurnitureLook, keyframeNumber: Int)] { lock.withLock { recordedFurnitureLayersShown } }
+    var loopOutlines: [(point: CGPoint, keyframeNumber: Int)] { lock.withLock { recordedLoopOutlines } }
+
+    var artHungCount: Int { lock.withLock { recordedSurfacesShownOn.count } }
+    var surfacesShownOn: [RoomArtSurfaceKind] { lock.withLock { recordedSurfacesShownOn } }
+    var artPutBackCount: Int { lock.withLock { recordedItemPutBackCount } }
     var keyframeAnchors: [CGPoint?] { lock.withLock { recordedKeyframeAnchors } }
+    var keyframeSurfaces: [RoomArtSurfaceKind] { lock.withLock { recordedKeyframeSurfaces } }
+    var shirtTryOnStarted: Bool { lock.withLock { recordedShirtTryOnStarted } }
+    var garmentWorn: Bool { lock.withLock { recordedGarmentWorn } }
 
-    func startASession(onFirstSegmentedFrame: @escaping @Sendable () -> Void, onTheWallLostOrFound: @escaping @Sendable (Bool) -> Void) {
+    func startASession(onFirstSegmentedFrame: @escaping @Sendable () -> Void, onTheSurfaceLostOrFound: @escaping @Sendable (Bool) -> Void) {
         lock.withLock {
             self.onFirstSegmentedFrame = onFirstSegmentedFrame
-            self.onTheWallLostOrFound = onTheWallLostOrFound
+            self.onTheSurfaceLostOrFound = onTheSurfaceLostOrFound
+            onTheShirtFramingSettled = nil
+            recordedShirtTryOnStarted = false
+            recordedGarmentWorn = false
         }
     }
 
     func endTheSession() {
         lock.withLock {
             onFirstSegmentedFrame = nil
-            onTheWallLostOrFound = nil
+            onTheSurfaceLostOrFound = nil
+            onTheShirtFramingSettled = nil
         }
     }
 
@@ -68,20 +100,46 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
         if let firstFrameCallback { DispatchQueue.main.async { firstFrameCallback() } }
     }
 
-    func takeAKeyframe(anchorInCameraPixels: CGPoint?) async -> RoomArtKeyframe? {
-        lock.withLock { recordedKeyframeAnchors.append(anchorInCameraPixels) }
+    func takeAKeyframe(on surfaceKind: RoomArtSurfaceKind, anchorInCameraPixels: CGPoint?) async -> RoomArtKeyframe? {
+        let keyframeNumber = lock.withLock {
+            recordedKeyframeAnchors.append(anchorInCameraPixels)
+            recordedKeyframeSurfaces.append(surfaceKind)
+            keyframesTaken += 1
+            return keyframesTaken
+        }
         return RoomArtKeyframe(
-            wallRequest: RoomWallRequest(keyframeJPEGData: Data([1]), personMaskPNGData: Data([2]), anchor: anchorInCameraPixels ?? Self.bareWallSpot),
-            wallLight: .neutral
+            measurementRequest: RoomWallRequest(keyframeJPEGData: Self.keyframeJPEG, personMaskPNGData: Data([2]), anchor: anchorInCameraPixels ?? Self.bareSpot),
+            wallLight: .neutral,
+            wallSpotAnchor: Self.bareWallSpot,
+            keyframeNumber: keyframeNumber
         )
     }
 
-    func showTheArt(_ flattenedArt: CGImage, keyframeCorners: RoomArtCorners) {
-        lock.withLock { recordedArtHungCount += 1 }
+    func showTheItem(_ itemImage: CGImage, keyframeCorners: RoomArtCorners, on surfaceKind: RoomArtSurfaceKind) {
+        lock.withLock { recordedSurfacesShownOn.append(surfaceKind) }
     }
 
-    func putBackTheArtFromBeforeTheMove() {
-        lock.withLock { recordedArtPutBackCount += 1 }
+    func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int) {
+        lock.withLock { recordedFurnitureLayersShown.append((layers.look, keyframeNumber)) }
+    }
+
+    func outlineTheLoop(around point: CGPoint, on surfaceKind: RoomArtSurfaceKind, inKeyframeNumber keyframeNumber: Int) {
+        lock.withLock { recordedLoopOutlines.append((point, keyframeNumber)) }
+    }
+
+    func putBackTheItemFromBeforeTheMove() {
+        lock.withLock { recordedItemPutBackCount += 1 }
+    }
+
+    func startTheShirtTryOn(onTheFramingSettled: @escaping @Sendable (ShirtFramingKind) -> Void) {
+        lock.withLock {
+            recordedShirtTryOnStarted = true
+            onTheShirtFramingSettled = onTheFramingSettled
+        }
+    }
+
+    func wearTheGarment(_ garment: ShirtGarment) {
+        lock.withLock { recordedGarmentWorn = true }
     }
 
     func currentLoop() -> RoomArtLoopSnapshot? {
@@ -93,9 +151,15 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     }
 
     /// The tracker lost the room (true) or found it again (false), reported on the main actor as the real processor does.
-    func reportTheWall(lost wallIsLost: Bool) {
-        guard let onTheWallLostOrFound = lock.withLock({ onTheWallLostOrFound }) else { return }
-        DispatchQueue.main.async { onTheWallLostOrFound(wallIsLost) }
+    func reportTheSurface(lost surfaceIsLost: Bool) {
+        guard let onTheSurfaceLostOrFound = lock.withLock({ onTheSurfaceLostOrFound }) else { return }
+        DispatchQueue.main.async { onTheSurfaceLostOrFound(surfaceIsLost) }
+    }
+
+    /// The debounced framing settled, reported on the main actor as the real processor does.
+    func settleTheShirtFraming(on settledKind: ShirtFramingKind) {
+        guard let onTheShirtFramingSettled = lock.withLock({ onTheShirtFramingSettled }) else { return }
+        DispatchQueue.main.async { onTheShirtFramingSettled(settledKind) }
     }
 }
 
@@ -135,7 +199,41 @@ nonisolated private final class SyntheticRoomCamera: RoomFrameSource, @unchecked
     }
 }
 
-/// The Worker's two routes, answered from the test, with what each received.
+private let pictureCorners = RoomArtCorners(topLeft: CGPoint(x: 20, y: 25), topRight: CGPoint(x: 380, y: 25), bottomRight: CGPoint(x: 380, y: 475), bottomLeft: CGPoint(x: 20, y: 475))
+
+private let sideTableReading = RoomArtPageReading.furniture(RoomArtFurnitureReading(
+    title: "LACK side table",
+    chosenSize: RoomArtFurnitureSize(label: "55x45 cm", widthCentimeters: 55, heightCentimeters: 45, depthCentimeters: 55),
+    whyThisSize: "It is the only size.",
+    itemCorners: pictureCorners
+))
+
+private func shirtReading(photoShows: RoomArtGarmentPhoto = .flatLay) -> RoomArtPageReading {
+    .clothing(RoomArtClothingReading(
+        title: "Linen shirt", garment: .shirt, sleeves: .short, chosenSizeLabel: "M", photoShows: photoShows,
+        printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners
+    ))
+}
+
+/// A plain image the size of a cut-out piece of furniture, wider than it is tall.
+private func furnitureCutoutImage() -> CGImage {
+    let context = CGContext(data: nil, width: 60, height: 45, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    context.setFillColor(CGColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: 60, height: 45))
+    return context.makeImage()!
+}
+
+/// A garment from a plain photo whose whole middle is the cutout, which is all the controller needs to pass on.
+private func testGarment() -> ShirtGarment? {
+    let context = CGContext(data: nil, width: 100, height: 120, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    context.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.3, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: 100, height: 120))
+    var maskPixels = [UInt8](repeating: 0, count: 100 * 120)
+    for row in 10..<110 { for column in 15..<85 { maskPixels[row * 100 + column] = 255 } }
+    return ShirtGarment.make(workingPhoto: context.makeImage()!, cutoutMask: ShirtCutoutMask(width: 100, height: 120, pixels: maskPixels))
+}
+
+/// The Worker's three routes, answered from the test, with what each received.
 @MainActor
 private final class WorkerStub {
     var pageReading: Result<RoomArtPageReading, Error> = .success(.wallArt(RoomArtWallArtReading(
@@ -144,33 +242,149 @@ private final class WorkerStub {
         chosenSizeIncludesFrame: false,
         whyThisSize: "It is the size selected on the page.",
         otherSizes: [],
-        artworkCorners: RoomArtCorners(topLeft: CGPoint(x: 20, y: 25), topRight: CGPoint(x: 380, y: 25), bottomRight: CGPoint(x: 380, y: 475), bottomLeft: CGPoint(x: 20, y: 475))
+        artworkCorners: pictureCorners
     )))
     var wallReply: Result<WallPlane, Error> = .success(WallPlane(
         center: SIMD3(-0.3, -0.2, 2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 500,
         principalPoint: SIMD2(320, 180), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 0.9
     ))
+    // The floor point 4 m out, inside the 640 by 360 frame, so a side table has a spot where all of it shows.
+    var floorReply: Result<FloorPlane, Error> = .success(FloorPlane(
+        center: SIMD3(0.4, 0.9, 4.0), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), forward: SIMD3(0, 0, 1), focalLengthPixels: 500,
+        principalPoint: SIMD2(320, 180), distanceMeters: 2.4, floorTiltDegrees: 2, planeInlierShare: 0.9
+    ))
+    var secondsBeforeThePageReplies = 0.0
+    /// Replies for the next page reads, in order, each after its own wait, which a cancel does not cut short, the way a
+    /// reply already on its way still arrives. The default reply answers at once when the list is empty.
+    var queuedPageReplies: [(seconds: Double, reply: Result<RoomArtPageReading, Error>)] = []
     var secondsBeforeTheWallReplies = 0.0
+    /// A page read's wait ended early because its task was cancelled, which a close does.
+    private(set) var aPageReadWasCancelled = false
     private(set) var pageRequests: [RoomArtPageRequest] = []
     private(set) var wallRequests: [RoomWallRequest] = []
-    /// The page was being read before the wall replied, which only happens when the two run at once.
-    private(set) var thePageWasAskedForBeforeTheWallReplied = false
+    private(set) var floorRequests: [RoomWallRequest] = []
+    /// The center the floor reply measures, which a clicked spot keeps.
+    var floorRequestsReply: SIMD3<Double> { (try? floorReply.get())?.center ?? .zero }
 
     func readThePage(_ pageRequest: RoomArtPageRequest) async throws -> RoomArtPageReading {
         pageRequests.append(pageRequest)
-        // The page reply waits up to 2 seconds for the wall request, so a flow that read the page first and only then
-        // measured the wall never has the page asked for before the wall replied.
-        _ = await conditionHolds(withinSeconds: 10) { !self.wallRequests.isEmpty }
+        if !queuedPageReplies.isEmpty {
+            let queuedReply = queuedPageReplies.removeFirst()
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.asyncAfter(deadline: .now() + queuedReply.seconds) { continuation.resume() }
+            }
+            return try queuedReply.reply.get()
+        }
+        if secondsBeforeThePageReplies > 0 {
+            do {
+                try await Task.sleep(for: .seconds(secondsBeforeThePageReplies))
+            } catch {
+                aPageReadWasCancelled = true
+                throw error
+            }
+        }
         return try pageReading.get()
     }
 
     func measureTheWall(_ wallRequest: RoomWallRequest) async throws -> WallPlane {
         wallRequests.append(wallRequest)
-        if await conditionHolds(withinSeconds: 10, { !self.pageRequests.isEmpty }) { thePageWasAskedForBeforeTheWallReplied = true }
         if secondsBeforeTheWallReplies > 0 {
             try await Task.sleep(for: .seconds(secondsBeforeTheWallReplies))
         }
         return try wallReply.get()
+    }
+
+    func measureTheFloor(_ floorRequest: RoomWallRequest) async throws -> FloorPlane {
+        floorRequests.append(floorRequest)
+        return try floorReply.get()
+    }
+}
+
+/// What the stand-ins for Vision's two cutouts give back, and how often they were asked.
+@MainActor
+private final class CutoutStub {
+    var furnitureCutout: CGImage? = furnitureCutoutImage()
+    var garment: ShirtGarment? = testGarment()
+    var secondsBeforeTheGarmentIsReady = 0.0
+    private(set) var furnitureCutoutsAsked = 0
+    private(set) var garmentsAsked = 0
+
+    func cutOutTheFurniture() -> CGImage? {
+        furnitureCutoutsAsked += 1
+        return furnitureCutout
+    }
+
+    func makeTheGarment() async -> ShirtGarment? {
+        garmentsAsked += 1
+        if secondsBeforeTheGarmentIsReady > 0 { try? await Task.sleep(for: .seconds(secondsBeforeTheGarmentIsReady)) }
+        return garment
+    }
+}
+
+/// The furniture's better looks, answered from the test: the store's model, the generation service, and the render.
+@MainActor
+private final class FurnitureLookStub: RoomFurnitureGenerating {
+    var storeModel: RoomFurnitureLoadedModel?
+    var generatedModelData: Data?
+    var maskPNG: Data? = Data([7])
+    var paintedImage: CGImage?
+    /// The first painting whose layer is kept, counting from 1; the ones before it stand for paintings at the wrong
+    /// height, and nil keeps none.
+    var firstKeptPainting: Int? = 1
+    /// How many paintings fail with a 502 before the stub answers.
+    var failingPaintings = 0
+    var renderSucceeds = true
+    private(set) var storeModelSearches: [String] = []
+    private(set) var modelsGenerated = 0
+    private(set) var paintings = 0
+    private(set) var renders: [RoomFurnitureLook] = []
+    /// The product image each generation service was sent, which must be the furniture's cutout and never the page picture.
+    private(set) var productJPEGsSent: [Data] = []
+    /// What the model was asked to be cached by, which must be the page picture.
+    private(set) var modelCacheKeysSent: [Data] = []
+
+    func generateAModel(productJPEG: Data, itemTitle: String, cacheKeyData: Data) async throws -> Data {
+        productJPEGsSent.append(productJPEG)
+        modelCacheKeysSent.append(cacheKeyData)
+        modelsGenerated += 1
+        guard let generatedModelData else { throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "") }
+        return generatedModelData
+    }
+
+    func paintTheItemIntoTheKeyframe(
+        keyframeJPEG: Data, keyframeWidth: Int, keyframeHeight: Int, productJPEG: Data, maskPNG: Data, itemTitle: String, itemSizeWords: String
+    ) async throws -> CGImage {
+        productJPEGsSent.append(productJPEG)
+        paintings += 1
+        guard let paintedImage else { throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "") }
+        if paintings <= failingPaintings { throw RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "") }
+        return paintedImage
+    }
+
+    static func layers(_ look: RoomFurnitureLook) -> RoomFurnitureKeyframeLayers {
+        RoomFurnitureKeyframeLayers(itemLayer: furnitureCutoutImage(), shadowLayer: nil, basePointInTheKeyframe: CGPoint(x: 320, y: 300), cameraNoiseStandardDeviation: 0, look: look)
+    }
+
+    static func model(_ look: RoomFurnitureLook) -> RoomFurnitureLoadedModel {
+        RoomFurnitureLoadedModel(rootNode: SCNNode(), look: look, originForTheLog: "a test")
+    }
+
+    func apply(to environment: inout RoomArtPreviewController.Environment) {
+        environment.findTheStoreModel = { pageURL in
+            self.storeModelSearches.append(pageURL)
+            return self.storeModel
+        }
+        environment.furnitureGeneration = self
+        environment.loadAGeneratedModel = { _ in Self.model(.generatedModel) }
+        environment.compositeMaskPNG = { _, _, _, _ in self.maskPNG }
+        environment.renderTheFurniture = { renderRequest in
+            self.renders.append(renderRequest.look)
+            return self.renderSucceeds ? Self.layers(renderRequest.look) : nil
+        }
+        environment.paintedItemLayers = { _, _, _, _ in
+            guard let firstKeptPainting = self.firstKeptPainting, self.paintings >= firstKeptPainting else { return nil }
+            return Self.layers(.paintedComposite)
+        }
     }
 }
 
@@ -231,6 +445,7 @@ private struct RoomArtHarness {
     let controller: RoomArtPreviewController
     let panel: RecordingPanel
     let worker: WorkerStub
+    let cutouts: CutoutStub
     let camera: SyntheticRoomCamera
     let frameProcessor: StandInFrameProcessor
     let recorder: HarnessRecorder
@@ -240,16 +455,18 @@ private struct RoomArtHarness {
         picture: RoomArtPicture? = pictureJPEG(),
         camera: SyntheticRoomCamera = SyntheticRoomCamera(),
         worker givenWorker: WorkerStub? = nil,
+        cutouts givenCutouts: CutoutStub? = nil,
         frontTab: RoomArtFrontTab? = storePageTab,
         appSecretIsSet: Bool = true,
-        secondsToCaptureThePicture: Double = 0
+        secondsToCaptureThePicture: Double = 0,
+        furnitureLooks: FurnitureLookStub? = nil
     ) {
         let worker = givenWorker ?? WorkerStub()
+        let cutouts = givenCutouts ?? CutoutStub()
         let panel = RecordingPanel()
         let recorder = HarnessRecorder()
         let frameProcessor = StandInFrameProcessor()
-        controller = RoomArtPreviewController(
-            environment: RoomArtPreviewController.Environment(
+        var environment = RoomArtPreviewController.Environment(
                 appSecretIsSet: { appSecretIsSet },
                 readTheFrontTab: { frontTab },
                 capturePicture: {
@@ -259,6 +476,9 @@ private struct RoomArtHarness {
                 },
                 readThePage: { pageRequest in try await worker.readThePage(pageRequest) },
                 measureTheWall: { wallRequest in try await worker.measureTheWall(wallRequest) },
+                measureTheFloor: { floorRequest in try await worker.measureTheFloor(floorRequest) },
+                cutOutTheFurniture: { _, _ in cutouts.cutOutTheFurniture() },
+                makeTheShirtGarment: { _, _ in await cutouts.makeTheGarment() },
                 makeFrameSource: { camera },
                 clearTheLiveScene: { recorder.timesTheSceneWasClearedBeforeThePanel.append(panel.timesShown) },
                 speak: { line, isAFailure in
@@ -267,12 +487,12 @@ private struct RoomArtHarness {
                 },
                 loopAccentColor: { .orange },
                 endTheSpokenLine: { recorder.timesTheSpokenLineWasEnded += 1 }
-            ),
-            frameProcessor: frameProcessor,
-            panelPresenter: panel
-        )
+            )
+        furnitureLooks?.apply(to: &environment)
+        controller = RoomArtPreviewController(environment: environment, frameProcessor: frameProcessor, panelPresenter: panel)
         self.panel = panel
         self.worker = worker
+        self.cutouts = cutouts
         self.camera = camera
         self.frameProcessor = frameProcessor
         self.recorder = recorder
@@ -284,13 +504,17 @@ private struct RoomArtHarness {
         if case .showing = controller.phase { return true }
         return false
     }
+
+    func statusLine() -> String {
+        controller.phase.statusLine(theSurfaceIsLost: controller.theSurfaceIsLost, shirtCoachingLine: controller.shirtCoachingLine)
+    }
 }
 
 // The longest wait inside a test is 120 s, so a regression that stalls every flow fails here, minutes before CI's 30 minute job limit.
 @Suite(.timeLimit(.minutes(3)))
 @MainActor
 struct RoomArtPreviewControllerTests {
-    @Test func theArtShowsOnceThePageAndTheWallAreReadTogether() async throws {
+    @Test func theArtShowsOnceThePageIsReadAndTheWallMeasured() async throws {
         let harness = RoomArtHarness()
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
@@ -299,22 +523,45 @@ struct RoomArtPreviewControllerTests {
 
         #expect(harness.spokenLines() == ["Here it is at 16 by 20 inches."])
         #expect(harness.controller.phase.statusLine == "On your wall at 16 by 20 inches")
-        #expect(harness.frameProcessor.artHungCount == 1)
+        #expect(harness.frameProcessor.surfacesShownOn == [.wall])
         // A scene or pop-out on screen is cleared once, before the panel shows over it.
         #expect(harness.recorder.timesTheSceneWasClearedBeforeThePanel == [0])
-        #expect(harness.worker.thePageWasAskedForBeforeTheWallReplied)
         let pageRequest = try #require(harness.worker.pageRequests.first)
         #expect(pageRequest.pageURL == "https://shop.example/water-lilies")
         // The learner's words go to the Worker, so it knows which item on the page they mean.
         #expect(pageRequest.learnerRequest == whatTheLearnerSaid)
-        // The first keyframe has no anchor, so the art centers on the bare wall spot.
+        // The first keyframe has no anchor, so the art centers on the bare wall spot, and only the wall is measured.
         #expect(harness.frameProcessor.keyframeAnchors == [nil])
-        #expect(harness.worker.wallRequests.first?.anchor == StandInFrameProcessor.bareWallSpot)
+        #expect(harness.frameProcessor.keyframeSurfaces == [.wall])
+        #expect(harness.worker.wallRequests.first?.anchor == StandInFrameProcessor.bareSpot)
+        #expect(harness.worker.floorRequests.isEmpty)
 
         harness.controller.close()
         #expect(harness.controller.phase == .closed)
         #expect(harness.panel.timesHidden == 1)
         #expect(!harness.camera.isDeliveringFrames)
+    }
+
+    @Test func thePageIsReadWhileTheCameraStartsAndTheVideoStaysCoveredUntilItsFirstFrame() async throws {
+        // The camera takes 2 seconds to start, so the item waits for it long enough to be seen even on a loaded machine.
+        let camera = SyntheticRoomCamera(secondsToStart: 2)
+        let harness = RoomArtHarness(camera: camera)
+
+        let openingTask = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
+        try await waitFor("the page request") { !harness.worker.pageRequests.isEmpty }
+        // The page is asked about before the camera has delivered anything, so nothing waits on a keyframe to read it.
+        #expect(!camera.isDeliveringFrames)
+        #expect(!harness.controller.theFirstFrameIsIn)
+        try await waitFor("the item to wait for the camera") {
+            if case .waitingForTheCamera = harness.controller.phase { return true }
+            return false
+        }
+        #expect(harness.statusLine() == "Starting the camera…")
+        await openingTask.value
+        try await waitFor("the art to show on the wall") { harness.artIsShowing() }
+        #expect(harness.controller.theFirstFrameIsIn)
+        harness.controller.close()
+        #expect(!harness.controller.theFirstFrameIsIn)
     }
 
     @Test func aClickMovesTheArtWithANewWallMeasurementAndIsIgnoredWhileOneRuns() async throws {
@@ -323,9 +570,9 @@ struct RoomArtPreviewControllerTests {
         try await waitFor("the art to show on the wall") { harness.artIsShowing() }
         harness.worker.secondsBeforeTheWallReplies = 0.3
 
-        harness.controller.moveTheArt(toCameraPixel: CGPoint(x: 150, y: 120))
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 150, y: 120))
         // A second click during that measurement is ignored.
-        harness.controller.moveTheArt(toCameraPixel: CGPoint(x: 500, y: 300))
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 500, y: 300))
         try await waitFor("the click's wall request") { harness.worker.wallRequests.count == 2 }
         try await waitFor("the art to show at the click") { harness.artIsShowing() }
 
@@ -345,10 +592,10 @@ struct RoomArtPreviewControllerTests {
         let firstWall = try harness.worker.wallReply.get()
         harness.worker.wallReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"Too little bare wall around that point"}"#))
 
-        harness.controller.moveTheArt(toCameraPixel: CGPoint(x: 150, y: 120))
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 150, y: 120))
 
         try await waitFor("the move to fail back onto the first wall") {
-            guard case .showing(_, let wall, moveFailure: .wallNotMeasured) = harness.controller.phase else { return false }
+            guard case .showing(_, .wall(let wall), moveFailure: .wallNotMeasured) = harness.controller.phase else { return false }
             return wall == firstWall
         }
         #expect(harness.controller.phase.statusLine == "Couldn't measure the wall")
@@ -365,13 +612,13 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
         try await waitFor("the art to show on the wall") { harness.artIsShowing() }
 
-        harness.frameProcessor.reportTheWall(lost: true)
-        try await waitFor("the controller to hear the wall is lost") { harness.controller.theWallIsLost }
-        #expect(harness.controller.phase.statusLine(theWallIsLost: harness.controller.theWallIsLost) == "Lost the wall. Turn back, or click the wall to place it again.")
+        harness.frameProcessor.reportTheSurface(lost: true)
+        try await waitFor("the controller to hear the wall is lost") { harness.controller.theSurfaceIsLost }
+        #expect(harness.statusLine() == "Lost the wall. Turn back, or click the wall to place it again.")
 
-        harness.frameProcessor.reportTheWall(lost: false)
-        try await waitFor("the controller to hear the wall is found") { !harness.controller.theWallIsLost }
-        #expect(harness.controller.phase.statusLine(theWallIsLost: harness.controller.theWallIsLost) == "On your wall at 16 by 20 inches")
+        harness.frameProcessor.reportTheSurface(lost: false)
+        try await waitFor("the controller to hear the wall is found") { !harness.controller.theSurfaceIsLost }
+        #expect(harness.statusLine() == "On your wall at 16 by 20 inches")
         harness.controller.close()
     }
 
@@ -388,6 +635,43 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.phase == .closed)
         #expect(harness.spokenLines().isEmpty)
         #expect(harness.frameProcessor.artHungCount == 0)
+    }
+
+    @Test func aPageReplyAfterThePanelClosedIsDroppedAndMeasuresNothing() async throws {
+        let worker = WorkerStub()
+        worker.secondsBeforeThePageReplies = 0.4
+        let harness = RoomArtHarness(worker: worker)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the page request") { !worker.pageRequests.isEmpty }
+
+        harness.controller.close()
+        try await Task.sleep(for: .seconds(0.8))
+
+        #expect(harness.controller.phase == .closed)
+        #expect(harness.spokenLines().isEmpty)
+        #expect(worker.wallRequests.isEmpty && worker.floorRequests.isEmpty)
+        // The close stops the request itself, not only what its reply would do.
+        #expect(worker.aPageReadWasCancelled)
+    }
+
+    @Test func anEarlierRequestsFailedPageReadNeverFailsTheNewerOne() async throws {
+        let worker = WorkerStub()
+        let firstPageReading = try worker.pageReading.get()
+        // The first read fails late, after the learner asked again, and the second read succeeds.
+        worker.queuedPageReplies = [
+            (seconds: 0.4, reply: .failure(URLError(.timedOut))),
+            (seconds: 0.8, reply: .success(firstPageReading)),
+        ]
+        let harness = RoomArtHarness(worker: worker)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the first page request") { worker.pageRequests.count == 1 }
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the art from the second request to show") { harness.artIsShowing() }
+
+        #expect(worker.pageRequests.count == 2)
+        #expect(harness.spokenLines() == ["Here it is at 16 by 20 inches."])
+        harness.controller.close()
     }
 
     @Test func noAppSecretSaysSoBeforeTheCameraOpens() async {
@@ -415,21 +699,27 @@ struct RoomArtPreviewControllerTests {
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
-        #expect(harness.spokenLines() == ["I couldn't read the size from that page."])
+        #expect(harness.spokenLines() == ["I couldn't read that page."])
         #expect(harness.panel.timesShown == 0)
         #expect(harness.worker.pageRequests.isEmpty && harness.worker.wallRequests.isEmpty)
     }
 
-    @Test func aPageThatStatesNoSizeSaysSoInsteadOfHangingAGuess() async throws {
-        let worker = WorkerStub()
-        worker.pageReading = .success(.sizeNotOnThePage(title: "Water Lilies print"))
-        let harness = RoomArtHarness(worker: worker)
+    @Test func aPageThatStatesNoSizeSaysSoAndMeasuresNothing() async throws {
+        let unsizedTable = RoomArtPageReading.furniture(RoomArtFurnitureReading(title: "LACK side table", chosenSize: nil, whyThisSize: "No size.", itemCorners: pictureCorners))
+        for pageReading in [RoomArtPageReading.sizeNotOnThePage(title: "Water Lilies print"), unsizedTable] {
+            let worker = WorkerStub()
+            worker.pageReading = .success(pageReading)
+            let harness = RoomArtHarness(worker: worker)
 
-        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+            await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
-        try await waitFor("the panel to fail with no size on the page") { harness.controller.phase == .failed(.sizeNotOnThePage) }
-        #expect(harness.spokenLines() == ["I couldn't find the size on that page."])
-        harness.controller.close()
+            try await waitFor("the panel to fail with no size on the page") { harness.controller.phase == .failed(.sizeNotOnThePage) }
+            #expect(harness.spokenLines() == ["I couldn't find the size on that page."])
+            // No measurement runs for a size the model would have to guess.
+            #expect(worker.wallRequests.isEmpty && worker.floorRequests.isEmpty)
+            #expect(harness.frameProcessor.keyframeSurfaces.isEmpty)
+            harness.controller.close()
+        }
     }
 
     @Test func escapeWhileThePictureIsCapturedStopsTheRequest() async throws {
@@ -492,7 +782,7 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         try await waitFor("the panel to fail asking about the depth service") { harness.controller.phase == .failed(.depthServiceUnavailable) }
-        #expect(harness.spokenLines() == ["I couldn't measure your wall. Is the depth service running?"])
+        #expect(harness.spokenLines() == ["I couldn't measure your room. Is the depth service running?"])
         #expect(!harness.camera.isDeliveringFrames)
         harness.controller.close()
     }
@@ -509,37 +799,527 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
-    @Test func anItemThatIsNeitherWallArtNorFurnitureNorClothingSaysItDoesNotHang() async throws {
+    @Test func anItemThatIsNeitherWallArtNorFurnitureNorClothingSaysSoAndMeasuresNothing() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(.other(title: "Brass lamp"))
         let harness = RoomArtHarness(worker: worker)
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
-        try await waitFor("the panel to fail on an item that does not hang") { harness.controller.phase == .failed(.notWallArt) }
-        #expect(harness.spokenLines() == ["That doesn't look like something that hangs on a wall."])
+        try await waitFor("the panel to fail on an item that cannot be tried") { harness.controller.phase == .failed(.notSomethingToTry) }
+        #expect(harness.spokenLines() == ["That doesn't look like wall art, furniture, or a shirt."])
+        #expect(worker.wallRequests.isEmpty && worker.floorRequests.isEmpty)
         harness.controller.close()
     }
 
-    @Test func furnitureAndClothingSayOnlyWallArtWorksSoFar() async throws {
-        let pictureCorners = RoomArtCorners(topLeft: CGPoint(x: 20, y: 25), topRight: CGPoint(x: 380, y: 25), bottomRight: CGPoint(x: 380, y: 475), bottomLeft: CGPoint(x: 20, y: 475))
-        let furniture = RoomArtPageReading.furniture(RoomArtFurnitureReading(title: "Blue sofa", chosenSize: nil, whyThisSize: "No size on the page.", itemCorners: pictureCorners))
-        let clothing = RoomArtPageReading.clothing(RoomArtClothingReading(
-            title: "Great Wave tee", garment: .tshirt, sleeves: .short, chosenSizeLabel: "M", photoShows: .flatLay,
-            printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners
-        ))
-        for pageReading in [furniture, clothing] {
-            let worker = WorkerStub()
-            worker.pageReading = .success(pageReading)
-            let harness = RoomArtHarness(worker: worker)
+    // MARK: Furniture
 
-            await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this chair look in my room")
+    @Test func furnitureIsMeasuredOnTheFloorAndStandsThereAtItsSize() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let harness = RoomArtHarness(worker: worker)
 
-            try await waitFor("the panel to fail on an item that is not wall art yet") { harness.controller.phase == .failed(.onlyWallArtSoFar) }
-            #expect(harness.spokenLines() == ["I can hang wall art so far. Furniture and clothes are coming next."])
-            harness.controller.close()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the table to stand on the floor") { harness.artIsShowing() }
+        #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
+        #expect(harness.recorder.spokenLineFailureFlags == [false])
+        #expect(harness.controller.phase.statusLine == "On your floor, 21.5 inches wide and 17.5 tall")
+        #expect(harness.cutouts.furnitureCutoutsAsked == 1)
+        // The floor is measured from the bare floor spot, and the wall on the same keyframe at its bare wall spot, which the
+        // depth service answers from the floor's cached depth.
+        #expect(harness.frameProcessor.keyframeSurfaces == [.floor])
+        #expect(worker.floorRequests.count == 1 && worker.wallRequests.count == 1)
+        #expect(worker.wallRequests.first?.anchor == StandInFrameProcessor.bareWallSpot)
+        #expect(worker.wallRequests.first?.keyframeJPEGData == worker.floorRequests.first?.keyframeJPEGData)
+        #expect(harness.frameProcessor.surfacesShownOn == [.floor])
+        guard case .showing(.furniture(let furniture), .floor, nil) = harness.controller.phase else {
+            Issue.record("The table is not showing on the floor: \(harness.controller.phase)")
+            return
         }
+        // The cutout is drawn at its own shape, 60 by 45, at the page's 45 cm height.
+        #expect(abs(furniture.drawnWidthMeters - 0.6) < 1e-9)
+        harness.controller.close()
     }
+
+    @Test func aFloorThatIsNotFoundSaysToTiltTheScreenAndAClickOnTheFloorPlacesThePiece() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        worker.floorReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"No floor under that point"}"#))
+        // No wall either, so no floor can be inferred from it.
+        worker.wallReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"Too little bare wall"}"#))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the panel to wait for a click on the floor") { harness.controller.phase.waitingForAFloorClickItem != nil }
+        #expect(harness.spokenLines() == ["I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor."])
+        #expect(harness.recorder.spokenLineFailureFlags == [true])
+        #expect(harness.statusLine() == "Tilt the screen down so the floor shows, then click the floor")
+        // The camera keeps running, so the learner can tilt the screen down.
+        #expect(harness.camera.isDeliveringFrames)
+
+        // A click that finds no floor again only shows in the status line.
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 300, y: 330))
+        try await waitFor("the click's floor request") { worker.floorRequests.count == 2 }
+        try await waitFor("the panel to wait for a click again") { harness.controller.phase.waitingForAFloorClickItem != nil }
+        #expect(harness.spokenLines().count == 1)
+
+        worker.floorReply = .success(FloorPlane(
+            center: SIMD3(0.4, 0.9, 2.2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), forward: SIMD3(0, 0, 1), focalLengthPixels: 500,
+            principalPoint: SIMD2(320, 180), distanceMeters: 2.4, floorTiltDegrees: 2, planeInlierShare: 0.9
+        ))
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 320, y: 340))
+        try await waitFor("the table to stand where the learner clicked") { harness.artIsShowing() }
+        #expect(worker.floorRequests.last?.anchor == CGPoint(x: 320, y: 340))
+        #expect(harness.frameProcessor.keyframeAnchors == [nil, CGPoint(x: 300, y: 330), CGPoint(x: 320, y: 340)])
+        #expect(harness.spokenLines() == [
+            "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor.",
+            "Here it is, 21.5 inches wide and 17.5 tall.",
+        ])
+        harness.controller.close()
+    }
+
+    @Test func withNoFloorInViewThePieceStandsAgainstTheWall() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        worker.floorReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"No floor under that point"}"#))
+        // A wall 4 m away, so a floor 1.05 m below the camera puts the table inside the 640 by 360 frame.
+        worker.wallReply = .success(WallPlane(
+            center: SIMD3(-0.3, -0.2, 4), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 500,
+            principalPoint: SIMD2(320, 180), distanceMeters: 4, wallAngleDegrees: 0, planeInlierShare: 0.9
+        ))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the table to stand against the wall") { harness.artIsShowing() }
+        guard case .showing(_, .floor(let floor), nil) = harness.controller.phase else {
+            Issue.record("The table is not on a floor: \(harness.controller.phase)")
+            return
+        }
+        #expect(floor.inferredFromTheWall)
+        #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
+        harness.controller.close()
+    }
+
+    @Test func aDepthServiceThatIsDownFailsTheFloorWithNoWallRequest() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        worker.floorReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 502, body: #"{"error":"The depth service is not answering"}"#))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the panel to fail on the depth service") { harness.controller.phase == .failed(.depthServiceUnavailable) }
+        #expect(worker.wallRequests.isEmpty)
+        harness.controller.close()
+    }
+
+    @Test func aFloorThatIsNotLevelWithTheWallIsADeskAndNotTheFloor() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        // The wall leans 30 degrees from the measured floor's normal, and was measured so far to the left that the table
+        // inferred against it would be out of the frame, so the panel asks for a click on the floor.
+        worker.wallReply = .success(WallPlane(
+            center: SIMD3(-3, -0.2, 2), right: SIMD3(1, 0, 0), up: simd_normalize(SIMD3(0, -0.866, -0.5)), focalLengthPixels: 500,
+            principalPoint: SIMD2(320, 180), distanceMeters: 2, wallAngleDegrees: 30, planeInlierShare: 0.9
+        ))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the panel to wait for a click on the floor") { harness.controller.phase.waitingForAFloorClickItem != nil }
+        #expect(harness.frameProcessor.surfacesShownOn.isEmpty)
+        harness.controller.close()
+    }
+
+    // MARK: The furniture's better looks
+
+    @Test func theStoresModelReplacesTheCutoutOnceTheFloorIsMeasured() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.storeModel = FurnitureLookStub.model(.storeModel)
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the store's model to replace the cutout") { !harness.frameProcessor.furnitureLayersShown.isEmpty }
+        #expect(harness.frameProcessor.surfacesShownOn == [.floor])
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.storeModel])
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.keyframeNumber) == [1])
+        #expect(looks.storeModelSearches == [storePageTab.url])
+        // A store model needs no generated model, and the composite is still asked for, which this service refuses.
+        try await waitFor("the composite to be asked for") { looks.paintings == 1 }
+        #expect(looks.modelsGenerated == 0)
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.storeModel])
+        harness.controller.close()
+    }
+
+    @Test func thePaintedCompositeReplacesTheStoresModelWhenItStandsAtTheMeasuredHeight() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.storeModel = FurnitureLookStub.model(.storeModel)
+        looks.paintedImage = furnitureCutoutImage()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the render and then the composite") { harness.frameProcessor.furnitureLayersShown.count == 2 }
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.storeModel, .paintedComposite])
+        harness.controller.close()
+    }
+
+    @Test func withNoStoreModelAGeneratedModelIsShown() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.generatedModelData = Data([1, 2, 3])
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the generated model to replace the cutout") { !harness.frameProcessor.furnitureLayersShown.isEmpty }
+        try await waitFor("the composite to be asked for") { looks.paintings == 1 }
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.generatedModel])
+        harness.controller.close()
+    }
+
+    @Test func withNoModelAtAllThePaintedCompositeIsShown() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the painted composite to replace the cutout") { !harness.frameProcessor.furnitureLayersShown.isEmpty }
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
+        #expect(looks.modelsGenerated == 1 && looks.paintings == 1)
+        harness.controller.close()
+    }
+
+    @Test func bothGenerationServicesGetTheFurnituresCutoutAndNeverThePagePicture() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("both services to be asked") { looks.modelsGenerated == 1 && looks.paintings == 1 }
+        #expect(looks.productJPEGsSent.count == 2)
+        for productJPEG in looks.productJPEGsSent {
+            // The page picture is 400 by 500, and the cutout is 60 by 45.
+            let sentImage = try #require(decodedImage(from: productJPEG))
+            #expect(sentImage.width == 60 && sentImage.height == 45)
+        }
+        #expect(looks.productJPEGsSent[0] == looks.productJPEGsSent[1])
+        // The model is cached by the page picture, which is stable between requests, and not by the cutout.
+        let cacheKeyData = try #require(looks.modelCacheKeysSent.first)
+        let cacheKeyImage = try #require(decodedImage(from: cacheKeyData))
+        #expect(looks.modelCacheKeysSent.count == 1 && cacheKeyImage.width == 400 && cacheKeyImage.height == 500)
+        harness.controller.close()
+    }
+
+    @Test func twoPaintingsAtTheWrongHeightKeepTheCutout() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        looks.firstKeptPainting = nil
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the second painting to be asked for") { looks.paintings == 2 }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(looks.paintings == 2)
+        #expect(harness.frameProcessor.furnitureLayersShown.isEmpty)
+        #expect(harness.artIsShowing())
+        harness.controller.close()
+    }
+
+    @Test func aPaintingAtTheWrongHeightIsAskedForOnceMore() async throws {
+        // With no model, a refused painting would leave the flat cutout, so the second painting replaces it.
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        looks.firstKeptPainting = 2
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the second painting to replace the cutout") { !harness.frameProcessor.furnitureLayersShown.isEmpty }
+        #expect(looks.paintings == 2)
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
+        harness.controller.close()
+    }
+
+    @Test func aFailedPaintingRequestIsAskedForOnceMore() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        looks.failingPaintings = 1
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the second painting after the 502") { !harness.frameProcessor.furnitureLayersShown.isEmpty }
+        #expect(looks.paintings == 2)
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
+        harness.controller.close()
+    }
+
+    @Test func onlyAPaintingFailureThatMayPassIsAskedForAgain() {
+        #expect(roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "")))
+        #expect(roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 504, body: "")))
+        #expect(roomFurniturePaintingIsWorthAskingForAgain(after: URLError(.timedOut)))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 401, body: "")))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 400, body: "")))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.inputCouldNotBeRead(reason: "")))
+    }
+
+    @Test func aModelThatDoesNotRenderFallsBackToThePainting() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.storeModel = FurnitureLookStub.model(.storeModel)
+        looks.renderSucceeds = false
+        looks.paintedImage = furnitureCutoutImage()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the painted composite after the failed render") { !harness.frameProcessor.furnitureLayersShown.isEmpty }
+        #expect(looks.renders == [.storeModel])
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
+        harness.controller.close()
+    }
+
+    @Test func aClickRendersTheModelAgainForTheNewKeyframe() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.storeModel = FurnitureLookStub.model(.storeModel)
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the first render") { harness.frameProcessor.furnitureLayersShown.count == 1 }
+
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 300, y: 320))
+        try await waitFor("the render for the click's keyframe") { harness.frameProcessor.furnitureLayersShown.count == 2 }
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.keyframeNumber) == [1, 2])
+        #expect(looks.storeModelSearches.count == 1)
+        harness.controller.close()
+    }
+
+    @Test func aGenerationServiceThatIsNotSetUpLeavesTheCutoutAndIsNotAskedAgain() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the painting to be refused") { looks.paintings == 1 }
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 300, y: 320))
+        try await waitFor("the click's placement") { harness.frameProcessor.surfacesShownOn.count == 2 }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(looks.paintings == 1)
+        #expect(harness.frameProcessor.furnitureLayersShown.isEmpty)
+        harness.controller.close()
+    }
+
+    @Test func aPieceNoSpotShowsWholeAsksTheLearnerToStepBack() async throws {
+        let worker = WorkerStub()
+        // A 6 m sofa, the largest size the reader keeps, wider than the 640 by 360 frame shows at any spot no farther than
+        // the measured one.
+        worker.pageReading = .success(.furniture(RoomArtFurnitureReading(
+            title: "Long sofa",
+            chosenSize: RoomArtFurnitureSize(label: "600x85x95 cm", widthCentimeters: 600, heightCentimeters: 85, depthCentimeters: 95),
+            whyThisSize: "It is the only size.",
+            itemCorners: pictureCorners
+        )))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this sofa look in my room")
+
+        try await waitFor("the sofa and the step back line") { harness.spokenLines().count == 2 }
+        #expect(harness.spokenLines().last == roomFurnitureStepBackLine)
+        #expect(harness.recorder.spokenLineFailureFlags.last == false)
+        harness.controller.close()
+    }
+
+    @Test func aPieceThatFitsIsMovedIntoTheFrameButAClickedSpotIsKept() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the table to stand on the floor") { harness.artIsShowing() }
+        guard case .showing(_, .floor(let firstFloor), nil) = harness.controller.phase else {
+            Issue.record("The table is not on a floor: \(harness.controller.phase)")
+            return
+        }
+        // The stub floor's own point is off to the side, so the piece moved toward the lower middle, where all of it
+        // shows, and no step back line was said.
+        #expect(firstFloor.center != worker.floorRequestsReply)
+        #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
+        // The loop moved from the measured spot to the middle of the table's footprint, on the first keyframe.
+        let expectedLoopCenter = try #require(roomFurnitureFootprintCenterInTheKeyframe(floor: firstFloor, widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55))
+        let loopOutline = try #require(harness.frameProcessor.loopOutlines.first)
+        #expect(harness.frameProcessor.loopOutlines.count == 1)
+        #expect(hypot(loopOutline.point.x - expectedLoopCenter.x, loopOutline.point.y - expectedLoopCenter.y) < 1)
+        #expect(loopOutline.keyframeNumber == 1)
+
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 600, y: 340))
+        try await waitFor("the click's placement") { harness.frameProcessor.surfacesShownOn.count == 2 }
+        guard case .showing(_, .floor(let clickedFloor), nil) = harness.controller.phase else {
+            Issue.record("The table is not on a floor after the click: \(harness.controller.phase)")
+            return
+        }
+        #expect(clickedFloor.center == worker.floorRequestsReply)
+        // A click keeps its spot, so the loop stays where the learner clicked.
+        #expect(harness.frameProcessor.loopOutlines.count == 1)
+        harness.controller.close()
+    }
+
+    @Test func furnitureThatCannotBeCutOutSaysSo() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let cutouts = CutoutStub()
+        cutouts.furnitureCutout = nil
+        let harness = RoomArtHarness(worker: worker, cutouts: cutouts)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the panel to fail on the cutout") { harness.controller.phase == .failed(.furnitureNotCutOut) }
+        #expect(harness.spokenLines() == ["I couldn't cut the furniture out of its photo."])
+        #expect(worker.floorRequests.isEmpty)
+        harness.controller.close()
+    }
+
+    // MARK: The shirt
+
+    @Test func aShirtCoachesTheLearnerOnceThenShowsOnThemWithNoMeasurement() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(shirtReading())
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "could I see this shirt on me")
+        try await waitFor("the garment to be ready") { harness.controller.phase == .waitingToSeeTheLearner(title: "Linen shirt") }
+        #expect(harness.frameProcessor.shirtTryOnStarted && harness.frameProcessor.garmentWorn)
+        // The loop traces the learner while the shirt is on its way.
+        #expect(!harness.controller.loopState.isHidden && !harness.controller.loopState.isFadingOut)
+        #expect(harness.statusLine() == "Looking for you…")
+
+        harness.frameProcessor.settleTheShirtFraming(on: .standBack)
+        try await waitFor("the coaching in the status line") { harness.controller.shirtCoachingLine != nil }
+        #expect(harness.statusLine() == "Stand back so I can see your shoulders and chest.")
+        // The first advice is said once, and not as a failure.
+        #expect(harness.spokenLines() == ["Stand back so I can see your shoulders and chest."])
+        #expect(harness.recorder.spokenLineFailureFlags == [false])
+
+        harness.frameProcessor.settleTheShirtFraming(on: .noPerson)
+        try await waitFor("the newer coaching in the status line") { harness.statusLine() == "I can't see you yet. Step in front of the camera." }
+        #expect(harness.spokenLines().count == 1)
+
+        harness.frameProcessor.settleTheShirtFraming(on: .ready)
+        try await waitFor("the shirt to show on the learner") { harness.controller.phase == .showingTheShirt(title: "Linen shirt") }
+        #expect(harness.spokenLines() == ["Stand back so I can see your shoulders and chest.", "Here it is on you."])
+        #expect(harness.statusLine() == "On you")
+        #expect(harness.controller.loopState.isFadingOut)
+        // A shirt needs no depth: no keyframe, no wall, no floor.
+        #expect(harness.frameProcessor.keyframeSurfaces.isEmpty)
+        #expect(worker.wallRequests.isEmpty && worker.floorRequests.isEmpty)
+        // A click on a shirt changes nothing.
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 100, y: 100))
+        #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt"))
+
+        // A learner who steps away after the shirt showed gets the status line only.
+        harness.frameProcessor.settleTheShirtFraming(on: .standBack)
+        try await waitFor("the coaching to return to the status line") { harness.controller.shirtCoachingLine != nil }
+        #expect(harness.spokenLines().count == 2)
+        harness.controller.close()
+    }
+
+    @Test func aLearnerInViewBeforeTheGarmentIsReadySeesTheShirtTheMomentItIs() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(shirtReading())
+        let cutouts = CutoutStub()
+        cutouts.secondsBeforeTheGarmentIsReady = 0.5
+        let harness = RoomArtHarness(worker: worker, cutouts: cutouts)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "could I see this shirt on me")
+        try await waitFor("the shirt try-on to start") { harness.frameProcessor.shirtTryOnStarted }
+        #expect(harness.controller.phase == .preparingTheShirt(title: "Linen shirt"))
+        #expect(harness.statusLine() == "Getting the shirt ready…")
+        harness.frameProcessor.settleTheShirtFraming(on: .ready)
+
+        try await waitFor("the shirt to show on the learner") { harness.controller.phase == .showingTheShirt(title: "Linen shirt") }
+        #expect(harness.spokenLines() == ["Here it is on you."])
+        // Stepping away once the shirt shows moves only the status line, even with no advice said before.
+        harness.frameProcessor.settleTheShirtFraming(on: .standBack)
+        try await waitFor("the coaching in the status line") { harness.controller.shirtCoachingLine != nil }
+        #expect(harness.spokenLines() == ["Here it is on you."])
+        harness.controller.close()
+    }
+
+    @Test func aShirtPhotographedOnAModelIsRefusedAndNoGarmentIsMade() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(shirtReading(photoShows: .onModel))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "could I see this shirt on me")
+
+        try await waitFor("the panel to refuse the model photo") { harness.controller.phase == .failed(.shirtPhotoOnAModel) }
+        #expect(harness.spokenLines() == ["I can only try on a shirt from a flat photo of it, and this photo shows it on a model."])
+        #expect(harness.recorder.spokenLineFailureFlags == [true])
+        #expect(harness.cutouts.garmentsAsked == 0)
+        #expect(!harness.frameProcessor.shirtTryOnStarted)
+        harness.controller.close()
+    }
+
+    @Test func aGarmentThatCannotBeCutOutSaysSo() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(shirtReading())
+        let cutouts = CutoutStub()
+        cutouts.garment = nil
+        let harness = RoomArtHarness(worker: worker, cutouts: cutouts)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "could I see this shirt on me")
+
+        try await waitFor("the panel to fail on the garment") { harness.controller.phase == .failed(.garmentNotCutOut) }
+        #expect(harness.spokenLines() == ["I couldn't lift the shirt out of its photo."])
+        #expect(!harness.frameProcessor.garmentWorn)
+        harness.controller.close()
+    }
+
+    @Test func aGarmentThatIsReadyAfterThePanelClosedChangesNothing() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(shirtReading())
+        let cutouts = CutoutStub()
+        cutouts.secondsBeforeTheGarmentIsReady = 0.4
+        let harness = RoomArtHarness(worker: worker, cutouts: cutouts)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "could I see this shirt on me")
+        try await waitFor("the garment to be asked for") { cutouts.garmentsAsked == 1 }
+        harness.controller.close()
+        try await Task.sleep(for: .seconds(0.8))
+
+        #expect(harness.controller.phase == .closed)
+        #expect(!harness.frameProcessor.garmentWorn)
+        #expect(harness.spokenLines().isEmpty)
+    }
+
+    // MARK: Every kind
 
     @Test func everyFailureLineIsSpokenAsAFailureAndHereItIsIsNot() async throws {
         // Lines the controller speaks before the camera opens.
@@ -556,13 +1336,20 @@ struct RoomArtPreviewControllerTests {
         // A failure the panel enters after it opened.
         let cameraHarness = RoomArtHarness(camera: SyntheticRoomCamera(startFailure: .noCamera))
         await cameraHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
-        let furnitureWorker = WorkerStub()
-        furnitureWorker.pageReading = .success(.other(title: "Brass lamp"))
-        let measuredFailureHarness = RoomArtHarness(worker: furnitureWorker)
-        await measuredFailureHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
-        try await waitFor("the panel to fail on an item that does not hang") { measuredFailureHarness.controller.phase == .failed(.notWallArt) }
+        let lampWorker = WorkerStub()
+        lampWorker.pageReading = .success(.other(title: "Brass lamp"))
+        let readFailureHarness = RoomArtHarness(worker: lampWorker)
+        await readFailureHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the panel to fail on an item that cannot be tried") { readFailureHarness.controller.phase == .failed(.notSomethingToTry) }
+        let dressWorker = WorkerStub()
+        dressWorker.pageReading = .success(.clothing(RoomArtClothingReading(
+            title: "Dress", garment: .dress, sleeves: .none, chosenSizeLabel: "S", photoShows: .flatLay, printDescription: "", whyThisSize: "S.", itemCorners: pictureCorners
+        )))
+        let dressHarness = RoomArtHarness(worker: dressWorker)
+        await dressHarness.controller.showTheArtInTheRoom(learnerRequest: "could I see this dress on me")
+        try await waitFor("the panel to fail on a dress") { dressHarness.controller.phase == .failed(.onlyTopsSoFar) }
 
-        for failureHarness in [noSecretHarness, httpHarness, noTextHarness, noTabHarness, noPictureHarness, cameraHarness, measuredFailureHarness] {
+        for failureHarness in [noSecretHarness, httpHarness, noTextHarness, noTabHarness, noPictureHarness, cameraHarness, readFailureHarness, dressHarness] {
             #expect(failureHarness.recorder.spokenLineFailureFlags == [true], "\(failureHarness.spokenLines())")
             failureHarness.controller.close()
         }
@@ -593,7 +1380,7 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.loopState == .hidden)
 
         // A click's measurement draws it again, and closing the panel removes it at once.
-        harness.controller.moveTheArt(toCameraPixel: CGPoint(x: 100, y: 100))
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 100, y: 100))
         #expect(harness.controller.loopState.beganAt != beganAt && !harness.controller.loopState.isFadingOut)
         harness.controller.close()
         #expect(harness.controller.loopState == .hidden)
@@ -616,7 +1403,7 @@ struct RoomArtPreviewControllerTests {
         let panelSize = CGSize(width: 960, height: 540)
         #expect(harness.controller.currentLoopOutline(cameraSize: CGSize(width: 1280, height: 720), panelSize: panelSize) == nil)
 
-        let keyframeCorners = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 640, y: 250), frameSize: CGSize(width: 1280, height: 720))
+        let keyframeCorners = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 640, y: 250), frameSize: CGSize(width: 1280, height: 720), on: .wall)
         harness.frameProcessor.setTheLoop(RoomArtLoopSnapshot(keyframeCorners: keyframeCorners, currentCorners: keyframeCorners))
 
         let outline = harness.controller.currentLoopOutline(cameraSize: CGSize(width: 1280, height: 720), panelSize: panelSize)
@@ -695,5 +1482,13 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.closeOnEscape())
         #expect(harness.controller.phase == .closed)
         #expect(harness.panel.timesHidden == 1)
+    }
+}
+
+private extension RoomArtPhase {
+    /// The piece waiting for a click on the floor, nil in any other phase.
+    var waitingForAFloorClickItem: RoomArtPlacedItem? {
+        if case .waitingForAFloorClick(let item) = self { return item }
+        return nil
     }
 }

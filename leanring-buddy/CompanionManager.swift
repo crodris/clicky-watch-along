@@ -381,12 +381,14 @@ final class CompanionManager: ObservableObject {
         install: { [weak self] confirmedInstall in self?.installTheConfirmedThemePackage(confirmedInstall) }
     )
     private var themeStudioSpeechTask: Task<Void, Never>?
-    /// "Show me how this would look in my room": the live camera panel with the picture from Chrome's front tab on the wall.
+    /// "Show me how this would look in my room" and "could I see this shirt on me": the live camera panel with the item on
+    /// Chrome's front tab on the learner's wall or floor, or a shirt drawn over the learner.
     private lazy var roomArtPreviewController = RoomArtPreviewController(environment: .live(
         workerBaseURL: Self.workerBaseURL,
         capturePicture: { [weak self] in await self?.pictureForRoomArt() },
         clearTheLiveScene: { [weak self] in self?.clearTheLiveSceneForTheRoomArtPanel() },
-        // Every room art line but "Here it is" reports a failure, so the cursor shakes as it is said.
+        // The controller says which lines report a failure, so the cursor shakes as each is said. "Here it is" and the
+        // shirt's coaching do not.
         speak: { [weak self] line, isAFailure in self?.speakARoomArtLine(line, isAFailure: isAFailure) },
         loopAccentColor: { [weak self] in self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue },
         endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() }

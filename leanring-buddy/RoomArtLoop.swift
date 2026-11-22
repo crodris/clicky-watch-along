@@ -2,11 +2,12 @@
 //  RoomArtLoop.swift
 //  leanring-buddy
 //
-//  Clicky's loop around the wall spot while the room art panel measures the wall. It is the cursor loop's own line and
-//  spark (`CursorLoopOutline`, `CursorLoopTimeline`, `CursorLoopDrawing`) in the theme's accent, drawn around the window
-//  `bareWallSpot` scored, and it follows the wall as the camera turns: the window's four corners go through the tracker's
-//  current warp each frame, and the line is bent onto the mapped corners. It starts when the keyframe is taken and leaves
-//  with a fade when the art shows or the measurement fails.
+//  Clicky's loop around the spot the room art panel measures: the wall spot for wall art, and the floor spot for furniture.
+//  It is the cursor loop's own line and spark (`CursorLoopOutline`, `CursorLoopTimeline`, `CursorLoopDrawing`) in the
+//  theme's accent, drawn around the window `bareWallSpot` or `bareFloorSpot` scored, and it follows the room as the camera
+//  turns: the window's four corners go through the tracker's current warp each frame, and the line is bent onto the mapped
+//  corners. It starts when the keyframe is taken and leaves with a fade when the item shows or the measurement fails. For a
+//  shirt it traces the learner's torso instead, from the moment the panel knows it is a shirt until the shirt first shows.
 //
 //  This file holds the pure rules (when the loop shows and clears, the window's corners, the corner mapping, the camera to
 //  panel fit, the bent outline) and the views that draw it.
@@ -24,18 +25,19 @@ enum RoomArtLoopState: Equatable {
     case drawing(beganAt: TimeInterval)
     case fadingOut(beganAt: TimeInterval)
 
-    /// The panel's phase changed. The loop starts with a measurement, a first one or a click's, and keeps its clock while
-    /// the measurement goes on, such as when the page is read before the wall is. The art showing, or a failure, fades it,
-    /// and a panel that closes or starts its camera has no loop at all.
+    /// The panel's phase changed. The loop starts with a measurement, a first one or a click's, and with a shirt being
+    /// prepared, and keeps its clock while the work goes on, such as when the garment is ready before the learner stands in
+    /// view. The item or the shirt showing, a floor that was not found, or a failure fades it, and a panel that closes or is
+    /// still reading the page has no loop at all.
     func after(phaseChangedTo phase: RoomArtPhase, at now: TimeInterval) -> RoomArtLoopState {
         switch phase {
-        case .measuring, .moving:
+        case .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner:
             if case .drawing = self { return self }
             return .drawing(beganAt: now)
-        case .showing, .failed:
+        case .showing, .waitingForAFloorClick, .showingTheShirt, .failed:
             if case .drawing(let beganAt) = self { return .fadingOut(beganAt: beganAt) }
             return self
-        case .closed, .startingCamera:
+        case .closed, .readingThePage, .waitingForTheCamera:
             return .hidden
         }
     }
@@ -83,12 +85,16 @@ nonisolated extension RoomArtCorners {
 }
 
 nonisolated enum RoomArtLoopGeometry {
-    /// The window around `anchor` that `bareWallSpot` scored, in camera pixels. A spot near an edge, which only a click
-    /// picks, shifts the window inside the frame, keeping its size, so the whole line stays in the panel.
-    static func keyframeCorners(around anchor: CGPoint, frameSize: CGSize) -> RoomArtCorners {
+    /// The window around `anchor` that `bareWallSpot` or `bareFloorSpot` scored, in camera pixels. A spot near an edge,
+    /// which only a click picks, shifts the window inside the frame, keeping its size, so the whole line stays in the panel.
+    static func keyframeCorners(around anchor: CGPoint, frameSize: CGSize, on surfaceKind: RoomArtSurfaceKind) -> RoomArtCorners {
+        let (widthShare, heightShare) = switch surfaceKind {
+        case .wall: (RoomArtBareWallWindow.widthShareOfTheFrame, RoomArtBareWallWindow.heightShareOfTheFrame)
+        case .floor: (RoomArtBareFloorWindow.widthShareOfTheFrame, RoomArtBareFloorWindow.heightShareOfTheFrame)
+        }
         let windowSize = CGSize(
-            width: min(frameSize.width * RoomArtBareWallWindow.widthShareOfTheFrame, frameSize.width),
-            height: min(frameSize.height * RoomArtBareWallWindow.heightShareOfTheFrame, frameSize.height)
+            width: min(frameSize.width * widthShare, frameSize.width),
+            height: min(frameSize.height * heightShare, frameSize.height)
         )
         let left = min(max(anchor.x - windowSize.width / 2, 0), frameSize.width - windowSize.width)
         let top = min(max(anchor.y - windowSize.height / 2, 0), frameSize.height - windowSize.height)
@@ -98,6 +104,20 @@ nonisolated enum RoomArtLoopGeometry {
     /// Where the keyframe's corners are after the tracker's turn of the laptop, the same warp that moves the art's corners.
     static func corners(of keyframeCorners: RoomArtCorners, after warp: EuclideanWarp) -> RoomArtCorners {
         RoomArtCorners(clockwiseFromTopLeft: keyframeCorners.clockwiseFromTopLeft.map(warp.apply))
+    }
+
+    /// The loop around the learner's torso while a shirt is prepared: the line is drawn around the torso's upright bounding
+    /// box and bent onto the torso's own corners, where the shirt will land (`ShirtTryOnRenderer.bodyTorsoCorners`), so it
+    /// leans with the learner. Nil when the torso has no area to outline.
+    static func torsoLoop(of torso: BodyTorso) -> RoomArtLoopSnapshot? {
+        let torsoCorners = ShirtTryOnRenderer.bodyTorsoCorners(of: torso)
+        guard let left = torsoCorners.map(\.x).min(), let right = torsoCorners.map(\.x).max(),
+              let top = torsoCorners.map(\.y).min(), let bottom = torsoCorners.map(\.y).max(),
+              right - left > 1, bottom - top > 1 else { return nil }
+        return RoomArtLoopSnapshot(
+            keyframeCorners: RoomArtCorners(rect: CGRect(x: left, y: top, width: right - left, height: bottom - top)),
+            currentCorners: RoomArtCorners(clockwiseFromTopLeft: torsoCorners)
+        )
     }
 }
 
