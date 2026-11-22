@@ -111,7 +111,7 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 13 Theme Studio designs motion | Merged: [#92](https://github.com/crodris/clicky-watch-along/pull/92). The Debug app check and the motion recording are still owed, since Xcode would not load the project |
 | 14 The loop carries background work | Open: [#97](https://github.com/crodris/clicky-watch-along/pull/97) |
 | 15 End-of-video recap | Merged: [#93](https://github.com/crodris/clicky-watch-along/pull/93) |
-| 16 Pause every agent by voice | Open: [#94](https://github.com/crodris/clicky-watch-along/pull/94). CI and review pass, and the Debug app check waits for Xcode to load the project |
+| 16 Pause every agent by voice | Merged: [#94](https://github.com/crodris/clicky-watch-along/pull/94) |
 | 17 Scrub by voice | Starts when PR 11 merges |
 | 18 Share themes as files | Open: [#102](https://github.com/crodris/clicky-watch-along/pull/102) |
 | 19 Tether polish | After the build order: what earlier PRs left open that no later PR owns |
@@ -135,3 +135,4 @@ Left open by PR 10: the panel header's quiz progress line (PR 8), and for PR 19,
 Left open by PR 8, for PR 19: a double flight when the agent list is open under a disc and that agent's chip is picked in the panel, the spec's red menu bar badge for the permission-off and offline banners, a full-name pill wider than its card for a long theme name, and a live look at the approval banner and the quiz line.
 Left open by PR 11, for PR 19: under PR 13's slowest theme a long replay flight leaves about 0.72 seconds of dwell at a stop instead of 1.0.
 Left open by PR 15, for PR 19: an open menu bar panel does not count as busy for the recap, keyboard focus can reach a hidden disc while the recap Card is open, the gather is unchecked in the app under Reduce Motion, a press, Escape, or a scene during its 0.5 seconds, and on a second display, and the Escape-order paragraph in `AGENTS.md` lacks the gather step. Known limits: the recap covers only the last quiz, and a playlist that ends can be missed.
+Left open by PR 16, for PR 19: a push-to-talk press during the recap's disc gather sends the discs back on a 0.5 second flight instead of at once, the panel's agent chips stay colored during a pause, keyboard focus does not move to the paused disc or back after "go ahead", a recap within half a second of a pause or resume can leave a disc showing, and three `AGENTS.md` nits (the `AgentPauseTests.swift` line count, the approval line in the Swift agents bullet, and the missing held tool call log line).
