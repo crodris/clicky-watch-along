@@ -2136,12 +2136,13 @@ struct leanring_buddyTests {
     @Test func aReadySceneRisesAtOnceOnlyOntoAFreeScreenOverTheTabItWasBuiltFrom() async throws {
         let sourceTab = "https://www.youtube.com/watch?v=source"
         let readyModel = ReadyBackgroundScene(agentID: UUID(), agentKind: .threeDModel, whatToBuild: "the engine", pageHTML: "<html></html>", sourceTabURL: sourceTab, simulationLesson: nil)
-        func mayRise(idleAndDoneSpeaking: Bool = true, sceneBuildingOrShowing: Bool = false, quizQuestionOpen: Bool = false, frontTab: String? = sourceTab) -> Bool {
+        func mayRise(idleAndDoneSpeaking: Bool = true, sceneBuildingOrShowing: Bool = false, quizQuestionOpen: Bool = false, roomArtPanelOpen: Bool = false, frontTab: String? = sourceTab) -> Bool {
             backgroundSceneMayRiseNow(
                 readyModel,
                 clickyIsIdleAndDoneSpeaking: idleAndDoneSpeaking,
                 aSceneOrPopOutIsBuildingOrShowing: sceneBuildingOrShowing,
                 aVideoQuizQuestionIsOpen: quizQuestionOpen,
+                theRoomArtPanelIsOpen: roomArtPanelOpen,
                 readFrontTabURL: { frontTab }
             )
         }
@@ -2149,6 +2150,7 @@ struct leanring_buddyTests {
         #expect(!mayRise(idleAndDoneSpeaking: false))
         #expect(!mayRise(sceneBuildingOrShowing: true))
         #expect(!mayRise(quizQuestionOpen: true))
+        #expect(!mayRise(roomArtPanelOpen: true))
         #expect(!mayRise(frontTab: "https://www.youtube.com/watch?v=other"))
 
         // A busy screen decides without the front tab, since reading it is an Apple Event to Chrome.
@@ -2158,6 +2160,7 @@ struct leanring_buddyTests {
             clickyIsIdleAndDoneSpeaking: false,
             aSceneOrPopOutIsBuildingOrShowing: true,
             aVideoQuizQuestionIsOpen: true,
+            theRoomArtPanelIsOpen: true,
             readFrontTabURL: {
                 frontTabWasRead = true
                 return sourceTab

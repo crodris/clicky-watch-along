@@ -24,8 +24,6 @@ final class CursorLoopController: ObservableObject {
     /// One task for each finished agent whose spark is completing its last lap, which removes the agent when the lap is over.
     private var finishingLapTasks: [UUID: Task<Void, Never>] = [:]
     private var appActivationObserver: NSObjectProtocol?
-    /// Where the front app changing is announced. Tests pass their own, since a post to the shared one reaches every controller.
-    private let workspaceNotificationCenter: NotificationCenter
     private var idleMustHoldTask: Task<Void, Never>?
     private var latestVoiceState = CompanionVoiceState.idle
     /// Read Chrome's front tab: the full media read at release, and the cheap sample the poll takes. Tests pass
@@ -41,9 +39,12 @@ final class CursorLoopController: ObservableObject {
     /// Whether an agent's spark may join the line and draw now: false while a scene covers the media, a quiz question is open, or
     /// Show Clicky is off (`agentSparksMayDraw(clickyCursorIsEnabled:aSceneIsOnScreen:aQuizQuestionIsOpen:)`). `CompanionManager`
     /// sets it, since the controller does not know those states. It is read when an agent starts, when a release reads the
-    /// media, and each time the line is drawn, so a line that is already showing hides at the next redraw of the overlay after it turns false, and an agent held back
-    /// joins at the first release that allows it. Until it is set, no spark draws.
+    /// media, and each time the line is drawn, so a line that is already showing hides at the next redraw of the overlay after
+    /// it turns false, and an agent held back joins at the first release that allows it. Until it is set, no spark draws.
     var agentSparksMayDraw: () -> Bool = { false }
+    /// Where the front app changing is heard. A test passes its own center, since a real app switch on a busy machine would
+    /// otherwise end the loop a test is checking.
+    private let appActivationNotificationCenter: NotificationCenter
 
     static let secondsBetweenFrontTabPolls: TimeInterval = 1
     /// The real wait between front tab polls. A cancelled poll ends its sleep early and then sees that it was cancelled.
@@ -64,15 +65,15 @@ final class CursorLoopController: ObservableObject {
         readTheFrontTabSample: @escaping () -> FrontTabSample? = CursorLoopController.readTheFrontTabSample,
         waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls,
         waitForAFinishingSparkLap: @escaping () async -> Void = CursorLoopController.sleepForAFinishingSparkLap,
-        workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
+        appActivationNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
     ) {
-        self.workspaceNotificationCenter = workspaceNotificationCenter
         self.readTheMediaInTheFrontTab = readTheMediaInTheFrontTab
         self.readTheFrontTabSample = readTheFrontTabSample
         self.waitBetweenFrontTabPolls = waitBetweenFrontTabPolls
         self.waitForAFinishingSparkLap = waitForAFinishingSparkLap
+        self.appActivationNotificationCenter = appActivationNotificationCenter
         // The front app changing is a system event, so a notification is the only way to hear it.
-        appActivationObserver = workspaceNotificationCenter.addObserver(
+        appActivationObserver = appActivationNotificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
@@ -89,7 +90,7 @@ final class CursorLoopController: ObservableObject {
 
     deinit {
         if let appActivationObserver {
-            workspaceNotificationCenter.removeObserver(appActivationObserver)
+            appActivationNotificationCenter.removeObserver(appActivationObserver)
         }
     }
 

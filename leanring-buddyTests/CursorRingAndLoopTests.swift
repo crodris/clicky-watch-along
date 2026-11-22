@@ -89,8 +89,9 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
 
 @Test func onlyTheRoutersLookAtTheMediaToolsHandOff() {
     let toolsThatHandOff = AppVoiceTool.allCases.filter(\.handsOffToALookAtTheMedia)
-    // animate_picture pops the picture out like pop_out, so it looks at the media too.
-    #expect(Set(toolsThatHandOff) == [.answerWithScreen, .buildNewScene, .popOut, .animatePicture])
+    // animate_picture pops the picture out like pop_out, so it looks at the media too, and show_art_in_my_room reads the
+    // picture it hangs on the learner's wall.
+    #expect(Set(toolsThatHandOff) == [.answerWithScreen, .buildNewScene, .popOut, .animatePicture, .showArtInMyRoom])
 }
 
 @Test func aMissingMediaRectDrawsNothing() {
@@ -141,17 +142,20 @@ func eachEndEventStopsARectInHandFromDrawingLater(reason: CursorLoopEndReason) {
 
 /// A controller that reads `media` from the front tab instead of Chrome, with a turn waiting for a loop.
 /// The poll sees the media's own sample unless a test passes `readTheFrontTabSample`, and a test that counts the poll's
-/// waits passes `waitBetweenFrontTabPolls`.
+/// waits passes `waitBetweenFrontTabPolls`. It hears app switches on a center of its own by default, so an app that
+/// activates on the machine running the tests never ends a loop a test is checking.
 @MainActor
 private func controllerWithATurnWaitingForALoop(
     reading media: MediaOnTheFrontTab?,
     readTheFrontTabSample: @escaping () -> FrontTabSample? = { exampleSample() },
-    waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls
+    waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls,
+    appActivationNotificationCenter: NotificationCenter = NotificationCenter()
 ) async -> CursorLoopController {
     let controller = CursorLoopController(
         readTheMediaInTheFrontTab: { _ in media },
         readTheFrontTabSample: readTheFrontTabSample,
-        waitBetweenFrontTabPolls: waitBetweenFrontTabPolls
+        waitBetweenFrontTabPolls: waitBetweenFrontTabPolls,
+        appActivationNotificationCenter: appActivationNotificationCenter
     )
     controller.pushToTalkWasReleased()
     // The rect read runs as a task, so wait for it instead of guessing how long it takes.
@@ -210,6 +214,24 @@ private func controllerWithATurnWaitingForALoop(
     #expect(!controller.isShowingTheLoop)
     #expect(pollCounts.samplesRead == 1)
     #expect(pollCounts.waitsTaken == 0)
+}
+
+@Test(.timeLimit(.minutes(1))) @MainActor func theFrontAppChangingEndsALoopThatIsShowing() async {
+    let appActivationNotificationCenter = NotificationCenter()
+    let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia, appActivationNotificationCenter: appActivationNotificationCenter)
+    controller.requestBecameALookAtTheMedia()
+    #expect(controller.isShowingTheLoop)
+    appActivationNotificationCenter.post(name: NSWorkspace.didActivateApplicationNotification, object: nil)
+    #expect(!controller.isShowingTheLoop)
+}
+
+@Test(.timeLimit(.minutes(1))) @MainActor func anAppActivatingOnTheMachineDoesNotEndTheLoopOfAControllerWithItsOwnCenter() async {
+    // The system posts this on the real workspace center whenever any app comes to the front, which a busy machine does
+    // all the time, so a test controller must not hear it.
+    let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
+    controller.requestBecameALookAtTheMedia()
+    NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification, object: nil)
+    #expect(controller.isShowingTheLoop)
 }
 
 @Test func aRequestDrawsALoopOnlyWhenNoSceneOrQuizQuestionOwnsTheScreen() {

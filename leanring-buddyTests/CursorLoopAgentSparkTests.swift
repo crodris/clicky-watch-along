@@ -284,7 +284,8 @@ private func controllerWithTheMediaInHand(
         readTheMediaInTheFrontTab: { _ in sparkMedia() },
         readTheFrontTabSample: readTheFrontTabSample,
         waitBetweenFrontTabPolls: { await Task.yield() },
-        waitForAFinishingSparkLap: {}
+        waitForAFinishingSparkLap: {},
+        appActivationNotificationCenter: NotificationCenter()
     )
     controller.agentSparksMayDraw = { true }
     controller.pushToTalkWasReleased()
@@ -472,7 +473,8 @@ private func controllerWithTheMediaInHand(
         readTheMediaInTheFrontTab: { _ in sparkMedia() },
         readTheFrontTabSample: { sparkSample() },
         waitBetweenFrontTabPolls: { await Task.yield() },
-        waitForAFinishingSparkLap: { lapWaits.started += 1 }
+        waitForAFinishingSparkLap: { lapWaits.started += 1 },
+        appActivationNotificationCenter: NotificationCenter()
     )
     controller.agentSparksMayDraw = { true }
     controller.pushToTalkWasReleased()
@@ -489,13 +491,13 @@ private func controllerWithTheMediaInHand(
 
 @Test(.timeLimit(.minutes(1))) @MainActor func theFrontAppChangingClearsTheAgentLine() async throws {
     // This controller listens to a center of its own, so the post reaches no other test's controller.
-    let workspaceNotificationCenter = NotificationCenter()
+    let appActivationNotificationCenter = NotificationCenter()
     let controller = CursorLoopController(
         readTheMediaInTheFrontTab: { _ in sparkMedia() },
         readTheFrontTabSample: { sparkSample() },
         waitBetweenFrontTabPolls: { await Task.yield() },
         waitForAFinishingSparkLap: {},
-        workspaceNotificationCenter: workspaceNotificationCenter
+        appActivationNotificationCenter: appActivationNotificationCenter
     )
     controller.agentSparksMayDraw = { true }
     controller.pushToTalkWasReleased()
@@ -505,7 +507,7 @@ private func controllerWithTheMediaInHand(
     controller.pushToTalkWasPressed()
     #expect(controller.state.agentLineIsShowing)
     // The test host is not Chrome, so activating it is the front app changing to something else.
-    workspaceNotificationCenter.post(
+    appActivationNotificationCenter.post(
         name: NSWorkspace.didActivateApplicationNotification,
         object: nil,
         userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current]
@@ -617,7 +619,8 @@ private struct RenderedAgentLine {
         readTheMediaInTheFrontTab: { _ in sparkMedia() },
         readTheFrontTabSample: { sparkSample() },
         waitBetweenFrontTabPolls: { await Task.yield() },
-        waitForAFinishingSparkLap: {}
+        waitForAFinishingSparkLap: {},
+        appActivationNotificationCenter: NotificationCenter()
     )
     controller.agentSparksMayDraw = { sparksMayDraw }
     controller.pushToTalkWasReleased()
