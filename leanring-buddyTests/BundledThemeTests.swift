@@ -66,10 +66,11 @@ var themeStoreWithNoSavedThemes: CustomThemeStore {
 /// Theme settings backed by their own UserDefaults suite, so a test never reads or changes the app's saved theme.
 @MainActor
 func makeThemeSettings(startingWith theme: ClickyTheme = clickyBlueTheme, customThemeStore: CustomThemeStore = themeStoreWithNoSavedThemes) -> CompanionThemeSettings {
-    // One fixed suite for every test, since macOS keeps an empty preferences file for each suite even after its domain
-    // is removed. Sharing it is safe because each test sets the theme and Shuffle right after this reads them and never
-    // reads the saved values back. The name is a plain string UserDefaults accepts, so the optional is never nil.
-    let testDefaults = UserDefaults(suiteName: "BundledThemeTests")!
+    // One suite for every test in this process, since macOS keeps an empty preferences file for each suite even after its
+    // domain is removed. Sharing it is safe because each test sets the theme and Shuffle right after this reads them and
+    // never reads the saved values back. The name has the process ID, so another test run on this Mac that runs at the
+    // same time has its own suite. The name is a plain string UserDefaults accepts, so the optional is never nil.
+    let testDefaults = UserDefaults(suiteName: testDefaultsSuiteName("BundledThemeTests"))!
     let themeSettings = CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: customThemeStore, bundledThemes: bundledThemesForTests)
     themeSettings.theme = theme
     themeSettings.shufflesAgentThemes = false
@@ -81,18 +82,19 @@ func makeBackgroundAgentStore(theme: ClickyTheme = clickyBlueTheme) -> Backgroun
     BackgroundAgentStore(themeSettings: makeThemeSettings(startingWith: theme))
 }
 
-/// The name of a fixed UserDefaults suite for a test that reads its saved values back, after the test host's bundle ID.
-/// Every CI runner on the Mac runs as the same macOS user and builds the app with its own bundle ID, so the bundle ID
-/// keeps the tests of two runners that run at the same time from clearing or overwriting each other's values. The name
-/// stays fixed for each runner, since macOS keeps an empty preferences file for each suite even after its domain is removed.
-func fixedTestDefaultsSuiteName(_ testName: String) -> String {
-    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(testName)"
+/// The name of a UserDefaults suite for a test that reads its saved values back, after the test host's bundle ID and this
+/// process's ID. Every test run on this Mac runs as the same macOS user, and two runs at the same time, such as two
+/// `swift-check` runs of different worktrees or two CI runners, share one preferences file per suite name, so each would
+/// clear or overwrite the other's values. The bundle ID keeps two CI runners apart, and the process ID keeps every other
+/// pair of runs apart. The name stays the same for every test of one process, so a test can open its suite again.
+func testDefaultsSuiteName(_ testName: String) -> String {
+    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(testName)-\(ProcessInfo.processInfo.processIdentifier)"
 }
 
-/// A UserDefaults suite of its own, named by `fixedTestDefaultsSuiteName`, emptied before and after `body`.
+/// A UserDefaults suite of its own, named by `testDefaultsSuiteName`, emptied before and after `body`.
 @MainActor
 func withEmptyDefaults(suiteName: String, _ body: @MainActor (UserDefaults) throws -> Void) throws {
-    let runnerSuiteName = fixedTestDefaultsSuiteName(suiteName)
+    let runnerSuiteName = testDefaultsSuiteName(suiteName)
     let testDefaults = try #require(UserDefaults(suiteName: runnerSuiteName))
     testDefaults.removePersistentDomain(forName: runnerSuiteName)
     defer { testDefaults.removePersistentDomain(forName: runnerSuiteName) }
@@ -101,6 +103,22 @@ func withEmptyDefaults(suiteName: String, _ body: @MainActor (UserDefaults) thro
 
 @MainActor
 struct BundledThemeTests {
+    // MARK: - The test suites
+
+    @Test func aTestDefaultsSuiteNameHasThisProcessesIDSoTwoRunsAtOnceKeepApart() {
+        let suiteName = testDefaultsSuiteName("Example")
+        #expect(suiteName == "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-Example-\(ProcessInfo.processInfo.processIdentifier)")
+        #expect(testDefaultsSuiteName("Example") == suiteName, "a test can open its suite again in the same process")
+        #expect(testDefaultsSuiteName("Other") != suiteName)
+    }
+
+    @Test func theThemeSettingsATestMakesLiveInThePerProcessSuite() throws {
+        // No await sits between the two lines, so no other test on the main actor changes the suite in between.
+        _ = makeThemeSettings(startingWith: bundledTheme("school-karasuno"))
+        let processSuite = try #require(UserDefaults(suiteName: testDefaultsSuiteName("BundledThemeTests")))
+        #expect(processSuite.string(forKey: CompanionThemeSettings.userDefaultsKey) == "bundled:school-karasuno")
+    }
+
     // MARK: - The files
 
     @Test func everyBundledFileParsesWithClickyBlueFirstAndTheTenSchoolsInTheirOrder() async throws {

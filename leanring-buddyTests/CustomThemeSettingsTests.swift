@@ -80,7 +80,7 @@ struct CustomThemeSettingsTests {
     }
 
     @Test func thePreviewShowsOverTheSavedThemeAndNeverSavesIt() throws {
-        let suiteName = fixedTestDefaultsSuiteName("CustomThemeSettingsTests-Preview")
+        let suiteName = testDefaultsSuiteName("CustomThemeSettingsTests-Preview")
         let testDefaults = try #require(UserDefaults(suiteName: suiteName))
         testDefaults.removePersistentDomain(forName: suiteName)
         defer { testDefaults.removePersistentDomain(forName: suiteName) }
@@ -100,7 +100,7 @@ struct CustomThemeSettingsTests {
     }
 
     @Test func savingAnIdeaMakesItTheThemeEndsThePreviewAndSurvivesARelaunch() throws {
-        let suiteName = fixedTestDefaultsSuiteName("CustomThemeSettingsTests-SaveIdea")
+        let suiteName = testDefaultsSuiteName("CustomThemeSettingsTests-SaveIdea")
         let testDefaults = try #require(UserDefaults(suiteName: suiteName))
         testDefaults.removePersistentDomain(forName: suiteName)
         defer { testDefaults.removePersistentDomain(forName: suiteName) }
@@ -155,7 +155,7 @@ struct CustomThemeSettingsTests {
     private func withSettingsOnTheirOwnDefaults<Result>(
         _ body: (CompanionThemeSettings, UserDefaults, CustomThemeStore) throws -> Result
     ) throws -> Result {
-        let suiteName = fixedTestDefaultsSuiteName("CustomThemeSettingsTests-ManageSavedThemes")
+        let suiteName = testDefaultsSuiteName("CustomThemeSettingsTests-ManageSavedThemes")
         let testDefaults = try #require(UserDefaults(suiteName: suiteName))
         testDefaults.removePersistentDomain(forName: suiteName)
         defer { testDefaults.removePersistentDomain(forName: suiteName) }
