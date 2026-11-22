@@ -141,7 +141,8 @@ nonisolated let furniturePieceChangeThresholdLevels: Float = 14
 /// `furniturePieceClosingShrinkCells`. The difference is the margin kept around the piece (so its anti-aliased edge and its
 /// soft shadow are not cut, and the softening below leaves the piece's own edge whole), and a notch in the piece narrower
 /// than twice the grow, such as a cushion seam, closes. Any gap the changed cells enclose, such as a seat that matches the
-/// wall, is filled as well, so the keyframe's wall never shows inside the piece's outline.
+/// wall, is filled as well, so the keyframe's wall shows inside the piece's outline only where a pale part reaches the
+/// outline or a part is thinner than a cell can average over the threshold.
 nonisolated let furniturePieceClosingGrowCells = 5
 nonisolated let furniturePieceClosingShrinkCells = 2
 /// The closed shape's edge is softened with this many cells of average on each side, `furniturePieceEdgeSofteningPasses`
@@ -340,36 +341,42 @@ nonisolated func cellsWithEnclosedGapsFilled(_ cells: [Float], columns: Int, row
 /// A cell is part of the piece when the reply, after the tone fit, differs strongly from the keyframe in it
 /// (`furniturePieceChangeThresholdLevels`). That shape is closed, filled where it encloses a gap, and softened as the
 /// constants above describe, then read back at each pixel. Both pixel arrays are RGBA bytes of `width` by `height`.
-nonisolated func furniturePieceWeights(keyframePixels: [UInt8], correctedReplyPixels: [UInt8], width: Int, height: Int) -> [Float] {
+/// Only pixels the paste takes at all (`pasteWeights`, one byte per pixel, 0 where the paste keeps the keyframe) count as
+/// changed. The edit re-renders the whole frame, so a window or a person elsewhere in it can differ by more than the
+/// threshold, and such a cell must not join the piece and enclose room that is inside the paste.
+nonisolated func furniturePieceWeights(keyframePixels: [UInt8], correctedReplyPixels: [UInt8], pasteWeights: [UInt8], width: Int, height: Int) -> [Float] {
     let cellPixels = furniturePieceCellPixels
     let cellColumns = (width + cellPixels - 1) / cellPixels
     let cellRows = (height + cellPixels - 1) / cellPixels
     var changeSums = [Float](repeating: 0, count: cellColumns * cellRows)
+    var pastedPixelCounts = [Int](repeating: 0, count: cellColumns * cellRows)
     keyframePixels.withUnsafeBufferPointer { keyframeBytes in
         correctedReplyPixels.withUnsafeBufferPointer { replyBytes in
             changeSums.withUnsafeMutableBufferPointer { sums in
-                for row in 0..<height {
-                    let cellRowStart = (row / cellPixels) * cellColumns
-                    for column in 0..<width {
-                        let byteIndex = (row * width + column) * 4
-                        let redChange = abs(Int(replyBytes[byteIndex]) - Int(keyframeBytes[byteIndex]))
-                        let greenChange = abs(Int(replyBytes[byteIndex + 1]) - Int(keyframeBytes[byteIndex + 1]))
-                        let blueChange = abs(Int(replyBytes[byteIndex + 2]) - Int(keyframeBytes[byteIndex + 2]))
-                        sums[cellRowStart + column / cellPixels] += Float(max(redChange, greenChange, blueChange))
+                pastedPixelCounts.withUnsafeMutableBufferPointer { counts in
+                    for row in 0..<height {
+                        let cellRowStart = (row / cellPixels) * cellColumns
+                        for column in 0..<width {
+                            guard pasteWeights[row * width + column] > 0 else { continue }
+                            let cellIndex = cellRowStart + column / cellPixels
+                            counts[cellIndex] += 1
+                            let byteIndex = (row * width + column) * 4
+                            let redChange = abs(Int(replyBytes[byteIndex]) - Int(keyframeBytes[byteIndex]))
+                            let greenChange = abs(Int(replyBytes[byteIndex + 1]) - Int(keyframeBytes[byteIndex + 1]))
+                            let blueChange = abs(Int(replyBytes[byteIndex + 2]) - Int(keyframeBytes[byteIndex + 2]))
+                            sums[cellIndex] += Float(max(redChange, greenChange, blueChange))
+                        }
                     }
                 }
             }
         }
     }
-    // Edge cells hold fewer pixels, so each cell is averaged over the pixels it has.
+    // Each cell is averaged over the pixels of it that the paste takes, so a cell the paste only grazes is not diluted, and
+    // a cell it does not reach is never changed.
     var changedCells = [Float](repeating: 0, count: cellColumns * cellRows)
-    for cellRow in 0..<cellRows {
-        let pixelRows = min(cellPixels, height - cellRow * cellPixels)
-        for cellColumn in 0..<cellColumns {
-            let pixelColumns = min(cellPixels, width - cellColumn * cellPixels)
-            let averageChange = changeSums[cellRow * cellColumns + cellColumn] / Float(pixelRows * pixelColumns)
-            changedCells[cellRow * cellColumns + cellColumn] = averageChange > furniturePieceChangeThresholdLevels ? 1 : 0
-        }
+    for cellIndex in 0..<changedCells.count where pastedPixelCounts[cellIndex] > 0 {
+        let averageChange = changeSums[cellIndex] / Float(pastedPixelCounts[cellIndex])
+        changedCells[cellIndex] = averageChange > furniturePieceChangeThresholdLevels ? 1 : 0
     }
     let grownCells = binaryWindowFiltered(changedCells, width: cellColumns, height: cellRows, radius: furniturePieceClosingGrowCells, keepsAnyHit: true)
     let closedCells = binaryWindowFiltered(grownCells, width: cellColumns, height: cellRows, radius: furniturePieceClosingShrinkCells, keepsAnyHit: false)
@@ -445,7 +452,7 @@ nonisolated func furnitureCompositePasted(
             }
         }
     }
-    let pieceWeights = furniturePieceWeights(keyframePixels: keyframePixels, correctedReplyPixels: correctedReplyPixels, width: width, height: height)
+    let pieceWeights = furniturePieceWeights(keyframePixels: keyframePixels, correctedReplyPixels: correctedReplyPixels, pasteWeights: pasteWeights, width: width, height: height)
 
     var pastedPixels = keyframePixels
     pastedPixels.withUnsafeMutableBufferPointer { pastedBytes in

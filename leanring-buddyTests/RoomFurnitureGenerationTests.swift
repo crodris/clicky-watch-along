@@ -433,6 +433,31 @@ struct RoomFurnitureMaskTests {
         }
     }
 
+    @Test func aChangeOutsideThePasteNeverJoinsThePiece() {
+        // A 120 by 80 frame where the reply differs from the keyframe by 100 levels in two 24 by 24 blocks: one inside the
+        // paste (columns 20 to 43) and one far outside it (columns 90 to 113). Only the first is the piece.
+        let width = 120, height = 80
+        var keyframePixels = [UInt8](repeating: 255, count: width * height * 4)
+        var replyPixels = keyframePixels
+        var pasteWeights = [UInt8](repeating: 0, count: width * height)
+        for row in 0..<height {
+            for column in 0..<width {
+                let pixelIndex = row * width + column
+                if column < 64 { pasteWeights[pixelIndex] = 255 }
+                for channel in 0..<3 {
+                    keyframePixels[pixelIndex * 4 + channel] = 120
+                    replyPixels[pixelIndex * 4 + channel] = 120
+                }
+                let isInABlock = (28..<52).contains(row) && ((20..<44).contains(column) || (90..<114).contains(column))
+                if isInABlock { for channel in 0..<3 { replyPixels[pixelIndex * 4 + channel] = 20 } }
+            }
+        }
+        let weights = furniturePieceWeights(keyframePixels: keyframePixels, correctedReplyPixels: replyPixels, pasteWeights: pasteWeights, width: width, height: height)
+
+        #expect(weights[40 * width + 32] > 0.99, "the block inside the paste is the piece")
+        #expect(weights[40 * width + 102] == 0, "the block outside the paste is not")
+    }
+
     @Test func theCacheKeyChangesWithThePagePictureOrTheTitleAndNeverJoinsThem() {
         let pagePicture = Data([1, 2, 3])
 
