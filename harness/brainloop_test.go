@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -84,6 +86,8 @@ func (driver *protocolDriver) expectLineWithin(expectedType string, timeout time
 				driver.logs = append(driver.logs, line)
 			case actualType == "approval_settled":
 				driver.settledLines = append(driver.settledLines, line)
+			case actualType == "voice_line_if_every_call_changes":
+				driver.voiceLines = append(driver.voiceLines, line)
 			default:
 				driver.t.Fatalf("expected a %s line, got %s", expectedType, line)
 			}
@@ -192,6 +196,79 @@ func TestACommandRunsATwoCallTurnThenALookupAndItsActionAndSpeaksTheConfirmation
 	}
 }
 
+// A turn with calls sends the line it would speak if every call changes, ahead of its first call, so the app can fetch the
+// audio while the calls run. The finished line of a turn whose calls all changed carries the same words. A turn whose
+// calls have no confirmation, and a turn with no call, send no early line.
+func TestATurnSendsTheLineItWouldSpeakBeforeItsFirstCall(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, requestNumber int) {
+		switch requestNumber {
+		case 1:
+			writeBrainReply(writer, "tool_use",
+				brainToolUse("toolu_rotate", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned it left"}`),
+				brainToolUse("toolu_zoom", "zoom", `{"factor":1.3,"confirmation":"zoomed in"}`),
+			)
+		case 2:
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_find", "find_moment", `{"query":"engine"}`))
+		case 3:
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_seek", "seek_to_time", `{"seconds":95,"confirmation":"jumped there"}`))
+		default:
+			writeBrainReply(writer, "end_turn", `{"type":"text","text":"I can't do that one."}`)
+		}
+	})
+	driver := startHarness(t, worker.server.URL)
+
+	driver.send(voiceCommandLine("command-1", "turn it left and zoom in"))
+	// expectLine fails on a tool_call that comes first, so this also pins the order.
+	if got, want := driver.expectLine("voice_line_if_every_call_changes"), `{"type":"voice_line_if_every_call_changes","taskID":"command-1","spokenLine":"turned it left zoomed in","toolNames":["rotate_model","zoom"]}`; got != want {
+		t.Fatalf("the line before the first call:\n got %s\nwant %s", got, want)
+	}
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_rotate", voiceToolChanged, `{"ok":true,"state":null}`))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_zoom", voiceToolChanged, `{"ok":true,"state":null}`))
+	if got := driver.expectLine("voice_command_finished"); !strings.Contains(got, `"spokenLine":"turned it left zoomed in"`) {
+		t.Fatalf("the finished line did not carry the early line's words: %s", got)
+	}
+
+	// The lookup's turn has no confirmation, so only the action's turn sends an early line.
+	driver.voiceLines = nil
+	driver.send(voiceCommandLine("command-2", "go to the engine"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-2", "toolu_find", voiceToolLookedUp, `{"ok":true,"result":[]}`))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-2", "toolu_seek", voiceToolChanged, `{"ok":true,"state":null}`))
+	driver.expectLine("voice_command_finished")
+	if want := []string{`{"type":"voice_line_if_every_call_changes","taskID":"command-2","spokenLine":"jumped there","toolNames":["seek_to_time"]}`}; !reflect.DeepEqual(driver.voiceLines, want) {
+		t.Errorf("the early lines of a lookup and its action were %v, want %v", driver.voiceLines, want)
+	}
+
+	// A reply with no call speaks its text and sends no early line.
+	driver.voiceLines = nil
+	driver.send(voiceCommandLine("command-3", "do a backflip"))
+	driver.expectLine("voice_command_finished")
+	if len(driver.voiceLines) != 0 {
+		t.Errorf("a reply with no call sent early lines %v", driver.voiceLines)
+	}
+}
+
+// The early line names the turn's calls in order, so the app can skip the fetch for a turn that hands off or looks
+// something up, whose line never plays.
+func TestTheEarlyLineNamesTheTurnsCallsSoTheAppCanSkipAHandOff(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, _ int) {
+		writeBrainReply(writer, "tool_use",
+			brainToolUse("toolu_find", "find_moment", `{"query":"engine","confirmation":"found it"}`),
+			brainToolUse("toolu_pop", "pop_out", `{"confirmation":"popping it out"}`),
+		)
+	})
+	driver := startHarness(t, worker.server.URL)
+
+	driver.send(voiceCommandLine("command-1", "find the engine and pop it out"))
+	if got, want := driver.expectLine("voice_line_if_every_call_changes"), `{"type":"voice_line_if_every_call_changes","taskID":"command-1","spokenLine":"found it popping it out","toolNames":["find_moment","pop_out"]}`; got != want {
+		t.Fatalf("the early line:\n got %s\nwant %s", got, want)
+	}
+	driver.expectLine("tool_call")
+}
+
 func TestACallToAToolTheCommandDidNotOfferNeverReachesTheApp(t *testing.T) {
 	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, requestNumber int) {
 		if requestNumber == 1 {
@@ -268,7 +345,7 @@ func TestARefusedCallAndAnAnswerTheWordsDoNotSupportAlsoStopTheLaterCalls(t *tes
 	brain, _ := newApprovalTestBrain(t)
 	brain.approvals.seed("approval-1", capabilitySends)
 	offered := map[toolName]bool{answerApprovalTool: true, "zoom": true}
-	approvalOffer := approvalOffer{approvalID: "approval-1", capabilityWord: "sends"}
+	approvalOffer := approvalOffer{approvalID: "approval-1", capabilityWord: "sends", yesMayCount: true}
 	zoomCall := toolCall{ID: "toolu_zoom", Name: "zoom", Input: json.RawMessage(`{"factor":1.3}`)}
 
 	for _, failingCase := range []struct {
@@ -591,16 +668,20 @@ func TestAHandedOffResultThenACancelEndTheCommandAsHandedOff(t *testing.T) {
 }
 
 // Commands and tasks share one stdin reader and one app write queue, so a task waiting on a slow MCP server, with a
-// large tool result on its way to it, must not hold up a command.
+// large tool result on its way to it, must not hold up a command. The MCP server stays stopped on a named pipe until
+// the test opens it, so the test waits on the command's first call and measures no time.
 func TestACommandGetsItsFirstCallWhileATaskWaitsOnTheMCPServersAndAResultIsInFlight(t *testing.T) {
-	const mcpServerStartDelay = 5 * time.Second
 	directory := t.TempDir()
+	mcpServerStartGatePath := filepath.Join(directory, "start.gate")
+	if err := syscall.Mkfifo(mcpServerStartGatePath, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	config := map[string]any{"mcpServers": map[string]any{"slow": map[string]any{
 		"command": os.Args[0],
 		"env": map[string]string{
-			"CLICKY_TEST_MCP_SERVER":         "1",
-			"CLICKY_TEST_MCP_LOG":            filepath.Join(directory, "ran.log"),
-			"CLICKY_TEST_MCP_START_DELAY_MS": fmt.Sprint(mcpServerStartDelay.Milliseconds()),
+			"CLICKY_TEST_MCP_SERVER":     "1",
+			"CLICKY_TEST_MCP_LOG":        filepath.Join(directory, "ran.log"),
+			"CLICKY_TEST_MCP_START_GATE": mcpServerStartGatePath,
 		},
 	}}}
 	configPath := filepath.Join(directory, "mcp.json")
@@ -615,26 +696,42 @@ func TestACommandGetsItsFirstCallWhileATaskWaitsOnTheMCPServersAndAResultIsInFli
 		writeStreamedMessage(writer, "tool_use", toolUseBlock("toolu_finish", "finish", `{"spokenSummary":"Done."}`))
 	})
 	driver := startHarnessWith(t, configuration{workerBaseURL: worker.server.URL, appSecret: "test-secret", mcpConfigPath: configPath, lookupEnvironment: noEnvironment})
-	startedAt := time.Now()
+	// Opening the pipe for writing releases the server, once it reaches its own open. The open runs in a goroutine, so a
+	// server that never starts fails the test at its next wait and not in a hang. Cleanup releases the server too, since
+	// a test that failed first would otherwise leave it blocked, and the harness cannot stop while its task connects.
+	// Cleanups run last in first out, so this one runs before the harness stops.
+	var releaseTheMCPServerOnce sync.Once
+	releaseTheMCPServer := func() {
+		releaseTheMCPServerOnce.Do(func() {
+			go func() {
+				startGate, err := os.OpenFile(mcpServerStartGatePath, os.O_WRONLY, 0)
+				if err == nil {
+					startGate.Close()
+				}
+			}()
+		})
+	}
+	t.Cleanup(releaseTheMCPServer)
 	driver.send(startTaskLine("task-1", "read my note"))
 	// A screenshot-sized result for the task, which it cannot read yet, since it is still connecting.
 	largeResultText := strings.Repeat("x", 4_000_000)
 	driver.send(toolResultLine("task-1", "toolu_screenshot", string(mustMarshal(largeResultText)), false))
 	driver.send(voiceCommandLine("command-1", "turn it left"))
 
+	// The MCP server cannot start before the gate opens, so a first call that arrives proves the command never waited
+	// on it, and a command that did wait fails here at the test timeout.
 	if got := driver.expectLine("tool_call"); !strings.Contains(got, `"taskID":"command-1"`) {
 		t.Fatalf("the first call was %s", got)
-	}
-	if elapsed := time.Since(startedAt); elapsed >= mcpServerStartDelay {
-		t.Errorf("the command's first call came after %s, once the MCP server had started", elapsed)
 	}
 	for _, request := range worker.requests() {
 		if !requestIsTheBrains(request) {
 			t.Error("the task reached the Worker before its MCP server started, so the test proved nothing")
 		}
 	}
+	// The command ends while the server is still stopped, so the task cannot finish ahead of it.
 	driver.send(voiceToolResultLine("command-1", "toolu_rotate", voiceToolChanged, `{"ok":true,"state":null}`))
 	driver.expectLine("voice_command_finished")
+	releaseTheMCPServer()
 	driver.expectLine("task_finished")
 }
 
@@ -796,6 +893,9 @@ func (driver *protocolDriver) expectLineContaining(text string) string {
 // The app writes a finished call's result before its cancel_task, so the harness reads both back to back. The command
 // is cancelled either way, and the call's action line must reach the next command every time, not only when a select
 // that saw both ready picked the result. The turn has a second call, so the command cannot finish before the cancel.
+// Whether that second call is sent before the harness reads the cancel depends on how the two goroutines interleave. A
+// call that was sent may have run, so it reaches the next command as cut off, and a call the cancel kept from being sent
+// leaves no line. Either is right, and the call must never be reported as done (brainsession_test.go pins the cut off line).
 func TestAFinishedCallsResultThenACancelStillReportsTheCallToTheNextCommand(t *testing.T) {
 	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, recorded recordedRequest, _ int) {
 		if strings.Contains(lastUserText(t, recorded.body), "turn and zoom") {
@@ -820,11 +920,10 @@ func TestAFinishedCallsResultThenACancelStillReportsTheCallToTheNextCommand(t *t
 
 		requests := worker.requests()
 		got := lastUserText(t, requests[len(requests)-1].body)
-		if !strings.Contains(got, `<interrupted_before>rotate_model {"yawDegrees":-45} -> ok</interrupted_before>`) {
-			t.Fatalf("run %d: the next message did not report the call that finished before the cancel: %s", run, got)
-		}
-		if strings.Contains(got, "zoom {") {
-			t.Fatalf("run %d: the call still waiting at the cancel was reported as done: %s", run, got)
+		const finishedCallAlone = `<interrupted_before>rotate_model {"yawDegrees":-45} -> ok</interrupted_before>`
+		const finishedCallThenTheCutOffOne = `<interrupted_before>rotate_model {"yawDegrees":-45} -> ok; zoom {"factor":2} -> cut off, may have run</interrupted_before>`
+		if !strings.Contains(got, finishedCallAlone) && !strings.Contains(got, finishedCallThenTheCutOffOne) {
+			t.Fatalf("run %d: the next message did not report the call that finished before the cancel, and only it or the cut off call after it: %s", run, got)
 		}
 	}
 }

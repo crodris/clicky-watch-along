@@ -22,8 +22,10 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   worker-down [port]        Stop the Workers this script started, or only the one on that port.
   post <route> <body.json> [port]
                             POST a JSON body to a Worker this script started, and save the response in the run.
-  app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] "<steps>"
+  app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] [--worker-port <port>] [--no-speculation] [--room-camera-file <video>] [--show-setup] "<steps>"
                           Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
+                          --room-camera-file passes the same Debug argument, so the room art panel loops that video
+                          instead of the camera.
                           --brain also passes --brain-takes-every-request, so the router takes every first utterance
                           without writing the flag into the defaults the everyday Clicky shares.
                           --harness-brain also passes --brain-runs-in-the-harness, so voice commands run on the brain in
@@ -33,8 +35,14 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
                           with no secret, voice commands use the old Worker router from the start, and with a wrong one,
                           the first command is re-sent on it. They pass the app's own --app-secret-mode none|wrong launch
                           argument and never write or delete the defaults the everyday Clicky shares.
+                          --worker-port makes the Debug app call a Worker this script started on that port instead of 8787,
+                          for when another checkout's Worker holds 8787.
+                          --no-speculation passes --no-voice-command-speculation, so no voice command starts on the partial
+                          transcript, and a run can time the same commands both ways.
                           --every-permission quits the app and fails when it starts without every permission or onboarding,
                           since its permissions panel would cover a recorded take. record-shot.sh passes it.
+                          --show-setup passes --show-setup, so the menu bar panel opens on the six-step setup checklist as a
+                          first run does, without clearing a permission or writing hasCompletedOnboarding.
   app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
   app-quit                  Quit the app instance this script launched.
   shot <name>               Save a screenshot of every display into the run.
@@ -47,9 +55,17 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   scroll <points>           Post one real scroll wheel event at the mouse, in pixels, positive to scroll down (a whole number of up to 6 digits).
                             A large value jumps, as dragging a scroll bar to the end does, and several small ones scroll through.
                             Park the mouse over the scroll area first, such as the approval card's summary.
+  menu-icon <status|click>  status prints the app log's line that says where the menu bar icon is and whether macOS shows it.
+                            click clicks the icon through the Debug tool server (debug_click_menu_bar_icon), which opens the panel even when the icon sits
+                            behind the notch, where its window is not in the window list. Needs a running app from app-launch.
   grant                     Open System Settings at Privacy & Security > Accessibility and show the Debug Clicky.app that app-launch
                             launches in Finder, so Chris can turn its switch on or drag that exact app into the list. app-launch says when it is needed.
   cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
+  lock-take <owner>         Take the app check lock (/tmp/clicky-app-check.lock, or $CLICKY_APP_CHECK_LOCK) for <owner>, such as your
+                            branch name. Fails and names the owner and how long it has held the lock while another agent holds it: wait 60
+                            seconds and try again. A lock held over 20 minutes has outlived the rule: report the app surface as unverified.
+  lock-release <owner>      Release the lock. Refuses and names the real owner when the lock is held by anyone but <owner>.
+                            Never remove the lock directory by hand: a lock you did not take is another agent's running check.
 EOF
 }
 
@@ -406,6 +422,40 @@ apply_app_secret_mode() {
   return 0
 }
 
+# `ps -axo pid=,ppid=,command=` lines for the main process of each headless Chrome. Helper processes carry --type= and
+# are left out, since one line per Chrome is enough to name it.
+headless_chrome_processes() {
+  grep -E '^[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]].*Google Chrome.*--headless' <<<"$1" | grep -v -- ' --type=' || true
+}
+
+# The warning for a headless Chrome in ps output (the argument), or nothing. A headless Chrome is the process that
+# AppleScript's `tell application "Google Chrome"` reaches when it runs, ahead of Chris's Chrome, and its fresh profile
+# has JavaScript from Apple Events turned off, so every video read of Clicky's checks fails.
+headless_chrome_warning() {
+  local process_line
+  while IFS= read -r process_line; do
+    [[ -z "$process_line" ]] && continue
+    local process_id parent_process_id profile_directory parent_note="" what_to_do="Find out what started it before you stop it."
+    read -r process_id parent_process_id _ <<<"$process_line"
+    profile_directory="$(sed -n 's/.*--user-data-dir=\([^ ]*\).*/\1/p' <<<"$process_line")"
+    [[ "$parent_process_id" == "1" ]] && parent_note=", its parent is launchd"
+    # Only the bench's scene screenshot Chrome is known to be a leftover when it has no parent. Another tool's headless
+    # Chrome, such as a Playwright one started as a service, can also have launchd as its parent while it is in use.
+    if [[ "$parent_process_id" == "1" && "$profile_directory" == */scene-shots-*/chrome-profile ]]; then
+      parent_note=", orphaned (a bench scene screenshot run died and left it)"
+      what_to_do="It is orphaned, so run: kill $process_id"
+    fi
+    echo "WARNING: a headless Chrome is running (pid $process_id${parent_note}, profile ${profile_directory:-unknown})."
+    echo "  Apple Events to Chrome go to it, not to Chris's Chrome, and fail with \"Executing JavaScript through AppleScript is turned off\"."
+    echo "  That is not Chris's Chrome setting. Every video read fails: the quiz, the loop, and the pop-outs."
+    echo "  If a bench run or a render started it, wait for it to end. $what_to_do"
+  done <<<"$(headless_chrome_processes "$1")"
+}
+
+report_headless_chrome() {
+  headless_chrome_warning "$(ps -axo pid=,ppid=,command= 2>/dev/null || true)"
+}
+
 command_doctor() {
   echo "checkout: $checkout_root"
   echo "branch: $(git -C "$checkout_root" branch --show-current) at $(git -C "$checkout_root" log -1 --format='%h %s')"
@@ -472,6 +522,8 @@ command_doctor() {
   else
     echo "clicky: pid $clicky_pids, NOT launched by this script. Do not drive or quit it."
   fi
+
+  report_headless_chrome
 
   if pgrep -xq 'Google Chrome'; then
     # The full URL can hold tokens, so print only the host and whether it is a YouTube video page.
@@ -657,8 +709,21 @@ parse_app_launch_arguments() {
   app_launch_flag_arguments=()
   app_launch_needs_every_permission=false
   app_launch_app_secret_mode=copy
+  app_launch_worker_port="$app_worker_port"
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --worker-port)
+        # The app's debugWorkerPort takes 1024 to 65535 and falls back to 8787 for anything else, so the script refuses
+        # what the app would ignore instead of checking a Worker the app never calls.
+        if [[ ! "${2:-}" =~ ^[0-9]{4,5}$ ]] || (( 10#$2 < 1024 || 10#$2 > 65535 )); then
+          echo "--worker-port takes a port number from 1024 to 65535, as in: --worker-port 8796" >&2
+          exit 1
+        fi
+        app_launch_worker_port="$2"
+        app_launch_flag_arguments+=(--worker-port "$2")
+        shift
+        ;;
+      --no-speculation) app_launch_flag_arguments+=(--no-voice-command-speculation) ;;
       --no-app-secret|--wrong-app-secret)
         local requested_mode=none
         if [[ "$1" == "--wrong-app-secret" ]]; then requested_mode=wrong; fi
@@ -675,6 +740,11 @@ parse_app_launch_arguments() {
       --brain) app_launch_flag_arguments+=(--brain-takes-every-request) ;;
       --harness-brain) app_launch_flag_arguments+=(--brain-runs-in-the-harness) ;;
       --every-permission) app_launch_needs_every_permission=true ;;
+      --show-setup) app_launch_flag_arguments+=(--show-setup) ;;
+      --room-camera-file)
+        app_launch_flag_arguments+=(--room-camera-file "${2:?--room-camera-file needs a video path}")
+        shift
+        ;;
       *) break ;;
     esac
     shift
@@ -692,15 +762,17 @@ command_app_launch() {
     echo "Clicky is already running (pid $(running_clicky_pids | paste -sd, -)). Two instances fight over the event tap and overlay. Ask Chris to quit his first." >&2
     exit 1
   fi
-  if ! worker_was_started_here "$app_worker_port"; then
-    echo "No Worker this script started is listening on 127.0.0.1:$app_worker_port, which the app calls. Run worker-up $app_worker_port when the port is free. When another process holds it, report the app surface as unverified." >&2
+  if ! worker_was_started_here "$app_launch_worker_port"; then
+    echo "No Worker this script started is listening on 127.0.0.1:$app_launch_worker_port, which the app calls. Run worker-up $app_launch_worker_port when that port is free. When another process holds it, run worker-up on a free port, such as 8796, and pass --worker-port with it." >&2
     exit 1
   fi
+  report_headless_chrome >&2
   local run_dir
   run_dir="$(current_run_dir)"
   move_the_previous_launch_files_aside "$run_dir"
   echo "$rehearsal_steps" >"$run_dir/rehearsal-steps.txt"
-  worker_log_line_count "$app_worker_port" >"$state_root/app-usage-from-line"
+  worker_log_line_count "$app_launch_worker_port" >"$state_root/app-usage-from-line"
+  echo "$app_launch_worker_port" >"$state_root/app-worker-port"
   # The Worker's Notion routes and /v1/messages (the task agents and the voice command brain) need the app's secret, which
   # the app reads from its defaults. It is copied from .dev.vars without ever being printed, so a guide, a task page, or a
   # brain command works on the first launch. --no-app-secret and --wrong-app-secret leave the defaults alone, since the
@@ -739,7 +811,7 @@ command_app_wait() {
   for _ in $(seq 1 "$timeout_seconds"); do
     if grep -q 'Live scene rehearsal: done' "$app_log" 2>/dev/null; then
       grep -E 'rehearsal|Live scene|Video quiz|Landmark|pop-out|Claude streaming request|⚠️|❌' "$app_log" || true
-      report_usage_lines_since "$app_worker_port" "$(cat "$state_root/app-usage-from-line" 2>/dev/null || echo 0)" "$(current_run_dir)/app.usage.log"
+      report_usage_lines_since "$(cat "$state_root/app-worker-port" 2>/dev/null || echo "$app_worker_port")" "$(cat "$state_root/app-usage-from-line" 2>/dev/null || echo 0)" "$(current_run_dir)/app.usage.log"
       return 0
     fi
     if [[ -z "$(recorded_process_id "$state_root/app.pid")" ]]; then
@@ -827,6 +899,22 @@ command_scroll() {
   echo "scrolled $points points"
 }
 
+command_menu_icon() {
+  case "$1" in
+    status)
+      grep 'Menu bar icon:' "$(current_run_dir)/app.log" 2>/dev/null | tail -1 || echo "no Menu bar icon line in the app log yet, the app logs it a second after launch" ;;
+    click)
+      # The status item's window can be missing from CGWindowList beside the notch, so the app clicks its own button.
+      local click_reply
+      click_reply="$(curl -sf -X POST http://127.0.0.1:8790/mcp -H 'Content-Type: application/json' \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"debug_click_menu_bar_icon","arguments":{}}}')" \
+        || { echo "no app answered on 8790: launch it with app-launch first" >&2; exit 1; }
+      if [[ "$click_reply" == *'"error"'* ]]; then echo "the app refused the click: $click_reply" >&2; exit 1; fi
+      echo "clicked the menu bar icon" ;;
+    *) echo "menu-icon takes status or click" >&2; exit 1 ;;
+  esac
+}
+
 command_shot() {
   local shot_name="$1"
   local run_dir
@@ -844,11 +932,67 @@ command_shot() {
   printf 'saved %s\n' "${shot_files[@]}"
 }
 
+app_check_lock_path() {
+  echo "${CLICKY_APP_CHECK_LOCK:-/tmp/clicky-app-check.lock}"
+}
+
+# The owner a lock directory records, or nothing when it has no owner file.
+app_check_lock_owner() {
+  [[ -f "$1/owner" ]] && head -n 1 "$1/owner" || true
+}
+
+# One agent at a time may build and drive the app, and other sessions share this Mac. The take is /bin/mkdir, since plain
+# mkdir is aliased to mkdir -p in some shells and never fails on an existing directory. A lock is removed only through
+# lock-release, which refuses another owner's lock, since removing one by hand took a running agent's lock twice.
+command_lock_take() {
+  local owner="${1:-}" lock_path held_owner
+  if [[ -z "$owner" || "$owner" == *$'\n'* ]]; then echo "lock-take needs your name on one line, such as your branch name" >&2; exit 1; fi
+  lock_path="$(app_check_lock_path)"
+  if /bin/mkdir "$lock_path" 2>/dev/null; then
+    # The second line is when the lock was taken, so a refusal can say how long it has been held.
+    if ! printf '%s\n%s\n' "$owner" "$(date +%s)" >"$lock_path/owner"; then
+      rm -r -- "$lock_path"
+      echo "Could not write the owner into $lock_path, so the lock was not taken." >&2
+      exit 1
+    fi
+    echo "app check lock taken by $owner"
+    return 0
+  fi
+  if [[ ! -d "$lock_path" ]]; then echo "Could not create $lock_path" >&2; exit 1; fi
+  held_owner="$(app_check_lock_owner "$lock_path")"
+  if [[ "$held_owner" == "$owner" ]]; then
+    echo "app check lock already held by $owner"
+    return 0
+  fi
+  local held_since held_for="an unknown time"
+  held_since="$(sed -n 2p "$lock_path/owner" 2>/dev/null || true)"
+  if [[ "$held_since" =~ ^[0-9]+$ ]]; then held_for="$(( ($(date +%s) - held_since) / 60 )) minutes"; fi
+  echo "The app check lock is held by ${held_owner:-an owner that did not write its name} for $held_for. Wait 60 seconds and try again. Do not remove it. A lock held over 20 minutes has outlived the 20 minute rule: report the app surface as unverified instead of removing it." >&2
+  exit 1
+}
+
+command_lock_release() {
+  local owner="${1:-}" lock_path held_owner
+  if [[ -z "$owner" ]]; then echo "lock-release needs the name you gave lock-take" >&2; exit 1; fi
+  lock_path="$(app_check_lock_path)"
+  if [[ ! -d "$lock_path" ]]; then
+    echo "no app check lock is held"
+    return 0
+  fi
+  held_owner="$(app_check_lock_owner "$lock_path")"
+  if [[ "$held_owner" != "$owner" ]]; then
+    echo "Refusing to release the app check lock: it is held by ${held_owner:-an owner that did not write its name}, not by $owner. That agent is still running its check. Wait for it to release the lock." >&2
+    exit 1
+  fi
+  rm -r -- "$lock_path"
+  echo "app check lock released by $owner"
+}
+
 main() {
   local command_name="${1:-}"
   if [[ -z "$command_name" ]]; then usage; exit 0; fi
   shift
-  if [[ "$command_name" != "doctor" ]]; then mkdir -p "$runs_root"; fi
+  case "$command_name" in doctor|lock-take|lock-release) ;; *) mkdir -p "$runs_root" ;; esac
   case "$command_name" in
     new-run) start_new_run "${1:?new-run needs a name}" ;;
     build) command_build ;;
@@ -861,9 +1005,12 @@ main() {
     app-quit) command_app_quit ;;
     shot) command_shot "${1:?shot name}" ;;
     scroll) command_scroll "${1:?points}" ;;
+    menu-icon) command_menu_icon "${1:?status or click}" ;;
     key) command_key "${1:?key name}" ;;
     grant) command_grant ;;
     cleanup) command_app_quit; command_worker_down ;;
+    lock-take) command_lock_take "${1:-}" ;;
+    lock-release) command_lock_release "${1:-}" ;;
     *) usage; exit 1 ;;
   esac
 }

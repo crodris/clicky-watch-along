@@ -12,18 +12,26 @@ import AppKit
 import Combine
 import Foundation
 
+/// Why the card closes, which decides how it leaves: a save flies the idea's cursor into the real cursor first, and every
+/// other close shrinks the card into the cursor.
+nonisolated enum ThemeStudioCardClosing: Equatable, Sendable {
+    case dismissed
+    /// The learner saved `idea`, whose picture (if it uses one) is `pictureJPEG`.
+    case saved(idea: ClickyTheme, pictureJPEG: Data?)
+}
+
 /// Shows and hides the card. The real one is the panel next to the cursor, and a test swaps in one that records the calls,
 /// since a test process has no window to show.
 @MainActor
 protocol ThemeStudioCardPresenting: AnyObject {
     func show(studio: ThemeStudioController)
-    func hide()
+    func hide(because reason: ThemeStudioCardClosing)
 }
 
 extension ThemeStudioPanelController: ThemeStudioCardPresenting {}
 
 extension ThemeStudioController.SaveOutcome {
-    /// What the chip under the cursor says after a click on Save, or nil when there was nothing to save. The voice tool
+    /// What the chip above the cursor says after a click on Save, or nil when there was nothing to save. The voice tool
     /// reports its outcome to the router, which shows its own chip, so this is for the card's button alone.
     nonisolated var chipPhraseAfterAClickOnSave: String? {
         switch self {
@@ -61,23 +69,51 @@ final class ThemeStudioController: ObservableObject {
 
     @Published private(set) var state: ThemeStudioState = .closed {
         didSet {
+            if state.isOpen { lastOpenState = state }
             if state.isOpen && !oldValue.isOpen {
+                isStampingTheSavedIdea = false
                 cardPresenter.show(studio: self)
             } else if !state.isOpen && oldValue.isOpen {
-                cardPresenter.hide()
+                let reasonTheCardCloses = closingReason
+                closingReason = .dismissed
+                cardPresenter.hide(because: reasonTheCardCloses)
             }
         }
     }
 
-    private let themeSettings: CompanionThemeSettings
+    /// How many times ideas have arrived since the card opened. The card's tiles take it as their identity, so each arrival
+    /// lands its tiles again, 90 ms apart, even when a refinement replaces ideas that were already on show.
+    @Published private(set) var ideasArrivalCount = 0
+    /// True while the card shows its old ideas after a design failed, so it says so in a red Callout. Any new design, pick,
+    /// or close clears it.
+    @Published private(set) var showsTheDesignFailedNotice = false
+    /// True from a save until the card is gone, so the saved idea's tile shows its stamp while its cursor flies out.
+    @Published private(set) var isStampingTheSavedIdea = false
+    /// The last state the card showed while it was open. A card that closes plays its move on the carrier with this state,
+    /// not the closed one, so what flies into the cursor is what the learner saw.
+    private(set) var lastOpenState: ThemeStudioState = .closed
+
+    /// How long before each sound of the sound preview, so the three never overlap.
+    static let defaultSecondsBetweenPreviewSounds = 0.7
+
+    let themeSettings: CompanionThemeSettings
     private let environment: Environment
     private let cardPresenter: ThemeStudioCardPresenting
     private var designTask: Task<Void, Never>?
+    private var soundPreviewTask: Task<Void, Never>?
+    private var closingReason: ThemeStudioCardClosing = .dismissed
+    private let secondsBetweenPreviewSounds: Double
 
-    init(themeSettings: CompanionThemeSettings, environment: Environment, cardPresenter: ThemeStudioCardPresenting) {
+    init(
+        themeSettings: CompanionThemeSettings,
+        environment: Environment,
+        cardPresenter: ThemeStudioCardPresenting,
+        secondsBetweenPreviewSounds: Double = ThemeStudioController.defaultSecondsBetweenPreviewSounds
+    ) {
         self.themeSettings = themeSettings
         self.environment = environment
         self.cardPresenter = cardPresenter
+        self.secondsBetweenPreviewSounds = secondsBetweenPreviewSounds
     }
 
     var isOpen: Bool { state.isOpen }
@@ -88,6 +124,8 @@ final class ThemeStudioController: ObservableObject {
     /// still running is cancelled, so only the newest one's ideas arrive. `basedOnIdea` counts from 1.
     func design(request requestText: String, basedOnIdea: Int?, pictureChoice: ThemeStudioPictureChoice) {
         designTask?.cancel()
+        soundPreviewTask?.cancel()
+        showsTheDesignFailedNotice = false
         let ideasThatWereOnTheCard = state.ideasOnTheCard
         state = state.startingADesign()
         designTask = Task {
@@ -146,6 +184,7 @@ final class ThemeStudioController: ObservableObject {
             print("Theme studio: designed \(reply.ideas.count) ideas in \(Int(Date().timeIntervalSince(startedAt))) s")
             // A card closed, or a design replaced, while the Worker worked cancelled this task, so the ideas here are the newest.
             state = state.withIdeasArrived(arrivedIdeas)
+            ideasArrivalCount += 1
             showThePreview(of: arrivedIdeas)
             environment.speak(reply.spokenLine)
         } catch {
@@ -160,6 +199,7 @@ final class ThemeStudioController: ObservableObject {
         guard stateAfterTheFailure != state else { return }
         state = stateAfterTheFailure
         if case .showingIdeas(let ideas) = state {
+            showsTheDesignFailedNotice = true
             showThePreview(of: ideas)
         } else {
             themeSettings.clearPreview()
@@ -173,6 +213,8 @@ final class ThemeStudioController: ObservableObject {
     @discardableResult
     func pickIdea(number ideaNumber: Int) -> Bool {
         guard state.hasIdea(number: ideaNumber) else { return false }
+        soundPreviewTask?.cancel()
+        showsTheDesignFailedNotice = false
         state = state.pickingIdea(number: ideaNumber)
         if case .showingIdeas(let ideas) = state {
             showThePreview(of: ideas)
@@ -186,6 +228,10 @@ final class ThemeStudioController: ObservableObject {
         guard case .showingIdeas(let ideas) = state else { return .nothingToSave }
         do {
             let savedTheme = try themeSettings.saveAndApply(ideas.highlightedIdea, pictureJPEG: ideas.picture?.jpegData)
+            soundPreviewTask?.cancel()
+            showsTheDesignFailedNotice = false
+            closingReason = .saved(idea: ideas.highlightedIdea, pictureJPEG: ideas.picture?.jpegData)
+            isStampingTheSavedIdea = true
             state = state.afterSaving()
             // The card is gone, so a line still describing its ideas would talk over the done sound.
             environment.stopSpeaking()
@@ -202,6 +248,9 @@ final class ThemeStudioController: ObservableObject {
     func close() {
         designTask?.cancel()
         designTask = nil
+        soundPreviewTask?.cancel()
+        soundPreviewTask = nil
+        showsTheDesignFailedNotice = false
         state = state.closing()
         themeSettings.clearPreview()
         environment.stopSpeaking()
@@ -212,6 +261,33 @@ final class ThemeStudioController: ObservableObject {
         guard isOpen else { return false }
         close()
         return true
+    }
+
+    // MARK: - Sound preview
+
+    /// Plays the highlighted idea's three sounds in a row, so the learner hears them before saving. A new preview, a pick, a
+    /// new design, a save, and a close end one that is still playing.
+    func playTheHighlightedIdeasSounds() {
+        guard case .showingIdeas(let ideas) = state else { return }
+        soundPreviewTask?.cancel()
+        let previewSteps = themeSoundPreviewPlan(for: ideas.highlightedIdea, secondsBetweenSounds: secondsBetweenPreviewSounds)
+        soundPreviewTask = Task {
+            var secondsAlreadyWaited = 0.0
+            for previewStep in previewSteps {
+                let secondsToWait = previewStep.secondsAfterTheStart - secondsAlreadyWaited
+                if secondsToWait > 0 {
+                    try? await Task.sleep(for: .seconds(secondsToWait))
+                }
+                guard !Task.isCancelled else { return }
+                secondsAlreadyWaited = previewStep.secondsAfterTheStart
+                environment.playSound(previewStep.sound)
+            }
+        }
+    }
+
+    /// Returns when the sound preview that is playing has ended, so a test never waits a guessed time.
+    func waitForTheSoundPreview() async {
+        await soundPreviewTask?.value
     }
 
     private func showThePreview(of ideas: ThemeStudioIdeas) {

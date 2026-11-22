@@ -2,16 +2,16 @@
 //  LiveSceneStatusLine.swift
 //  leanring-buddy
 //
-//  The lines the status label shows while Clicky works. Each line has its own
-//  colors, letter style, icon, and looping animation, so the wait for each step
-//  looks different. The animation math here takes a time and returns a pose,
-//  so tests can check it without drawing anything.
+//  The lines the status label shows while Clicky works. Each line is a Callout (see TetherMaterials.swift) with its own
+//  fixed hue, which says what kind of work runs, and its own animated icon inside the Callout's disc. Every line sets its
+//  words the same way: each letter rises 6 points, 18 ms after the one before, then holds still. The animation math here
+//  takes a time and returns a pose, so tests can check it without drawing anything.
 //
 
 import Foundation
 import SwiftUI
 
-enum LiveSceneStatusLine {
+enum LiveSceneStatusLine: CaseIterable {
     case poppingItOut
     case animatingIt
     case readingYourScreen
@@ -32,22 +32,22 @@ enum LiveSceneStatusLine {
         }
     }
 
-    /// The letters as drawn. The screen-reading line is set in capitals, like a terminal.
-    var displayedText: String {
-        self == .readingYourScreen ? text.uppercased() : text
-    }
-
-    var palette: StatusLabelPalette {
+    /// The line's own hue, on the Callout's rim, halo, and icon disc. The hue says what kind of work runs, so it does not
+    /// follow the theme. Each is the 400 step of its color, bright enough for a 3:1 rim on the dark Callout.
+    var calloutAccent: Color {
         switch self {
-        case .poppingItOut: return .poppingItOut
-        case .animatingIt: return .animatingIt
-        case .readingYourScreen: return .readingYourScreen
-        case .buildingYourScene: return .buildingYourScene
-        case .almostThere: return .almostThere
-        case .readingTheTranscript: return .readingTheTranscript
-        case .pickingQuizSpots: return .pickingQuizSpots
+        case .poppingItOut: return DS.Colors.blue400
+        case .animatingIt: return DS.Colors.teal400
+        case .readingYourScreen: return DS.Colors.purple400
+        case .buildingYourScene: return DS.Colors.orange400
+        case .almostThere: return DS.Colors.green400
+        case .readingTheTranscript: return DS.Colors.pink400
+        case .pickingQuizSpots: return DS.Colors.sky400
         }
     }
+
+    /// The colors the line's icon draws with: near-black ink on the accent disc.
+    var palette: StatusLabelPalette { .onDisc(accent: calloutAccent) }
 
     /// The lines the scene build shows. Only the scene build hides these.
     static let sceneBuildLines: Set<LiveSceneStatusLine> = [.readingYourScreen, .buildingYourScene, .almostThere]
@@ -94,8 +94,9 @@ enum LiveSceneStatusLine {
     }
 }
 
-/// The colors one status line draws with. Each look is a constant, so reading it for every
-/// letter on every frame costs nothing.
+/// The colors a status icon draws with on the Callout's accent disc: near-black ink at several strengths, so the icon
+/// reads on every hue (`DS.Colors.inkOnAccent` is 5.3 or more against each accent), and the accent itself for what the
+/// icon cuts out of its drawing. Each look is a constant, so reading it on every frame costs nothing.
 struct StatusLabelPalette {
     let iconColor: Color
     let textColor: Color
@@ -103,35 +104,20 @@ struct StatusLabelPalette {
     let paleColor: Color
     let washColor: Color
     let highlightColor: Color
+    /// The disc's own fill, for the parts of an icon that show the disc through it.
+    let discColor: Color
 
-    static let poppingItOut = StatusLabelPalette(
-        iconColor: DS.Colors.blue600, textColor: DS.Colors.blue600, lightColor: DS.Colors.blue400,
-        paleColor: DS.Colors.blue200, washColor: DS.Colors.blue50, highlightColor: DS.Colors.blue400
-    )
-    static let animatingIt = StatusLabelPalette(
-        iconColor: DS.Colors.teal500, textColor: DS.Colors.teal700, lightColor: DS.Colors.teal300,
-        paleColor: DS.Colors.teal100, washColor: DS.Colors.teal50, highlightColor: DS.Colors.teal400
-    )
-    static let readingYourScreen = StatusLabelPalette(
-        iconColor: DS.Colors.purple500, textColor: DS.Colors.purple700, lightColor: DS.Colors.purple300,
-        paleColor: DS.Colors.purple100, washColor: DS.Colors.purple50, highlightColor: DS.Colors.purple400
-    )
-    static let buildingYourScene = StatusLabelPalette(
-        iconColor: DS.Colors.orange500, textColor: DS.Colors.orange700, lightColor: DS.Colors.orange300,
-        paleColor: DS.Colors.orange200, washColor: DS.Colors.orange50, highlightColor: DS.Colors.orange400
-    )
-    static let almostThere = StatusLabelPalette(
-        iconColor: DS.Colors.green500, textColor: DS.Colors.green700, lightColor: DS.Colors.green300,
-        paleColor: DS.Colors.green100, washColor: DS.Colors.green50, highlightColor: DS.Colors.green400
-    )
-    static let readingTheTranscript = StatusLabelPalette(
-        iconColor: DS.Colors.pink400, textColor: DS.Colors.pink700, lightColor: DS.Colors.pink300,
-        paleColor: DS.Colors.pink100, washColor: DS.Colors.pink50, highlightColor: DS.Colors.pink300
-    )
-    static let pickingQuizSpots = StatusLabelPalette(
-        iconColor: DS.Colors.sky500, textColor: DS.Colors.sky700, lightColor: DS.Colors.sky300,
-        paleColor: DS.Colors.sky100, washColor: DS.Colors.sky50, highlightColor: DS.Colors.sky400
-    )
+    static func onDisc(accent: Color) -> StatusLabelPalette {
+        StatusLabelPalette(
+            iconColor: DS.Colors.inkOnAccent,
+            textColor: DS.Colors.inkOnAccent,
+            lightColor: DS.Colors.inkOnAccent.opacity(0.7),
+            paleColor: DS.Colors.inkOnAccent.opacity(0.3),
+            washColor: DS.Colors.inkOnAccent.opacity(0.12),
+            highlightColor: DS.Colors.inkOnAccent,
+            discColor: accent
+        )
+    }
 }
 
 // MARK: - Motion helpers
@@ -183,126 +169,26 @@ enum StatusLabelMotion {
     }
 }
 
-// MARK: - Letter poses
+// MARK: - Letters
 
-/// How one letter is drawn at one moment.
-struct StatusLetterPose: Equatable {
-    var offsetY: Double = 0
-    var scale: Double = 1
-    var extraVerticalScale: Double = 1
-    var rotationDegrees: Double = 0
-    var opacity: Double = 1
-    /// 0 draws the text color and 1 the highlight color.
-    var highlightAmount: Double = 0
-    var showsCaret = false
-    /// Size of the dot under a picked letter, from 0 (hidden) to 1.
-    var spotDotScale: Double = 0
-}
+/// How a line's letters appear: one motion for every line. Each letter rises 6 points into place and fades in, starting
+/// 18 ms after the letter before it, and then everything holds still.
+enum StatusLineLetterRise {
+    static let risePoints = 6.0
+    static let secondsBetweenLetters = 0.018
+    /// How long one letter takes to settle.
+    static let secondsPerLetter = 0.22
 
-extension LiveSceneStatusLine {
-    /// The quiz-spots line's dotted letters, found once because every letter asks on every frame.
-    private static let quizSpotLetterIndexes = spotLetterIndexes(in: LiveSceneStatusLine.pickingQuizSpots.displayedText)
-
-    /// The letters that get a dot in the quiz-spots line: four spread across the line, skipping spaces.
-    private static func spotLetterIndexes(in displayedText: String) -> [Int] {
-        let letterIndexes = displayedText.enumerated().compactMap { index, character in
-            character == " " ? nil : index
-        }
-        guard !letterIndexes.isEmpty else { return [] }
-        return [0.08, 0.36, 0.62, 0.9].map { fractionAlongTheLine in
-            letterIndexes[Int((fractionAlongTheLine * Double(letterIndexes.count - 1)).rounded())]
-        }
+    /// How one letter is drawn `elapsedSeconds` after the line appeared.
+    static func pose(letterIndex: Int, elapsedSeconds: Double) -> (offsetY: Double, opacity: Double) {
+        let letterProgress = min(max((elapsedSeconds - Double(letterIndex) * secondsBetweenLetters) / secondsPerLetter, 0), 1)
+        let easedProgress = StatusLabelMotion.easeOut(letterProgress)
+        return (offsetY: risePoints * (1 - easedProgress), opacity: easedProgress)
     }
 
-    func letterPose(letterIndex: Int, letterCount: Int, elapsedSeconds: Double) -> StatusLetterPose {
-        switch self {
-        case .poppingItOut:
-            // Each letter in turn jumps up, grows, tilts, and lands with a squash.
-            guard let loopFraction = StatusLabelMotion.loopFraction(
-                elapsedSeconds: elapsedSeconds, loopSeconds: 2.0, delaySeconds: Double(letterIndex) * 0.07
-            ) else { return StatusLetterPose() }
-            let tiltDegrees: Double = letterIndex.isMultiple(of: 2) ? -8 : 8
-            return StatusLetterPose(
-                offsetY: StatusLabelMotion.value(at: loopFraction, keyframes: [(0, 0), (0.12, -7), (0.24, 0), (0.40, 0), (1, 0)], easing: StatusLabelMotion.easeOutBack),
-                scale: StatusLabelMotion.value(at: loopFraction, keyframes: [(0, 1), (0.12, 1.3), (0.24, 0.95), (0.40, 1), (1, 1)], easing: StatusLabelMotion.easeOutBack),
-                rotationDegrees: StatusLabelMotion.value(at: loopFraction, keyframes: [(0, 0), (0.12, tiltDegrees), (0.24, 0), (1, 0)], easing: StatusLabelMotion.easeOutBack)
-            )
-
-        case .animatingIt:
-            // A wave flows through the letters left to right, and each crest glows, like the streams on the icon.
-            let wavePhase = 2 * Double.pi * (elapsedSeconds / 1.6 - Double(letterIndex) * 0.09)
-            let crestAmount = max(0, sin(wavePhase))
-            return StatusLetterPose(offsetY: -3.5 * sin(wavePhase), highlightAmount: crestAmount * crestAmount)
-
-        case .readingYourScreen:
-            // A bright band runs across the letters, like the scan line on the icon.
-            guard let loopFraction = StatusLabelMotion.loopFraction(
-                elapsedSeconds: elapsedSeconds, loopSeconds: 1.4, delaySeconds: Double(letterIndex) * 0.05
-            ) else { return StatusLetterPose() }
-            let bandAmount = StatusLabelMotion.value(at: loopFraction, keyframes: [(0, 1), (0.14, 0), (1, 0)], easing: StatusLabelMotion.linear)
-            return StatusLetterPose(offsetY: -bandAmount, extraVerticalScale: 1 + 0.18 * bandAmount, highlightAmount: bandAmount)
-
-        case .buildingYourScene:
-            // Letters drop in one by one and lock into place, then lift away and the line builds again.
-            guard let loopFraction = StatusLabelMotion.loopFraction(
-                elapsedSeconds: elapsedSeconds, loopSeconds: 2.6, delaySeconds: Double(letterIndex) * 0.06
-            ) else { return StatusLetterPose(offsetY: -14, rotationDegrees: -14, opacity: 0) }
-            return StatusLetterPose(
-                offsetY: StatusLabelMotion.value(at: loopFraction, keyframes: [(0, -14), (0.10, 0), (0.74, 0), (0.86, -6), (1, -6)], easing: StatusLabelMotion.easeOutBack),
-                rotationDegrees: StatusLabelMotion.value(at: loopFraction, keyframes: [(0, -14), (0.10, 0), (1, 0)], easing: StatusLabelMotion.easeOutBack),
-                opacity: StatusLabelMotion.value(at: loopFraction, keyframes: [(0, 0), (0.10, 1), (0.74, 1), (0.86, 0), (1, 0)], easing: StatusLabelMotion.easeOut)
-            )
-
-        case .almostThere:
-            // The letters fill from light to dark green left to right, as the ring on the icon fills.
-            guard let loopFraction = StatusLabelMotion.loopFraction(elapsedSeconds: elapsedSeconds, loopSeconds: 1.8) else {
-                return StatusLetterPose()
-            }
-            let fillFraction = 0.70 * Double(letterIndex) / Double(max(letterCount - 1, 1))
-            let unfilledAmount = StatusLabelMotion.value(
-                at: loopFraction,
-                keyframes: [(0, 1), (fillFraction, 1), (fillFraction + 0.03, 0), (0.90, 0), (0.97, 1), (1, 1)],
-                easing: StatusLabelMotion.linear
-            )
-            return StatusLetterPose(highlightAmount: unfilledAmount)
-
-        case .readingTheTranscript:
-            // The line types out behind a caret, the caret goes dark once (0.70 to 0.76 of the loop), shows again until 0.84, and the line clears.
-            guard let loopFraction = StatusLabelMotion.loopFraction(elapsedSeconds: elapsedSeconds, loopSeconds: 3.0) else {
-                return StatusLetterPose(opacity: 0)
-            }
-            let typingEndsAt = 0.62
-            let appearsAt = typingEndsAt * Double(letterIndex) / Double(letterCount)
-            let nextLetterAppearsAt = typingEndsAt * Double(letterIndex + 1) / Double(letterCount)
-            let opacity: Double
-            if loopFraction < appearsAt {
-                opacity = 0
-            } else {
-                opacity = StatusLabelMotion.value(at: loopFraction, keyframes: [(0, 1), (0.86, 1), (0.92, 0), (1, 0)], easing: StatusLabelMotion.linear)
-            }
-            let isLastLetter = letterIndex == letterCount - 1
-            let showsCaret = isLastLetter
-                ? (loopFraction >= appearsAt && loopFraction < 0.70) || (loopFraction >= 0.76 && loopFraction < 0.84)
-                : loopFraction >= appearsAt && loopFraction < nextLetterAppearsAt
-            return StatusLetterPose(opacity: opacity, showsCaret: showsCaret)
-
-        case .pickingQuizSpots:
-            // Four letters lift one by one and get a dot under them, like the spots the magnifier lights up.
-            guard let spotOrder = Self.quizSpotLetterIndexes.firstIndex(of: letterIndex),
-                  let loopFraction = StatusLabelMotion.loopFraction(
-                      elapsedSeconds: elapsedSeconds, loopSeconds: 2.4, delaySeconds: Double(spotOrder) * 0.35
-                  ) else { return StatusLetterPose() }
-            let raisedKeyframes: [(fraction: Double, value: Double)] = [(0, 0), (0.10, 1), (0.70, 1), (0.85, 0), (1, 0)]
-            let raisedAmount = StatusLabelMotion.value(at: loopFraction, keyframes: raisedKeyframes, easing: StatusLabelMotion.easeOutBack)
-            return StatusLetterPose(offsetY: -3 * raisedAmount, spotDotScale: max(0, raisedAmount))
-        }
-    }
-
-    /// The whole line's scale, anchored at its leading edge. Only "Almost there" bounces once it fills.
-    func wordScale(elapsedSeconds: Double) -> Double {
-        guard self == .almostThere,
-              let loopFraction = StatusLabelMotion.loopFraction(elapsedSeconds: elapsedSeconds, loopSeconds: 1.8) else { return 1 }
-        return StatusLabelMotion.value(at: loopFraction, keyframes: [(0, 1), (0.72, 1), (0.80, 1.07), (1, 1)], easing: StatusLabelMotion.easeInOut)
+    /// When the last letter has settled, so the line can draw as one still piece of text.
+    static func secondsUntilEveryLetterHasSettled(letterCount: Int) -> Double {
+        Double(max(letterCount - 1, 0)) * secondsBetweenLetters + secondsPerLetter
     }
 }
 

@@ -6,7 +6,10 @@
 //  named by the theme's id, holding theme.json and, when the theme uses the picture the learner pointed at, picture.jpg.
 //  A folder that does not parse is skipped with a log line, so a hand edit that breaks one theme never loses the others.
 //  The same folder layout is a `.clickytheme` package: the app bundles its own (`loadBundledThemes`), and a package the
-//  learner double-clicks is parsed and copied in as a new saved theme (`install`).
+//  learner double-clicks is parsed and copied in as a new saved theme (`install`). Dragging a theme card out of the panel
+//  writes a clean package (`exportPackage`). The Quick Look extension compiles this file too and reads a package with
+//  `previewPackage`, so Finder previews only what an install would accept. `standard()` is in CompanionThemeSettings.swift,
+//  since the extension has no Application Support folder of Clicky's.
 //
 
 import Foundation
@@ -19,6 +22,8 @@ nonisolated enum CustomThemeStoreError: Error, Equatable {
     case themeIDIsNotAValidFolderName
     /// A rename or delete named a theme id that has no folder, such as a theme already deleted.
     case noThemeHasThatID
+    /// The package on disk is not the one the "Add theme?" card showed.
+    case packageChangedSinceItWasPreviewed
     /// A new name is empty after trimming, or longer than `ClickyTheme.longestName`.
     case themeNameIsNotValid
     /// An opened file is not a `.clickytheme` folder with a theme.json in it.
@@ -28,6 +33,10 @@ nonisolated enum CustomThemeStoreError: Error, Equatable {
     case packageFileIsNotAPlainFile(String)
     /// A file the package names is over the size install accepts for it.
     case packageFileIsTooLarge(String)
+    /// A Theme Studio idea has no folder yet, so there is no picture or portrait to put in a package.
+    case anIdeaCannotBeExported
+    /// The package's folder is already there, and an export never writes into a folder it did not make.
+    case exportFolderAlreadyExists
 }
 
 /// A theme read back from the Themes folder, with when it was saved.
@@ -50,11 +59,6 @@ nonisolated struct CustomThemeStore: Sendable {
     static let mostThemeFileBytes = 256 * 1024
     static let mostPictureBytes = 8 * 1024 * 1024
     static let mostPortraitBytes = 1024 * 1024
-
-    /// ~/Library/Application Support/Clicky/Themes, next to the learner's skills and mcp.json.
-    static func standard() -> CustomThemeStore {
-        CustomThemeStore(themesDirectoryURL: TaskAgentFolders.clickyApplicationSupportURL().appendingPathComponent("Themes", isDirectory: true))
-    }
 
     // MARK: - Ids
 
@@ -149,21 +153,34 @@ nonisolated struct CustomThemeStore: Sendable {
 
     // MARK: - Installing a package
 
-    /// Parses a `.clickytheme` package the learner opened and copies it in as a new saved theme with an id of its own,
-    /// which it returns. Only theme.json, picture.jpg when the theme uses it, and the roster's portrait files are read, each
-    /// only as a regular file under its size cap with no symbolic link on its path (`plainFileData`), and their bytes are
-    /// written into a folder this call creates, so a package someone sent can never make install read or write outside it.
-    /// Every file is read before anything is written, and a theme.json that does not parse throws its
-    /// `CustomThemeParseError` before any folder is made. A portrait the roster names but the package lacks is left out,
-    /// and that face shows its initials.
-    @discardableResult
-    func install(packageAt packageURL: URL) throws -> ClickyTheme {
-        var packageIsAFolder: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: packageURL.path, isDirectory: &packageIsAFolder), packageIsAFolder.boolValue,
-              let themeFileData = try Self.plainFileData(atRelativePath: Self.themeFileName, inPackageAt: packageURL, mostBytes: Self.mostThemeFileBytes) else {
+    /// What a package holds, read and checked the way an install reads it, for the "Add theme?" card to show.
+    struct ThemePackagePreview: Equatable {
+        let theme: ClickyTheme
+        let pictureJPEG: Data?
+    }
+
+    /// Reads a `.clickytheme` package and checks it with every rule an install applies, and writes nothing. Throws what
+    /// `install` throws for a package that would be refused, so a card is only shown for one that can install.
+    func previewPackage(at packageURL: URL) throws -> ThemePackagePreview {
+        let package = try readPackage(at: packageURL)
+        return ThemePackagePreview(theme: package.theme, pictureJPEG: package.pictureJPEG)
+    }
+
+    private struct ReadPackage {
+        let theme: ClickyTheme
+        let pictureJPEG: Data?
+        let portraitDataByFileName: [String: Data]
+    }
+
+    /// Reads and parses a package: `theme.json`, `picture.jpg` when there is one, and each roster portrait it names. The
+    /// package folder is opened once, and every file is read from that open folder as a plain file within its size cap
+    /// (`OpenedPackageFolder.plainFileData`).
+    private func readPackage(at packageURL: URL) throws -> ReadPackage {
+        guard let packageFolder = OpenedPackageFolder(openingFolderAt: packageURL),
+              let themeFileData = try packageFolder.plainFileData(atRelativePath: Self.themeFileName, mostBytes: Self.mostThemeFileBytes) else {
             throw CustomThemeStoreError.packageIsNotAThemeFolder
         }
-        let pictureJPEG = try Self.plainFileData(atRelativePath: Self.pictureFileName, inPackageAt: packageURL, mostBytes: Self.mostPictureBytes)
+        let pictureJPEG = try packageFolder.plainFileData(atRelativePath: Self.pictureFileName, mostBytes: Self.mostPictureBytes)
         let packagedTheme = try ClickyTheme.parse(
             themeJSON: try JSONDecoder().decode(JSONValue.self, from: themeFileData),
             id: "installing",
@@ -173,9 +190,33 @@ nonisolated struct CustomThemeStore: Sendable {
         var portraitDataByFileName: [String: Data] = [:]
         if case .roster(let players) = packagedTheme.agents.faces {
             for portraitFileName in players.compactMap(\.portraitFileName) where portraitDataByFileName[portraitFileName] == nil {
-                portraitDataByFileName[portraitFileName] = try Self.plainFileData(atRelativePath: portraitFileName, inPackageAt: packageURL, mostBytes: Self.mostPortraitBytes)
+                portraitDataByFileName[portraitFileName] = try packageFolder.plainFileData(atRelativePath: portraitFileName, mostBytes: Self.mostPortraitBytes)
             }
         }
+
+        return ReadPackage(theme: packagedTheme, pictureJPEG: pictureJPEG, portraitDataByFileName: portraitDataByFileName)
+    }
+
+    /// Parses a `.clickytheme` package the learner opened and copies it in as a new saved theme with an id of its own,
+    /// which it returns. Only theme.json, picture.jpg when the theme uses it, and the roster's portrait files are read, each
+    /// only as a regular file under its size cap with no symbolic link on its path (`plainFileData`), and their bytes are
+    /// written into a folder this call creates, so a package someone sent can never make install read or write outside it.
+    /// Every file is read before anything is written, and a theme.json that does not parse throws its
+    /// `CustomThemeParseError` before any folder is made. A portrait the roster names but the package lacks is left out,
+    /// and that face shows its initials.
+    ///
+    /// With `expectedPreview`, the package is read once and compared with what the "Add theme?" card showed, and a package
+    /// that changed since throws `packageChangedSinceItWasPreviewed` before anything is written, so the learner installs
+    /// what they agreed to.
+    @discardableResult
+    func install(packageAt packageURL: URL, expectedPreview: ThemePackagePreview? = nil) throws -> ClickyTheme {
+        let package = try readPackage(at: packageURL)
+        if let expectedPreview, ThemePackagePreview(theme: package.theme, pictureJPEG: package.pictureJPEG) != expectedPreview {
+            throw CustomThemeStoreError.packageChangedSinceItWasPreviewed
+        }
+        let packagedTheme = package.theme
+        let pictureJPEG = package.pictureJPEG
+        let portraitDataByFileName = package.portraitDataByFileName
 
         let themeID = try freeThemeID(forName: packagedTheme.name)
         let installedFolderURL = folderURL(forThemeID: themeID)
@@ -196,34 +237,9 @@ nonisolated struct CustomThemeStore: Sendable {
         return installedTheme
     }
 
-    /// The bytes of the file at `relativePath` inside a package, or nil when nothing is there. Every part of the path is
-    /// checked without following links: each folder must be a real folder and the file a regular file of at most
-    /// `mostBytes`, so a symbolic link, a named pipe, or a device file throws instead of being read.
-    static func plainFileData(atRelativePath relativePath: String, inPackageAt packageURL: URL, mostBytes: Int) throws -> Data? {
-        let pathParts = relativePath.split(separator: "/").map(String.init)
-        var currentURL = packageURL
-        for (pathPartIndex, pathPart) in pathParts.enumerated() {
-            currentURL = currentURL.appendingPathComponent(pathPart)
-            // `attributesOfItem` reads the item itself, not what a symbolic link points to.
-            guard let attributes = try? FileManager.default.attributesOfItem(atPath: currentURL.path) else { return nil }
-            let fileType = attributes[.type] as? FileAttributeType
-            let isTheFile = pathPartIndex == pathParts.count - 1
-            guard fileType == (isTheFile ? .typeRegular : .typeDirectory) else {
-                throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
-            }
-            if isTheFile, let fileSize = attributes[.size] as? NSNumber, fileSize.intValue > mostBytes {
-                throw CustomThemeStoreError.packageFileIsTooLarge(relativePath)
-            }
-        }
-        return try boundedRegularFileData(at: currentURL, relativePath: relativePath, mostBytes: mostBytes)
-    }
-
-    /// Reads a file the checks above found to be a regular file, again on the open file itself, so a file swapped for a
-    /// link, a named pipe, or a device between the check and the read is refused instead of followed or waited on.
-    /// `O_NOFOLLOW` refuses a link, `O_NONBLOCK` keeps a pipe from blocking the open, and the read stops at `mostBytes + 1`.
-    static func boundedRegularFileData(at fileURL: URL, relativePath: String, mostBytes: Int) throws -> Data {
-        let fileDescriptor = open(fileURL.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
-        guard fileDescriptor >= 0 else { throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath) }
+    /// Reads an open file, which it closes, only when the file itself is a regular file of at most `mostBytes`. The read stops
+    /// at `mostBytes + 1` bytes, so a larger file is refused without reading the rest of it.
+    fileprivate static func boundedRegularFileData(openFileDescriptor fileDescriptor: Int32, relativePath: String, mostBytes: Int) throws -> Data {
         let fileHandle = FileHandle(fileDescriptor: fileDescriptor, closeOnDealloc: true)
         var fileStatus = stat()
         guard fstat(fileDescriptor, &fileStatus) == 0, fileStatus.st_mode & S_IFMT == S_IFREG else {
@@ -232,6 +248,96 @@ nonisolated struct CustomThemeStore: Sendable {
         let fileData = try fileHandle.read(upToCount: mostBytes + 1) ?? Data()
         guard fileData.count <= mostBytes else { throw CustomThemeStoreError.packageFileIsTooLarge(relativePath) }
         return fileData
+    }
+
+    // MARK: - Exporting a package
+
+    /// The package's file name for a theme, such as "Moonlit.clickytheme". A name can hold a slash, a colon, a control
+    /// character, or a bidirectional control such as a right-to-left override, which a file name should not, so those become
+    /// hyphens. A theme from someone else could use an override to make the file's name read differently in Finder. The
+    /// name is trimmed first, so a dot at its start after the spaces also becomes a hyphen, since a leading dot would hide
+    /// the file. The zero-width joiner is neither, so an emoji built with one stays whole.
+    static func exportedPackageFileName(forThemeName themeName: String) -> String {
+        var fileName = String(themeName.trimmingCharacters(in: .whitespaces).map { character in
+            let isAControlCharacter = character.unicodeScalars.contains { $0.properties.generalCategory == .control || $0.properties.isBidiControl }
+            return character == "/" || character == ":" || isAControlCharacter ? "-" : character
+        })
+        while fileName.hasPrefix(".") { fileName = "-" + fileName.dropFirst() }
+        return "\(fileName.isEmpty ? "Theme" : fileName).\(packageExtension)"
+    }
+
+    /// What an exported package holds: theme.json, the picture when the theme uses it, and the roster portraits the theme
+    /// ships in its own folder. A bundled theme's roster portraits are never exported: the bundled schools' portraits are
+    /// local files fetched from a wiki, not Clicky's to give away, so the package names each player and the faces show
+    /// initials. A saved theme's portrait that is missing from its folder is left out the same way.
+    struct ExportedPackage: Equatable {
+        let theme: ClickyTheme
+        let pictureJPEG: Data?
+        let portraitDataByFileName: [String: Data]
+    }
+
+    static func exportedPackage(of theme: ClickyTheme) throws -> ExportedPackage {
+        let themeFolder: OpenedPackageFolder?
+        switch theme.origin {
+        case .idea: throw CustomThemeStoreError.anIdeaCannotBeExported
+        case .bundled: themeFolder = nil
+        case .saved(let folderURL): themeFolder = OpenedPackageFolder(openingFolderAt: folderURL)
+        }
+        let pictureJPEG = try themeFolder.flatMap { themeFolder in
+            theme.usesPicture ? try themeFolder.plainFileData(atRelativePath: pictureFileName, mostBytes: mostPictureBytes) : nil
+        }
+        if theme.usesPicture && pictureJPEG == nil { throw CustomThemeStoreError.themeUsesAPictureButNoneWasGiven }
+
+        guard case .roster(let players) = theme.agents.faces else {
+            return ExportedPackage(theme: theme, pictureJPEG: pictureJPEG, portraitDataByFileName: [:])
+        }
+        var portraitDataByFileName: [String: Data] = [:]
+        for portraitFileName in players.compactMap(\.portraitFileName) where portraitDataByFileName[portraitFileName] == nil {
+            if let themeFolder, let portraitData = try themeFolder.plainFileData(atRelativePath: portraitFileName, mostBytes: mostPortraitBytes) {
+                portraitDataByFileName[portraitFileName] = portraitData
+            }
+        }
+        let exportedPlayers = players.map { player in
+            ThemeRosterPlayer(
+                name: player.name,
+                fullName: player.fullName,
+                number: player.number,
+                portraitFileName: player.portraitFileName.flatMap { portraitDataByFileName[$0] == nil ? nil : $0 }
+            )
+        }
+        let exportedTheme = theme.with(agents: ThemeAgents(ring: theme.agents.ring, faces: .roster(exportedPlayers)))
+        return ExportedPackage(theme: exportedTheme, pictureJPEG: pictureJPEG, portraitDataByFileName: portraitDataByFileName)
+    }
+
+    /// Writes the theme as a `.clickytheme` package at `packageURL`, a folder this call creates, which must not exist yet.
+    /// theme.json goes last, as in `write`, and a failed export removes the folder it made.
+    static func exportPackage(of theme: ClickyTheme, toPackageAt packageURL: URL) throws {
+        let exportedPackage = try exportedPackage(of: theme)
+        let fileManager = FileManager.default
+        do {
+            try fileManager.createDirectory(at: packageURL, withIntermediateDirectories: false)
+        } catch CocoaError.fileWriteFileExists {
+            throw CustomThemeStoreError.exportFolderAlreadyExists
+        }
+        do {
+            if let pictureJPEG = exportedPackage.pictureJPEG {
+                try pictureJPEG.write(to: packageURL.appendingPathComponent(pictureFileName), options: .withoutOverwriting)
+            }
+            for (portraitFileName, portraitData) in exportedPackage.portraitDataByFileName.sorted(by: { $0.key < $1.key }) {
+                let portraitURL = packageURL.appendingPathComponent(portraitFileName)
+                try fileManager.createDirectory(at: portraitURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try portraitData.write(to: portraitURL, options: .withoutOverwriting)
+            }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            try encoder.encode(exportedPackage.theme.themeJSON).write(
+                to: packageURL.appendingPathComponent(themeFileName),
+                options: .withoutOverwriting
+            )
+        } catch {
+            try? fileManager.removeItem(at: packageURL)
+            throw error
+        }
     }
 
     // MARK: - Bundled themes
@@ -356,5 +462,59 @@ nonisolated struct CustomThemeStore: Sendable {
         )
         let savedDate = (try? themeFileURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
         return SavedCustomTheme(theme: theme, savedDate: savedDate)
+    }
+}
+
+/// A package's folder, opened once, so every file one read takes from the package comes from the same folder. Opening the
+/// folder's path again for each file would let a hostile network volume swap the folder, or a folder above it, for a link
+/// to somewhere else between two files. The descriptor closes when the value goes away.
+nonisolated final class OpenedPackageFolder {
+    private let folderDescriptor: Int32
+
+    /// Nil when nothing is at the path or it is not a folder. The package is the folder the learner opened, so a link to
+    /// it is followed, as Finder follows it.
+    init?(openingFolderAt folderURL: URL) {
+        // `O_NONBLOCK` keeps a named pipe at the path from blocking the open, which `O_DIRECTORY` then refuses.
+        let openedDescriptor = open(folderURL.path, O_RDONLY | O_DIRECTORY | O_NONBLOCK)
+        guard openedDescriptor >= 0 else { return nil }
+        folderDescriptor = openedDescriptor
+    }
+
+    deinit { close(folderDescriptor) }
+
+    /// The bytes of the file at `relativePath` in this folder, or nil when nothing is there. The path is walked one name at a
+    /// time with `openat`, each folder opened from the folder before it with `O_NOFOLLOW`, and the file opened from the last
+    /// folder the same way, so a symbolic link, a named pipe, or a device file throws instead of being read. Every name is
+    /// looked up once, relative to a folder already open, so a folder swapped for a link between two steps cannot send the
+    /// read outside the package. That is the parent folder race a hostile network volume could run, where the server can
+    /// change what a path names between two calls: a check of the path followed by a later open of it would follow the swap.
+    /// Each file's walk starts again at the package folder, so two files in one folder each look that folder up, and each
+    /// lookup refuses a link. The bytes come from the opened file, at most `mostBytes`.
+    func plainFileData(atRelativePath relativePath: String, mostBytes: Int) throws -> Data? {
+        let pathParts = relativePath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        // The theme's own rules already refuse such a path. An empty name, "." or ".." here would name the folder itself or
+        // its parent, so this refuses one again rather than trust every caller.
+        guard !pathParts.isEmpty, pathParts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
+        }
+        // Each inner folder this walk opens is closed when the walk moves past it or ends. The package folder stays open.
+        var currentFolderDescriptor = folderDescriptor
+        defer { if currentFolderDescriptor != folderDescriptor { close(currentFolderDescriptor) } }
+        for folderName in pathParts.dropLast() {
+            let nextFolderDescriptor = openat(currentFolderDescriptor, folderName, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+            guard nextFolderDescriptor >= 0 else {
+                if errno == ENOENT { return nil }
+                throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
+            }
+            if currentFolderDescriptor != folderDescriptor { close(currentFolderDescriptor) }
+            currentFolderDescriptor = nextFolderDescriptor
+        }
+        // `O_NONBLOCK` keeps a named pipe from blocking the open.
+        let fileDescriptor = openat(currentFolderDescriptor, pathParts[pathParts.count - 1], O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard fileDescriptor >= 0 else {
+            if errno == ENOENT { return nil }
+            throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
+        }
+        return try CustomThemeStore.boundedRegularFileData(openFileDescriptor: fileDescriptor, relativePath: relativePath, mostBytes: mostBytes)
     }
 }

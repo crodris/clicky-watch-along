@@ -14,6 +14,8 @@
  *   POST /video-quiz-plan → OpenAI Responses API (GPT-6.2 Sol), or Anthropic Messages API when OpenAI cannot answer (quiz pause moments for a video transcript)
  *   POST /video-frame-parts → Anthropic Messages API (subject box and part labels in a video frame)
  *   POST /landmark     → Anthropic Messages API (famous place and coordinates in a video frame)
+ *   POST /try-it-item → Anthropic Messages API (Sonnet reads a store page and its product photo for wall art, furniture, or clothing: its kind, size or garment details, and the item's corners)
+ *   POST /room-wall    → the local depth service (tools/depth-service) at DEPTH_SERVICE_URL, which measures the wall plane in a photo of the learner's room
  *   POST /voice-command → Anthropic Messages API (Haiku picks the app's tools for a spoken follow-up command)
  *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)
  *   POST /theme-ideas  → Anthropic Messages API (Sonnet writes three cursor theme ideas for the theme studio, optionally from a picture)
@@ -35,6 +37,8 @@ import { handleVideoQuizPlan } from "./videoQuizPlan";
 import { handleVideoFrameParts } from "./videoFrameParts";
 import { handleMapTiles, isMapTilesRequest } from "./mapTiles";
 import { handleLandmark } from "./landmark";
+import { handleTryItItem } from "./tryItItem";
+import { handleRoomWall } from "./roomWall";
 import { handleVoiceCommand } from "./voiceCommand";
 import { handlePictureFlows } from "./pictureFlows";
 import { handleThemeIdeas } from "./themeIdeas";
@@ -59,7 +63,9 @@ interface Env {
    * private pages with no parent. Without it, /study-guide, /study-guide-status, and /notion-page answer 503.
    */
   NOTION_API_KEY?: string;
-  /** The secret the app sends in x-clicky-app-secret. The Notion routes and /v1/messages refuse a request without it. */
+  /** Where the local depth service runs (tools/depth-service), which /room-wall forwards to. Unset answers 503. */
+  DEPTH_SERVICE_URL?: string;
+  /** The secret the app sends in x-clicky-app-secret. The Notion routes, /v1/messages, /try-it-item, and /room-wall refuse a request without it. */
   CLICKY_APP_SECRET?: string;
   /** Local benchmark runs only: a gemini-* BENCH_MODEL calls Google's OpenAI-compatible endpoint with this key. */
   GEMINI_API_KEY?: string;
@@ -127,6 +133,14 @@ export default {
 
       if (url.pathname === "/landmark") {
         return await handleLandmark(request, env.ANTHROPIC_API_KEY);
+      }
+
+      if (url.pathname === "/try-it-item") {
+        return await handleTryItItem(request, env.ANTHROPIC_API_KEY);
+      }
+
+      if (url.pathname === "/room-wall") {
+        return await handleRoomWall(request, env.DEPTH_SERVICE_URL);
       }
 
       if (url.pathname === "/voice-command") {

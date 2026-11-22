@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -55,8 +56,8 @@ func (brain *brainRunner) logTheCancel(turnNumber int) {
 // The command gets up to mostBrainHaikuTurns turns on Haiku. When the last of them still needs the model, it gets one
 // more turn on Sonnet (the turn budget rule) before the gave-up line, with the same tools and the same history.
 func (brain *brainRunner) runCommand(commandContext context.Context, command *runningTask, voiceCommand voiceCommandMessage) {
-	// The gate decides whether a request can be answered by voice, from the ID the app says the learner had seen.
-	approvalOffer := brain.approvals.answerableApproval(voiceCommand.ApprovalIDSeenAtPress)
+	// The gate decides whether a request can be answered by voice, from the IDs the app says waited and were seen at the press.
+	approvalOffer := brain.approvals.answerableApproval(voiceCommand.ApprovalIDWaitingAtPress, voiceCommand.ApprovalIDSeenAtPress)
 	run := brain.session.begin(voiceCommand.Transcript, sceneStateForACommand(voiceCommand.SceneState, approvalOffer))
 	// The session's record of applied changes decides whether undo_last_change is offered, so the command begins first.
 	tools, err := brainTools(withTheUndoOffer(offersForACommand(voiceCommand.Tools, approvalOffer), run))
@@ -91,6 +92,19 @@ func (brain *brainRunner) runCommand(commandContext context.Context, command *ru
 			return
 		}
 		run.addReply(reply)
+		// The line this turn speaks if every call changes the screen goes out before the first call, so the app fetches its
+		// audio while the calls run, and plays it only when voice_command_finished carries the same words.
+		if spokenLine := spokenLineIfEveryCallChanges(reply.toolCalls); spokenLine != "" {
+			brain.send(commandContext, newVoiceLineIfEveryCallChangesMessage(voiceCommand.TaskID, spokenLine, reply.toolCalls))
+		}
+		// A command started on the partial transcript goes no further until the final one matches: every call, the
+		// commit, and the finished line come after this, so a command the app discards keeps no message, action line, or
+		// new change in the session. Its begin already ran, so a fold and the drop of stale changes still happen.
+		if err := brain.waitForTheFinalTranscript(commandContext, command, turnNumber); err != nil {
+			brain.logTheCancel(turnNumber)
+			run.abandon()
+			return
+		}
 
 		outcomes, toolResultBlocks, err := brain.runToolCalls(commandContext, command, voiceCommand, reply.toolCalls, offered, approvalOffer, turnIndex, run)
 		if err != nil {
@@ -113,6 +127,45 @@ func (brain *brainRunner) runCommand(commandContext context.Context, command *ru
 	}
 	// The last turn, the Sonnet one, still needed the model, so Clicky says its apology instead of going quiet.
 	brain.finish(commandContext, run, newVoiceCommandFinishedMessage(voiceCommand.TaskID, "", true))
+}
+
+// finalTranscriptGate holds a command the app started on the partial transcript, while its first turn runs, until the app
+// says the final transcript matched (confirm_voice_command). Every other command's gate is open from the start. It opens
+// once, and a second confirm changes nothing.
+type finalTranscriptGate struct {
+	opened   chan struct{}
+	openOnce sync.Once
+}
+
+func newFinalTranscriptGate(waitsForTheFinalTranscript bool) *finalTranscriptGate {
+	gate := &finalTranscriptGate{opened: make(chan struct{})}
+	if !waitsForTheFinalTranscript {
+		gate.open()
+	}
+	return gate
+}
+
+func (gate *finalTranscriptGate) open() {
+	gate.openOnce.Do(func() { close(gate.opened) })
+}
+
+// waitForTheFinalTranscript returns at once for a command whose gate is open, and otherwise when the app confirms the
+// final transcript, or with an error when the command is cancelled first. A wait that happened is logged, so a run shows
+// how long the model's reply sat before the final transcript arrived.
+func (brain *brainRunner) waitForTheFinalTranscript(commandContext context.Context, command *runningTask, turnNumber int) error {
+	select {
+	case <-command.finalTranscript.opened:
+		return nil
+	default:
+	}
+	waitStartedAt := time.Now()
+	select {
+	case <-command.finalTranscript.opened:
+		brain.send(commandContext, newLogMessage(fmt.Sprintf("Brain: turn %d waited %d ms for the final transcript", turnNumber, time.Since(waitStartedAt).Milliseconds())))
+		return nil
+	case <-commandContext.Done():
+		return commandContext.Err()
+	}
 }
 
 // finish keeps the command in the session and tells the app it ended. A cancel that arrived while the last call ran

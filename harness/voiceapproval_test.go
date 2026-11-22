@@ -20,6 +20,9 @@ type approvalVoiceAnswerFixture struct {
 		Name       string         `json:"name"`
 		Transcript string         `json:"transcript"`
 		ModelInput map[string]any `json:"modelInput"`
+		// SeenAtPress is false for a request whose whole summary no card had shown for a second at the press. It is
+		// true when the case leaves it out.
+		SeenAtPress *bool `json:"seenAtPress"`
 		Expected   *struct {
 			Approved bool   `json:"approved"`
 			Scope    string `json:"scope"`
@@ -43,7 +46,8 @@ func TestTheSharedFixtureGivesEveryTranscriptItsAnswer(t *testing.T) {
 		t.Run(fixtureCase.Name, func(t *testing.T) {
 			var kept *approvalVoiceAnswer
 			if modelAnswer, inputIsValid := approvalVoiceAnswerFromToolInput(fixtureCase.ModelInput); inputIsValid {
-				if learnerAnswer, learnerSaidIt := approvalVoiceAnswerTheLearnerSaid(modelAnswer, fixtureCase.Transcript); learnerSaidIt {
+				requestWasSeenAtPress := fixtureCase.SeenAtPress == nil || *fixtureCase.SeenAtPress
+				if learnerAnswer, learnerSaidIt := approvalVoiceAnswerTheLearnerSaid(modelAnswer, fixtureCase.Transcript, requestWasSeenAtPress); learnerSaidIt {
 					kept = &learnerAnswer
 				}
 			}
@@ -102,7 +106,7 @@ func TestAVoiceCommandReadsTheKindOfActionAndNeverTheSummaryOfAWaitingRequest(t 
 		t.Fatalf("the approval request was %s", requestLine)
 	}
 
-	driver.send(approvalVoiceCommandLine("command-1", "what is this", request.ApprovalID))
+	driver.send(approvalVoiceCommandLine("command-1", "what is this", request.ApprovalID, request.ApprovalID))
 	driver.expectLine("voice_command_finished")
 
 	var brainRequestBody map[string]any
@@ -129,10 +133,11 @@ func TestAVoiceCommandReadsTheKindOfActionAndNeverTheSummaryOfAWaitingRequest(t 
 var approvalTestTools = strings.TrimSuffix(brainTestTools, `]`) +
 	`,{"name":"answer_approval","description":"Answers the request a background agent waits on.","inputSchema":{"properties":{"approved":{"type":"boolean"},"always":{"type":"boolean"}},"required":["approved"],"type":"object"},"readOnly":false}]`
 
-// approvalVoiceCommandLine is a voice command whose app says the learner had seen the named request at the press.
-func approvalVoiceCommandLine(commandID string, transcript string, approvalIDSeenAtPress string) string {
-	return fmt.Sprintf(`{"type":"voice_command","taskID":%q,"transcript":%q,"sceneState":{"page":"framePopout"},"tools":%s,"approvalIDSeenAtPress":%s}`,
-		commandID, transcript, approvalTestTools, mustMarshal(nullIfEmpty(approvalIDSeenAtPress)))
+// approvalVoiceCommandLine is a voice command whose app says which request its card showed at the press and which request
+// a card had shown whole for a second then. An empty ID is sent as null.
+func approvalVoiceCommandLine(commandID string, transcript string, approvalIDWaitingAtPress string, approvalIDSeenAtPress string) string {
+	return fmt.Sprintf(`{"type":"voice_command","taskID":%q,"transcript":%q,"sceneState":{"page":"framePopout"},"tools":%s,"approvalIDWaitingAtPress":%s,"approvalIDSeenAtPress":%s}`,
+		commandID, transcript, approvalTestTools, mustMarshal(nullIfEmpty(approvalIDWaitingAtPress)), mustMarshal(nullIfEmpty(approvalIDSeenAtPress)))
 }
 
 func nullIfEmpty(text string) any {
@@ -155,7 +160,7 @@ func offeredToolNamesOf(t *testing.T, requestBody map[string]any) []string {
 	return names
 }
 
-func TestAnswerApprovalIsOfferedOnlyWhileTheGateHoldsTheRequestTheLearnerHadSeen(t *testing.T) {
+func TestAnswerApprovalIsOfferedOnlyWhileTheGateHoldsTheRequestTheCardShowedAtThePress(t *testing.T) {
 	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, _ int) {
 		writeBrainReply(writer, "end_turn", `{"type":"text","text":"Okay."}`)
 	})
@@ -163,16 +168,19 @@ func TestAnswerApprovalIsOfferedOnlyWhileTheGateHoldsTheRequestTheLearnerHadSeen
 	driver.send(seedApprovalRequestLine("approval-waiting", "sends"))
 
 	for _, offerCase := range []struct {
-		name                  string
-		approvalIDSeenAtPress string
-		wantOffered           bool
+		name                     string
+		approvalIDWaitingAtPress string
+		approvalIDSeenAtPress    string
+		wantOffered              bool
 	}{
-		{name: "the request the learner had seen", approvalIDSeenAtPress: "approval-waiting", wantOffered: true},
-		{name: "no request seen at the press", approvalIDSeenAtPress: "", wantOffered: false},
-		{name: "a request the gate does not hold", approvalIDSeenAtPress: "approval-never-asked", wantOffered: false},
+		{name: "the request the learner had seen", approvalIDWaitingAtPress: "approval-waiting", approvalIDSeenAtPress: "approval-waiting", wantOffered: true},
+		// A no counts before the summary was read, so the tool is offered for it.
+		{name: "a request not yet read", approvalIDWaitingAtPress: "approval-waiting", approvalIDSeenAtPress: "", wantOffered: true},
+		{name: "no request waiting at the press", approvalIDWaitingAtPress: "", approvalIDSeenAtPress: "", wantOffered: false},
+		{name: "a request the gate does not hold", approvalIDWaitingAtPress: "approval-never-asked", approvalIDSeenAtPress: "approval-never-asked", wantOffered: false},
 	} {
 		commandID := "command-" + strings.ReplaceAll(offerCase.name, " ", "-")
-		driver.send(approvalVoiceCommandLine(commandID, "yes", offerCase.approvalIDSeenAtPress))
+		driver.send(approvalVoiceCommandLine(commandID, "yes", offerCase.approvalIDWaitingAtPress, offerCase.approvalIDSeenAtPress))
 		driver.expectLine("voice_command_finished")
 		requests := worker.requests()
 		offered := slices.Contains(offeredToolNamesOf(t, requests[len(requests)-1].body), "answer_approval")
@@ -192,7 +200,7 @@ func TestAnswerApprovalIsNotOfferedOnceAClickHasSettledTheRequest(t *testing.T) 
 	driver.send(approvalResultLine("approval-clicked", false, "once"))
 	driver.expectLine("approval_settled")
 
-	driver.send(approvalVoiceCommandLine("command-1", "yes", "approval-clicked"))
+	driver.send(approvalVoiceCommandLine("command-1", "yes", "approval-clicked", "approval-clicked"))
 	driver.expectLine("voice_command_finished")
 
 	requests := worker.requests()
@@ -207,7 +215,7 @@ func TestOnlyABenchHarnessTakesASeededApprovalRequest(t *testing.T) {
 	})
 	driver := startHarness(t, worker.server.URL)
 	driver.send(seedApprovalRequestLine("approval-seeded", "sends"))
-	driver.send(approvalVoiceCommandLine("command-1", "yes", "approval-seeded"))
+	driver.send(approvalVoiceCommandLine("command-1", "yes", "approval-seeded", "approval-seeded"))
 	driver.expectLine("voice_command_finished")
 
 	requests := worker.requests()
@@ -232,7 +240,7 @@ func TestAVoiceAnswerOnlyCountsInTheCommandsFirstReply(t *testing.T) {
 		brain.approvals.seed("approval-1", capabilitySends)
 		call := toolCall{ID: "toolu_answer", Name: answerApprovalTool, Input: json.RawMessage(`{"approved":true,"always":false,"confirmation":"allowed it"}`)}
 
-		outcome, _ := brain.answerTheApproval(call, approvalOffer{approvalID: "approval-1", capabilityWord: "sends"}, turnCase.turnIndex, "yes")
+		outcome, _ := brain.answerTheApproval(call, approvalOffer{approvalID: "approval-1", capabilityWord: "sends", yesMayCount: true}, turnCase.turnIndex, "yes")
 
 		if outcome != turnCase.wantOutcome {
 			t.Errorf("turn %d: outcome %s, want %s", turnCase.turnIndex, outcome, turnCase.wantOutcome)
@@ -275,7 +283,7 @@ func TestACancelledCommandNeverAnswersTheRequest(t *testing.T) {
 	run := session.begin("yes", json.RawMessage(`{}`))
 
 	_, _, err := brain.runToolCalls(commandContext, &runningTask{toolResults: make(chan toolResultMessage, 1)}, voiceCommandMessage{TaskID: "command-1", Transcript: "yes"},
-		[]toolCall{call}, map[toolName]bool{answerApprovalTool: true}, approvalOffer{approvalID: "approval-1", capabilityWord: "sends"}, 0, run)
+		[]toolCall{call}, map[toolName]bool{answerApprovalTool: true}, approvalOffer{approvalID: "approval-1", capabilityWord: "sends", yesMayCount: true}, 0, run)
 
 	if err == nil {
 		t.Error("the cancelled command went on to answer")
@@ -311,7 +319,7 @@ func TestAYesTheLearnersWordsDoNotSupportLeavesTheRequestWaiting(t *testing.T) {
 	brain.approvals.seed("approval-1", capabilitySends)
 	call := toolCall{ID: "toolu_answer", Name: answerApprovalTool, Input: json.RawMessage(`{"approved":true,"always":false}`)}
 
-	outcome, resultText := brain.answerTheApproval(call, approvalOffer{approvalID: "approval-1", capabilityWord: "sends"}, 0, "okay, what is this video about")
+	outcome, resultText := brain.answerTheApproval(call, approvalOffer{approvalID: "approval-1", capabilityWord: "sends", yesMayCount: true}, 0, "okay, what is this video about")
 
 	if outcome != voiceToolFailed || !strings.Contains(resultText, "not a short answer") {
 		t.Errorf("outcome %s with result %s", outcome, resultText)
@@ -321,6 +329,82 @@ func TestAYesTheLearnersWordsDoNotSupportLeavesTheRequestWaiting(t *testing.T) {
 	}
 	if written.Len() != 0 {
 		t.Errorf("the harness wrote %s", written.String())
+	}
+}
+
+// Instant No: a spoken no counts for a request whose summary no card had shown whole, while a yes for it is refused and
+// the request keeps waiting.
+func TestASpokenNoCountsBeforeTheSummaryWasReadAndAYesDoesNot(t *testing.T) {
+	unreadOffer := approvalOffer{approvalID: "approval-1", capabilityWord: "sends", yesMayCount: false}
+
+	brain, written := newApprovalTestBrain(t)
+	brain.approvals.seed("approval-1", capabilitySends)
+	yesCall := toolCall{ID: "toolu_yes", Name: answerApprovalTool, Input: json.RawMessage(`{"approved":true,"always":false}`)}
+	outcome, resultText := brain.answerTheApproval(yesCall, unreadOffer, 0, "yes")
+	if outcome != voiceToolFailed || !strings.Contains(resultText, "only a no counts") {
+		t.Errorf("a yes before reading: outcome %s with result %s", outcome, resultText)
+	}
+	if _, stillWaiting := brain.approvals.waitingCapability("approval-1"); !stillWaiting || written.Len() != 0 {
+		t.Errorf("a yes before reading settled the request, and the harness wrote %s", written.String())
+	}
+
+	noCall := toolCall{ID: "toolu_no", Name: answerApprovalTool, Input: json.RawMessage(`{"approved":false,"always":false}`)}
+	outcome, _ = brain.answerTheApproval(noCall, unreadOffer, 0, "no")
+	if outcome != voiceToolChanged {
+		t.Errorf("a no before reading: outcome %s, want changed", outcome)
+	}
+	if _, stillWaiting := brain.approvals.waitingCapability("approval-1"); stillWaiting {
+		t.Error("a no before reading left the request waiting")
+	}
+	if want := `{"type":"approval_settled","approvalID":"approval-1","approved":false,"scope":"once"}`; !strings.Contains(written.String(), want) {
+		t.Errorf("the harness wrote %s, want %s", written.String(), want)
+	}
+}
+
+// The whole path: the app names the request its card showed and no request seen whole, and the spoken no settles it.
+func TestASpokenNoSettlesATasksRequestThatNoCardHadShownWhole(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, recorded recordedRequest, _ int) {
+		switch {
+		case requestIsTheBrains(recorded):
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_answer", "answer_approval", `{"approved":false,"always":false,"confirmation":"declined it"}`))
+		case len(recorded.body["messages"].([]any)) == 1:
+			writeStreamedMessage(writer, "tool_use", toolUseBlock("toolu_open", "open_url", `{"url":"https://example.com/a"}`))
+		default:
+			writeStreamedMessage(writer, "tool_use", toolUseBlock("toolu_finish", "finish", `{"spokenSummary":"Skipped it."}`))
+		}
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(startTaskLine("task-1", "open the page"))
+	var request struct {
+		ApprovalID string `json:"approvalID"`
+	}
+	if err := json.Unmarshal([]byte(driver.expectLine("approval_request")), &request); err != nil {
+		t.Fatal(err)
+	}
+
+	driver.send(approvalVoiceCommandLine("command-1", "no", request.ApprovalID, ""))
+	// The settled line, the command's end, and the task's end come in any order, since they run in their own goroutines.
+	// The declined open_url call never reaches the app.
+	var settledLine string
+	commandFinished, taskFinished := false, false
+	for settledLine == "" || !commandFinished || !taskFinished {
+		switch line := driver.nextLine(); messageType(line) {
+		case "approval_settled":
+			settledLine = line
+		case "voice_command_finished":
+			commandFinished = true
+		case "task_finished":
+			taskFinished = true
+		case "log":
+			driver.logs = append(driver.logs, line)
+		case "voice_line_if_every_call_changes":
+			driver.voiceLines = append(driver.voiceLines, line)
+		default:
+			t.Fatalf("unexpected line %s", line)
+		}
+	}
+	if want := fmt.Sprintf(`{"type":"approval_settled","approvalID":%q,"approved":false,"scope":"once"}`, request.ApprovalID); settledLine != want {
+		t.Fatalf("settled:\n got %s\nwant %s", settledLine, want)
 	}
 }
 
@@ -352,7 +436,7 @@ func TestAVoiceAnswerSettlesTheTasksRequestOnceAndALaterClickChangesNothing(t *t
 		t.Fatal(err)
 	}
 
-	driver.send(approvalVoiceCommandLine("command-1", "yes", request.ApprovalID))
+	driver.send(approvalVoiceCommandLine("command-1", "yes", request.ApprovalID, request.ApprovalID))
 	// The model answers in its first reply, and the harness settles the request without asking the app. The settled line,
 	// the command's end, and the task's approved open_url call come in any order, since the task and the command run in
 	// their own goroutines.
@@ -367,6 +451,8 @@ func TestAVoiceAnswerSettlesTheTasksRequestOnceAndALaterClickChangesNothing(t *t
 			toolCallLine = line
 		case "log":
 			driver.logs = append(driver.logs, line)
+		case "voice_line_if_every_call_changes":
+			driver.voiceLines = append(driver.voiceLines, line)
 		default:
 			t.Fatalf("unexpected line %s", line)
 		}
@@ -439,7 +525,7 @@ func TestAVoiceAnswerAfterAClickOnTheSameRequestFailsAndSettlesNothing(t *testin
 	}
 
 	call := toolCall{ID: "toolu_answer", Name: answerApprovalTool, Input: json.RawMessage(`{"approved":true}`)}
-	outcome, resultText := brain.answerTheApproval(call, approvalOffer{approvalID: "approval-1", capabilityWord: "deletes"}, 0, "yes")
+	outcome, resultText := brain.answerTheApproval(call, approvalOffer{approvalID: "approval-1", capabilityWord: "deletes", yesMayCount: true}, 0, "yes")
 
 	if outcome != voiceToolFailed || !strings.Contains(resultText, "already answered") {
 		t.Errorf("outcome %s with result %s", outcome, resultText)

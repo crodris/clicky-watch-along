@@ -433,21 +433,6 @@ struct leanring_buddyTests {
         #expect(abs(justBeforeTheLoopRepeats.turnDegrees - 360) < 0.5)
     }
 
-    @Test func transcriptLineIsFullyTypedWithTheCaretAtTheEndBeforeItClears() async throws {
-        let statusLine = LiveSceneStatusLine.readingTheTranscript
-        let letterCount = statusLine.displayedText.count
-        func poses(atSeconds elapsedSeconds: Double) -> [StatusLetterPose] {
-            (0..<letterCount).map { statusLine.letterPose(letterIndex: $0, letterCount: letterCount, elapsedSeconds: elapsedSeconds) }
-        }
-
-        let fullyTyped = poses(atSeconds: 2.0)
-        #expect(fullyTyped.allSatisfy { $0.opacity == 1 })
-        #expect(fullyTyped.indices.filter { fullyTyped[$0].showsCaret } == [letterCount - 1])
-
-        let cleared = poses(atSeconds: 2.85)
-        #expect(cleared.allSatisfy { $0.opacity == 0 })
-    }
-
     @Test func statusLabelOwnersSwapAndHideOnlyTheirOwnLines() async throws {
         // A delayed swap after a press hid the label does not bring the label back.
         #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourScene, with: .almostThere, whileShowing: nil) == nil)
@@ -670,7 +655,8 @@ struct leanring_buddyTests {
         )
         let clickyBluePageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: clickyBlueTheme))
         #expect(clickyBluePageHTML.contains("\"quizLabelColor\":\"#3380FF\""))
-        #expect(clickyBluePageHTML.contains("\"quizLabelTextColor\":\"#FFFFFF\""))
+        // Text on the accent is the Tether ink from scene-style.css, so the page carries no text color of the theme's.
+        #expect(!clickyBluePageHTML.contains("quizLabelTextColor"))
         let nekomaPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: bundledTheme("school-nekoma")))
         #expect(nekomaPageHTML.contains("\"quizLabelColor\":\"#E0313B\""))
     }
@@ -833,40 +819,6 @@ struct leanring_buddyTests {
         #expect(turn.chipPhraseToShow(at: .afterTheCall(.changed(state: nil)), offeredToolNames: []) == nil)
     }
 
-    @Test func statusLabelKeepsItsIconOnTheTrianglesSpotNearTheScreensRightEdge() async throws {
-        let screenFrame = CGRect(x: 1710, y: 0, width: 1920, height: 1080)
-        let trianglesSpot = { (mouseLocation: CGPoint) in CGPoint(x: mouseLocation.x + 35, y: mouseLocation.y - 25) }
-        let iconCenter = { (placement: StatusLabelPlacement) in
-            CGPoint(
-                x: placement.textSide == .rightOfIcon ? placement.panelOrigin.x + 24 : placement.panelOrigin.x + 420 - 24,
-                y: placement.panelOrigin.y + 30
-            )
-        }
-
-        let mouseInTheMiddle = CGPoint(x: 2600, y: 500)
-        let middlePlacement = StatusLabelPlacement.placement(mouseLocation: mouseInTheMiddle, contentWidth: 210, screenFrame: screenFrame)
-        #expect(middlePlacement.textSide == .rightOfIcon)
-        #expect(middlePlacement.iconSitsOnTheTrianglesSpot)
-        #expect(iconCenter(middlePlacement) == trianglesSpot(mouseInTheMiddle))
-
-        // 210 points of letters right of the icon would run past 3630, so they move left of it.
-        let mouseNearTheRightEdge = CGPoint(x: 3500, y: 500)
-        let edgePlacement = StatusLabelPlacement.placement(mouseLocation: mouseNearTheRightEdge, contentWidth: 210, screenFrame: screenFrame)
-        #expect(edgePlacement.textSide == .leftOfIcon)
-        #expect(edgePlacement.iconSitsOnTheTrianglesSpot)
-        #expect(iconCenter(edgePlacement) == trianglesSpot(mouseNearTheRightEdge))
-
-        // Only the panel's empty part may cross the edge: the 420-point panel no longer pushes a short label.
-        let shortLabelPlacement = StatusLabelPlacement.placement(mouseLocation: CGPoint(x: 3300, y: 500), contentWidth: 210, screenFrame: screenFrame)
-        #expect(shortLabelPlacement.textSide == .rightOfIcon)
-        #expect(shortLabelPlacement.iconSitsOnTheTrianglesSpot)
-
-        // Near the bottom edge the panel is pushed up, so the triangle stays.
-        let bottomPlacement = StatusLabelPlacement.placement(mouseLocation: CGPoint(x: 2600, y: 10), contentWidth: 210, screenFrame: screenFrame)
-        #expect(bottomPlacement.panelOrigin.y == 0)
-        #expect(!bottomPlacement.iconSitsOnTheTrianglesSpot)
-    }
-
     @Test func narrationOfAPageImageNeverCallsItAVideo() async throws {
         let pageImageGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: nil, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
         let youTubeFrameGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: 42, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
@@ -1021,15 +973,6 @@ struct leanring_buddyTests {
         #expect(escapeHasAnAnswerToStop(voiceState: .idle, speechIsPlaying: false, dictationIsInProgress: false, cursorIsPointingForTheAnswer: true))
         // Right after push-to-talk is released, the question is still being transcribed and will be sent.
         #expect(!escapeHasAnAnswerToStop(voiceState: .processing, speechIsPlaying: false, dictationIsInProgress: true, cursorIsPointingForTheAnswer: false))
-    }
-
-    @Test func pointingBubbleWrapsASpokenSentenceButNotAShortPhrase() async throws {
-        // A pointer phrase or a part label stays on one line and grows as it types.
-        #expect(navigationBubbleWrapWidth(forPhrase: "right here!") == nil)
-        #expect(navigationBubbleWrapWidth(forPhrase: "Fan") == nil)
-        // A narration sentence wraps, so the bubble stays next to the cursor.
-        let narrationSentence = "This giant fan pulls in huge amounts of air, and most of it flows around the engine core to push the plane forward."
-        #expect(navigationBubbleWrapWidth(forPhrase: narrationSentence) == navigationBubbleMaximumTextWidth)
     }
 
     // MARK: - Voice commands
@@ -2193,12 +2136,13 @@ struct leanring_buddyTests {
     @Test func aReadySceneRisesAtOnceOnlyOntoAFreeScreenOverTheTabItWasBuiltFrom() async throws {
         let sourceTab = "https://www.youtube.com/watch?v=source"
         let readyModel = ReadyBackgroundScene(agentID: UUID(), agentKind: .threeDModel, whatToBuild: "the engine", pageHTML: "<html></html>", sourceTabURL: sourceTab, simulationLesson: nil)
-        func mayRise(idleAndDoneSpeaking: Bool = true, sceneBuildingOrShowing: Bool = false, quizQuestionOpen: Bool = false, frontTab: String? = sourceTab) -> Bool {
+        func mayRise(idleAndDoneSpeaking: Bool = true, sceneBuildingOrShowing: Bool = false, quizQuestionOpen: Bool = false, roomArtPanelOpen: Bool = false, frontTab: String? = sourceTab) -> Bool {
             backgroundSceneMayRiseNow(
                 readyModel,
                 clickyIsIdleAndDoneSpeaking: idleAndDoneSpeaking,
                 aSceneOrPopOutIsBuildingOrShowing: sceneBuildingOrShowing,
                 aVideoQuizQuestionIsOpen: quizQuestionOpen,
+                theRoomArtPanelIsOpen: roomArtPanelOpen,
                 readFrontTabURL: { frontTab }
             )
         }
@@ -2206,6 +2150,7 @@ struct leanring_buddyTests {
         #expect(!mayRise(idleAndDoneSpeaking: false))
         #expect(!mayRise(sceneBuildingOrShowing: true))
         #expect(!mayRise(quizQuestionOpen: true))
+        #expect(!mayRise(roomArtPanelOpen: true))
         #expect(!mayRise(frontTab: "https://www.youtube.com/watch?v=other"))
 
         // A busy screen decides without the front tab, since reading it is an Apple Event to Chrome.
@@ -2215,6 +2160,7 @@ struct leanring_buddyTests {
             clickyIsIdleAndDoneSpeaking: false,
             aSceneOrPopOutIsBuildingOrShowing: true,
             aVideoQuizQuestionIsOpen: true,
+            theRoomArtPanelIsOpen: true,
             readFrontTabURL: {
                 frontTabWasRead = true
                 return sourceTab
@@ -2365,6 +2311,8 @@ struct leanring_buddyTests {
         #expect(call("set_control", ["name": .string("angle"), "value": .number(45)]).chipPhrase == "Setting angle to 45")
         #expect(call("set_control", ["name": .string("mass"), "value": .number(2.5)]).chipPhrase == "Setting mass to 2.5")
         #expect(call("set_control", ["name": .string("angle")]).chipPhrase == nil)
+        #expect(call("set_control", ["name": .string("angle"), "value": .number(60), "run": .bool(true)]).chipPhrase == "Setting angle to 60 and running it")
+        #expect(call("set_control", ["name": .string("angle"), "value": .number(60), "run": .bool(false)]).chipPhrase == "Setting angle to 60")
         #expect(call("run_simulation", [:]).chipPhrase == "Running it")
         #expect(pageVoiceToolNames.contains("set_labels"))
         #expect(call("set_labels", ["visible": .bool(true)]).chipPhrase == "Showing the labels")

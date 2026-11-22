@@ -56,7 +56,7 @@ nonisolated struct ApprovalVoiceAnswer: Equatable, Sendable {
         self.scope = approved && toolInput["always"]?.boolValue == true ? .always : .once
     }
 
-    /// What the chip under the cursor says once the answer went through.
+    /// What the chip above the cursor says once the answer went through.
     var chipPhrase: String {
         guard approved else { return "Declined it" }
         return scope == .always ? "Allowed it for this task" : "Allowed it"
@@ -78,19 +78,26 @@ private let approvalAnswerFillerWords: Set<String> = [
 /// This is the old path's check. On the harness path the harness runs the same check in harness/voiceapproval.go, and
 /// harness/testdata/approval-voice-answers.json, which both sides' tests read, keeps the two the same until this one is deleted.
 ///
-/// The model's answer when the learner's own words support it, or nil when they do not. The router model also reads
+/// The model's answer when the learner's own words support it, or nil when they do not. A yes counts only for a request
+/// whose whole summary a card had shown for a second at the press (`requestWasSeenAtPress`). The router model also reads
 /// text a page wrote, such as a video title, which could talk it into a yes, so a yes counts only when the whole
 /// transcript is a short answer: it says yes, holds no word of no, and has no word outside the answer's vocabulary, so
-/// "okay, what is this video about" is not a yes. An "always" counts only when the learner said always. A no needs no check, since
-/// declining is always safe. The answer is refused rather than changed, so the chip, which reads the model's input,
-/// never names an answer the learner did not give.
-nonisolated func approvalVoiceAnswerTheLearnerSaid(_ modelAnswer: ApprovalVoiceAnswer, transcript: String) -> ApprovalVoiceAnswer? {
-    guard modelAnswer.approved else { return modelAnswer }
+/// "okay, what is this video about" is not a yes. An "always" counts only when the learner said always. A no for a
+/// request the learner had read needs no check, since declining is always safe and a wrong no costs only a retry. A no
+/// for an unread request needs a word of no, since the router takes every command while a request waits, and a misread
+/// command or a caption could otherwise decline a request the learner never looked at. The answer is refused rather
+/// than changed, so the chip, which reads the model's input, never names an answer the learner did not give.
+nonisolated func approvalVoiceAnswerTheLearnerSaid(_ modelAnswer: ApprovalVoiceAnswer, transcript: String, requestWasSeenAtPress: Bool) -> ApprovalVoiceAnswer? {
     let transcriptWords = transcript
         .lowercased()
         .replacingOccurrences(of: "\u{2019}", with: "'")
         .split(whereSeparator: { !$0.isLetter && $0 != "'" })
         .map(String.init)
+    guard modelAnswer.approved else {
+        guard requestWasSeenAtPress || transcriptWords.contains(where: approvalNoWords.contains) else { return nil }
+        return modelAnswer
+    }
+    guard requestWasSeenAtPress else { return nil }
     let spacedTranscript = " " + transcriptWords.joined(separator: " ") + " "
     let saysNo = transcriptWords.contains(where: approvalNoWords.contains)
     // A bare "always" is a yes too, when the model heard it as one.
@@ -108,7 +115,7 @@ nonisolated func approvalVoiceAnswerTheLearnerSaid(_ modelAnswer: ApprovalVoiceA
 /// What an agent's row in the agent list shows about approvals.
 nonisolated enum AgentListApprovalState: Equatable, Sendable {
     case none
-    /// The row shows the request and the Yes, Always, and No buttons.
+    /// The agent list's approval card shows this request with its Don't allow, Allow once, and For this task buttons.
     case needsAnswer(HarnessApprovalRequest)
     /// The agent has a request, but an older one from another agent comes first, so the row says it waits.
     case waitsItsTurn(HarnessCapability)
@@ -131,7 +138,7 @@ nonisolated let approvalWaitingStatusText = "Needs your OK"
 
 // MARK: - The chip
 
-/// The chip under the cursor while a request waits: "Hinata needs your OK" with the way to answer after it, in the
+/// The chip above the cursor while a request waits: "Hinata needs your OK" with the way to answer after it, in the
 /// agent's color. `agentName` is the agent's player under a team theme, and the kind's name otherwise.
 nonisolated func approvalWaitingChipTexts(agentName: String) -> (primary: String, secondary: String) {
     ("\(agentName) needs your OK", "· say yes or no")

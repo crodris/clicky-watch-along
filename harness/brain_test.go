@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -143,6 +144,37 @@ func TestNextVoiceStepSpeaksTheConfirmationsOnlyWhenEveryToolChangedTheScreen(t 
 				t.Errorf("got %#v, want %#v", got, test.want)
 			}
 		})
+	}
+}
+
+// The early line is the line a finished turn speaks when every call changed the screen, for any mix of confirmations, so
+// the audio the app fetches ahead of the calls is the audio the finished line asks for.
+func TestTheEarlyVoiceLineIsWhatTheFinishedTurnSpeaksWhenEveryCallChanges(t *testing.T) {
+	rotateCall := toolCall{ID: "a", Name: "rotate_model", Input: json.RawMessage(`{"yawDegrees":-45,"confirmation":" turned it left "}`)}
+	zoomCall := toolCall{ID: "b", Name: "zoom", Input: json.RawMessage(`{"factor":1.3,"confirmation":"zoomed in"}`)}
+	quietCall := toolCall{ID: "c", Name: "zoom", Input: json.RawMessage(`{"factor":1.3,"confirmation":""}`)}
+	noConfirmationCall := toolCall{ID: "d", Name: "seek_to_time", Input: json.RawMessage(`{"seconds":4}`)}
+	notAnObjectCall := toolCall{ID: "e", Name: "zoom", Input: json.RawMessage(`[1]`)}
+
+	for _, calls := range [][]toolCall{
+		{rotateCall},
+		{rotateCall, zoomCall},
+		{quietCall, rotateCall},
+		{rotateCall, noConfirmationCall, zoomCall},
+		{noConfirmationCall},
+		{notAnObjectCall, zoomCall},
+	} {
+		everyCallChanged := slices.Repeat([]voiceToolOutcome{voiceToolChanged}, len(calls))
+		want := speakAndFinish{spokenLine: spokenLineIfEveryCallChanges(calls)}
+		if got := nextVoiceStep(calls, everyCallChanged, "reply text"); !reflect.DeepEqual(got, want) {
+			t.Errorf("for %d calls the finished turn would speak %#v, but the early line is %q", len(calls), got, want.spokenLine)
+		}
+	}
+	if got := spokenLineIfEveryCallChanges([]toolCall{rotateCall, quietCall, zoomCall}); got != "turned it left zoomed in" {
+		t.Errorf("the early line was %q", got)
+	}
+	if got := spokenLineIfEveryCallChanges(nil); got != "" {
+		t.Errorf("a turn with no call has the early line %q, want none", got)
 	}
 }
 

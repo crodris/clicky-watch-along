@@ -39,7 +39,7 @@ struct TetherTokensTests {
         ]
         #expect(DS.Move.allCases.count == 10)
         for move in DS.Move.allCases {
-            #expect(move.curve == expected[move]?.curve, "\(move)")
+            #expect(move.curve(using: .standard) == expected[move]?.curve, "\(move)")
             #expect(move.reduceMotionForm == expected[move]?.reduceMotionForm, "\(move)")
         }
     }
@@ -65,7 +65,7 @@ struct TetherTokensTests {
     }
 
     @Test func aSpringStartsAtZeroRisesPastHalfwayEarlyAndEndsExactlyAtOne() {
-        let glideCurve = DS.Move.glide.curve
+        let glideCurve = DS.Move.glide.curve(using: .standard)
         let glideSeconds = glideCurve.seconds()
         #expect(glideSeconds > 0.4 && glideSeconds < 0.5)
         #expect(glideCurve.progress(atSeconds: 0) == 0)
@@ -74,15 +74,15 @@ struct TetherTokensTests {
         // Just before the end it is already within the settled share, so the snap to 1 is not visible.
         #expect(abs(glideCurve.progress(atSeconds: glideSeconds - 0.001) - 1) < 0.003)
         // The pop's lower damping overshoots its end before it settles.
-        let popCurve = DS.Move.pop.curve
+        let popCurve = DS.Move.pop.curve(using: .standard)
         let popPeak = stride(from: 0.0, to: popCurve.seconds(), by: 0.005).map { popCurve.progress(atSeconds: $0) }.max() ?? 0
         #expect(popPeak > 1.03)
     }
 
     @Test func aGlideClosePlaysTheOpenSpringInSevenTenthsOfTheTime() {
-        let closeCurve = DS.Move.glide.curve.timeScaled(by: DS.Move.glideCloseTimeFactor)
-        #expect(abs(closeCurve.seconds() - DS.Move.glide.curve.seconds() * 0.7) < 1e-9)
-        #expect(abs(closeCurve.progress(atSeconds: 0.07) - DS.Move.glide.curve.progress(atSeconds: 0.1)) < 1e-9)
+        let closeCurve = DS.Move.glide.curve(using: .standard).timeScaled(by: DS.Move.glideCloseTimeFactor)
+        #expect(abs(closeCurve.seconds() - DS.Move.glide.curve(using: .standard).seconds() * 0.7) < 1e-9)
+        #expect(abs(closeCurve.progress(atSeconds: 0.07) - DS.Move.glide.curve(using: .standard).progress(atSeconds: 0.1)) < 1e-9)
     }
 
     @Test func aCriticallyDampedSpringRisesWithoutOvershootAndNeverGivesNaN() {
@@ -99,7 +99,7 @@ struct TetherTokensTests {
 
     @Test func swiftUIPlaysADampingAboveOneAsCriticallyDampedLikeTheCarrier() {
         #expect(MoveCurve.spring(response: 0.3, dampingFraction: 1.4).animation() == .spring(response: 0.3, dampingFraction: 1))
-        #expect(DS.Move.glide.curve.animation() == .spring(response: 0.42, dampingFraction: 0.9))
+        #expect(DS.Move.glide.curve(using: .standard).animation() == .spring(response: 0.42, dampingFraction: 0.9))
     }
 
     @Test func everyReduceMotionFormSaysHowLongItsFadeTakes() {
@@ -109,7 +109,7 @@ struct TetherTokensTests {
     }
 
     @Test func thePointFlightIsPacedByItsDistanceBetweenItsShortestAndLongestTime() {
-        let pointCurve = DS.Move.point.curve
+        let pointCurve = DS.Move.point.curve(using: .standard)
         #expect(pointCurve.seconds(travelingPoints: 100) == 0.6)
         #expect(pointCurve.seconds(travelingPoints: 800) == 1)
         #expect(pointCurve.seconds(travelingPoints: 5000) == 1.4)

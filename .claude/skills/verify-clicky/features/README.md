@@ -52,6 +52,7 @@ It then uses exactly four H2 sections in this order.
 - [Video quiz](./video-quiz.md) covers planning quiz moments from a YouTube transcript and pausing the video at each one.
 - [Frame pop-out](./frame-popout.md) covers lifting the subject of a video frame, or of a page image, out in 3D with part labels.
 - [Landmark scan](./landmark.md) covers recognizing a famous place in a video frame and showing Google's 3D scan of it.
+- [Room art](./room-art.md) covers hanging a store page's wall art on the learner's wall in a live camera panel at its real size, the item kinds the page reader tells apart, and Clicky's loop around the wall spot while it is measured.
 - [Interrupting a reply](./interrupt-reply.md) covers stopping Clicky mid-answer with Escape or a push-to-talk tap.
 - [Let me try it simulation](./simulation.md) covers the science experiment a learner builds with "let me try it": the guess, the trials, the guess check, and the challenge.
 - [Voice commands](./voice-commands.md) covers follow-up commands that change the scene or video on screen through `/voice-command` and the voice tools.
@@ -59,6 +60,7 @@ It then uses exactly four H2 sections in this order.
 - [3D model agent](./three-d-model-agent.md) covers building a 3D model in the background while the video plays, beside other background agents, and showing it when it is ready.
 - [Task agent](./task-agent.md) covers the general background agent that works on any task with web search, the video's captions, and a Notion page.
 - [Agent token serve](./agent-token-serve.md) covers a new agent's token flying from the cursor into its slot beside the notch, and the spoken confirmation that waits for it.
+- [Menu bar icon and agent discs](./menu-bar-icon-and-discs.md) covers the status icon's states and approval badge, a disc's orbiting dot, "!" face and pulse, its peek card and right-click menu, and Bring back, the spark that carries an ending chip to the cursor.
 - [Settings dial](./settings-dial.md) covers the dial that holding shift + option opens: previewing a slice, the Team and Model fans, committing on release, canceling, and the Agents list.
 - [Team theme](./team-theme.md) covers the Haikyu!! team theme: the picker, the volleyball cursor, the player portrait tokens beside the notch, and the themed agent list.
 - [Cursor ring and loop](./cursor-ring-and-loop.md) covers the ring of ticks and dots around the cursor and the hand-drawn loop around the video or image a request looks at.

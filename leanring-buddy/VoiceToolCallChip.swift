@@ -2,39 +2,53 @@
 //  VoiceToolCallChip.swift
 //  leanring-buddy
 //
-//  A small chip under the cursor that names each voice tool call, such as
-//  rotate_model(yawDegrees: -45), then fades out. It uses the status label's look:
-//  an icon on a white rounded-square tile, or a round portrait with no tile, and colored letters with a white outline.
-//  A background agent that ends shows its line here too, in the agent's own color with its triangle as the icon,
-//  so the learner sees which agent it speaks for. It has a quieter second part and a longer stay.
+//  A Callout above the cursor that names each voice tool call, such as "Turning it left", then leaves. It has a 1 point
+//  rim, an accent disc with its icon in ink, and a tail that points at the cursor's triangle. A voice tool call uses the
+//  theme's accent. A background agent that ends shows its line here too, in the agent's own color with its face in the
+//  disc, a quieter second part in gray, and a longer stay, so the learner sees which agent it speaks for. A failure uses
+//  red with a cross and one small shake, and with Reduce Motion on the red and the cross carry it. The chip pops in
+//  from its tail's tip, leaves with a 6 point rise and a fade, and shrinks into the cursor when the learner interrupts.
 //
 
 import AppKit
 import Combine
 import SwiftUI
 
-/// Who the chip speaks for, which sets its icon and letter color.
+/// Who the chip speaks for, which sets its accent and icon.
 enum VoiceToolCallChipSender: Equatable {
     case voiceToolCall
-    /// `color` is the agent's own color, which tints the triangle and the letters. `face` is the roster player the agent
-    /// was, or the picture of its theme, so the chip shows that round face instead of the triangle.
+    /// `color` is the agent's own color, which fills the disc and the rim. `face` is the roster player the agent was, or
+    /// the picture of its theme, so the chip shows that round face in the disc instead of the triangle.
     case backgroundAgent(color: AgentPaletteColor, face: AgentFace)
+    /// Something did not work: a red Callout with a cross, paired with the shake and the spoken line.
+    case failure
 }
 
-/// The shape the chip's icon has, which is also the shape of whatever sits behind it. A white rounded square behind a
-/// round portrait shows its corners around the circle, so a portrait gets no tile.
-enum VoiceToolCallChipIconShape: Equatable {
-    case roundedSquareTile
+/// What fills the chip's icon disc. A round portrait covers the whole disc, and anything else is a symbol in ink on it.
+enum VoiceToolCallChipIconContent: Equatable {
+    case symbolOnDisc
     case circularPortrait
 }
 
 extension VoiceToolCallChipSender {
-    var iconShape: VoiceToolCallChipIconShape {
+    var iconContent: VoiceToolCallChipIconContent {
         switch self {
         case .backgroundAgent(_, face: .rosterFace), .backgroundAgent(_, face: .themePicture): return .circularPortrait
-        case .voiceToolCall, .backgroundAgent(_, face: .triangle): return .roundedSquareTile
+        case .voiceToolCall, .backgroundAgent(_, face: .triangle), .failure: return .symbolOnDisc
         }
     }
+
+    /// The Callout's accent: the theme's for a voice tool call, the agent's own for an agent, and red for a failure.
+    func accent(themeAccent: Color) -> Color {
+        switch self {
+        case .voiceToolCall: return themeAccent
+        case .backgroundAgent(let agentColor, _): return agentColor.color
+        case .failure: return DS.Colors.destructiveText
+        }
+    }
+
+    /// Whether the chip shakes once as it appears.
+    var shakesOnAppearing: Bool { self == .failure }
 }
 
 @MainActor
@@ -45,126 +59,105 @@ private final class VoiceToolCallChipModel: ObservableObject {
     @Published var secondaryChipText: String?
     /// The call as code, set in a monospaced face, instead of a plain phrase.
     @Published var chipTextIsCode = false
+    /// Whether the chip counts as showing. It goes false the moment a leave starts, while the Callout still plays it.
     @Published var isVisible = false
+    /// Whether the Callout is on screen and how it is leaving.
+    let presence = TetherCalloutPresence()
+    /// True for a chip a push-to-talk press must leave up, such as an agent's request for the learner's OK, which stays until
+    /// the learner answers it.
+    var survivesARecall = false
+    /// The Callout's measured width, which places the panel so the tail stays on the cursor. Not published, since the
+    /// cursor-follow timer reads it 30 times a second.
+    var contentWidth: CGFloat = 0
+    /// The theme's accent, read when the chip is shown.
+    @Published var themeAccent = DS.Colors.overlayCursorBlue
+    /// When the chip appeared, which a failure's shake counts from.
+    var shownDate = Date()
+}
+
+/// The chip as drawn: the Callout with its icon, its words, and the quieter second part. It has no model, so a test can
+/// render it.
+struct VoiceToolCallChipCallout: View {
+    let chipText: String
+    var secondaryChipText: String?
+    var chipTextIsCode = false
+    let sender: VoiceToolCallChipSender
+    let themeAccent: Color
+
+    var body: some View {
+        TetherCallout(accent: sender.accent(themeAccent: themeAccent), rim: .chip) {
+            VoiceToolCallChipIcon(sender: sender)
+        } content: {
+            HStack(spacing: 6) {
+                Text(verbatim: chipText)
+                    .font(chipTextIsCode ? .system(size: DS.TypeScale.title.pointSize, weight: .bold, design: .monospaced) : DS.TypeScale.voice.font)
+                if let secondaryChipText {
+                    // 60% white reads at 7.0 contrast on the Callout's surface.
+                    Text(verbatim: secondaryChipText)
+                        .foregroundStyle(Color.white.opacity(0.6))
+                }
+            }
+            .lineLimit(1)
+            .fixedSize()
+        }
+        .fixedSize()
+    }
 }
 
 private struct VoiceToolCallChipView: View {
     @ObservedObject var chipModel: VoiceToolCallChipModel
+    @ObservedObject var presence: TetherCalloutPresence
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            if chipModel.isVisible {
-                HStack(spacing: 6) {
-                    VoiceToolCallChipIcon(sender: chipModel.sender)
-                    OutlinedChipText(chipText: chipModel.chipText, chipTextIsCode: chipModel.chipTextIsCode, textColor: chipTextColor)
-                    if let secondaryChipText = chipModel.secondaryChipText {
-                        OutlinedChipText(chipText: secondaryChipText, chipTextIsCode: false, textColor: DS.Colors.textTertiary)
-                    }
+        ZStack(alignment: .bottomLeading) {
+            if presence.isInTheViewTree {
+                VoiceToolCallChipCallout(
+                    chipText: chipModel.chipText,
+                    secondaryChipText: chipModel.secondaryChipText,
+                    chipTextIsCode: chipModel.chipTextIsCode,
+                    sender: chipModel.sender,
+                    themeAccent: chipModel.themeAccent
+                )
+                .onGeometryChange(for: CGFloat.self) { calloutGeometry in
+                    calloutGeometry.size.width
+                } action: { measuredCalloutWidth in
+                    chipModel.contentWidth = measuredCalloutWidth
                 }
-                .padding(.leading, 8)
-                // A fade only, so it is the same with Reduce Motion on.
-                .transition(.opacity)
+                .modifier(TetherCalloutShake(startedAt: chipModel.sender.shakesOnAppearing ? chipModel.shownDate : nil))
+                .tetherCalloutPose(presence, reduceMotionIsOn: reduceMotion)
             }
         }
-        .animation(.easeOut(duration: 0.2), value: chipModel.isVisible)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-    }
-
-    private var chipTextColor: Color {
-        switch chipModel.sender {
-        case .voiceToolCall: return DS.Colors.blue700
-        // Dark gray, readable inside the white outline whatever the agent's color is.
-        case .backgroundAgent(_, face: .rosterFace): return DS.Colors.backgroundAgentPlayerNameText
-        case .backgroundAgent(let agentColor, face: .themePicture), .backgroundAgent(let agentColor, face: .triangle): return agentColor.chipTextColor
-        }
+        .padding(tetherCalloutPanelMargin)
+        .tetherCalloutAnimations(presence, reduceMotionIsOn: reduceMotion)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
 }
 
-/// The chip's icon with whatever backs it, 22 points square. The backing follows the icon's shape (`iconShape`), so no
-/// white shows outside a round portrait.
+/// The chip's icon, drawn inside the Callout's 26 point accent disc: a symbol in ink, or a round portrait that fills the disc
+/// and leaves the agent's color as a ring around it.
 struct VoiceToolCallChipIcon: View {
     let sender: VoiceToolCallChipSender
-    private static let iconSize: CGFloat = 22
-    private static let shadowColor = Color.black.opacity(0.3)
+    private static let portraitSize: CGFloat = TetherCallout<EmptyView, EmptyView>.iconDiscDiameter - 4
 
     var body: some View {
-        switch sender.iconShape {
-        case .roundedSquareTile:
-            symbolOrTriangle
-                .frame(width: Self.iconSize, height: Self.iconSize)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.white)
-                        .shadow(color: Self.shadowColor, radius: 3, x: 0, y: 2)
-                )
-        case .circularPortrait:
-            portrait
-        }
-    }
-
-    @ViewBuilder private var symbolOrTriangle: some View {
         switch sender {
         case .voiceToolCall:
             Image(systemName: "hand.point.up.left.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(DS.Colors.blue600)
-        case .backgroundAgent(let agentColor, _):
-            // The cursor triangle's tilt, so the icon reads as the agent's triangle.
-            Triangle()
-                .fill(agentColor.color)
-                .frame(width: 11, height: 11)
-                .rotationEffect(.degrees(-35))
-        }
-    }
-
-    @ViewBuilder private var portrait: some View {
-        switch sender {
-        case .backgroundAgent(let agentColor, face: .rosterFace(let rosterFace)):
-            // The ring is drawn inside the portrait's circle, and the shadow follows that circle, so nothing else shows.
-            RosterFaceView(rosterFace: rosterFace, size: Self.iconSize)
-                .overlay(Circle().strokeBorder(agentColor.color, lineWidth: 2))
-                .shadow(color: Self.shadowColor, radius: 3, x: 0, y: 2)
-        case .backgroundAgent(let agentColor, face: .themePicture(let themeID)):
+        case .failure:
+            TetherCalloutCrossIcon()
+        case .backgroundAgent(_, face: .triangle):
+            TetherCalloutCursorIcon()
+        case .backgroundAgent(_, face: .rosterFace(let rosterFace)):
+            RosterFaceView(rosterFace: rosterFace, size: Self.portraitSize)
+        case .backgroundAgent(_, face: .themePicture(let themeID)):
             if let themePicture = CustomThemePictureCache.image(forThemeID: themeID) {
-                ThemePictureFaceView(picture: themePicture, size: Self.iconSize)
-                    .overlay(Circle().strokeBorder(agentColor.color, lineWidth: 2))
-                    .shadow(color: Self.shadowColor, radius: 3, x: 0, y: 2)
+                ThemePictureFaceView(picture: themePicture, size: Self.portraitSize)
             } else {
-                // The picture file could not be read, so the round icon is the agent's color instead of nothing.
-                Circle()
-                    .fill(agentColor.color)
-                    .frame(width: Self.iconSize, height: Self.iconSize)
-                    .shadow(color: Self.shadowColor, radius: 3, x: 0, y: 2)
+                // The picture file could not be read, so the disc shows the agent's color and its triangle.
+                TetherCalloutCursorIcon()
             }
-        case .voiceToolCall, .backgroundAgent(_, face: .triangle):
-            EmptyView()
         }
-    }
-}
-
-/// A white outline lets the letters read on light and dark pages without a pill behind them, like the status label.
-private struct OutlinedChipText: View {
-    let chipText: String
-    let chipTextIsCode: Bool
-    let textColor: Color
-
-    private let outlineOffsets: [CGSize] = [
-        CGSize(width: 1.5, height: 0), CGSize(width: -1.5, height: 0),
-        CGSize(width: 0, height: 1.5), CGSize(width: 0, height: -1.5),
-        CGSize(width: 1.1, height: 1.1), CGSize(width: -1.1, height: -1.1),
-        CGSize(width: 1.1, height: -1.1), CGSize(width: -1.1, height: 1.1),
-    ]
-
-    var body: some View {
-        let glyphs = Text(chipText).font(.system(size: chipTextIsCode ? 13 : 14, weight: .bold, design: chipTextIsCode ? .monospaced : .rounded))
-        ZStack {
-            ForEach(outlineOffsets.indices, id: \.self) { outlineIndex in
-                glyphs.foregroundColor(.white).offset(outlineOffsets[outlineIndex])
-            }
-            glyphs.foregroundColor(textColor)
-        }
-        .lineLimit(1)
-        .fixedSize()
     }
 }
 
@@ -172,49 +165,95 @@ private struct OutlinedChipText: View {
 final class VoiceToolCallChip {
     static let shared = VoiceToolCallChip()
 
-    nonisolated static let panelSize = CGSize(width: 520, height: 34)
+    /// The Callout's height with its tail (49) and the margin for its halo and shadow on both sides (28).
+    nonisolated static let panelSize = CGSize(width: 520, height: 49 + 28)
     nonisolated static let defaultSecondsOnScreen: TimeInterval = 1.4
+
+    /// The theme's accent for a voice tool call's chip. `CompanionManager` sets it to follow the shown theme.
+    var themeAccentProvider: () -> Color = { DS.Colors.overlayCursorBlue }
+
+    private static let cursorFollowInterval: TimeInterval = 1.0 / 30.0
 
     private let chipModel = VoiceToolCallChipModel()
     private var chipPanel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
+    private var cursorFollowTimer: Timer?
 
     /// A second call while a chip shows swaps the text and restarts its time on screen.
+    /// - `survivesARecall`: a push-to-talk press leaves this chip up, for a chip that waits for an answer.
     func show(
         _ chipText: String,
         sender: VoiceToolCallChipSender = .voiceToolCall,
         secondaryChipText: String? = nil,
         chipTextIsCode: Bool = false,
+        survivesARecall: Bool = false,
         secondsOnScreen: TimeInterval = VoiceToolCallChip.defaultSecondsOnScreen
     ) {
         let panel = chipPanel ?? makeChipPanel()
         chipPanel = panel
-        placeChipUnderTheCursor(panel)
         chipModel.chipText = chipText
+        chipModel.themeAccent = themeAccentProvider()
         chipModel.sender = sender
         chipModel.secondaryChipText = secondaryChipText
         chipModel.chipTextIsCode = chipTextIsCode
+        chipModel.survivesARecall = survivesARecall
+        if !chipModel.isVisible { chipModel.shownDate = Date() }
+        placeChipAboveTheCursor(panel)
         panel.orderFrontRegardless()
         chipModel.isVisible = true
+        chipModel.presence.appear()
+        // The chip's panel never takes the keyboard, so VoiceOver would never reach it: it reads the chip's words aloud instead.
+        if !chipTextIsCode {
+            announceForVoiceOver([chipText, secondaryChipText].compactMap { $0 }.joined(separator: " "))
+        }
+        // Runs only while the chip is up, so the tail keeps pointing at the cursor as it moves.
+        if cursorFollowTimer == nil {
+            cursorFollowTimer = Timer.scheduledTimer(withTimeInterval: Self.cursorFollowInterval, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, let panel = self.chipPanel else { return }
+                    self.placeChipAboveTheCursor(panel)
+                }
+            }
+        }
 
         hideWorkItem?.cancel()
         let hideWorkItem = DispatchWorkItem { [weak self] in
-            self?.chipModel.isVisible = false
+            self?.leave(.fadeRise)
         }
         self.hideWorkItem = hideWorkItem
         DispatchQueue.main.asyncAfter(deadline: .now() + secondsOnScreen, execute: hideWorkItem)
     }
 
+    /// A push-to-talk press: the chip shrinks into the cursor in 180 ms (a Recall), and the press starts the next request.
+    /// A chip that waits for the learner's answer stays.
+    func recall() {
+        guard chipIsRecalledByAPress(isShowing: chipModel.isVisible, survivesARecall: chipModel.survivesARecall) else { return }
+        leave(.recall)
+    }
+
     /// Hides the chip now, but only while it still shows `chipText`, so a newer chip is never cut short.
     func hide(ifShowing chipText: String) {
         guard chipModel.isVisible, chipModel.chipText == chipText else { return }
-        hideWorkItem?.cancel()
-        chipModel.isVisible = false
+        leave(.fadeRise)
     }
 
-    private func placeChipUnderTheCursor(_ panel: NSPanel) {
+    private func leave(_ exit: TetherCalloutExit) {
+        guard chipModel.isVisible else { return }
+        hideWorkItem?.cancel()
+        cursorFollowTimer?.invalidate()
+        cursorFollowTimer = nil
+        chipModel.isVisible = false
+        chipModel.presence.leave(exit, reduceMotionIsOn: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
+
+    private func placeChipAboveTheCursor(_ panel: NSPanel) {
         guard let screenFrame = screenUnderTheMouseCursor()?.frame else { return }
-        panel.setFrameOrigin(voiceToolCallChipOrigin(mouseLocation: NSEvent.mouseLocation, screenFrame: screenFrame))
+        panel.setFrameOrigin(voiceToolCallChipOrigin(
+            mouseLocation: NSEvent.mouseLocation,
+            screenFrame: screenFrame,
+            calloutWidth: chipModel.contentWidth,
+            aStatusLabelIsShowing: LiveSceneStatusLabel.shared.statusLabelModel.presence.isInTheViewTree
+        ))
     }
 
     private func makeChipPanel() -> NSPanel {
@@ -232,17 +271,33 @@ final class VoiceToolCallChip {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-        panel.contentView = NSHostingView(rootView: VoiceToolCallChipView(chipModel: chipModel))
+        panel.contentView = NSHostingView(rootView: VoiceToolCallChipView(chipModel: chipModel, presence: chipModel.presence))
         return panel
     }
 }
 
-/// The chip panel's bottom-left corner in AppKit screen points. It sits under the spot where Clicky's triangle and the
-/// status label sit, so neither covers it, and stays inside the screen.
-func voiceToolCallChipOrigin(mouseLocation: CGPoint, screenFrame: CGRect) -> CGPoint {
-    let underTheCursor = CGPoint(x: 35 - 19, y: -25 - 30 - 34)
-    return CGPoint(
-        x: min(mouseLocation.x + underTheCursor.x, screenFrame.maxX - VoiceToolCallChip.panelSize.width),
-        y: min(max(mouseLocation.y + underTheCursor.y, screenFrame.minY), screenFrame.maxY - VoiceToolCallChip.panelSize.height)
+/// The chip panel's bottom-left corner in AppKit screen points. The chip's tail points at Clicky's triangle, so it sits
+/// above the triangle. While a status line shows at the same spot, the chip sits above that line instead, so neither covers
+/// the other. It stays inside the screen.
+/// `calloutWidth` is the measured width of the chip's Callout, and 0 before the first measure, which places the chip as a
+/// full width one so it never starts past the screen's edge.
+func voiceToolCallChipOrigin(mouseLocation: CGPoint, screenFrame: CGRect, calloutWidth: CGFloat = 0, aStatusLabelIsShowing: Bool = false) -> CGPoint {
+    let triangleSpotFromTheMouse = StatusLabelPlacement.trianglesSpotFromTheMouse
+    let heightOfTheStatusLineBelow = aStatusLabelIsShowing ? tetherSingleLineCalloutHeight + 4 : 0
+    let tipPoint = CGPoint(
+        x: mouseLocation.x + triangleSpotFromTheMouse.x,
+        y: mouseLocation.y + triangleSpotFromTheMouse.y + tetherCalloutTipRiseAboveTheCursor + heightOfTheStatusLineBelow
     )
+    return tetherCalloutPanelOrigin(
+        tipPoint: tipPoint,
+        calloutWidth: calloutWidth > 0 ? calloutWidth : VoiceToolCallChip.panelSize.width - 2 * tetherCalloutPanelMargin,
+        panelHeight: VoiceToolCallChip.panelSize.height,
+        screenFrame: screenFrame
+    )
+}
+
+/// Whether a push-to-talk press recalls the chip. A chip that is up waits to be recalled unless it waits for the learner's
+/// answer, such as an agent's request for the learner's OK, which stays until the learner answers it.
+func chipIsRecalledByAPress(isShowing: Bool, survivesARecall: Bool) -> Bool {
+    isShowing && !survivesARecall
 }

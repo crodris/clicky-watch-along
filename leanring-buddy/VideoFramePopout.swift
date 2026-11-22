@@ -506,7 +506,6 @@ func framePopoutPageHTML(for framePopout: VideoFramePopout, overlayScreen: NSScr
         },
         "pictureShowsDepth": framePopout.pictureShowsDepth,
         "quizLabelColor": theme.cursorColorHex,
-        "quizLabelTextColor": theme.cursorContrastColorHex,
         "textBoxesToHide": framePopout.textBoxesToHide.map { textBox in
             ["left": textBox.left, "top": textBox.top, "right": textBox.right, "bottom": textBox.bottom]
         },

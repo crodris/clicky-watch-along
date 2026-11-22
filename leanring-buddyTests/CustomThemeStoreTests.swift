@@ -473,29 +473,59 @@ struct CustomThemeStoreRenameAndDeleteTests {
         }
     }
 
-    @Test func theReadRefusesALinkAPipeOrAnOversizedFileSwappedInAfterTheCheck() throws {
-        // The checks in plainFileData run before the read, so the read checks the open file again. Each of these reaches
-        // the read directly, as a file swapped in between would.
+    @Test func theReadRefusesALinkAPipeAnOversizedFileOrAPathOutOfThePackage() throws {
+        // The read opens each name from the folder before it, so the check and the read are one step on the open file.
         let folderURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-test-read-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: folderURL.appendingPathComponent("inner"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folderURL) }
+        let packageFolder = try #require(OpenedPackageFolder(openingFolderAt: folderURL))
+        func read(_ relativePath: String, mostBytes: Int = 10) throws -> Data? {
+            try packageFolder.plainFileData(atRelativePath: relativePath, mostBytes: mostBytes)
+        }
         let regularFileURL = folderURL.appendingPathComponent("regular.jpg")
         try Data(count: 10).write(to: regularFileURL)
-        #expect(try CustomThemeStore.boundedRegularFileData(at: regularFileURL, relativePath: "regular.jpg", mostBytes: 10).count == 10)
-        #expect(throws: CustomThemeStoreError.packageFileIsTooLarge("regular.jpg")) {
-            try CustomThemeStore.boundedRegularFileData(at: regularFileURL, relativePath: "regular.jpg", mostBytes: 9)
-        }
+        try Data(count: 3).write(to: folderURL.appendingPathComponent("inner/nested.jpg"))
+        #expect(try read("regular.jpg")?.count == 10)
+        #expect(try read("inner/nested.jpg")?.count == 3)
+        #expect(try read("missing.jpg") == nil)
+        #expect(try read("missing/nested.jpg") == nil)
+        #expect(throws: CustomThemeStoreError.packageFileIsTooLarge("regular.jpg")) { try read("regular.jpg", mostBytes: 9) }
         let linkURL = folderURL.appendingPathComponent("link.jpg")
         try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: regularFileURL)
-        #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile("link.jpg")) {
-            try CustomThemeStore.boundedRegularFileData(at: linkURL, relativePath: "link.jpg", mostBytes: 10)
-        }
+        #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile("link.jpg")) { try read("link.jpg") }
+        // A folder named on the path that is a link, as a network volume could swap in between two lookups.
+        try FileManager.default.createSymbolicLink(at: folderURL.appendingPathComponent("linked"), withDestinationURL: folderURL.appendingPathComponent("inner"))
+        #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile("linked/nested.jpg")) { try read("linked/nested.jpg") }
+        // A file where a folder should be.
+        #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile("regular.jpg/nested.jpg")) { try read("regular.jpg/nested.jpg") }
         // A named pipe with no writer would block a plain read forever.
-        let pipeURL = folderURL.appendingPathComponent("pipe.jpg")
-        #expect(mkfifo(pipeURL.path, 0o600) == 0)
-        #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile("pipe.jpg")) {
-            try CustomThemeStore.boundedRegularFileData(at: pipeURL, relativePath: "pipe.jpg", mostBytes: 10)
+        #expect(mkfifo(folderURL.appendingPathComponent("pipe.jpg").path, 0o600) == 0)
+        #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile("pipe.jpg")) { try read("pipe.jpg") }
+        // A path that climbs out of the package, which the theme's rules refuse first, is refused here again.
+        try Data(count: 1).write(to: folderURL.deletingLastPathComponent().appendingPathComponent("\(folderURL.lastPathComponent)-outside.jpg"))
+        defer { try? FileManager.default.removeItem(at: folderURL.deletingLastPathComponent().appendingPathComponent("\(folderURL.lastPathComponent)-outside.jpg")) }
+        #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile("../\(folderURL.lastPathComponent)-outside.jpg")) {
+            try read("../\(folderURL.lastPathComponent)-outside.jpg")
         }
+        #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile("inner//nested.jpg")) { try read("inner//nested.jpg") }
+    }
+
+    @Test func everyFileOfOneReadComesFromTheFolderOpenedFirst() throws {
+        // A hostile network volume can swap the package folder for another between two files of one read. The opened
+        // folder keeps reading from the folder it opened, whatever the path names now.
+        let parentFolderURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-test-swap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: parentFolderURL) }
+        let packageURL = parentFolderURL.appendingPathComponent("Shared.clickytheme", isDirectory: true)
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: packageURL.appendingPathComponent("picture.jpg"))
+        let packageFolder = try #require(OpenedPackageFolder(openingFolderAt: packageURL))
+
+        try FileManager.default.moveItem(at: packageURL, to: parentFolderURL.appendingPathComponent("moved", isDirectory: true))
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: false)
+        try Data("swapped".utf8).write(to: packageURL.appendingPathComponent("picture.jpg"))
+
+        #expect(try packageFolder.plainFileData(atRelativePath: "picture.jpg", mostBytes: 100) == Data("first".utf8))
+        #expect(OpenedPackageFolder(openingFolderAt: packageURL.appendingPathComponent("picture.jpg")) == nil)
     }
 
     @Test func aPortraitOverItsSizeCapIsRefusedAndNothingIsInstalled() throws {
@@ -522,5 +552,57 @@ struct CustomThemeStoreRenameAndDeleteTests {
         let bundledThemes = CustomThemeStore.loadBundledThemes(inDirectoryAt: bundledFolderURL, imagesFolderURL: bundledFolderURL)
         #expect(bundledThemes.map(\.id) == ["first", "second"])
         #expect(bundledThemes.first?.origin == .bundled(imagesFolderURL: bundledFolderURL))
+    }
+}
+
+// MARK: - Previewing a package before it installs
+
+extension CustomThemeStoreRenameAndDeleteTests {
+    @Test func previewingAPackageReadsItsThemeAndWritesNothing() throws {
+        try withATemporaryThemeStore { store in
+            let packageURL = try makeThemePackage(themeJSON: goodVersion2ThemeJSON)
+            let preview = try store.previewPackage(at: packageURL)
+            #expect(preview.theme.name == "Moonlit")
+            #expect(preview.pictureJPEG == nil)
+            #expect(store.loadSavedThemes().isEmpty)
+            #expect(!FileManager.default.fileExists(atPath: store.themesDirectoryURL.path))
+        }
+    }
+
+    @Test func previewingRefusesEveryPackageThatInstallingRefuses() throws {
+        try withATemporaryThemeStore { store in
+            let darkAccentPackage = try makeThemePackage(themeJSON: replacingField(in: goodVersion2ThemeJSON, at: ["accent"], with: .string("#101010")))
+            #expect(throws: CustomThemeParseError.self) { try store.previewPackage(at: darkAccentPackage) }
+            let notAPackage = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-test-missing-\(UUID().uuidString).clickytheme")
+            #expect(throws: CustomThemeStoreError.packageIsNotAThemeFolder) { try store.previewPackage(at: notAPackage) }
+        }
+    }
+}
+
+// MARK: - Installing what the card showed
+
+extension CustomThemeStoreRenameAndDeleteTests {
+    @Test func installingTheSamePackageThePreviewShowedInstallsIt() throws {
+        try withATemporaryThemeStore { store in
+            let packageURL = try makeThemePackage(themeJSON: goodVersion2ThemeJSON)
+            let preview = try store.previewPackage(at: packageURL)
+            let installedTheme = try store.install(packageAt: packageURL, expectedPreview: preview)
+            #expect(installedTheme.name == "Moonlit")
+        }
+    }
+
+    @Test func aPackageThatChangedSinceThePreviewIsRefusedAndNothingIsWritten() throws {
+        try withATemporaryThemeStore { store in
+            let packageURL = try makeThemePackage(themeJSON: goodVersion2ThemeJSON)
+            let preview = try store.previewPackage(at: packageURL)
+            // The package is replaced by another valid theme while the card shows.
+            try JSONEncoder().encode(replacingField(in: goodVersion2ThemeJSON, at: ["name"], with: .string("Other")))
+                .write(to: packageURL.appendingPathComponent(CustomThemeStore.themeFileName))
+            #expect(throws: CustomThemeStoreError.packageChangedSinceItWasPreviewed) {
+                try store.install(packageAt: packageURL, expectedPreview: preview)
+            }
+            #expect(store.loadSavedThemes().isEmpty)
+            #expect(!FileManager.default.fileExists(atPath: store.themesDirectoryURL.path))
+        }
     }
 }

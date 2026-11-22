@@ -26,6 +26,18 @@ const maximumPathLength = 600;
 const maximumStrokeWidth = 3;
 const maximumTrailStreaks = 3;
 const maximumTintStrength = 0.6;
+/**
+ * The safe range of the springs a theme may set for the app's Pop, Glide, and Point moves, which the app's `ThemeMoveSprings`
+ * (leanring-buddy/ClickyTheme.swift) clamps to as well, and `testdata/theme-spring-limits.json` keeps the two in step. A spring
+ * settles in about 0.989 * response / dampingFraction seconds and overshoots by exp(-pi * damping / sqrt(1 - damping^2)), so
+ * the slowest Pop settles in 0.81 s and overshoots 12.6 percent, and the slowest Glide settles in 0.73 s and overshoots 2.8
+ * percent. Point is a flight whose time is response / 0.5 times its usual one.
+ */
+export const themeSpringLimits = {
+  pop: { response: [0.2, 0.45], dampingFraction: [0.55, 1] },
+  glide: { response: [0.3, 0.55], dampingFraction: [0.75, 1] },
+  point: { response: [0.3, 0.6] },
+} as const;
 /** The cursor is drawn in a 24 by 24 box, and a path may reach a little past it. */
 const lowestPathCoordinate = -2;
 const highestPathCoordinate = 26;
@@ -86,6 +98,15 @@ const themeIdeaSchema = z.object({
     trailStreaks: z.number(),
     whileThinking: z.string(),
     whileListening: z.string(),
+    // Missing for an idea from before springs, and null when the learner did not ask how the app moves.
+    springs: z
+      .object({
+        pop: z.object({ response: z.number(), dampingFraction: z.number() }),
+        glide: z.object({ response: z.number(), dampingFraction: z.number() }),
+        point: z.object({ response: z.number() }),
+      })
+      .nullable()
+      .optional(),
   }),
   agents: z.object({
     ring: z.string(),
@@ -102,6 +123,7 @@ const modelReplySchema = z.object({
 });
 
 type ModelReply = z.infer<typeof modelReplySchema>;
+type ThemeSprings = NonNullable<NonNullable<z.infer<typeof themeIdeaSchema>["motion"]["springs"]>>;
 type ModelIdea = z.infer<typeof themeIdeaSchema>;
 
 export type ThemeIdeasReply = {
@@ -122,6 +144,8 @@ export type ThemeIdeasReply = {
       trailStreaks: number;
       whileThinking: (typeof thinkingMotions)[number];
       whileListening: (typeof listeningMotions)[number];
+      /** Present only when the idea sets springs, already clamped into `themeSpringLimits`. */
+      springs?: ThemeSprings;
     };
     agents: {
       ring: (typeof agentRings)[number];
@@ -508,12 +532,42 @@ function ideaProblem(idea: ModelIdea, ideaNumber: number, requestHadAPicture: bo
     return `${where}'s whileListening is ${quotedModelValue(motion.whileListening)}, and it must be one of ${listeningMotions.join(", ")}.`;
   }
 
+  if (motion.springs !== undefined && motion.springs !== null) {
+    const problem = springsProblem(motion.springs, where);
+    if (problem !== undefined) return problem;
+  }
+
   for (const [soundField, soundName] of Object.entries(idea.sounds)) {
     if (!oneOf(systemSoundNames, soundName)) {
       return `${where}'s ${soundField} sound is ${quotedModelValue(soundName)}, and it must be one of the macOS system sounds: ${systemSoundNames.join(", ")}.`;
     }
   }
   return undefined;
+}
+
+const clampedInto = (range: readonly [number, number], value: number) => Math.min(Math.max(value, range[0]), range[1]);
+
+/**
+ * Moves each spring into its safe range instead of refusing the reply, since a spring a little too bouncy is still a good
+ * idea and a retry would throw its colors and cursor away. A number that is not finite is the one thing refused.
+ */
+export function withSpringsInsideTheLimits(springs: ThemeSprings): ThemeSprings {
+  return {
+    pop: {
+      response: clampedInto(themeSpringLimits.pop.response, springs.pop.response),
+      dampingFraction: clampedInto(themeSpringLimits.pop.dampingFraction, springs.pop.dampingFraction),
+    },
+    glide: {
+      response: clampedInto(themeSpringLimits.glide.response, springs.glide.response),
+      dampingFraction: clampedInto(themeSpringLimits.glide.dampingFraction, springs.glide.dampingFraction),
+    },
+    point: { response: clampedInto(themeSpringLimits.point.response, springs.point.response) },
+  };
+}
+
+function springsProblem(springs: ThemeSprings, where: string): string | undefined {
+  const numbers = [springs.pop.response, springs.pop.dampingFraction, springs.glide.response, springs.glide.dampingFraction, springs.point.response];
+  return numbers.every(Number.isFinite) ? undefined : `${where}'s springs must hold finite numbers.`;
 }
 
 /**
@@ -591,6 +645,8 @@ export function checkThemeIdeas(unrepairedModelReply: ModelReply, requestHadAPic
           // Cast because ideaProblem checked both motion names above, and a plain string type cannot carry that check.
           whileThinking: idea.motion.whileThinking as (typeof thinkingMotions)[number],
           whileListening: idea.motion.whileListening as (typeof listeningMotions)[number],
+          // ideaProblem checked the numbers are finite, and this moves them inside the safe limits.
+          ...(idea.motion.springs == null ? {} : { springs: withSpringsInsideTheLimits(idea.motion.springs) }),
         },
         agents: {
           // Cast because ideaProblem checked the ring and the face kind above, and a plain string type cannot carry that check.
@@ -624,6 +680,9 @@ const themeIdeasSystemPrompt = [
   "The motion:",
   `- trailStreaks is a whole number from 0 to ${maximumTrailStreaks}, the motion streaks trailing the cursor while it flies.`,
   `- whileThinking is one of ${thinkingMotions.join(", ")}, and whileListening is one of ${listeningMotions.join(", ")}.`,
+  "- springs restyles how the whole app moves. It is null unless the learner asks how things move, such as bouncy, springy, snappy, playful, calm, smooth, gentle, or slow. When it is not null, write all three. pop is how speech bubbles, chips, and tiles appear, glide is how cards open and close, and each is a spring with response (seconds, smaller is quicker) and dampingFraction (1 settles with no bounce, smaller bounces more). point is how fast the cursor flies to what it points at, and only has response.",
+  `- The limits are pop response ${themeSpringLimits.pop.response[0]} to ${themeSpringLimits.pop.response[1]} and dampingFraction ${themeSpringLimits.pop.dampingFraction[0]} to ${themeSpringLimits.pop.dampingFraction[1]}, glide response ${themeSpringLimits.glide.response[0]} to ${themeSpringLimits.glide.response[1]} and dampingFraction ${themeSpringLimits.glide.dampingFraction[0]} to ${themeSpringLimits.glide.dampingFraction[1]}, and point response ${themeSpringLimits.point.response[0]} to ${themeSpringLimits.point.response[1]}. The app's own springs are pop 0.32 and 0.68, glide 0.42 and 0.9, and point 0.5.`,
+  "- Bouncy or playful means a quicker response and a low dampingFraction, such as pop 0.3 and 0.55, glide 0.4 and 0.75, and point 0.4. Calm or smooth means a slower response and a dampingFraction of 1, such as pop 0.42 and 1, glide 0.52 and 1, and point 0.6. Snappy means a quick response and a high dampingFraction, such as pop 0.22 and 0.9, glide 0.32 and 0.95, and point 0.35. Keep an idea's springs the same as in current_ideas when the learner did not ask to change how things move.",
   "",
   "The colors:",
   `- Every color is #RRGGBB. accent is the cursor's main color, and the app draws it on near-black surfaces (${darkSurfaceHex}), so it needs a contrast ratio of at least ${minimumContrastRatio} against that, which means a fairly light or vivid color. contrast is the color of text and icons drawn on top of the accent.`,
@@ -643,6 +702,12 @@ const themeIdeasSystemPrompt = [
 ].join("\n");
 
 const hexColorSchemaProperty = { type: "string" };
+const springSchemaProperty = {
+  type: "object",
+  additionalProperties: false,
+  properties: { response: { type: "number" }, dampingFraction: { type: "number" } },
+  required: ["response", "dampingFraction"],
+};
 const nullableHexColorSchemaProperty = { anyOf: [{ type: "string" }, { type: "null" }] };
 
 const themeIdeasOutputSchema = {
@@ -708,8 +773,24 @@ const themeIdeasOutputSchema = {
               trailStreaks: { type: "integer" },
               whileThinking: { type: "string", enum: [...thinkingMotions] },
               whileListening: { type: "string", enum: [...listeningMotions] },
+              // Null for the app's own springs, like picture and the nullable colors, since strict mode wants every field.
+              springs: {
+                anyOf: [
+                  {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      pop: springSchemaProperty,
+                      glide: springSchemaProperty,
+                      point: { type: "object", additionalProperties: false, properties: { response: { type: "number" } }, required: ["response"] },
+                    },
+                    required: ["pop", "glide", "point"],
+                  },
+                  { type: "null" },
+                ],
+              },
             },
-            required: ["turnsTowardMovement", "trailStreaks", "whileThinking", "whileListening"],
+            required: ["turnsTowardMovement", "trailStreaks", "whileThinking", "whileListening", "springs"],
           },
           agents: {
             type: "object",

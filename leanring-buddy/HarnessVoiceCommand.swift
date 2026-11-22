@@ -153,6 +153,36 @@ nonisolated enum HarnessVoiceCommandEnding: Equatable, Sendable {
     case cancelled
 }
 
+/// The line Clicky speaks for a line the harness sent. The harness sends lines whole, and this is the one cut, since only
+/// Swift counts characters as the speech does, by grapheme cluster. The early line and the finished line both go through
+/// it, so the same words from the harness are the same line here.
+nonisolated func voiceCommandLineToSpeak(_ harnessSpokenLine: String) -> String {
+    String(harnessSpokenLine.prefix(longestSpokenVoiceCommandLine))
+}
+
+/// Where the audio of a voice command's finished line comes from.
+nonisolated enum VoiceCommandLineAudio: Equatable, Sendable {
+    /// The audio fetched when the early line arrived, since the finished line has exactly its words.
+    case theAudioFetchedEarly
+    /// A fetch started now: nothing was fetched early, or the early line had other words, such as after a lookup.
+    case aFetchStartedNow
+}
+
+/// Plays the audio fetched for the early line only when the finished line is exactly that line. Any difference, even
+/// in punctuation, fetches the finished line instead, so Clicky never says words the harness did not finish with.
+nonisolated func voiceCommandLineAudio(lineToSpeak: String, earlyLineFetched: String?) -> VoiceCommandLineAudio {
+    earlyLineFetched == lineToSpeak ? .theAudioFetchedEarly : .aFetchStartedNow
+}
+
+/// Whether the early line of a turn with these calls can become its finished line. A hand-off finishes the command with no
+/// line, and a lookup sends the model back for another turn, so the early line of a turn with either never plays, and
+/// fetching it would only bill an ElevenLabs request. A turn that undoes or changes the screen can play it.
+nonisolated func earlyLineIsWorthFetching(turnToolNames: [String], lookupToolNames: Set<String>) -> Bool {
+    !turnToolNames.contains { toolName in
+        AppVoiceTool(rawValue: toolName)?.mayHandOff == true || lookupToolNames.contains(toolName)
+    }
+}
+
 /// How long the app waits for the harness's next event of a command before it fails the command, so a hung harness
 /// falls back too. It is above the harness's own 8 second turn timeout, which ends a hung turn with task_failed first.
 nonisolated let secondsToWaitForTheNextHarnessVoiceCommandEvent: Double = 10
@@ -165,12 +195,14 @@ nonisolated let harnessPlanningLogLinePrefix = "Brain: planning on "
 /// larger model's turn, which ends a hung turn with a gave-up line first.
 nonisolated let secondsToWaitForAPlanningTurn: Double = 35
 
-/// Runs one voice command's events: each tool call through `runTool`, with the approval ID the learner had seen at the
-/// press only for a call from the model's first turn, and its outcome back to the harness. It returns how the command
-/// ended. The wait for each event has a deadline, which stops while a tool runs, since a tool such as play_video's check
-/// takes its own time, and which is 35 seconds instead of 10 after the harness says the larger model's turn started.
+/// Runs one voice command's events: each tool call through `runTool`, with the approval request the card showed at the
+/// press, and whether it was read whole then, only for a call from the model's first turn, and its outcome back to the
+/// harness. It returns how the command ended. The wait for each event has a deadline, which stops while a tool runs,
+/// since a tool such as play_video's check takes its own time, and which is 35 seconds instead of 10 after the harness
+/// says the larger model's turn started.
 /// When it passes, `whenNoEventArrivesInTime` must end the stream with a failure, and no call still queued behind the
-/// deadline runs, since the router failure fallback runs instead.
+/// deadline runs, since the router failure fallback runs instead. The line a turn speaks if every call changes the screen
+/// reaches `whenTheLineIfEveryCallChangesArrives` before the turn's calls, so its audio can be fetched while they run.
 ///
 /// A hand-off ends the command at once as finished with no spoken line, since the harness's next step after a
 /// `.handedOff` result is always to finish silently. Waiting for its voice_command_finished would let a harness that
@@ -179,11 +211,12 @@ nonisolated let secondsToWaitForAPlanningTurn: Double = 35
 func runTheVoiceCommandEvents(
     _ commandEvents: AsyncStream<HarnessTaskEvent>,
     lines: HarnessVoiceCommandLines,
-    approvalIDWaitingWhenTheCommandStarted: String?,
+    approvalWhenTheCommandStarted: ApprovalAtPress?,
     secondsToWaitForAnEvent: Double = secondsToWaitForTheNextHarnessVoiceCommandEvent,
     secondsToWaitAfterAPlanningLine: Double = secondsToWaitForAPlanningTurn,
     whenNoEventArrivesInTime: @escaping @MainActor () -> Void,
-    runTool: (_ toolCall: VoiceToolCall, _ approvalIDTheLearnerIsAnswering: String?) async -> VoiceToolOutcome
+    whenTheLineIfEveryCallChangesArrives: (_ spokenLine: String, _ toolNames: [String]) -> Void = { _, _ in },
+    runTool: (_ toolCall: VoiceToolCall, _ approvalTheLearnerIsAnswering: ApprovalAtPress?) async -> VoiceToolOutcome
 ) async -> HarnessVoiceCommandEnding {
     let eventDeadlineRecord = HarnessVoiceCommandDeadlineRecord()
     var eventDeadline: Task<Void, Never>?
@@ -212,7 +245,7 @@ func runTheVoiceCommandEvents(
                 lines.callStarted(toolUseID: toolCall.id)
                 // Only the model's first reply to the learner's words may answer a request. A later turn has read tool
                 // results, which can hold text a page or a server wrote. A call with no turn counts as a later one.
-                let outcome = await runTool(toolCall, harnessToolCall.turnIndex == 0 ? approvalIDWaitingWhenTheCommandStarted : nil)
+                let outcome = await runTool(toolCall, harnessToolCall.turnIndex == 0 ? approvalWhenTheCommandStarted : nil)
                 lines.sendTheResult(of: outcome)
                 if outcome == .handedOff {
                     return .finished(spokenLine: "", gaveUp: false)
@@ -221,6 +254,10 @@ func runTheVoiceCommandEvents(
             case .planningTurnStarted:
                 // The larger model's turn is under way, and the harness ends it itself within 30 seconds.
                 startTheEventDeadline(secondsToWait: secondsToWaitAfterAPlanningLine)
+            case .spokenLineIfEveryCallChanges(let spokenLine, let toolNames):
+                // The turn's reply is in and its calls follow at once, so the audio is fetched while they run.
+                whenTheLineIfEveryCallChangesArrives(spokenLine, toolNames)
+                startTheEventDeadline(secondsToWait: secondsToWaitForAnEvent)
             case .voiceCommandFinished(let spokenLine, let gaveUp):
                 return .finished(spokenLine: spokenLine, gaveUp: gaveUp)
             case .failed(let reason):

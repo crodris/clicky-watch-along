@@ -13,6 +13,16 @@ import AppKit
 import Combine
 import SwiftUI
 
+// MARK: - Where saved themes live
+
+nonisolated extension CustomThemeStore {
+    /// ~/Library/Application Support/Clicky/Themes, next to the learner's skills and mcp.json. It is here and not in
+    /// CustomThemeStore.swift because the Quick Look extension compiles that file and has no folder of Clicky's to read.
+    static func standard() -> CustomThemeStore {
+        CustomThemeStore(themesDirectoryURL: TaskAgentFolders.clickyApplicationSupportURL().appendingPathComponent("Themes", isDirectory: true))
+    }
+}
+
 // MARK: - What views read from a theme
 
 extension ClickyTheme {
@@ -151,8 +161,8 @@ final class CompanionThemeSettings: ObservableObject {
     /// The themes the app bundles, Clicky blue first, in the order the menu bar panel and the dial's Team fan show them.
     let bundledThemes: [ClickyTheme]
 
-    /// The custom themes the learner saved with their saved dates, sorted by name. The menu bar panel's picker lists them in
-    /// this order, and the settings dial's Team fan sorts the same list by date.
+    /// The custom themes the learner saved with their saved dates, sorted by name. The menu bar panel's All themes page lists
+    /// them in this order, and its home and the settings dial's Team fan sort the same list by date.
     @Published private(set) var savedCustomThemesWithSavedDates: [SavedCustomTheme]
 
     var savedCustomThemes: [ClickyTheme] { savedCustomThemesWithSavedDates.map(\.theme) }
@@ -213,6 +223,16 @@ final class CompanionThemeSettings: ObservableObject {
     /// Every theme Shuffle may give an agent: the bundled ones and the saved ones.
     var themesAgentsMayShuffleThrough: [ClickyTheme] { bundledThemes + savedCustomThemes }
 
+    /// Calls `apply` with the shown theme's Pop, Glide, and Point springs now, and again whenever the saved theme or the studio's
+    /// preview changes them. `$theme` and `$previewTheme` publish the new value before the stored one changes, so the closure
+    /// reads what the publishers send and never `shownTheme`. The caller keeps the returned subscription alive.
+    func observeShownMoveSprings(_ apply: @escaping (ThemeMoveSprings) -> Void) -> AnyCancellable {
+        $theme.combineLatest($previewTheme)
+            .map { savedTheme, previewTheme in (previewTheme ?? savedTheme).moveSprings }
+            .removeDuplicates()
+            .sink(receiveValue: apply)
+    }
+
     func preview(_ idea: ClickyTheme, picture: NSImage?) {
         previewTheme = idea
         previewPicture = picture
@@ -233,11 +253,17 @@ final class CompanionThemeSettings: ObservableObject {
         return savedTheme
     }
 
+    /// Reads and checks a `.clickytheme` package without installing it, for the "Add theme?" card. Throws what
+    /// `installAndApply` would throw for a package it refuses.
+    func previewPackage(at packageURL: URL) throws -> CustomThemeStore.ThemePackagePreview {
+        try customThemeStore.previewPackage(at: packageURL)
+    }
+
     /// Installs a `.clickytheme` package the learner opened, such as by a double-click in Finder, and makes it the theme.
     /// Throws what `CustomThemeStore.install` throws, such as a theme.json that does not parse, and changes nothing then.
     @discardableResult
-    func installAndApply(packageAt packageURL: URL) throws -> ClickyTheme {
-        let installedTheme = try customThemeStore.install(packageAt: packageURL)
+    func installAndApply(packageAt packageURL: URL, expectedPreview: CustomThemeStore.ThemePackagePreview? = nil) throws -> ClickyTheme {
+        let installedTheme = try customThemeStore.install(packageAt: packageURL, expectedPreview: expectedPreview)
         savedCustomThemesWithSavedDates = customThemeStore.loadSavedThemes()
         theme = installedTheme
         return installedTheme

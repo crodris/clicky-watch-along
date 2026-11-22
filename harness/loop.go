@@ -29,6 +29,9 @@ type runningTask struct {
 	mcpImages *imageByteBudget
 	// isVoiceCommand is true for a brain command (brainloop.go), which is routed like a task.
 	isVoiceCommand bool
+	// pause holds the task's next turn and tool call while the learner has paused every agent. Nil for a voice
+	// command, which is never paused.
+	pause *pauseGate
 	// handOffCompletedIt is set, under the harness's tasksMutex, when the app's handedOff result for this command
 	// arrives. A cancel_task read after it changes nothing, since a slow path already owns the reply.
 	handOffCompletedIt bool
@@ -36,6 +39,9 @@ type runningTask struct {
 	// nil before a cancel_task arrives. A cancel from inside the harness, such as a new command's, names none, so it
 	// can be written after the command's context ended, and it is atomic for that reason.
 	toolUseIDTheAppWasRunningAtTheCancel atomic.Pointer[string]
+	// finalTranscript holds a voice command the app started on the partial transcript until the app confirms that the
+	// final transcript matches (brainloop.go). It is open from the start for every other command, and nil for a task.
+	finalTranscript *finalTranscriptGate
 }
 
 // taskRunner runs task agents. It holds no per-task state, so any number of tasks can run on one runner.
@@ -100,6 +106,9 @@ func (runner *taskRunner) converse(taskContext context.Context, task *runningTas
 	sources := newCitableSources(start.FrontTabURL)
 
 	for turnNumber := 1; turnNumber <= mostTaskAgentTurns; turnNumber++ {
+		if err := runner.waitWhilePaused(taskContext, task, fmt.Sprintf("Task agent: holding turn %d until the learner resumes", turnNumber)); err != nil {
+			return "", err
+		}
 		reply, err := runner.requestTurn(taskContext, messages, tools)
 		if err != nil {
 			return "", err
@@ -151,6 +160,15 @@ func (runner *taskRunner) converse(taskContext context.Context, task *runningTas
 		}
 	}
 	return "", errRanOutOfTurns
+}
+
+// waitWhilePaused holds the task's next step while the learner has paused every agent, and logs heldLine once when it
+// waits. A task with no gate, as in a test that builds one by hand, never waits.
+func (runner *taskRunner) waitWhilePaused(taskContext context.Context, task *runningTask, heldLine string) error {
+	if task.pause == nil {
+		return nil
+	}
+	return task.pause.waitWhilePaused(taskContext, func() { runner.log(taskContext, heldLine) })
 }
 
 // requestTurn streams one request and returns the accumulated reply, since a long reply at this token limit is not
@@ -205,7 +223,8 @@ type pageOutcome struct {
 //
 // A call to a tool the task was not offered (the set in offered) is answered here with an error. A tool with no capability starts at once.
 // One with a capability waits for the learner's approval, one call at a time in the turn's order, and a declined one
-// gets the declined result and never runs. A write_notion_page call that cites a link outside sources is refused with an
+// gets the declined result and never runs. While the learner has paused every agent, no call starts and no approval is
+// asked for: each waits for the resume. A write_notion_page call that cites a link outside sources is refused with an
 // error naming it, and one that passes reaches the app with each source's link as sources spelled it. It sets page once
 // a write_notion_page call succeeds, and adds the video link of a successful read_video_captions result to sources.
 func (runner *taskRunner) runToolCalls(
@@ -223,6 +242,13 @@ func (runner *taskRunner) runToolCalls(
 	// Every check and summary below reads the same encoding of the input that runs.
 	for index := range calls {
 		calls[index].Input = canonicalToolInput(calls[index].Input)
+	}
+	waitWhilePaused := func() error {
+		return runner.waitWhilePaused(taskContext, task, "Task agent: holding a tool call until the learner resumes")
+	}
+	// The turn that asked for these calls may have finished during a pause, so its calls wait here.
+	if err := waitWhilePaused(); err != nil {
+		return nil, err
 	}
 	start := func(call toolCall) {
 		input := call.Input
@@ -278,6 +304,10 @@ func (runner *taskRunner) runToolCalls(
 	}
 
 	for _, call := range callsThatNeedApproval {
+		// An approval that was already pending stays pending through a pause, but a new one waits for the resume.
+		if err := waitWhilePaused(); err != nil {
+			return nil, err
+		}
 		needed, _ := runner.capabilityOf(call.Name)
 		// A payload too long to show in full is refused, not approved on a summary that cuts it.
 		if refusal := approvalRefusal(call, runner.mcp.tool(call.Name)); refusal != "" {
@@ -292,6 +322,10 @@ func (runner *taskRunner) runToolCalls(
 		}
 		runner.log(taskContext, fmt.Sprintf("Approval: %s (%s) %s", call.Name, needed, approvalOutcomeWords(phase)))
 		if phase.mayRun() {
+			// The learner may answer a request during a pause, and the call it allows still waits for the resume.
+			if err := waitWhilePaused(); err != nil {
+				return nil, err
+			}
 			start(call)
 			continue
 		}

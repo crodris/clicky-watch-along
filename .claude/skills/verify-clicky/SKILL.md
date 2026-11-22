@@ -57,6 +57,14 @@ It reports:
   It says when the build is older than the last commit under `leanring-buddy/`, and whether the binary contains `--live-scene-rehearsal`.
 - Running Clicky PIDs and whether this script launched them.
 - Chrome's front tab host, and whether it is a YouTube video page, which the video features read.
+- A warning for each headless Chrome that is running, with its pid and profile.
+  A headless Chrome, such as one a bench screenshot run left behind, answers Apple Events sent to "Google Chrome" in place of Chris's Chrome.
+  Its fresh profile fails them with "Executing JavaScript through AppleScript is turned off", which is not Chris's Chrome setting.
+  Every video read then fails: the quiz, the loop, and the pop-outs.
+  Wait for it when a bench run or render owns it.
+  The warning says `orphaned` and prints a `kill` command only for a scene screenshot Chrome (a `scene-shots-` profile) whose parent is launchd.
+  For any other headless Chrome, find out what started it before stopping it.
+  `app-launch` prints the same warning before it opens the app.
 
 A build older than the last app commit may not match HEAD.
 A build without `--live-scene-rehearsal` cannot be driven at all.
@@ -84,15 +92,16 @@ $V worker-up 8789 -- --var LIVE_SCENE_MODEL:sonnet  # Sonnet builds them (about 
 ```
 
 **App.**
-The app calls `http://127.0.0.1:8787` in every build (`CompanionManager.swift`), so it needs a Worker on 8787 that this script started:
+The Debug app calls `http://127.0.0.1:8787` (`CompanionManager.swift`), or the port that `app-launch --worker-port` passes, so it needs a Worker on that port that this script started:
 
 ```bash
 $V worker-up 8787 -- --var LIVE_SCENE_MODEL:sonnet
 ```
 
 When another process holds 8787, do not stop it.
-Ask Chris whether it can be stopped, or report the app surface as unverified.
-`app-launch` refuses to run without a Worker this script started on 8787, so the run always serves this checkout's Worker code and captures its usage lines.
+Start a Worker on a free port instead, such as `$V worker-up 8796`, and pass `--worker-port 8796` to `app-launch`, which makes the Debug app call that Worker (`debugWorkerPort`).
+`app-launch --no-speculation` passes `--no-voice-command-speculation`, so no voice command starts on the partial transcript and a run can time the same commands both ways.
+`app-launch` refuses to run without a Worker this script started on 8787, or on its `--worker-port`, so the run always serves this checkout's Worker code and captures its usage lines.
 
 Then launch the app with rehearsal steps.
 It refuses when any Clicky is already running, because two instances fight over the event tap and the overlay.
@@ -125,10 +134,12 @@ A step that starts with `&` first waits up to 3 minutes for every background age
 A step that starts with `^` presses push-to-talk 0.3 seconds after the app writes the step's `voice_command` line to the harness, through the handler a real press runs, and releases it 0.2 seconds later.
 It needs `--harness-brain`, and the log says `Live scene rehearsal: pressing push-to-talk during the voice command`.
 The empty press asks nothing, and the next step goes out as usual.
+A step that starts with `%` stands in for the microphone's partial transcript, so a voice command can start on it at the release as a real press would: `%turn it left` hears the same words at the release and in the final transcript, and `%turn it >> turn it right` hears `turn it` at the release and `turn it right` as the final transcript, which discards the first command.
+It needs `--harness-brain`.
 A step that starts with `+N ` waits N more seconds first, such as `+12 build me a 3D model`, so a recorded take can land a request on a chosen moment of a playing video.
 It goes before any other prefix, and N is a number of seconds up to 600.
 `app-wait` returns when the app logs `Live scene rehearsal: done`.
-It prints the relevant log lines and saves the usage lines the 8787 Worker logged during the run.
+It prints the relevant log lines and saves the usage lines the app's Worker (8787, or the launch's `--worker-port`) logged during the run.
 
 ## Drive
 
@@ -166,9 +177,13 @@ worker-up [port] [-- wrangler args]
 worker-down [port]        Stop the Workers this script started, or only the one on that port.
 post <route> <body.json> [port]
                           POST a JSON body to a Worker this script started, and save the response.
-app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] "<steps>"
+app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] [--worker-port <port>] [--no-speculation] [--room-camera-file <video>] [--show-setup] "<steps>"
                           Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
                           --brain passes --brain-takes-every-request, and --harness-brain passes --brain-runs-in-the-harness.
+                          --worker-port makes the app call a Worker this script started on that port instead of 8787.
+                          --no-speculation passes --no-voice-command-speculation.
+                          --room-camera-file passes the same Debug argument, so the room art panel loops that video instead of the camera.
+                          --show-setup passes --show-setup, so the menu bar panel opens on the six-step setup checklist without clearing a permission.
 app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
 app-quit                  Quit the app instance this script launched.
 shot <name>               Save a screenshot of every display into the run.
@@ -180,6 +195,11 @@ scroll <points>           Post one real scroll wheel event at the mouse, in pixe
                           Park the mouse over the scroll area first, such as the approval card's summary.
 grant                     Open Privacy & Security > Accessibility and show the Debug Clicky.app that app-launch launches in Finder.
 cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
+lock-take <owner>         Take the app check lock (/tmp/clicky-app-check.lock, or $CLICKY_APP_CHECK_LOCK) for <owner>, such as your
+                          branch name. Fails and names the owner and how long it has held the lock while another agent holds it: wait 60 seconds
+                          and try again. A lock held over 20 minutes has outlived the rule: report the app surface as unverified.
+lock-release <owner>      Release the lock. Refuses and names the real owner when the lock is held by anyone but <owner>.
+                          Never remove the lock directory by hand: a lock you did not take is another agent's running check.
 ```
 
 Run one helper command at a time per checkout, since two `worker-up` runs started together can race on the same PID record.
@@ -191,7 +211,9 @@ A record whose PID now belongs to another process is removed, and that process i
 - Push-to-talk itself.
   It needs the microphone and real speech; `$V key push-to-talk-tap` sends only a press with no words.
   Rehearsal steps enter the pipeline right after transcription, so the transcription providers (AssemblyAI, OpenAI, Apple Speech) stay unverified.
-- The menu bar panel, the model picker, and the permission prompts.
+  Never drive real push-to-talk presses by playing `say` through the speakers into the microphone: the microphone also records people in the room, and their words go to the brain model and to ElevenLabs. A live microphone check is Chris's own press.
+- The menu bar panel's contents, the model picker, and the permission prompts.
+  `$V menu-icon click` opens the panel itself, and `$V menu-icon status` says where the icon is, since a status item beside the notch may be missing from the window list.
 - Mouse drag orbit and trackpad pinch.
 - Streamed `/chat` logs no usage line.
   Prove it through the app log line `🌐 Claude streaming request:` and the spoken reply.

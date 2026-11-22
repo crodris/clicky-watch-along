@@ -42,6 +42,10 @@ nonisolated enum HarnessTaskEvent: Equatable, Sendable {
     case failed(reason: String)
     /// A voice command ended. spokenLine may be empty, and gaveUp says its last turn still needed the model.
     case voiceCommandFinished(spokenLine: String, gaveUp: Bool)
+    /// The line a voice command will speak if every call of the turn that follows changes the screen, and the turn's tool
+    /// names in order. It comes before the turn's first call, so its audio can be fetched while the calls run. Only a voice
+    /// command gets it.
+    case spokenLineIfEveryCallChanges(spokenLine: String, toolNames: [String])
     /// The brain's last turn runs on the larger model, which takes longer, so the command's wait for its next event is
     /// longer too (`secondsToWaitForAPlanningTurn`). Only a voice command gets it.
     case planningTurnStarted
@@ -92,6 +96,9 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
     case taskFinished(taskID: UUID, spokenSummary: String)
     case taskFailed(taskID: UUID, reason: String)
     case voiceCommandFinished(taskID: UUID, spokenLine: String, gaveUp: Bool)
+    /// voice_line_if_every_call_changes: the line the command's next turn speaks if every one of its calls changes the
+    /// screen, sent before the turn's first tool_call (spokenLineIfEveryCallChanges in harness/brain.go).
+    case voiceLineIfEveryCallChanges(taskID: UUID, spokenLine: String, toolNames: [String])
     /// The harness's gate took this answer to an approval request. It is the one outcome the desk shows, whether the
     /// learner clicked or said it, and the first answer wins.
     case approvalSettled(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
@@ -156,6 +163,15 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
                 throw ParseError.missingField(messageType: messageType, fieldName: "gaveUp")
             }
             self = .voiceCommandFinished(taskID: try requiredTaskID(), spokenLine: try requiredText("spokenLine"), gaveUp: gaveUp)
+        case "voice_line_if_every_call_changes":
+            guard let toolNameValues = messageJSON["toolNames"]?.arrayValue else {
+                throw ParseError.missingField(messageType: messageType, fieldName: "toolNames")
+            }
+            let toolNames = toolNameValues.compactMap(\.stringValue)
+            guard toolNames.count == toolNameValues.count else {
+                throw ParseError.missingField(messageType: messageType, fieldName: "toolNames")
+            }
+            self = .voiceLineIfEveryCallChanges(taskID: try requiredTaskID(), spokenLine: try requiredText("spokenLine"), toolNames: toolNames)
         case "approval_settled":
             guard let approved = messageJSON["approved"]?.boolValue else {
                 throw ParseError.missingField(messageType: messageType, fieldName: "approved")
@@ -177,7 +193,9 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
 
 nonisolated enum HarnessCommand: Equatable, Sendable {
     /// `skill` names a skill file the harness reads from its skills folders, or is nil for a task with no skill.
-    case startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?, skill: String?)
+    /// `startsPaused` is true for a task started while the learner has paused every agent, so its first turn waits for
+    /// `resumeTask`.
+    case startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?, skill: String?, startsPaused: Bool = false)
     /// `content` is a string or an array of content blocks, such as the image block look_at_video returns.
     /// `sourceURL` is the video link a read_video_captions result is about. The harness lets a task cite only that link
     /// from it and never reads a link out of `content`, which a video's own text can write, so it is set for that tool
@@ -187,29 +205,44 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
     /// which may already have changed the screen. The harness reverses a cut-off page call on "undo that" only when this
     /// names it, since a call the press caught before it started never ran.
     case cancelTask(taskID: UUID, runningToolUseID: String? = nil)
+    /// Holds a task's next model turn and next tool call while the learner has paused every agent. A turn or a call
+    /// already in flight finishes, and a pending approval stays pending.
+    case pauseTask(taskID: UUID)
+    /// Lets a paused task go on.
+    case resumeTask(taskID: UUID)
     /// The answer to one approval_request, named by the harness's approvalID.
     case approvalResult(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
     /// Starts a voice command on the brain. `sceneState` is `voiceCommandSceneState`'s object, and `tools` the list after
     /// `voiceToolsOfferedToTheModel`. The line carries no recent actions, since the brain keeps every earlier command in
     /// its own session, and its scene state has no `approvalWaiting`, since the harness names the waiting request's kind of
-    /// action itself. `approvalIDSeenAtPress` is the request whose card had shown its whole summary for a second at the
-    /// press, the one fact about approvals only the app knows.
-    case voiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, tools: [VoiceToolDescriptor], approvalIDSeenAtPress: String?)
+    /// action itself. `approvalAtPress` is the request the card showed at the press and whether a card had shown its whole
+    /// summary for a second then, the facts about approvals only the app knows. It goes out as `approvalIDWaitingAtPress`
+    /// and `approvalIDSeenAtPress`, the second null unless the summary was seen. `waitsForTheFinalTranscript` is true for
+    /// a command started on the partial transcript, which the harness holds before its first call until
+    /// `confirmVoiceCommand` arrives. Such a command never has an approval waiting at the press, seen or not, since the
+    /// harness would settle a partial "yes" or "no" as the answer.
+    case voiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, tools: [VoiceToolDescriptor], approvalAtPress: ApprovalAtPress?, waitsForTheFinalTranscript: Bool = false)
+    /// The final transcript has the words a command waiting for it started on, so the command goes on.
+    case confirmVoiceCommand(taskID: UUID)
     /// A voice command's tool_result, which carries what the tool did, so the brain knows whether to speak, ask the
     /// model again, or stop for a hand-off.
     case voiceToolResult(taskID: UUID, toolUseID: String, outcome: VoiceToolOutcome)
 
     var json: JSONValue {
         switch self {
-        case .startTask(let taskID, let goal, let frontTabTitle, let frontTabURL, let skill):
-            return .object([
+        case .startTask(let taskID, let goal, let frontTabTitle, let frontTabURL, let skill, let startsPaused):
+            var startFields: [String: JSONValue] = [
                 "type": .string("start_task"),
                 "taskID": .string(taskID.uuidString),
                 "goal": .string(goal),
                 "frontTabTitle": frontTabTitle.map(JSONValue.string) ?? .null,
                 "frontTabURL": frontTabURL.map(JSONValue.string) ?? .null,
                 "skill": skill.map(JSONValue.string) ?? .null,
-            ])
+            ]
+            if startsPaused {
+                startFields["startsPaused"] = .bool(true)
+            }
+            return .object(startFields)
         case .toolResult(let taskID, let toolUseID, let content, let isError, let sourceURL):
             var toolResultFields: [String: JSONValue] = [
                 "type": .string("tool_result"),
@@ -228,6 +261,10 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
                 cancelFields["runningToolUseID"] = .string(runningToolUseID)
             }
             return .object(cancelFields)
+        case .pauseTask(let taskID):
+            return .object(["type": .string("pause_task"), "taskID": .string(taskID.uuidString)])
+        case .resumeTask(let taskID):
+            return .object(["type": .string("resume_task"), "taskID": .string(taskID.uuidString)])
         case .approvalResult(let approvalID, let approved, let scope):
             return .object([
                 "type": .string("approval_result"),
@@ -235,15 +272,22 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
                 "approved": .bool(approved),
                 "scope": .string(scope.rawValue),
             ])
-        case .voiceCommand(let taskID, let transcript, let sceneState, let tools, let approvalIDSeenAtPress):
-            return .object([
+        case .voiceCommand(let taskID, let transcript, let sceneState, let tools, let approvalAtPress, let waitsForTheFinalTranscript):
+            var voiceCommandFields: [String: JSONValue] = [
                 "type": .string("voice_command"),
                 "taskID": .string(taskID.uuidString),
                 "transcript": .string(transcript),
                 "sceneState": sceneState,
                 "tools": .array(tools.map(\.workerRequestJSON)),
-                "approvalIDSeenAtPress": approvalIDSeenAtPress.map(JSONValue.string) ?? .null,
-            ])
+                "approvalIDWaitingAtPress": approvalAtPress.map { JSONValue.string($0.approvalID) } ?? .null,
+                "approvalIDSeenAtPress": approvalAtPress.flatMap { $0.wholeSummaryWasSeen ? JSONValue.string($0.approvalID) : nil } ?? .null,
+            ]
+            if waitsForTheFinalTranscript {
+                voiceCommandFields["waitsForTheFinalTranscript"] = .bool(true)
+            }
+            return .object(voiceCommandFields)
+        case .confirmVoiceCommand(let taskID):
+            return .object(["type": .string("confirm_voice_command"), "taskID": .string(taskID.uuidString)])
         case .voiceToolResult(let taskID, let toolUseID, let outcome):
             return .object([
                 "type": .string("tool_result"),
@@ -315,6 +359,8 @@ final class HarnessTaskRouter {
             end(taskID: taskID, lastEvent: .failed(reason: reason))
         case .voiceCommandFinished(let taskID, let spokenLine, let gaveUp):
             end(taskID: taskID, lastEvent: .voiceCommandFinished(spokenLine: spokenLine, gaveUp: gaveUp))
+        case .voiceLineIfEveryCallChanges(let taskID, let spokenLine, let toolNames):
+            eventContinuationsByTaskID[taskID]?.yield(.spokenLineIfEveryCallChanges(spokenLine: spokenLine, toolNames: toolNames))
         }
     }
 
@@ -338,43 +384,84 @@ final class HarnessTaskRouter {
 
 // MARK: - Approvals
 
-/// Whether a click or a voice answer on the oldest approval request counts yet. The desk decides it from this one
-/// function, and the card draws its buttons and its hint from the same value, so the look never differs from what a
-/// click does.
-enum ApprovalAnswerReadiness: Equatable {
+/// A screen that shows the approval card. Each surface keeps its own seen ranges and its own 1 second clock, so a click
+/// counts only on the surface whose card was read, and a voice answer's press-time check accepts any surface. The agent
+/// list shows the card, and so does the menu bar panel's banner slot, which takes the keyboard.
+nonisolated enum ApprovalCardSurface: Hashable, Sendable {
+    case agentList
+    case menuPanel
+}
+
+/// Whether a Yes or an Always on the oldest approval request counts yet. A No counts at once, so this never holds it
+/// back. The desk decides it from this one function, and the card draws its buttons, its ring, and its status line from
+/// the same value, so the look never differs from what a click does.
+nonisolated enum ApprovalAnswerReadiness: Equatable, Sendable {
     /// The card has not yet shown the whole summary from top to bottom.
     case summaryNotYetSeen
     /// The whole summary has been shown, and `HarnessApprovalDesk.secondsTheCardShowsBeforeAnAnswerCounts` has not passed.
     case readyInAMoment
     case ready
 
-    /// The line under the buttons while an answer would not count, or nil once it does and the card shows its usual hint.
-    var waitingLine: String? {
-        switch self {
-        case .summaryNotYetSeen: return "Scroll through the whole request to answer"
-        case .readyInAMoment: return "Ready in a second"
-        case .ready: return nil
-        }
-    }
-
-    /// The buttons dim until an answer counts, so a click that the desk would ignore is never offered.
-    var buttonsAreDimmed: Bool { self != .ready }
+    /// Allow once and For this task dim until a yes counts, so a click that the desk would ignore is never offered.
+    /// Don't allow never dims.
+    var allowButtonsAreDimmed: Bool { self != .ready }
 }
 
-/// `wholeSummaryShownSince` is `HarnessApprovalDesk.oldestRequestVisibleSince`, nil until the card showed the whole summary.
+/// `wholeSummaryShownSince` is when one surface's card first showed the whole summary, nil until it has.
 func approvalAnswerReadiness(wholeSummaryShownSince: Date?, at date: Date) -> ApprovalAnswerReadiness {
     guard let wholeSummaryShownSince else { return .summaryNotYetSeen }
     let secondsShown = date.timeIntervalSince(wholeSummaryShownSince)
     return secondsShown >= HarnessApprovalDesk.secondsTheCardShowsBeforeAnAnswerCounts ? .ready : .readyInAMoment
 }
 
+/// How far the card's ring has filled, from 0 when the whole summary first showed to 1 when a Yes counts.
+func approvalReadyClockProgress(wholeSummaryShownSince: Date?, at date: Date) -> Double {
+    guard let wholeSummaryShownSince else { return 0 }
+    let secondsShown = date.timeIntervalSince(wholeSummaryShownSince)
+    return min(1, max(0, secondsShown / HarnessApprovalDesk.secondsTheCardShowsBeforeAnAnswerCounts))
+}
+
+/// The request a voice answer from one push-to-talk press may reach: the oldest one, the request the card shows, and
+/// whether a card had shown its whole summary for a second at the press. A no counts either way, and a yes only when
+/// `wholeSummaryWasSeen`.
+nonisolated struct ApprovalAtPress: Equatable, Sendable {
+    let approvalID: String
+    let wholeSummaryWasSeen: Bool
+}
+
+/// How an answered request's card ends. The card shows it for `HarnessApprovalDesk.defaultSecondsAnEndedCardStays`.
+nonisolated enum ApprovalCardEnding: Equatable, Sendable {
+    /// The harness's gate took a yes, a click's or a voice answer's.
+    case allowed(HarnessApprovalScope)
+    /// The harness's gate took a no.
+    case declined
+    /// Nobody answered in time, so the desk declined it.
+    case timedOut
+    /// The answer went to the harness, which never said it took it.
+    case noReply
+}
+
+/// What the approval card shows, which only the desk decides, so the card never shows an answer the harness did not take.
+nonisolated enum ApprovalCardPhase: Equatable, Sendable {
+    case waiting(ApprovalAnswerReadiness)
+    /// The answer went to the harness, and its `approval_settled` has not come back.
+    case sending
+    case ended(ApprovalCardEnding)
+}
+
+/// The one card a surface shows: the oldest waiting request, or for a moment the request that just ended.
+nonisolated struct ShownApprovalCard: Equatable, Sendable {
+    let request: HarnessApprovalRequest
+    let phase: ApprovalCardPhase
+}
+
 /// Holds each approval_request until the learner answers it, its task ends, or `timeoutSeconds` pass, which declines it.
 /// An answer the harness does not settle within `answerSettleGraceSeconds` drops the card, since a harness that hung
 /// after it took the answer would otherwise leave the card with no buttons for as long as its task lives.
 /// Requests wait in arrival order, and the learner answers the oldest first (by the buttons in the agent list, or by
-/// voice with `answer_approval`). The desk only keeps the queue and sends the answers. `onRequestArrived` and
-/// `onWaitingRequestsChanged` let CompanionManager show the request, and a Debug build's `debug_answer_approval` tool
-/// answers through `answer(approvalID:approved:scope:)` like the buttons do.
+/// voice with `answer_approval`). The desk keeps the queue, each surface's clock, and the card each surface shows, and
+/// sends the answers. `onRequestArrived` and `onWaitingRequestsChanged` let CompanionManager show the request, and a
+/// Debug build's `debug_answer_approval` tool answers through `answer(approvalID:approved:scope:)` like the buttons do.
 @MainActor
 final class HarnessApprovalDesk: ObservableObject {
     /// How long a request waits for an answer before it is declined, so a learner who walked away does not leave the
@@ -385,28 +472,35 @@ final class HarnessApprovalDesk: ObservableObject {
     /// settles an answer within milliseconds, so this only runs out when the harness hung.
     nonisolated static let defaultAnswerSettleGraceSeconds: Double = 15
 
-    /// A yes, by voice or by click, counts only once the card has shown the oldest request's whole summary, scrolled
-    /// through from top to bottom, and this long has passed since it did. Scrolling away afterward does not stop the
-    /// clock. The list opens next to the mouse, so a click the learner meant for the page could otherwise be taken as
-    /// Yes, and a summary on screen for an instant is one nobody read.
+    /// A Yes or an Always, by voice or by click, counts only once a card has shown the oldest request's whole summary,
+    /// scrolled through from top to bottom, and this long has passed since it did. Scrolling away afterward does not stop
+    /// the clock. The list opens next to the mouse, so a click the learner meant for the page could otherwise be taken
+    /// as Yes, and a summary on screen for an instant is one nobody read. A No counts at once: a wrong no costs the agent
+    /// a retry, while a wrong yes can send data out.
     nonisolated static let secondsTheCardShowsBeforeAnAnswerCounts: Double = 1
+
+    /// How long a card shows how its request ended, when no other request waits behind it.
+    nonisolated static let defaultSecondsAnEndedCardStays: Double = 2
 
     /// Oldest first.
     @Published private(set) var waitingRequests: [HarnessApprovalRequest] = []
     /// The requests whose answer went to the harness and whose `approval_settled` has not come back. The card shows them as
-    /// answering, since the gate takes the first answer, and a voice answer may have won over this click.
+    /// sending, since the gate takes the first answer, and a voice answer may have won over this click.
     @Published private(set) var answeringApprovalIDs: Set<String> = []
+    /// When each surface's card first had shown the oldest request's whole summary, from top to bottom. A surface is
+    /// missing until its card has: it is closed, or a new request just became the oldest. Published so each card draws
+    /// its buttons from the same value `answerByClick` checks for it (`approvalAnswerReadiness`).
+    @Published private(set) var wholeSummaryShownSinceBySurface: [ApprovalCardSurface: Date] = [:]
+    /// The request that ended last and how, which a card shows for `secondsAnEndedCardStays` when no request waits.
+    @Published private(set) var lastEndedCard: ShownApprovalCard?
     /// A request was settled, with the answer the harness's gate took, so the owner shows the outcome. It is not called
-    /// for a request the desk's own timeout declined, since "Declined it" under the cursor would come with no context.
+    /// for a request the desk's own timeout declined, since "Declined it" above the cursor would come with no context.
     var onApprovalSettled: ((_ approved: Bool, _ scope: HarnessApprovalScope) -> Void)?
-    /// When the approval card at the top of the open agent list first had shown the oldest request's whole summary, from
-    /// top to bottom, or nil until it has: the list is closed, or a new request just became the oldest. Published so the
-    /// card dims its buttons from the same value `answerByClick` checks (`approvalAnswerReadiness`).
-    @Published private(set) var oldestRequestVisibleSince: Date?
     var onRequestArrived: ((HarnessApprovalRequest) -> Void)?
-    /// Whether the agent list is open, so a request that becomes the oldest shows in its card.
+    /// Whether a surface shows the card: the agent list is open, or the menu bar panel is open on its home. A request that
+    /// becomes the oldest then shows there.
     var listIsShowing: () -> Bool = { false }
-    /// A request became the oldest while the list was closed, so its summary is on no screen until the list opens.
+    /// A request became the oldest while no surface showed the card, so its summary is on no screen until the list opens.
     var onOldestRequestNeedsShowing: ((HarnessApprovalRequest) -> Void)?
     /// Whether a task still runs. A request can cross a cancel on its way from the harness, and a request for an ended
     /// task would take the oldest spot, with buttons on an ended agent's row, until it timed out.
@@ -418,60 +512,89 @@ final class HarnessApprovalDesk: ObservableObject {
 
     private let timeoutSeconds: Double
     private let answerSettleGraceSeconds: Double
+    private let secondsAnEndedCardStays: Double
     private let sendAnswer: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
     private let currentDate: () -> Date
+    /// Runs `work` on the main actor after `seconds`, for the request timeout, the answer's settle grace, and the ended
+    /// card's stay. A test passes one it fires by hand, so no test waits on a clock a busy machine can starve.
+    private let scheduleAfter: @MainActor (_ seconds: Double, _ work: @escaping @MainActor () -> Void) -> Void
 
     init(
         timeoutSeconds: Double = HarnessApprovalDesk.defaultTimeoutSeconds,
         answerSettleGraceSeconds: Double = HarnessApprovalDesk.defaultAnswerSettleGraceSeconds,
+        secondsAnEndedCardStays: Double = HarnessApprovalDesk.defaultSecondsAnEndedCardStays,
         currentDate: @escaping () -> Date = Date.init,
+        scheduleAfter: @escaping @MainActor (_ seconds: Double, _ work: @escaping @MainActor () -> Void) -> Void = HarnessApprovalDesk.scheduleOnTheMainActor,
         sendAnswer: @escaping (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
     ) {
         self.timeoutSeconds = timeoutSeconds
         self.answerSettleGraceSeconds = answerSettleGraceSeconds
+        self.secondsAnEndedCardStays = secondsAnEndedCardStays
         self.currentDate = currentDate
+        self.scheduleAfter = scheduleAfter
         self.sendAnswer = sendAnswer
     }
 
-    /// After any change to the queue that may have put a new request first. The card's clock starts over for the new
+    /// The real scheduler: a task that sleeps, then runs the work. A cancelled sleep still runs it, as the timers always did.
+    static func scheduleOnTheMainActor(afterSeconds seconds: Double, work: @escaping @MainActor () -> Void) {
+        Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            work()
+        }
+    }
+
+    /// After any change to the queue that may have put a new request first. Every surface's clock starts over for the new
     /// oldest, and a closed list is asked to open, since until then the new oldest's summary is on no screen.
     private func noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: String?) {
         guard waitingRequests.first?.approvalID != oldestApprovalIDBefore else { return }
-        oldestRequestVisibleSince = nil
+        wholeSummaryShownSinceBySurface = [:]
         guard let oldestRequest = waitingRequests.first, !listIsShowing() else { return }
         onOldestRequestNeedsShowing?(oldestRequest)
     }
 
-    /// The approval card has now shown the whole summary of this request, from top to bottom: at once when it fits, or
-    /// once the learner has scrolled through all of it. The clock starts at the first report and runs until the list
-    /// closes or another request becomes the oldest.
-    func theCardShowedTheWholeSummary(ofApprovalID approvalID: String) {
-        guard waitingRequests.first?.approvalID == approvalID, oldestRequestVisibleSince == nil else { return }
-        oldestRequestVisibleSince = currentDate()
+    /// A surface's card has now shown the whole summary of this request, from top to bottom: at once when it fits, or
+    /// once the learner has scrolled through all of it. That surface's clock starts at the first report and runs until
+    /// the surface closes or another request becomes the oldest.
+    func theCardShowedTheWholeSummary(ofApprovalID approvalID: String, on surface: ApprovalCardSurface) {
+        guard waitingRequests.first?.approvalID == approvalID, wholeSummaryShownSinceBySurface[surface] == nil else { return }
+        wholeSummaryShownSinceBySurface[surface] = currentDate()
     }
 
-    /// The card has not yet shown the whole summary, or the list closed, which discards what the card had seen.
-    func theCardHasNotShownTheWholeSummary() {
+    /// A surface's card has not yet shown the whole summary, or the surface closed, which discards what it had seen.
+    func theCardHasNotShownTheWholeSummary(on surface: ApprovalCardSurface) {
         // Skips a write of nil over nil, since every write of a published value redraws the card.
-        guard oldestRequestVisibleSince != nil else { return }
-        oldestRequestVisibleSince = nil
+        guard wholeSummaryShownSinceBySurface[surface] != nil else { return }
+        wholeSummaryShownSinceBySurface[surface] = nil
     }
 
-    /// The oldest request, when the card has shown its whole summary for `secondsTheCardShowsBeforeAnAnswerCounts`
-    /// at `date`, such as the push-to-talk press that starts a voice answer or a click. Any other request is one the
-    /// learner could not have read, so a yes cannot answer it.
-    func oldestRequestIDTheLearnerHasSeen(at date: Date) -> String? {
-        guard let oldestRequest = waitingRequests.first,
-              approvalAnswerReadiness(wholeSummaryShownSince: oldestRequestVisibleSince, at: date) == .ready else { return nil }
-        return oldestRequest.approvalID
+    /// Whether a Yes on this surface counts at `date`.
+    func answerReadiness(on surface: ApprovalCardSurface, at date: Date) -> ApprovalAnswerReadiness {
+        approvalAnswerReadiness(wholeSummaryShownSince: wholeSummaryShownSinceBySurface[surface], at: date)
     }
 
-    /// The approval card's buttons answer through here. A click on a request the card has not shown in full for a
-    /// second is ignored. Returns false when the click did not count.
+    /// The request a voice answer from a push-to-talk press at `date` may reach: the oldest, which an open surface's card
+    /// shows and the waiting chip asks about when none is open, with whether any surface had shown its whole summary for
+    /// `secondsTheCardShowsBeforeAnAnswerCounts`. Nil when none waits. A request that came after the press is one the
+    /// learner was not answering.
+    func approvalAtPress(at date: Date) -> ApprovalAtPress? {
+        guard let oldestRequest = waitingRequests.first else { return nil }
+        let wholeSummaryWasSeen = wholeSummaryShownSinceBySurface.values.contains { wholeSummaryShownSince in
+            approvalAnswerReadiness(wholeSummaryShownSince: wholeSummaryShownSince, at: date) == .ready
+        }
+        return ApprovalAtPress(approvalID: oldestRequest.approvalID, wholeSummaryWasSeen: wholeSummaryWasSeen)
+    }
+
+    /// The approval card's buttons answer through here. A No on the oldest request counts at once. A Yes or an Always
+    /// counts only when this surface's card has shown the oldest request in full for a second, so a click on a surface
+    /// nobody read is ignored even when another surface was read. Returns false when the click did not count.
     @discardableResult
-    func answerByClick(approvalID: String, approved: Bool, scope: HarnessApprovalScope) -> Bool {
-        guard oldestRequestIDTheLearnerHasSeen(at: currentDate()) == approvalID else {
-            print("Agent harness: ignored a click on approval \(approvalID) that came before its card showed it in full for \(Self.secondsTheCardShowsBeforeAnAnswerCounts) s")
+    func answerByClick(approvalID: String, approved: Bool, scope: HarnessApprovalScope, on surface: ApprovalCardSurface) -> Bool {
+        guard waitingRequests.first?.approvalID == approvalID else {
+            print("Agent harness: ignored a click on approval \(approvalID), which is not the request the card shows")
+            return false
+        }
+        guard !approved || answerReadiness(on: surface, at: currentDate()) == .ready else {
+            print("Agent harness: ignored a yes on approval \(approvalID) that came before its card showed it in full for \(Self.secondsTheCardShowsBeforeAnAnswerCounts) s")
             return false
         }
         return answer(approvalID: approvalID, approved: approved, scope: scope)
@@ -479,6 +602,18 @@ final class HarnessApprovalDesk: ObservableObject {
 
     /// The request the learner answers next, which is also the one the agent list shows.
     var oldestWaitingRequest: HarnessApprovalRequest? { waitingRequests.first }
+
+    /// The card a surface shows at `date`: the oldest waiting request, as waiting or sending, or, when none waits, the
+    /// request that ended within `secondsAnEndedCardStays`, with how it ended. Nil when the card should go.
+    func cardToShow(on surface: ApprovalCardSurface, at date: Date) -> ShownApprovalCard? {
+        if let oldestRequest = waitingRequests.first {
+            let phase: ApprovalCardPhase = answeringApprovalIDs.contains(oldestRequest.approvalID)
+                ? .sending
+                : .waiting(answerReadiness(on: surface, at: date))
+            return ShownApprovalCard(request: oldestRequest, phase: phase)
+        }
+        return lastEndedCard
+    }
 
     func receive(_ request: HarnessApprovalRequest) {
         // A repeated ID would leave two entries for one answer.
@@ -500,8 +635,7 @@ final class HarnessApprovalDesk: ObservableObject {
         print("Agent harness: approval \(request.approvalID) requested for \(request.capability)")
         onRequestArrived?(request)
         onWaitingRequestsChanged?(waitingRequests)
-        Task { [weak self, timeoutSeconds] in
-            try? await Task.sleep(for: .seconds(timeoutSeconds))
+        scheduleAfter(timeoutSeconds) { [weak self] in
             self?.declineIfStillWaiting(approvalID: request.approvalID)
         }
     }
@@ -514,17 +648,31 @@ final class HarnessApprovalDesk: ObservableObject {
         print("Agent harness: approval \(approvalID) timed out after \(timeoutSeconds) s, so it was declined")
     }
 
+    /// Keeps how a request ended for a card to show, and forgets it after `secondsAnEndedCardStays` unless a newer one
+    /// replaced it.
+    private func showTheEnding(_ ending: ApprovalCardEnding, of request: HarnessApprovalRequest) {
+        let endedCard = ShownApprovalCard(request: request, phase: .ended(ending))
+        lastEndedCard = endedCard
+        scheduleAfter(secondsAnEndedCardStays) { [weak self] in
+            guard let self, self.lastEndedCard == endedCard else { return }
+            self.lastEndedCard = nil
+        }
+    }
+
     /// The harness took the answer but never said so, so the card would stay as "Sending your answer..." for good. The
-    /// log names only the approval ID, and no outcome shows, since nobody knows which answer the gate took.
+    /// log names only the approval ID, and the card says the agent never confirmed it, since nobody knows which answer the
+    /// gate took.
     private func dropAnsweringRequestIfTheHarnessNeverSettledIt(approvalID: String) {
         guard answeringApprovalIDs.contains(approvalID),
               let requestIndex = waitingRequests.firstIndex(where: { $0.approvalID == approvalID }) else { return }
         let oldestApprovalIDBefore = waitingRequests.first?.approvalID
-        waitingRequests.remove(at: requestIndex)
+        let request = waitingRequests.remove(at: requestIndex)
         answeringApprovalIDs.remove(approvalID)
-        timedOutApprovalIDs.remove(approvalID)
+        // The learner sent nothing for a request the desk's own timeout declined, so its card says it timed out.
+        let desksOwnTimeoutDeclinedIt = timedOutApprovalIDs.remove(approvalID) != nil
         noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
         print("Agent harness: approval \(approvalID) was answered but not settled within \(answerSettleGraceSeconds) s, so its card was dropped")
+        showTheEnding(desksOwnTimeoutDeclinedIt ? .timedOut : .noReply, of: request)
         onWaitingRequestsChanged?(waitingRequests)
     }
 
@@ -537,45 +685,52 @@ final class HarnessApprovalDesk: ObservableObject {
         answeringApprovalIDs.insert(approvalID)
         print("Agent harness: approval \(approvalID) answered \(approved ? "yes" : "no") (\(scope.rawValue)), waiting for the harness to settle it")
         sendAnswer(approvalID, approved, scope)
-        Task { [weak self, answerSettleGraceSeconds] in
-            try? await Task.sleep(for: .seconds(answerSettleGraceSeconds))
+        scheduleAfter(answerSettleGraceSeconds) { [weak self] in
             self?.dropAnsweringRequestIfTheHarnessNeverSettledIt(approvalID: approvalID)
         }
         return true
     }
 
-    /// The harness's gate took an answer for this request, a click's or a voice answer's, the first of them. The card goes
-    /// and the owner shows the outcome. A request the desk no longer holds, such as one whose task ended, changes nothing.
+    /// The harness's gate took an answer for this request, a click's or a voice answer's, the first of them. The card
+    /// shows how it ended, and the owner shows the outcome. A request the desk no longer holds, such as one whose task
+    /// ended, changes nothing.
     func settle(approvalID: String, approved: Bool, scope: HarnessApprovalScope) {
         guard let requestIndex = waitingRequests.firstIndex(where: { $0.approvalID == approvalID }) else {
             print("Agent harness: approval \(approvalID) was settled, and the desk no longer holds it")
             return
         }
         let oldestApprovalIDBefore = waitingRequests.first?.approvalID
-        waitingRequests.remove(at: requestIndex)
+        let request = waitingRequests.remove(at: requestIndex)
         answeringApprovalIDs.remove(approvalID)
         let desksOwnTimeoutDeclinedIt = timedOutApprovalIDs.remove(approvalID) != nil
         noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
         print("Agent harness: approval \(approvalID) \(approved ? "given" : "declined") (\(scope.rawValue))")
+        // A yes still shows as allowed, since it means the learner's answer beat the timeout's decline to the gate.
+        let timeoutDeclinedIt = desksOwnTimeoutDeclinedIt && !approved
+        showTheEnding(approved ? .allowed(scope) : (timeoutDeclinedIt ? .timedOut : .declined), of: request)
         onWaitingRequestsChanged?(waitingRequests)
-        // A yes still shows, since it means the learner's answer beat the timeout's decline to the gate.
-        guard !(desksOwnTimeoutDeclinedIt && !approved) else { return }
+        guard !timeoutDeclinedIt else { return }
         onApprovalSettled?(approved, scope)
     }
 
     /// Forgets every request at once when the harness process stops, so the list never opens for a request that the
     /// next task's drop would remove a moment later.
     func dropAllRequests() {
+        lastEndedCard = nil
         guard !waitingRequests.isEmpty else { return }
         waitingRequests.removeAll()
         answeringApprovalIDs.removeAll()
         timedOutApprovalIDs.removeAll()
-        oldestRequestVisibleSince = nil
+        wholeSummaryShownSinceBySurface = [:]
         onWaitingRequestsChanged?(waitingRequests)
     }
 
-    /// Forgets a task's requests when the task ends. The harness already abandoned them, so nothing is sent.
+    /// Forgets a task's requests when the task ends. The harness already abandoned them, so nothing is sent. An ended
+    /// card of that task goes too, since "The task goes on" would describe a task that is gone.
     func dropRequests(forTaskID taskID: UUID) {
+        if lastEndedCard?.request.taskID == taskID {
+            lastEndedCard = nil
+        }
         let requestCountBefore = waitingRequests.count
         let oldestApprovalIDBefore = waitingRequests.first?.approvalID
         waitingRequests.removeAll { $0.taskID == taskID }
@@ -694,11 +849,16 @@ final class AgentHarness {
 
     /// Starts a task on the harness, with the steps of the named skill when `skill` is given. The stream ends after the
     /// task finishes or fails, or when the harness stops.
-    func startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?, skill: String? = nil) throws -> AsyncStream<HarnessTaskEvent> {
+    func startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?, skill: String? = nil, startsPaused: Bool = false) throws -> AsyncStream<HarnessTaskEvent> {
         try launchTheHarnessIfItIsNotRunning()
         let taskEvents = taskRouter.register(taskID: taskID)
-        write(.startTask(taskID: taskID, goal: goal, frontTabTitle: frontTabTitle, frontTabURL: frontTabURL, skill: skill))
+        write(.startTask(taskID: taskID, goal: goal, frontTabTitle: frontTabTitle, frontTabURL: frontTabURL, skill: skill, startsPaused: startsPaused))
         return taskEvents
+    }
+
+    /// Holds or lets go a running task's next step (`pauseTask`, `resumeTask`). A task that already ended ignores it.
+    func setTaskIsPaused(_ taskIsPaused: Bool, taskID: UUID) {
+        write(taskIsPaused ? .pauseTask(taskID: taskID) : .resumeTask(taskID: taskID))
     }
 
     func sendToolResult(taskID: UUID, toolUseID: String, content: JSONValue, isError: Bool, sourceURL: String? = nil) {
@@ -725,12 +885,25 @@ final class AgentHarness {
         transcript: String,
         sceneState: JSONValue,
         tools: [VoiceToolDescriptor],
-        approvalIDSeenAtPress: String?
+        approvalAtPress: ApprovalAtPress?,
+        waitsForTheFinalTranscript: Bool = false
     ) throws -> AsyncStream<HarnessTaskEvent> {
         try launchTheHarnessIfItIsNotRunning()
         let commandEvents = taskRouter.register(taskID: taskID)
-        write(.voiceCommand(taskID: taskID, transcript: transcript, sceneState: sceneState, tools: tools, approvalIDSeenAtPress: approvalIDSeenAtPress))
+        write(.voiceCommand(
+            taskID: taskID,
+            transcript: transcript,
+            sceneState: sceneState,
+            tools: tools,
+            approvalAtPress: approvalAtPress,
+            waitsForTheFinalTranscript: waitsForTheFinalTranscript
+        ))
         return commandEvents
+    }
+
+    /// Lets a command started on the partial transcript go on, since the final transcript matched it.
+    func confirmVoiceCommand(taskID: UUID) {
+        write(.confirmVoiceCommand(taskID: taskID))
     }
 
     /// Stops routing a voice command's events, after one last event when there is one, and writes nothing, since the

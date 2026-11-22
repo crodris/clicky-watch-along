@@ -47,10 +47,12 @@ func agentsWithTokens(from agents: [BackgroundAgent], at now: Date) -> [Backgrou
 
 // MARK: - Positions
 
-/// One disc beside the notch: an agent's token, or the "+N" disc after them.
+/// One disc beside the notch: an agent's token, the "+N" disc after them, or the one paused disc every token folds into
+/// while the learner has paused every agent (`agentTokenSlotsLeftToRight`).
 enum AgentTokenSlot: Hashable {
     case agent(UUID)
     case overflow
+    case paused
 }
 
 /// One disc on one display. The same agent has a disc on every display whose menu bar shows, so a display belongs to the
@@ -182,20 +184,6 @@ enum AgentPaletteColor: Equatable {
         case .sky: return DS.Colors.sky400
         case .pink: return DS.Colors.pink400
         case .custom(let themeColor): return Color(red: themeColor.red, green: themeColor.green, blue: themeColor.blue)
-        }
-    }
-
-    /// A darker shade of the same hue for the chip's letters, since the color itself is too light to read inside a white outline.
-    var chipTextColor: Color {
-        switch self {
-        case .teal: return DS.Colors.backgroundAgentTaskTealText
-        case .amber: return DS.Colors.backgroundAgentStudyGuideAmberText
-        case .violet: return DS.Colors.backgroundAgentThreeDModelVioletText
-        case .lime: return DS.Colors.backgroundAgentExperimentLimeText
-        case .sky: return DS.Colors.sky700
-        case .pink: return DS.Colors.pink700
-        // Half the brightness of the same hue, which reads inside the chip's white outline.
-        case .custom(let themeColor): return Color(red: themeColor.red * 0.5, green: themeColor.green * 0.5, blue: themeColor.blue * 0.5)
         }
     }
 }

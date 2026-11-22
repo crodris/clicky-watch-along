@@ -14,6 +14,11 @@ Saying "stop the quiz" ends it.
 - `quiz-stop` stops on "stop the quiz", "stop watching", or "can we stop".
   During a question it clears the pop-out first, and the video plays once the pop-out has landed in its frame.
 - `quiz-skip` skips the current question on Escape, which `$V key escape` sends.
+- `video-recap` is the same Card at a video's end: when the front tab's video ends (its own `ended` state) and the learner took a quiz on it or wrote a study guide for it since launch, the discs beside the notch fly to the cursor and the Card unfolds from there with a "What you learned" section (the guide's summary, then the explanations of the answers got right) and a "Study guide" button.
+  The Card that ended the quiz already showed the same recap, so it shows again only when a guide was written since.
+  An ending in a playlist that starts its next video within the 3 second poll can be missed, and an ad on the same video element may report `ended`.
+  The log says `Video recap: the video ended, so its recap shows` and `Recap gather: N discs fly to the cursor`, and a closed Card sends the discs back.
+- `quiz-summary` shows a Card over the video when the quiz ends with a question finished: the score and each missed or skipped question with its timestamp. A click on a question goes back to it and shows its pop-out again, or plays from 10 seconds before a question asked by voice alone. When the quiz video is no longer in its tab, Clicky says "Sorry, I couldn't go back to that question." A video Clicky held paused on another tab, such as under a pop-out there, stays paused, and the log says `Video quiz: let go of the pause it held on another tab, which stays paused`.
 
 ## How to get to it (user POV)
 
@@ -48,6 +53,13 @@ Preconditions:
   The log shows `Video quiz: found tab`, `read N caption lines`, `planned N moments`, `paused at Ns for moment 1`, then `Video quiz: stopped`.
 - **Correct answer.** In a `?` step, `{answer}` becomes the open question's answer label, so `?is it the {answer}` answers correctly whatever the plan picked.
   The log shows the judge's grade, and a correct name turns the label green with the ring burst and the "Glass" sound.
+- **Wrong answer.** A first wrong answer shakes the "?" label once, and Clicky's line ends with "Say hint if you want a clue."
+  Saying "hint" then reaches the judge as `wants_hint`, never as a second answer.
+- **Summary.** After the quiz stops, the log shows `Video quiz: N of M right, K to look at again`, and `$V shot quiz-summary` shows the Card over the video.
+  Click a question: the log shows `Video quiz: went back to M:SS and shows its pop-out again`, and the video sits paused at that time under its pop-out.
+- **Recap at the video's end.** After a quiz or a study guide, seek the video to its last second with the page script `document.querySelector('video').currentTime = document.querySelector('video').duration - 1` (a Chrome script, not a Chrome setting) and let it end.
+  Within 3 seconds the log shows `Video recap: the video ended, so its recap shows`; with a disc showing, `Recap gather: N discs fly to the cursor in 0.5 s`, and the Card unfolds from the cursor.
+  Chrome must be the front app, and Clicky idle with no Card open, or the watch waits.
 - **Hidden labels.** On a video that prints its own labels, such as an anatomy animation, the log shows `Video quiz: hiding N printed text boxes until the pop-out returns` with N above 0.
   While the question and its follow-up are open, no printed word is readable on the frame or the lifted subject, even a tall title; after the pop-out returns to the video, the text is back.
 

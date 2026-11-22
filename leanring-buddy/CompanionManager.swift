@@ -35,6 +35,15 @@ func escapeHasAnAnswerToStop(
     return voiceState == .processing || voiceState == .responding || speechIsPlaying || cursorIsPointingForTheAnswer
 }
 
+/// The voice state after a panel closed and stopped its own spoken line, the Theme Studio card's or the room art panel's.
+/// The line's task never resets `.responding` once it is cancelled, so the close does it, but only when the stop reached
+/// that panel's own line, since audio still playing is another answer, such as one the router handed off with the panel
+/// open, and that answer keeps its state.
+func voiceStateAfterAPanelStoppedItsLine(_ voiceState: CompanionVoiceState, theStopReachedThePanelsLine: Bool) -> CompanionVoiceState {
+    guard theStopReachedThePanelsLine, voiceState == .responding else { return voiceState }
+    return .idle
+}
+
 #if DEBUG
 /// In a rehearsal "?" step, "{answer}" becomes the open question's answer label, since the plan picks a new
 /// question each run.
@@ -68,6 +77,27 @@ enum RehearsalStepPrefix: Character, Equatable {
     /// "^": press push-to-talk 0.3 seconds after this step's voice_command line goes to the harness, as a learner who
     /// interrupts the command would.
     case pressesPushToTalkDuringTheCommand = "^"
+    /// "%": a partial transcript stands in for the words heard at the release, as a microphone would give, so the voice
+    /// command can start on it before the final transcript ("%partial >> final", or "%words" when both are the same).
+    case hearsAPartialTranscriptFirst = "%"
+}
+
+/// The partial and final transcripts of a "%" step: the words before " >> " are heard at the release and the words after
+/// it are the final transcript, and a step with no " >> " hears the same words both times.
+func rehearsalPartialAndFinalTranscripts(_ transcript: String) -> (partial: String, final: String) {
+    guard let separatorRange = transcript.range(of: " >> ") else { return (transcript, transcript) }
+    return (String(transcript[..<separatorRange.lowerBound]), String(transcript[separatorRange.upperBound...]))
+}
+
+/// The port of the local Worker a Debug build calls: 8787, or the whole number of 1024 to 65535 after `--worker-port`.
+func debugWorkerPort(launchArguments: [String]) -> Int {
+    guard let flagIndex = launchArguments.firstIndex(of: "--worker-port"),
+          launchArguments.indices.contains(flagIndex + 1),
+          let port = Int(launchArguments[flagIndex + 1]),
+          (1024...65535).contains(port) else {
+        return 8787
+    }
+    return port
 }
 
 /// The step's prefix, or nil, and the words spoken without it.
@@ -105,6 +135,8 @@ final class CompanionManager: ObservableObject {
     @Published var detectedElementBubbleText: String?
     /// How long the buddy stays on the detected element. A 3D scene part holds until its narration ends.
     @Published var detectedElementPointingHold: BuddyPointingHold = .briefly
+    /// The cursor's latest nod, shake, or hop, which BlueCursorView plays. Set only through `playCursorEmote`.
+    @Published private(set) var cursorEmoteRequest: CursorEmoteRequest?
 
     // MARK: - Onboarding Video State (shared across all screen overlays)
 
@@ -135,7 +167,9 @@ final class CompanionManager: ObservableObject {
     /// Base URL for the Cloudflare Worker proxy. All API requests route
     /// through this so keys never ship in the app binary.
     #if DEBUG
-    private static let workerBaseURL = "http://127.0.0.1:8787"
+    /// A launch with `--worker-port <port>` uses a local Worker on that port, so a verify run can use its own Worker while
+    /// another checkout's holds 8787. Not private, since other files (the panel's setup page) read it too.
+    static let workerBaseURL = "http://127.0.0.1:\(debugWorkerPort(launchArguments: ProcessInfo.processInfo.arguments))"
     #else
     // The upstream placeholder is an unowned host, so a release build must not
     // compile until it has a real https Worker URL for screenshots to go to.
@@ -183,8 +217,10 @@ final class CompanionManager: ObservableObject {
         agentHarness.approvalDesk.onWaitingRequestsChanged = { [weak self] waitingRequests in
             self?.syncTheApprovalWaitingState(waitingRequests)
         }
+        // The panel's banner shows the card too, so a request that becomes the oldest while it is open needs no list.
         agentHarness.approvalDesk.listIsShowing = { [weak self] in
-            self?.agentListPanelController.isOpen ?? false
+            guard let self else { return false }
+            return self.agentListPanelController.isOpen || self.menuPanelShowsTheApprovalCard()
         }
         agentHarness.approvalDesk.onOldestRequestNeedsShowing = { [weak self] approvalRequest in
             self?.agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
@@ -199,15 +235,13 @@ final class CompanionManager: ObservableObject {
     /// Where this launch's voice commands run: the harness brain, or the old Worker router when no app secret is set or
     /// the Worker refused it. Read once at launch, since the harness takes the secret from its environment when it starts.
     private var voiceCommandBackend = VoiceCommandBackend(flagIsOn: BrainRunsInTheHarness.isOn(), appSecretIsSet: ClickyAppSecret.isSet())
-    /// The request a voice answer from the latest push-to-talk press may reach: the oldest, when the approval card had
-    /// shown its whole summary for a second at the press, and it is still waiting. The router takes the command, offers
-    /// `answer_approval`, and names the request's capability only for this one, so a yes the app would refuse is never
-    /// asked of the model.
-    private var approvalRequestAVoiceAnswerMayReach: HarnessApprovalRequest? {
-        guard let approvalIDTheLearnerHadSeenAtThePress else { return nil }
-        return agentHarness.approvalDesk.oldestWaitingRequest.flatMap { oldestRequest in
-            oldestRequest.approvalID == approvalIDTheLearnerHadSeenAtThePress ? oldestRequest : nil
-        }
+    /// The request a voice answer from the latest push-to-talk press may reach: the one the card showed at the press,
+    /// while it is still the oldest waiting. The router takes the command, offers `answer_approval`, and names the
+    /// request's capability only for this one. A no answers it at once, and a yes only when `wholeSummaryWasSeen`.
+    private var approvalAtThePressStillWaiting: ApprovalAtPress? {
+        guard let approvalAtThePress,
+              agentHarness.approvalDesk.oldestWaitingRequest?.approvalID == approvalAtThePress.approvalID else { return nil }
+        return approvalAtThePress
     }
 
     /// The text of the chip that says an agent needs the learner's OK, so answering hides that chip and never a newer one.
@@ -248,13 +282,29 @@ final class CompanionManager: ObservableObject {
                 guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
                 self.startSpeakingTheTaskAnswer()
             },
+            tryAgain: { [weak self] agentID in self?.tryTheBackgroundAgentAgain(agentID) },
             answerApproval: { [weak self] approvalID, approved, scope in
-                self?.agentHarness.approvalDesk.answerByClick(approvalID: approvalID, approved: approved, scope: scope)
+                self?.agentHarness.approvalDesk.answerByClick(approvalID: approvalID, approved: approved, scope: scope, on: .agentList)
             }
         )
     )
     /// The discs floating beside the notch, one per running agent or waiting result. A click opens the agent list under it.
-    private lazy var agentTokenDockController = AgentTokenDockController(store: backgroundAgentStore, themeSettings: themeSettings) { [weak self] click in
+    private lazy var agentTokenDockController = AgentTokenDockController(
+        store: backgroundAgentStore,
+        themeSettings: themeSettings,
+        menuActions: AgentDiscMenuActions(
+            cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) },
+            // A quiz question can open while the menu is up, so each closure checks again, as the agent list's buttons do.
+            showReadyScene: { [weak self] in
+                guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
+                self.startShowingTheReadyBackgroundScene()
+            },
+            hearTaskAnswer: { [weak self] in
+                guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
+                self.startSpeakingTheTaskAnswer()
+            }
+        )
+    ) { [weak self] click in
         self?.agentListPanelController.toggle(from: click.discID, discPanelFrame: click.discPanelFrame, on: click.screen)
     }
     /// The radial settings dial that holding shift + option opens. Its Agents slice opens the agent list.
@@ -265,7 +315,15 @@ final class CompanionManager: ObservableObject {
         return ThemeStudioController(
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
-                speak: { [weak self] line in self?.speakAThemeStudioLine(line) },
+                speak: { [weak self] line in
+                    // A failed design is also a red Callout, so the failure never rests on the voice alone. While the card stays
+                    // open with its old ideas, the card's own red Callout says it, so the chip would say it twice.
+                    let lineIsAFailure = line == ThemeStudioController.couldNotDesignLine
+                    if lineIsAFailure, self?.themeStudioController.showsTheDesignFailedNotice != true {
+                        VoiceToolCallChip.shared.show("Couldn't design that one", sender: .failure)
+                    }
+                    self?.speakAThemeStudioLine(line, isAFailure: lineIsAFailure)
+                },
                 stopSpeaking: { [weak self] in self?.stopTheThemeStudioSpeech() },
                 playSound: { sound in sound.play() },
                 captureThePicture: { [weak self] in await self?.captureThePictureForTheThemeStudio() },
@@ -274,11 +332,40 @@ final class CompanionManager: ObservableObject {
             cardPresenter: ThemeStudioPanelController(onSaveClicked: { saveOutcome in
                 // The voice tool's chip comes from the router, so only a click on Save needs its own.
                 guard let chipPhrase = saveOutcome.chipPhraseAfterAClickOnSave else { return }
-                VoiceToolCallChip.shared.show(chipPhrase)
+                let chipSender: VoiceToolCallChipSender
+                if case .failed = saveOutcome { chipSender = .failure } else { chipSender = .voiceToolCall }
+                VoiceToolCallChip.shared.show(chipPhrase, sender: chipSender)
             })
         )
     }()
+    /// The "Add theme?" card shown before a theme file the learner opened is installed.
+    private lazy var themeInstallConfirmation = ThemeInstallConfirmation(
+        cardPresenter: ThemeInstallCardPanelController(),
+        install: { [weak self] confirmedInstall in self?.installTheConfirmedThemePackage(confirmedInstall) }
+    )
     private var themeStudioSpeechTask: Task<Void, Never>?
+    /// "Show me how this would look in my room": the live camera panel with the picture from Chrome's front tab on the wall.
+    private lazy var roomArtPreviewController = RoomArtPreviewController(environment: .live(
+        workerBaseURL: Self.workerBaseURL,
+        capturePicture: { [weak self] in
+            await self?.captureThePictureForTheThemeStudio().map { picture in
+                RoomArtPicture(jpegData: picture.jpegData, width: picture.width, height: picture.height)
+            }
+        },
+        clearTheLiveScene: { [weak self] in self?.clearTheLiveSceneForTheRoomArtPanel() },
+        // Every room art line but "Here it is" reports a failure, so the cursor shakes as it is said.
+        speak: { [weak self] line, isAFailure in self?.speakARoomArtLine(line, isAFailure: isAFailure) },
+        loopAccentColor: { [weak self] in self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue },
+        endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() }
+    ))
+    /// The room art line waiting for its turn or playing. A new line replaces it, and every close of the panel ends it.
+    private var roomArtSpeechTask: Task<Void, Never>?
+    /// The playback token of the room art's own spoken line, so a close stops that exact line and never a newer answer.
+    private var roomArtLineToken: SpokenLineToken?
+    /// The press count when the learner asked to see the art, so a line that lands after a newer press is dropped.
+    private var pushToTalkPressCountWhenTheRoomArtStarted = 0
+    /// The room art request holds the thinking state while it reads the page and its picture, until the panel opens.
+    private var roomArtIsOpeningThePanel = false
     /// The playback token of the studio's own spoken line, so closing the card stops that exact line and never an unrelated
     /// answer that is playing when the card closes. Once the line has ended, the token matches nothing and stops nothing.
     private var themeStudioLineToken: SpokenLineToken?
@@ -296,6 +383,13 @@ final class CompanionManager: ObservableObject {
     /// transcript of the same press takes it (`screenReadForTheTranscript`).
     private var voiceCommandScreenRead: VoiceCommandScreenRead?
     private var voiceCommandScreenReadTask: Task<Void, Never>?
+    /// The voice command a press started on its partial transcript once the release's screen read was in, which the final
+    /// transcript of that press confirms or discards (`VoiceCommandSpeculation.swift`). A new press discards it.
+    private var voiceCommandSpeculation: VoiceCommandSpeculationState = .none
+    #if DEBUG
+    /// The partial transcript a rehearsal step stands in for, since a rehearsal runs no microphone (a "%" step).
+    private var rehearsalPartialTranscript: String?
+    #endif
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
@@ -332,6 +426,24 @@ final class CompanionManager: ObservableObject {
     /// What Clicky says after a run. A newer run's line replaces it.
     private var simulationRunNarrationTask: Task<Void, Never>?
 
+    /// The Card that sums up a quiz when it ends, and recaps a video when it ends.
+    private let videoQuizSummaryPanelController = VideoQuizSummaryPanelController()
+    /// True from the moment a video's end starts to gather the discs until the Card shows, so nothing else starts meanwhile.
+    private var videoRecapIsGatheringTheDiscs = false
+    /// Set by a press, Escape, or a scene starting while the discs gather, so the Card does not unfold over what came next.
+    private var videoRecapGatherWasCancelled = false
+    /// Watches the front tab for the end of a video that has a quiz or a guide, and asks for its recap.
+    private lazy var videoRecapWatcher = VideoRecapWatcher(
+        chromeIsTheFrontApp: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.google.Chrome" },
+        clickyIsBusy: { [weak self] in
+            guard let self else { return true }
+            return self.clickyIsBusyForAVideoRecapCard || self.videoRecapIsGatheringTheDiscs
+        },
+        readTheFrontTabURL: { try ChromeVideoTab.frontTabOfTheFrontWindow().url },
+        readTheFrontVideo: { try ChromeVideoTab.readWhetherTheFrontVideoHasEnded() },
+        recapForVideo: { [weak self] videoURL in self?.videoRecap(forVideoURL: videoURL) },
+        showTheRecapAtTheEnd: { [weak self] recap, videoURL in self?.showTheRecapAtTheEndOfTheVideo(recap, videoURL: videoURL) }
+    )
     private lazy var videoQuizSession = VideoQuizSession(
         workerBaseURL: Self.workerBaseURL,
         canAskQuestionNow: { [weak self] in
@@ -347,8 +459,8 @@ final class CompanionManager: ObservableObject {
         askQuestion: { [weak self] quiz, framePopout in
             self?.askVideoQuizQuestion(quiz, framePopout: framePopout)
         },
-        speakLine: { [weak self] line in
-            self?.speakVideoQuizLine(line)
+        speakLine: { [weak self] line, isAFailure in
+            self?.speakVideoQuizLine(line, isAFailure: isAFailure)
         }
     )
     /// True from the moment a video quiz question is asked until its explanation
@@ -366,11 +478,14 @@ final class CompanionManager: ObservableObject {
     private var currentResponseTask: Task<Void, Never>?
 
     private var shortcutTransitionCancellable: AnyCancellable?
-    /// The approval request whose whole summary the card had shown for a second when the learner last pressed
-    /// push-to-talk, or a rehearsal step stood in for a press. A voice answer can reach only this request.
-    private var approvalIDTheLearnerHadSeenAtThePress: String?
+    private var partialTranscriptCancellable: AnyCancellable?
+    /// The approval request the card showed when the learner last pressed push-to-talk, or a rehearsal step stood in for
+    /// a press, and whether its whole summary had shown for a second then. A voice answer can reach only this request.
+    private var approvalAtThePress: ApprovalAtPress?
     private var escapeKeyCancellable: AnyCancellable?
     private var settingsDialCancellable: AnyCancellable?
+    /// Keeps `DS.Move.themeSprings` equal to the shown theme's springs, the studio's preview included.
+    private var themeSpringsCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
     private var scrollWheelCancellable: AnyCancellable?
     private var cursorLoopVoiceStateCancellable: AnyCancellable?
@@ -437,6 +552,14 @@ final class CompanionManager: ObservableObject {
 
     func start() {
         LiveSceneOverlay.shared.mapTilesWorkerBaseURL = Self.workerBaseURL
+        // A voice tool call's chip takes the accent of the theme on screen, preview included.
+        VoiceToolCallChip.shared.themeAccentProvider = { [weak self] in
+            self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue
+        }
+        themeSpringsCancellable = themeSettings.observeShownMoveSprings { shownSprings in
+            DS.Move.themeSprings = shownSprings
+            print("Theme motion: Pop \(shownSprings.pop.response) and \(shownSprings.pop.dampingFraction), Glide \(shownSprings.glide.response) and \(shownSprings.glide.dampingFraction), Point \(shownSprings.pointResponse)")
+        }
         agentTokenDockController.start()
         // The brain runs in the harness process, so the first voice command must not pay its launch.
         if voiceCommandBackend.runsInTheHarness {
@@ -456,9 +579,25 @@ final class CompanionManager: ObservableObject {
         }
         LiveSceneOverlay.shared.onASceneStartedToShow = { [weak self] in
             self?.cursorLoopController.end(because: .aSceneStartedToShow)
+            // A scene rises over the video the quiz summary sits on, so the Card goes back into the video.
+            self?.cancelTheVideoRecapGather()
+            self?.videoQuizSummaryPanelController.close(animated: true)
         }
         LiveSceneOverlay.shared.onPartTapped = { [weak self] untrustedTappedLabel in
             self?.explainTheTappedPart(untrustedTappedLabel: untrustedTappedLabel)
+        }
+        videoQuizSession.onQuizEnded = { [weak self] _ in
+            self?.showTheVideoQuizSummary()
+        }
+        // The discs a video's end gathered at the cursor go back when the Card closes, however it closes.
+        videoQuizSummaryPanelController.onClosed = { [weak self] glideOrigin in
+            self?.agentTokenDockController.sendTheDiscsBack(from: glideOrigin)
+        }
+        videoQuizSession.onProgressChanged = { [weak self] progress in
+            self?.videoQuizProgress = progress
+        }
+        LiveSceneOverlay.shared.accentHexForTheNextPage = { [weak self] in
+            self?.themeSettings.shownTheme.cursorColorHex ?? DS.Colors.overlayCursorBlueHex
         }
         LiveSceneOverlay.shared.onPageError = { [weak self] pageErrorText in
             self?.handleLiveScenePageError(pageErrorText)
@@ -477,6 +616,7 @@ final class CompanionManager: ObservableObject {
         bindVoiceStateObservation()
         bindAudioPowerLevel()
         bindShortcutTransitions()
+        bindPartialTranscriptsToTheVoiceCommandSpeculation()
         bindPinchToLiveSceneZoom()
         bindEscapeToCloseLiveScene()
         bindShiftOptionHoldToTheSettingsDial()
@@ -580,6 +720,11 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// Asks the cursor to nod (a command was heard), shake (a failure or a first wrong answer), or hop (a right answer).
+    func playCursorEmote(_ emote: CursorEmote) {
+        cursorEmoteRequest = CursorEmoteRequest(emote: emote, sequenceNumber: (cursorEmoteRequest?.sequenceNumber ?? 0) + 1)
+    }
+
     func clearDetectedElementLocation() {
         detectedElementScreenLocation = nil
         detectedElementDisplayFrame = nil
@@ -603,7 +748,7 @@ final class CompanionManager: ObservableObject {
         pinchCancellable?.cancel()
         escapeKeyCancellable?.cancel()
         settingsDialCancellable?.cancel()
-        settingsDialController.close()
+        settingsDialController.closeAtOnce()
         agentListPanelController.close()
         agentTokenDockController.stop()
         voiceStateCancellable?.cancel()
@@ -712,6 +857,7 @@ final class CompanionManager: ObservableObject {
                 print("🔑 Screen content capture result — width: \(image.width), height: \(image.height), didCapture: \(didCapture)")
                 await MainActor.run {
                     isRequestingScreenContent = false
+                    screenTestFailed = !didCapture
                     guard didCapture else { return }
                     hasScreenContentPermission = true
                     UserDefaults.standard.set(true, forKey: "hasScreenContentPermission")
@@ -725,9 +871,209 @@ final class CompanionManager: ObservableObject {
                 }
             } catch {
                 print("⚠️ Screen content permission request failed: \(error)")
-                await MainActor.run { isRequestingScreenContent = false }
+                await MainActor.run {
+                    isRequestingScreenContent = false
+                    screenTestFailed = true
+                }
             }
         }
+    }
+
+    // MARK: - Setup checklist
+
+    /// The last screen test capture failed, such as when the learner cancelled the screen picker. The setup step turns red.
+    @Published private(set) var screenTestFailed = false
+    /// The steps the learner pressed this launch. Screen Recording and Accessibility report only granted or not, so one that
+    /// was pressed and is still not granted reads as turned off, with the way to fix it.
+    @Published private(set) var setupStepsAskedForThisLaunch: Set<SetupStep> = []
+
+    #if DEBUG
+    /// A Debug build launched with `--show-setup` shows the setup checklist as a first run does, without clearing a
+    /// permission. On a Mac that already finished onboarding, finishing it only hides it again and writes nothing the
+    /// everyday Clicky shares. On one that never did, its Start is the real first run (`finishSetup`).
+    @Published private(set) var showsSetupForThisLaunch = CommandLine.arguments.contains("--show-setup")
+    #else
+    let showsSetupForThisLaunch = false
+    #endif
+
+    /// Whether setup is finished, so the panel opens on the home instead of the setup checklist.
+    var setupIsFinished: Bool { hasCompletedOnboarding && !showsSetupForThisLaunch }
+
+    /// What macOS says about each setup step now, read without a prompt.
+    var setupFacts: SetupFacts {
+        SetupFacts(
+            microphoneStatus: AVCaptureDevice.authorizationStatus(for: .audio),
+            speechRecognitionStatus: buddyDictationManager.transcriptionProviderRequiresSpeechRecognitionPermission
+                ? SFSpeechRecognizer.authorizationStatus()
+                : nil,
+            hasScreenRecording: hasScreenRecordingPermission,
+            screenTestPassed: hasScreenContentPermission,
+            screenTestFailed: screenTestFailed,
+            hasAccessibility: hasAccessibilityPermission,
+            chromeControlStatus: chromeAutomationPermissionStatus,
+            stepsAskedForThisLaunch: setupStepsAskedForThisLaunch
+        )
+    }
+
+    /// A setup row's button. Allow shows the macOS prompt, or opens System Settings once macOS will not ask again.
+    func runSetupStep(_ step: SetupStep, action: SetupStepAction) {
+        setupStepsAskedForThisLaunch.insert(step)
+        switch action {
+        case .allow:
+            switch step {
+            case .microphone:
+                if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+                    AVCaptureDevice.requestAccess(for: .audio) { _ in
+                        Task { @MainActor [weak self] in self?.refreshAllPermissions() }
+                    }
+                } else {
+                    openPrivacySettings(for: step)
+                }
+            case .speechRecognition:
+                requestSpeechRecognitionPermission()
+            case .screenRecording:
+                _ = WindowPositionManager.requestScreenRecordingPermission()
+            case .screenTest:
+                screenTestFailed = false
+                requestScreenContentPermission()
+            case .accessibility:
+                _ = WindowPositionManager.requestAccessibilityPermission()
+            case .chromeControl:
+                requestChromeAutomationPermission()
+            }
+        case .openSystemSettings:
+            openPrivacySettings(for: step)
+        case .findTheApp:
+            // An unsigned Debug build can be missing from the Accessibility list, so Finder shows it to drag in.
+            WindowPositionManager.revealAppInFinder()
+            WindowPositionManager.openAccessibilitySettings()
+        case .quitAndReopen:
+            quitAndReopenClicky()
+        case .openChrome:
+            if let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
+                NSWorkspace.shared.openApplication(at: chromeURL, configuration: NSWorkspace.OpenConfiguration())
+            }
+        }
+    }
+
+    private func openPrivacySettings(for step: SetupStep) {
+        let paneAnchor: String
+        switch step {
+        case .microphone: paneAnchor = "Privacy_Microphone"
+        case .speechRecognition: paneAnchor = "Privacy_SpeechRecognition"
+        case .screenRecording, .screenTest: paneAnchor = "Privacy_ScreenCapture"
+        case .accessibility: paneAnchor = "Privacy_Accessibility"
+        case .chromeControl: paneAnchor = "Privacy_Automation"
+        }
+        if let privacySettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(paneAnchor)") {
+            NSWorkspace.shared.open(privacySettingsURL)
+        }
+    }
+
+    /// macOS applies a new Screen Recording grant only to a fresh launch, so this opens Clicky again a second after it quits.
+    private func quitAndReopenClicky() {
+        let relaunch = Process()
+        relaunch.executableURL = URL(fileURLWithPath: "/bin/sh")
+        relaunch.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", Bundle.main.bundlePath]
+        do {
+            try relaunch.run()
+        } catch {
+            print("⚠️ Setup: could not schedule the relaunch: \(error)")
+            return
+        }
+        NSApp.terminate(nil)
+    }
+
+    /// The checklist's Start button. A first run starts Clicky's intro and writes `hasCompletedOnboarding`. A Debug
+    /// `--show-setup` run on a Mac that already finished onboarding only hides the checklist again, so it writes nothing the
+    /// everyday Clicky shares. On a Mac that never finished onboarding, its Start is the real first run.
+    func finishSetup() {
+        #if DEBUG
+        // Only a Mac that already finished onboarding takes the Debug path. On one that never did, Start is the real one.
+        if showsSetupForThisLaunch && hasCompletedOnboarding {
+            showsSetupForThisLaunch = false
+            return
+        }
+        showsSetupForThisLaunch = false
+        #endif
+        triggerOnboarding()
+    }
+
+    // MARK: - Panel actions
+
+    /// Set by `MenuBarPanelManager`: whether the menu bar panel holds the keyboard, or closed on an Escape a moment ago.
+    var menuPanelTookTheEscape: () -> Bool = { false }
+    /// Set by `MenuBarPanelManager`: whether the panel is open on its home, where the banner slot shows the approval card.
+    var menuPanelShowsTheApprovalCard: () -> Bool = { false }
+
+    /// How the running video quiz is going, for the panel's state line, or nil with no quiz running.
+    @Published private(set) var videoQuizProgress: VideoQuizProgress?
+
+    /// The state line's Stop quiz button, which does what saying "stop the quiz" does.
+    func stopTheVideoQuizFromThePanel() {
+        handleVideoQuizVoiceCommand(.stop)
+    }
+
+    /// The desk whose card the panel's banner slot shows, as the agent list does, with its own seen state and clock.
+    var approvalDesk: HarnessApprovalDesk { agentHarness.approvalDesk }
+
+    /// The panel closed or left its home, so its approval card is off screen: the desk forgets what that card had shown,
+    /// and a request still waiting opens the agent list, since no other screen shows its summary.
+    func theMenuPanelStoppedShowingTheApprovalCard() {
+        agentHarness.approvalDesk.theCardHasNotShownTheWholeSummary(on: .menuPanel)
+        guard let oldestRequest = agentHarness.approvalDesk.oldestWaitingRequest, !agentListPanelController.isOpen else { return }
+        agentListPanelController.openForAnApprovalRequest(fromAgentID: oldestRequest.taskID)
+    }
+
+    /// The agents row: the panel closes and the agent list opens next to the mouse, as the settings dial's Agents slice opens it.
+    func openTheAgentListFromThePanel() {
+        // The list opens before the panel closes, so the panel's close finds it open and opens no second list for a
+        // waiting request (`theMenuPanelStoppedShowingTheApprovalCard`).
+        if !agentListPanelController.isOpen { agentListPanelController.toggle() }
+        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+    }
+
+    /// The "Design one" card: the panel closes and the Theme Studio opens next to the mouse with three new ideas.
+    func designAThemeFromThePanel() {
+        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+        startDesigningATheme(request: "a new theme", basedOnIdea: nil, pictureChoice: .none)
+    }
+
+    /// The keyboard moved the focus to an agent chip in the panel: its disc in the menu bar shows the focus ring and its
+    /// peek card, so the keyboard reaches the discs, which never take the keyboard themselves.
+    func showTheKeyboardFocusOnTheAgentDisc(of agentID: UUID) {
+        agentTokenDockController.showTheKeyboardFocus(onTheDiscOf: agentID)
+    }
+
+    /// An agent chip lost the focus, or the panel closed (nil): the ring and the peek card leave that disc, and only that
+    /// disc, so a chip that loses the focus after the next chip took it never takes the next one's ring away.
+    func endTheKeyboardFocusOnTheAgentDisc(of agentID: UUID?) {
+        agentTokenDockController.endTheKeyboardFocus(onTheDiscOf: agentID)
+    }
+
+    /// What the agent's disc menu offers, for the panel's agent actions.
+    func agentDiscMenuItemsForThePanel(agentID: UUID) -> [AgentDiscMenuItem] {
+        let agent = backgroundAgentStore.agents.first { $0.id == agentID }
+        return agentDiscMenuItems(
+            for: agent,
+            isWaitingForApproval: backgroundAgentStore.agentIDsWaitingForApproval.contains(agentID),
+            aVideoQuizQuestionIsOpen: videoQuizQuestionIsActive
+        )
+    }
+
+    /// Runs one of a disc's menu items from the panel. One that opens the agent list opens it under the disc, or next to the
+    /// mouse when the agent has no disc on screen, such as one counted in "+N".
+    func runTheAgentDiscMenuItemFromThePanel(_ menuItem: AgentDiscMenuItem, agentID: UUID) {
+        // The item runs before the panel closes, so a list it opens is already open when the panel's close checks.
+        if !agentTokenDockController.run(menuItem, forTheDiscOf: agentID) {
+            // Only an item that opens the agent list comes back, for an agent with no disc to open it under.
+            if menuItem == .reviewRequest {
+                agentListPanelController.openForAnApprovalRequest(fromAgentID: agentID)
+            } else if !agentListPanelController.isOpen {
+                agentListPanelController.toggle()
+            }
+        }
+        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
     }
 
     // MARK: - Private
@@ -782,6 +1128,15 @@ final class CompanionManager: ObservableObject {
                         self.scheduleTransientHideIfNeeded()
                     }
                 }
+            }
+    }
+
+    /// Each newer partial transcript after the release may start the voice command again on its words.
+    private func bindPartialTranscriptsToTheVoiceCommandSpeculation() {
+        partialTranscriptCancellable = buddyDictationManager.partialTranscriptUpdates
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] partialTranscript in
+                self?.theLearnersPartialWordsChanged(to: partialTranscript)
             }
     }
 
@@ -904,12 +1259,19 @@ final class CompanionManager: ObservableObject {
             guard !showOnboardingVideo else { return }
 
             pushToTalkPressCount += 1
-            approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
+            approvalAtThePress = agentHarness.approvalDesk.approvalAtPress(at: Date())
             pushToTalkPressAcceptance.pressWasAccepted()
             // A screen read from an earlier press is out of date the moment a new press begins.
             forgetTheVoiceCommandScreenRead()
+            // So is a command the last press started on its partial transcript, whose words the learner is now replacing.
+            endTheVoiceCommandSpeculation(because: "a new push-to-talk press")
+            // A token still flying from the cursor to its slot lands there at once, and so does a Bring back spark. The chip a
+            // spark carries shows as it lands, so this comes before the Recall, which then shrinks it into the cursor like any chip.
+            cancelTheVideoRecapGather()
+            agentTokenDockController.finishTheServeAtOnce()
             // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
+            VoiceToolCallChip.shared.recall()
             cursorLoopController.pushToTalkWasPressed()
 
             showTheCursorOverlayForThisInteraction()
@@ -920,8 +1282,6 @@ final class CompanionManager: ObservableObject {
             // Cancel any in-progress response and TTS from a previous utterance
             currentResponseTask?.cancel()
             elevenLabsTTSClient.stopPlayback()
-            // A token still flying from the cursor to its slot lands there at once.
-            agentTokenDockController.finishTheServeAtOnce()
             clearDetectedElementLocation()
             // A cancelled narration or scene line returns without leaving the responding state, and the
             // dictation binding never replaces responding, so the listening ring would not show.
@@ -954,6 +1314,9 @@ final class CompanionManager: ObservableObject {
                         self?.lastTranscript = finalTranscript
                         print("🗣️ Companion received transcript: \(finalTranscript)")
                         self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript, pushToTalkPressCount: pressCountOfThisPress)
+                    },
+                    endWithNoTranscript: { [weak self] in
+                        self?.discardTheSpeculationOfAPressThatEndedWithNoTranscript(pressCountOfThisPress)
                     }
                 )
             }
@@ -1069,6 +1432,13 @@ final class CompanionManager: ObservableObject {
             let stepWaitsForTheBackgroundAgents = stepPrefix == .waitsForTheBackgroundAgents
             let stepPressesPushToTalkDuringTheCommand = stepPrefix == .pressesPushToTalkDuringTheCommand
             var transcript = transcriptWithoutPrefix
+            if stepPrefix == .hearsAPartialTranscriptFirst {
+                let (partialTranscript, finalTranscript) = rehearsalPartialAndFinalTranscripts(transcriptWithoutPrefix)
+                rehearsalPartialTranscript = partialTranscript
+                transcript = finalTranscript
+            }
+            // Every exit from this step, a "continue" included, stops standing in for the microphone.
+            defer { rehearsalPartialTranscript = nil }
             if stepWaitsForTheBackgroundAgents {
                 // A guide takes about 15 seconds and a task agent about 25, so 3 minutes covers a long task and the Worker's retries.
                 for _ in 0..<720 where !backgroundAgentTasks.isEmpty || studyGuideRefreshesBeingChecked > 0 {
@@ -1102,8 +1472,9 @@ final class CompanionManager: ObservableObject {
             // A push-to-talk press hides the label before a transcript goes out, so the rehearsal does
             // the same, and a line the previous step left up cannot stay on screen.
             LiveSceneStatusLabel.shared.hide()
+            VoiceToolCallChip.shared.recall()
             pushToTalkPressCount += 1
-            approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
+            approvalAtThePress = agentHarness.approvalDesk.approvalAtPress(at: Date())
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
             cursorLoopController.pushToTalkWasPressed()
             let frontTabRead = FrontTabReadAtRelease()
@@ -1197,6 +1568,8 @@ final class CompanionManager: ObservableObject {
     /// the buddy to fly to that element on screen.
     private func sendTranscriptToClaudeWithScreenshot(transcript: String, pushToTalkPressCount pressCountOfTheTranscript: Int) {
         let transcriptReadyAt = Date()
+        // A transcript with words is a command Clicky heard.
+        playCursorEmote(.nod)
         // This transcript takes the read of its own press before any branch below returns, so no later transcript can use it,
         // and a press that gets a transcript leaves no read behind. The read is dropped when the page it describes is gone.
         let screenReadAtRelease = screenReadForTheTranscript(
@@ -1214,87 +1587,93 @@ final class CompanionManager: ObservableObject {
         defer {
             if !screenReadIsHandedToTheVoiceCommand { screenReadAtRelease?.pageRead.cancel() }
         }
-        let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
-        if videoQuizPhrasesAreMatchedAheadOfTheRouter(
-            themeStudioIsOpen: themeStudioController.isOpen,
-            phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer
-        ), let videoQuizCommand = videoQuizVoiceCommand(for: transcript) {
+        let routeContext = currentTranscriptRouteContext()
+        // The read started at this press's release, when there is one. Otherwise it is read once here, and only for a
+        // transcript that gets past the phrase matches and the keyword branches, because each read is a round trip to
+        // Chrome. A quiz answer or a scene still building reads no video.
+        var frontVideoStateReadForThisTranscript: JSONValue??
+        func frontVideoState() -> JSONValue? {
+            if let frontVideoStateReadForThisTranscript { return frontVideoStateReadForThisTranscript }
+            let frontVideoStateNow: JSONValue?
+            switch frontVideoStateSourceForTheTranscript(
+                phaseIsWaitingForAQuizAnswer: routeContext.phaseIsWaitingForAQuizAnswer,
+                sceneIsBuilding: routeContext.sceneIsBuilding,
+                screenReadAtRelease: screenReadAtRelease
+            ) {
+            case .noVideoIsRead:
+                frontVideoStateNow = nil
+            case .fromTheRelease(let frontVideoStateAtRelease):
+                frontVideoStateNow = frontVideoStateAtRelease
+            case .readNow:
+                frontVideoStateNow = videoQuizSession.frontVideoStateForVoiceCommands()
+            }
+            frontVideoStateReadForThisTranscript = .some(frontVideoStateNow)
+            return frontVideoStateNow
+        }
+        let route = transcriptRoute(for: transcript, in: routeContext, videoIsInFront: { frontVideoState() != nil })
+
+        // A command this press started on its partial transcript is kept only when the final transcript would have sent the
+        // same command, and is discarded otherwise, before the final transcript takes its route.
+        var speculationOutcome: VoiceCommandSpeculationOutcome?
+        var confirmedSpeculativeCommand: SpeculativeVoiceCommand?
+        if let speculativeCommand = voiceCommandSpeculation.takeForTheFinalTranscript(ofPress: pressCountOfTheTranscript) {
+            let finalUsesTheSameScreenRead = screenReadAtRelease != nil
+            let commandInputsAreUnchanged = route == .voiceCommandRouter && finalUsesTheSameScreenRead
+                && voiceCommandInputs(frontVideoState: frontVideoState(), pageRead: speculativeCommand.screenRead.pageRead) == speculativeCommand.inputs
+            switch speculationStep(
+                partialTranscript: speculativeCommand.partialTranscript,
+                finalTranscript: transcript,
+                finalRoute: route,
+                voiceCommandsRunInTheHarness: voiceCommandBackend.runsInTheHarness,
+                finalUsesTheSameScreenRead: finalUsesTheSameScreenRead,
+                commandInputsAreUnchanged: commandInputsAreUnchanged,
+                // The router stops tracking a command once its task_failed arrives or its harness exits.
+                heldCommandIsStillRunning: agentHarness.taskRouter.isTracking(taskID: speculativeCommand.command.commandID)
+            ) {
+            case .confirm:
+                agentHarness.confirmVoiceCommand(taskID: speculativeCommand.command.commandID)
+                confirmedSpeculativeCommand = speculativeCommand
+                speculationOutcome = .kept
+                print("Voice command: the final transcript kept the command started on the partial transcript")
+            case .discard(let reason):
+                discardTheSpeculativeVoiceCommand(speculativeCommand, because: reason)
+                speculationOutcome = .discarded
+            }
+        }
+
+        switch route {
+        case .videoQuizCommand(let videoQuizCommand):
             handleVideoQuizVoiceCommand(videoQuizCommand)
-            return
-        }
-
-        // "Put it back" has its own tested phrase match, which keeps "put it back together" for the router.
-        if asksToPutTheSceneBack(transcript), liveSceneIsUpWithNoQuizQuestion {
+        case .putTheSceneBack:
             respondToTranscript(transcript: transcript, requestedSceneKind: nil)
-            return
-        }
-        var sceneIsBuilding = false
-        if case .buildingScene = liveScenePhase { sceneIsBuilding = true }
-        let brainTakesEveryRequest = BrainTakesEveryRequest.isOn()
-
         // "Animate this" and "let me try it" keep their keyword branches ahead of the router, so a demo never depends on
         // the model choosing them, unless the brain flag hands the utterance to the router.
-        switch keywordBranchAheadOfTheRouter(
-            for: transcript,
-            brainTakesEveryRequest: brainTakesEveryRequest,
-            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
-            phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
-            sceneIsBuilding: sceneIsBuilding,
-            themeStudioIsOpen: themeStudioController.isOpen
-        ) {
-        case .animatePicture:
+        case .keywordBranch(.animatePicture):
             theRequestBecameALookAtTheMedia()
             respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout)
-            return
-        case .startExperiment:
+        case .keywordBranch(.startExperiment):
             startTheExperimentInTheBackground(transcript: transcript)
-            return
-        case .designATheme(let themeStudioRequest):
+        case .keywordBranch(.designATheme(let themeStudioRequest)):
             startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
-            return
-        case nil:
-            break
-        }
-
-        // The read started at this press's release, when there is one. Otherwise it is read once here and handed to the
-        // router, because each read is a round trip to Chrome. A quiz answer or a scene still building reads no video.
-        let frontVideoState: JSONValue?
-        switch frontVideoStateSourceForTheTranscript(
-            phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
-            sceneIsBuilding: sceneIsBuilding,
-            screenReadAtRelease: screenReadAtRelease
-        ) {
-        case .noVideoIsRead:
-            frontVideoState = nil
-        case .fromTheRelease(let frontVideoStateAtRelease):
-            frontVideoState = frontVideoStateAtRelease
-        case .readNow:
-            frontVideoState = videoQuizSession.frontVideoStateForVoiceCommands()
-        }
-        let routerTakesTheTranscript = voiceCommandRouterTakesTheTranscript(
-            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
-            videoIsInFront: frontVideoState != nil,
-            backgroundSceneIsReady: readyBackgroundScene != nil,
-            taskAnswerIsReady: taskAnswerWaitsToBeHeard,
-            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil,
-            themeStudioIsOpen: themeStudioController.isOpen,
-            phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
-            sceneIsBuilding: sceneIsBuilding,
-            brainTakesEveryRequest: brainTakesEveryRequest
-        )
-        if routerTakesTheTranscript {
+        case .keywordBranch(.showArtInMyRoom):
+            theRequestBecameALookAtTheMedia()
+            startShowingTheArtInMyRoom(learnerRequest: transcript)
+        case .voiceCommandRouter:
             // Only the release of this transcript's own press counts, never an older press's.
             let releaseOfThisPress = lastPushToTalkRelease?.pressCount == pressCountOfTheTranscript ? lastPushToTalkRelease : nil
             screenReadIsHandedToTheVoiceCommand = true
+            let timing = VoiceCommandTimingRecorder(pushToTalkReleasedAt: releaseOfThisPress?.releasedAt, transcriptReadyAt: transcriptReadyAt)
+            timing.speculation = speculationOutcome
             startVoiceCommand(
                 transcript: transcript,
-                frontVideoState: frontVideoState,
+                frontVideoState: frontVideoState(),
                 pageReadStartedAtRelease: screenReadAtRelease?.pageRead,
-                timing: VoiceCommandTimingRecorder(pushToTalkReleasedAt: releaseOfThisPress?.releasedAt, transcriptReadyAt: transcriptReadyAt)
+                confirmedSpeculativeCommand: confirmedSpeculativeCommand,
+                timing: timing
             )
-            return
+        case .keywordPath:
+            respondByTheKeywordPath(transcript: transcript)
         }
-        respondByTheKeywordPath(transcript: transcript)
     }
 
     /// Starts the reads a voice command needs from the screen, at the release of push-to-talk. The front tab read, shared
@@ -1322,7 +1701,7 @@ final class CompanionManager: ObservableObject {
             // The front tab is the one the loop's media read took, when that ran first, and its URL is the study guide check's.
             let frontTab = frontTabRead.frontTab()
             let frontVideoState = frontTab.flatMap { videoQuizSession.frontVideoStateForVoiceCommands(in: $0) }
-            voiceCommandScreenRead = VoiceCommandScreenRead(
+            let screenRead = VoiceCommandScreenRead(
                 pressCount: pressCountOfTheRead,
                 pageIdentityAtRelease: pageIdentityAtRelease,
                 frontVideoState: frontVideoState,
@@ -1330,7 +1709,138 @@ final class CompanionManager: ObservableObject {
                     await self.readThePageForTheVoiceCommand(frontVideoState: frontVideoState, frontVideoURLSource: .releaseRead(frontTab?.url))
                 }
             )
+            voiceCommandScreenRead = screenRead
+            startTheVoiceCommandOnThePartialTranscriptOnceTheScreenIsRead(screenRead)
         }
+    }
+
+    /// Starts the voice command on the words heard so far once the release's page read is in, so the model works while the
+    /// final transcript is still on its way. The harness holds the command before its first call until the final transcript
+    /// confirms the words, so nothing the learner can see or hear happens on a partial transcript. Newer partial words
+    /// start it again (`theLearnersPartialWordsChanged`), the press's final transcript keeps or discards it
+    /// (`speculationStep`), and a new press discards it.
+    private func startTheVoiceCommandOnThePartialTranscriptOnceTheScreenIsRead(_ screenRead: VoiceCommandScreenRead) {
+        endTheVoiceCommandSpeculation(because: "a newer release read the screen again")
+        let startOnceTheScreenIsRead = Task { @MainActor in
+            let pageRead = await screenRead.pageRead.value
+            // A press, or this press's final transcript, ended the wait first, and the final transcript runs the normal way.
+            guard !Task.isCancelled,
+                  case .waitingForTheScreenRead(let pressCountWaiting, _) = self.voiceCommandSpeculation,
+                  pressCountWaiting == screenRead.pressCount else { return }
+            self.voiceCommandSpeculation = .none
+            self.startTheVoiceCommand(
+                onThePartialTranscript: self.partialTranscriptHeardSoFar(),
+                from: ReleaseScreenReadInHand(pressCount: screenRead.pressCount, frontVideoState: screenRead.frontVideoState, pageRead: pageRead)
+            )
+        }
+        voiceCommandSpeculation = .waitingForTheScreenRead(pressCount: screenRead.pressCount, start: startOnceTheScreenIsRead)
+    }
+
+    /// Newer partial words arrived after the release's screen read, before the final transcript. A command started on older
+    /// words is discarded and the command starts again on these, since the words heard at the release are often only the
+    /// first one or two, and the newest partial is the one most likely to match the final transcript.
+    private func theLearnersPartialWordsChanged(to partialTranscript: String) {
+        #if DEBUG
+        // A rehearsal stands in for the microphone, so a stray partial from a real press must not replace its words.
+        if rehearsalPartialTranscript != nil { return }
+        #endif
+        guard let screenRead = voiceCommandSpeculation.screenReadToStartFrom(whenThePartialWordsBecome: partialTranscript) else { return }
+        endTheVoiceCommandSpeculation(because: "newer words were heard")
+        startTheVoiceCommand(onThePartialTranscript: partialTranscript, from: screenRead)
+    }
+
+    /// Sends the command on these partial words when `speculativeStartStep` allows it, and otherwise waits for newer words
+    /// or gives up on the press, which the final transcript then runs the normal way.
+    private func startTheVoiceCommand(onThePartialTranscript partialTranscript: String, from screenRead: ReleaseScreenReadInHand) {
+        let partialRoute = transcriptRoute(
+            for: partialTranscript,
+            in: currentTranscriptRouteContext(),
+            videoIsInFront: { screenRead.frontVideoState != nil }
+        )
+        let inputs = voiceCommandInputs(frontVideoState: screenRead.frontVideoState, pageRead: screenRead.pageRead)
+        let releaseOfThisPress = lastPushToTalkRelease?.pressCount == screenRead.pressCount ? lastPushToTalkRelease : nil
+        let millisecondsAfterTheRelease = releaseOfThisPress.map { release in "\(Int(Date().timeIntervalSince(release.releasedAt) * 1000)) ms" } ?? "-"
+        switch speculativeStartStep(
+            partialTranscript: partialTranscript,
+            partialRoute: partialRoute,
+            voiceCommandsRunInTheHarness: voiceCommandBackend.runsInTheHarness,
+            approvalAtPress: inputs.approvalWhenTheCommandStarted,
+            speculationIsOn: VoiceCommandSpeculation.isOn()
+        ) {
+        case .doNotStart(let reason):
+            print("Voice command: did not start on the partial transcript, because \(reason)")
+            return
+        case .waitForOtherWords(let reason):
+            print("Voice command: waits for newer partial words \(millisecondsAfterTheRelease) after the release, because \(reason)")
+            voiceCommandSpeculation = .waitingForWords(screenRead)
+            return
+        case .start:
+            break
+        }
+        do {
+            let command = try startTheHarnessVoiceCommand(transcript: partialTranscript, inputs: inputs, waitsForTheFinalTranscript: true)
+            voiceCommandSpeculation = .awaitingTheFinalTranscript(SpeculativeVoiceCommand(
+                partialTranscript: partialTranscript,
+                screenRead: screenRead,
+                inputs: inputs,
+                command: command
+            ))
+            // The words go in the log as the final transcript's do, so a discard shows what the two transcripts said.
+            print("Voice command: started on the partial transcript \"\(partialTranscript)\" \(millisecondsAfterTheRelease) after the release, with \(inputs.tools.count) tools")
+        } catch {
+            print("Voice command: could not start on the partial transcript: \(error)")
+        }
+    }
+
+    /// The words heard so far in the current press. A rehearsal step that starts with "%" stands in for them.
+    private func partialTranscriptHeardSoFar() -> String {
+        #if DEBUG
+        if let rehearsalPartialTranscript { return rehearsalPartialTranscript }
+        #endif
+        return buddyDictationManager.partialTranscript
+    }
+
+    /// Ends what the last press started on its partial transcript: a start still waiting for the screen read, or a command
+    /// waiting for the final transcript, which is discarded.
+    private func endTheVoiceCommandSpeculation(because reason: String) {
+        if let speculativeCommand = voiceCommandSpeculation.end() {
+            discardTheSpeculativeVoiceCommand(speculativeCommand, because: reason)
+        }
+    }
+
+    /// A press's dictation ended with no final transcript, so nothing will keep the command it started on its partial
+    /// transcript, and it is discarded now instead of waiting in the harness until the next press.
+    private func discardTheSpeculationOfAPressThatEndedWithNoTranscript(_ pressCount: Int) {
+        if let speculativeCommand = voiceCommandSpeculation.endForAnEmptyFinalTranscript(ofPress: pressCount) {
+            discardTheSpeculativeVoiceCommand(speculativeCommand, because: "the final transcript came back empty")
+        }
+    }
+
+    /// Cancels a command started on the partial transcript. None of its calls ran, since the harness held them, so the
+    /// cancel names no running call and the harness rolls the command back with nothing to report to the next one.
+    private func discardTheSpeculativeVoiceCommand(_ speculativeCommand: SpeculativeVoiceCommand, because reason: String) {
+        speculativeCommand.command.lines.commandWasCancelled()
+        agentHarness.endVoiceCommand(taskID: speculativeCommand.command.commandID)
+        print("Voice command: discarded the command started on the partial transcript, because \(reason)")
+    }
+
+    /// What decides a transcript's route, read from the app now.
+    private func currentTranscriptRouteContext() -> TranscriptRouteContext {
+        var sceneIsBuilding = false
+        if case .buildingScene = liveScenePhase { sceneIsBuilding = true }
+        return TranscriptRouteContext(
+            themeStudioIsOpen: themeStudioController.isOpen,
+            phaseIsWaitingForAQuizAnswer: liveScenePhaseIsWaitingForAQuizAnswer,
+            liveSceneIsUpWithNoQuizQuestion: liveSceneIsUpWithNoQuizQuestion,
+            sceneIsBuilding: sceneIsBuilding,
+            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            brainTakesEveryRequest: BrainTakesEveryRequest.isOn(),
+            backgroundSceneIsReady: readyBackgroundScene != nil,
+            taskAnswerIsReady: taskAnswerWaitsToBeHeard,
+            approvalIsWaiting: approvalAtThePressStillWaiting != nil,
+            backgroundAgentIsRunning: backgroundAgentStore.anAgentIsRunning,
+            backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused
+        )
     }
 
     /// Which page is on screen right now, for telling a read of the page tools from a read of a page that is gone.
@@ -1720,7 +2230,7 @@ final class CompanionManager: ObservableObject {
               let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.shownTheme),
               LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
             liveScenePhase = .idle
-            await speakLiveSceneLine(failureLine)
+            await speakLiveSceneLine(failureLine, isAFailure: true)
             voiceState = .idle
             // No scene opened, so nothing will clear it and resume the video.
             // A previous pop-out cleared for this request may still be landing back in its frame.
@@ -1748,7 +2258,8 @@ final class CompanionManager: ObservableObject {
         // A tap while waiting cancels this task, and a line spoken now would cut off the tap's own narration.
         guard !Task.isCancelled else { return }
         if let spokenLine = pictureFlowsOutcome?.spokenLineWhenNotShowing {
-            await speakLiveSceneLine(spokenLine)
+            if pictureFlowsOutcome == .failed { VoiceToolCallChip.shared.show("Couldn't animate that one", sender: .failure) }
+            await speakLiveSceneLine(spokenLine, isAFailure: pictureFlowsOutcome == .failed)
         }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
@@ -1784,7 +2295,8 @@ final class CompanionManager: ObservableObject {
         LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
         voiceState = .idle
         if let spokenLine = pictureFlowsOutcome.spokenLineWhenNotShowing {
-            await speakLiveSceneLine(spokenLine)
+            if pictureFlowsOutcome == .failed { VoiceToolCallChip.shared.show("Couldn't animate that one", sender: .failure) }
+            await speakLiveSceneLine(spokenLine, isAFailure: pictureFlowsOutcome == .failed)
         }
         guard !Task.isCancelled else { return }
         scheduleTransientHideIfNeeded()
@@ -2025,6 +2537,7 @@ final class CompanionManager: ObservableObject {
                 if case .hit = challengeOutcome {
                     self.simulationLesson?.challengeIsRunning = false
                     self.themeSettings.shownTheme.sounds.correct.play()
+                    self.playCursorEmote(.hop)
                 }
                 await self.speakSimulationLine(simulationChallengeSpokenLine(for: challengeOutcome))
             } else {
@@ -2295,7 +2808,7 @@ final class CompanionManager: ObservableObject {
         scheduleTransientHideIfNeeded()
     }
 
-    /// The first wrong answer keeps the model's sentence, which does not give the answer away.
+    /// The first wrong answer keeps the model's sentence, which does not give the answer away, and offers a hint.
     /// A second wrong answer uses the closing line, so the learner hears what the part does.
     private func applyJudgedLiveSceneAnswer(
         grade: LiveSceneQuizGrade,
@@ -2305,6 +2818,7 @@ final class CompanionManager: ObservableObject {
     ) -> String {
         let revealOutcome = LiveSceneRevealOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount)
         LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome, correctAnswerSound: themeSettings.shownTheme.sounds.correct)
+        if let emoteForTheAnswer = cursorEmote(forAnswerOutcome: revealOutcome) { playCursorEmote(emoteForTheAnswer) }
         // After a first wrong answer the question is still open, so its bubble stays for the learner to read again.
         if !(grade == .wrong && wrongAnswerCount == 0) {
             releaseTheBuddyFromTheQuizQuestion()
@@ -2326,7 +2840,7 @@ final class CompanionManager: ObservableObject {
         case .wrong:
             if wrongAnswerCount == 0 {
                 liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
-                return judgeSpokenReply
+                return firstWrongAnswerSpokenLine(judgeSpokenReply: judgeSpokenReply)
             }
             liveScenePhase = .allLabelsShowing
             return spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
@@ -2423,6 +2937,7 @@ final class CompanionManager: ObservableObject {
         let spokenLine: String
         switch videoQuizCommand {
         case .start:
+            videoQuizSummaryPanelController.close(animated: true)
             videoQuizSession.start()
             spokenLine = "Sure, let me read through this video."
         case .stop:
@@ -2466,13 +2981,13 @@ final class CompanionManager: ObservableObject {
 
     /// Speaks a line from the video quiz after whatever Clicky is already saying,
     /// so a quick failure does not cut off "Let me read through this video."
-    private func speakVideoQuizLine(_ line: String) {
+    private func speakVideoQuizLine(_ line: String, isAFailure: Bool) {
         let previousSpokenLineTask = currentResponseTask
         currentResponseTask = Task {
             await previousSpokenLineTask?.value
             await self.waitUntilTheVoiceAnswerIsQuiet()
             guard !Task.isCancelled else { return }
-            await self.speakLiveSceneLine(line)
+            await self.speakLiveSceneLine(line, isAFailure: isAFailure)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -2539,7 +3054,8 @@ final class CompanionManager: ObservableObject {
     /// No scene is on screen, so nothing else will resume a video paused for it.
     private func sayTheSceneCouldNotBeBuilt() async {
         liveScenePhase = .idle
-        await speakLiveSceneLine("Sorry, I couldn't build that one.")
+        VoiceToolCallChip.shared.show("Couldn't build that one", sender: .failure)
+        await speakLiveSceneLine("Sorry, I couldn't build that one.", isAFailure: true)
         voiceState = .idle
         // A pop-out whose page failed may still be landing back in its frame.
         await LiveSceneOverlay.shared.waitForReturnToFinish()
@@ -2564,8 +3080,11 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Escape only cancels a text field being edited in Clicky's own window, such as a saved theme's rename field, when one
-    /// is, only cancels the settings dial when it is open, only closes the agent list when that is open, and then closes the
-    /// Theme Studio card when that is open, keeping the old theme. Otherwise it ends the scene and anything Clicky is still saying about it.
+    /// is, does nothing more when the menu bar panel took it as its own close, only cancels the settings dial when it is
+    /// open, only closes the agent list when that is open, and then closes the Theme Studio card when that is open, keeping
+    /// the old theme, then answers an "Add theme?" card with a no, then closes the room art panel (or stops its page read),
+    /// then stops a recap's disc gather, then closes the quiz summary Card. Otherwise it ends the scene and anything Clicky
+    /// is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
@@ -2574,18 +3093,42 @@ final class CompanionManager: ObservableObject {
         if NSApp.keyWindow?.firstResponder is NSText {
             return
         }
+        // The menu bar panel takes Escape as its own close, so it skips no quiz question and clears no scene. The panel may
+        // close before this runs, so it also counts an Escape it closed on a moment ago.
+        if menuPanelTookTheEscape() {
+            return
+        }
         // With the settings dial open, Escape only cancels it. The monitor sends Escape ahead of the dial's own
         // cancel, so the dial is still open here.
         if settingsDialController.isOpen {
             return
         }
-        // With the agent list open, Escape only closes it.
+        // With the agent list open, Escape only closes it, back into the disc it opened from.
         if agentListPanelController.isOpen {
-            agentListPanelController.close()
+            agentListPanelController.closeWithGlide()
             return
         }
         // With the Theme Studio card open, Escape closes it and keeps the old theme, ahead of any scene behavior.
         if themeStudioController.closeOnEscape() {
+            return
+        }
+        // An "Add theme?" card is answered with a no.
+        if themeInstallConfirmation.cancelOnEscape() {
+            return
+        }
+        // With the room art panel open, or its page still being read, Escape closes it, stops the camera, and ends its
+        // spoken line (`stopTheRoomArtSpeech`, which every close runs), ahead of any scene behavior.
+        if roomArtPreviewController.closeOnEscape() {
+            return
+        }
+        // Escape while the discs gather for the recap stops it, and the discs go back.
+        if videoRecapIsGatheringTheDiscs {
+            cancelTheVideoRecapGather()
+            return
+        }
+        // With the quiz summary open, Escape closes it.
+        if videoQuizSummaryPanelController.isShowing {
+            videoQuizSummaryPanelController.close(animated: true)
             return
         }
         // A second Escape while a pop-out lands in its frame hides it at once.
@@ -2635,6 +3178,171 @@ final class CompanionManager: ObservableObject {
         voiceState = .idle
         scheduleTransientHideIfNeeded()
         print("Escape: stopped the reply")
+    }
+
+    /// Shows the Card that sums up a quiz that just ended, out of the quiz video when its tab is in front.
+    private func showTheVideoQuizSummary() {
+        guard let lastQuiz = videoQuizSession.lastQuizVideoURLAndResults else { return }
+        videoRecapWatcher.startWatching(forVideoURL: lastQuiz.videoURL)
+        guard let recap = videoRecap(forVideoURL: lastQuiz.videoURL) else { return }
+        let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? 0
+        let videoRect = videoQuizSession.quizVideoIsTheTabInFront()
+            ? ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTab().map { appKitRect(of: $0, mainDisplayHeight: mainDisplayHeight) }
+            : nil
+        showTheVideoRecapCard(recap, moment: .quizEnded, videoURL: lastQuiz.videoURL, videoRect: videoRect)
+    }
+
+    /// What a video's recap holds: the last quiz Clicky ran on it, when it ran on this video, and its saved study guide.
+    private func videoRecap(forVideoURL videoURL: String) -> VideoRecap? {
+        let lastQuiz = videoQuizSession.lastQuizVideoURLAndResults
+        let quizResults = lastQuiz.map { studyGuideVideoKey(forVideoURL: $0.videoURL) == studyGuideVideoKey(forVideoURL: videoURL) ? $0.results : [] } ?? []
+        return VideoRecap(quizResults: quizResults, studyGuideRecord: savedStudyGuides.record(forVideoURL: videoURL))
+    }
+
+    /// The video in Chrome's front tab ended: the discs gather at the cursor, then the Card unfolds from it.
+    private func showTheRecapAtTheEndOfTheVideo(_ recap: VideoRecap, videoURL: String) {
+        let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? 0
+        let videoRect = ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTab().map { appKitRect(of: $0, mainDisplayHeight: mainDisplayHeight) }
+        let cursorPoint = agentTokenServeStartPoint(mouseLocation: NSEvent.mouseLocation)
+        videoRecapIsGatheringTheDiscs = true
+        videoRecapGatherWasCancelled = false
+        agentTokenDockController.gatherTheDiscs(at: cursorPoint) { [weak self] in
+            guard let self else { return }
+            self.videoRecapIsGatheringTheDiscs = false
+            // A press, Escape, or a scene during the gather, or something that opened meanwhile, keeps the Card back.
+            guard videoRecapCardMayShowAfterTheGather(gatherWasCancelled: self.videoRecapGatherWasCancelled, clickyIsBusy: self.clickyIsBusyForAVideoRecapCard) else {
+                print("Video recap: the Card does not unfold, since the learner moved on during the gather")
+                self.agentTokenDockController.sendTheDiscsBack(from: cursorPoint)
+                return
+            }
+            self.showTheVideoRecapCard(recap, moment: .videoEnded, videoURL: videoURL, videoRect: videoRect, cursorPoint: cursorPoint)
+            // A Card that could not show (no screen) would leave the discs hidden, so they go back.
+            if !self.videoQuizSummaryPanelController.isShowing {
+                self.agentTokenDockController.sendTheDiscsBack(from: cursorPoint)
+            }
+        }
+    }
+
+    /// A press, Escape, or a scene starting ends a recap's gather: the flights land at once, and the Card stays away.
+    private func cancelTheVideoRecapGather() {
+        guard videoRecapIsGatheringTheDiscs else { return }
+        videoRecapGatherWasCancelled = true
+        agentTokenDockController.finishTheServeAtOnce()
+    }
+
+    private func showTheVideoRecapCard(_ recap: VideoRecap, moment: VideoRecapMoment, videoURL: String, videoRect: CGRect?, cursorPoint: CGPoint? = nil) {
+        videoQuizSummaryPanelController.show(
+            recap: recap,
+            moment: moment,
+            cursorPoint: cursorPoint,
+            videoRect: videoRect,
+            accentColor: themeSettings.shownTheme.cursorColor,
+            goBackToTheMissedQuestion: { [weak self] missedQuestion in
+                self?.goBackToTheMissedQuizQuestion(missedQuestion)
+            },
+            openTheStudyGuide: { [weak self] in
+                self?.openTheStudyGuideFromTheRecap(forVideoURL: videoURL)
+            }
+        )
+        // Only a Card that showed counts as seen, so a recap that was held back still shows at the next ending.
+        if videoQuizSummaryPanelController.isShowing {
+            videoRecapWatcher.recapWasShown(recap, forVideoURL: videoURL)
+        }
+    }
+
+    /// The Card's Study guide button: the Card closes, and the guide opens the way "open my study guide" opens it, after
+    /// Notion confirms the page is still there.
+    private func openTheStudyGuideFromTheRecap(forVideoURL videoURL: String) {
+        videoQuizSummaryPanelController.close(animated: true)
+        Task {
+            guard let studyGuideRecord = await self.savedStudyGuideStillInNotion(forVideoURL: videoURL, checkEvenIfCheckedBefore: true) else {
+                VoiceToolCallChip.shared.show("That study guide was deleted in Notion", sender: .failure)
+                return
+            }
+            guard self.openTheStudyGuidePage(at: studyGuideRecord.pageURL) else {
+                VoiceToolCallChip.shared.show("Couldn't open the study guide", sender: .failure)
+                return
+            }
+        }
+    }
+
+    /// Switches to the Chrome tab the guide opened in, or opens its page, which only an https page on Notion may be.
+    private func openTheStudyGuidePage(at pageURL: URL) -> Bool {
+        if let chromeTabID = notionPageChromeTabIDsByPageURL[pageURL], videoQuizSession.bringChromeTabForward(tabID: chromeTabID) {
+            return true
+        }
+        // NSWorkspace opens any URL scheme, and a guide saved by an older build was never checked.
+        return pageURLIsOnNotion(pageURL) && NSWorkspace.shared.open(pageURL)
+    }
+
+    /// Whether Clicky is doing something a recap Card would cover or talk over, which the watch waits out: listening, thinking,
+    /// speaking, a quiz question or a running quiz, a scene, a Card already up, the Theme Studio card, the settings dial, the
+    /// agent list, the room art panel, the "Add theme?" card, or an approval waiting for the learner.
+    private var clickyIsBusyForAVideoRecapCard: Bool {
+        guard case .idle = liveScenePhase else { return true }
+        return voiceState != .idle
+            || elevenLabsTTSClient.isPlaying
+            || videoQuizQuestionIsActive
+            || videoQuizSession.isRunning
+            || videoQuizSummaryPanelController.isShowing
+            || themeStudioController.isOpen
+            || settingsDialController.isOpen
+            || agentListPanelController.isOpen
+            || roomArtPreviewController.isOpen
+            || themeInstallConfirmation.isOpen
+            || agentHarness.approvalDesk.oldestWaitingRequest != nil
+    }
+
+    /// A click on a question in the quiz summary: the video goes back there and its pop-out shows again, with every label
+    /// named and the narration a requested pop-out has. Clearing it resumes the video.
+    private func goBackToTheMissedQuizQuestion(_ missedQuestion: VideoQuizMissedQuestion) {
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        // A scene still building would replace the pop-out when it finishes, so it is cancelled as "stop the quiz" cancels one.
+        if case .buildingScene = liveScenePhase {
+            liveSceneRequestTask?.cancel()
+            liveSceneRequestTask = nil
+            liveSceneRequestGeneration += 1
+            LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
+            liveScenePhase = .idle
+        }
+        // The video is about to move back to the question, so a scene on screen goes without its "back to the video".
+        clearFinishedLiveScene(resumesTheVideo: false)
+        let framePopout: VideoFramePopout
+        switch videoQuizSession.goBackToTheMissedQuestion(missedQuestion) {
+        case .showsItsPopout(let popoutOfTheQuestion):
+            framePopout = popoutOfTheQuestion
+        case .playsFromBeforeIt:
+            return
+        case .couldNotGoBack:
+            currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
+            return
+        }
+        guard let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
+              let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.shownTheme),
+              LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
+            // No pop-out opened, so nothing will clear it and resume the video the go-back paused.
+            videoQuizSession.resumeVideoAfterRequestedScene()
+            currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
+            return
+        }
+        liveScenePhase = .touring(quizToAskAfterTour: nil)
+        liveScenePageOnScreen = .framePopout(framePopout)
+        voiceState = .idle
+        currentResponseTask = Task {
+            await self.narrateTheFramePopout(framePopout, narrationTrigger: .afterTour)
+            guard !Task.isCancelled else { return }
+            self.voiceState = .idle
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    private func sayTheQuizQuestionCouldNotBeShownAgain() async {
+        VoiceToolCallChip.shared.show("Couldn't go back to that question", sender: .failure)
+        await speakLiveSceneLine("Sorry, I couldn't go back to that question.")
+        guard !Task.isCancelled else { return }
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
     }
 
     private func skipTheVideoQuizQuestion() {
@@ -2693,10 +3401,13 @@ final class CompanionManager: ObservableObject {
     /// A follow-up command while a scene is on screen or a video plays in Chrome's front tab. A fast model picks tools the page
     /// and the app offer, the screen changes, and Clicky says the model's short confirmation after that.
     /// A request that needs a new scene or a screenshot answer hands off to respondToTranscript.
+    /// `confirmedSpeculativeCommand` is the command this transcript's press started on its partial transcript, which the
+    /// final transcript kept, so it runs from where the harness holds it instead of being sent again.
     private func startVoiceCommand(
         transcript: String,
         frontVideoState: JSONValue?,
         pageReadStartedAtRelease: Task<VoiceCommandPageRead, Never>? = nil,
+        confirmedSpeculativeCommand: SpeculativeVoiceCommand? = nil,
         timing: VoiceCommandTimingRecorder
     ) {
         currentResponseTask?.cancel()
@@ -2706,8 +3417,59 @@ final class CompanionManager: ObservableObject {
             // The dictation session's own idle reaches voiceState after this call returns, so the state is set again
             // here, the way respondToTranscript's task does, or the thinking dots vanish for the whole router call.
             self.voiceState = .processing
-            await self.runVoiceCommand(transcript: transcript, frontVideoState: frontVideoState, pageReadStartedAtRelease: pageReadStartedAtRelease, timing: timing)
+            await self.runVoiceCommand(
+                transcript: transcript,
+                frontVideoState: frontVideoState,
+                pageReadStartedAtRelease: pageReadStartedAtRelease,
+                confirmedSpeculativeCommand: confirmedSpeculativeCommand,
+                timing: timing
+            )
         }
+    }
+
+    /// What a voice command sends to the model for this page read and the app's state now. The speculative start and the
+    /// final transcript both build it here, so the final transcript can tell whether the command it would send is the one
+    /// already sent.
+    private func voiceCommandInputs(frontVideoState: JSONValue?, pageRead: VoiceCommandPageRead) -> VoiceCommandInputs {
+        // A quiz answer or a scene still building reads no video, so there is no front video for a guide to belong to.
+        let studyGuideExistsForTheFrontVideo = frontVideoState != nil && pageRead.studyGuideExistsForTheFrontVideo
+        let appToolContext = appVoiceToolContext(
+            pageState: pageRead.pageState,
+            frontVideoState: frontVideoState,
+            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo
+        )
+        return VoiceCommandInputs(
+            tools: voiceToolsOfferedToTheModel(pageTools: pageRead.pageTools, appTools: AppVoiceTool.available(in: appToolContext), skills: TaskAgentSkillCatalog.currentSkills()),
+            pageState: pageRead.pageState,
+            frontVideoState: frontVideoState,
+            // The harness names the waiting request's kind of action itself, so this scene state has no approvalWaiting.
+            harnessSceneState: voiceCommandSceneState(pageState: pageRead.pageState, frontVideoState: frontVideoState, namesTheWaitingApproval: false),
+            // A "yes" or "no" answers the request the card showed when the learner pressed push-to-talk, never one that came
+            // on screen while they spoke or while the model ran, such as after the shown one's task ended.
+            approvalWhenTheCommandStarted: approvalAtThePressStillWaiting
+        )
+    }
+
+    /// Sends a voice command to the brain in the harness. A command started on the partial transcript waits there, before its
+    /// first call, for `confirmVoiceCommand`.
+    private func startTheHarnessVoiceCommand(transcript: String, inputs: VoiceCommandInputs, waitsForTheFinalTranscript: Bool) throws -> StartedHarnessVoiceCommand {
+        let commandID = UUID()
+        let standardInputWriter = agentHarness.standardInputWriter
+        let commandLines = HarnessVoiceCommandLines(taskID: commandID) { harnessCommand in
+            standardInputWriter.write(harnessCommand)
+        }
+        let commandEvents = try agentHarness.startVoiceCommand(
+            taskID: commandID,
+            transcript: transcript,
+            sceneState: inputs.harnessSceneState,
+            tools: inputs.tools,
+            approvalAtPress: inputs.approvalWhenTheCommandStarted,
+            waitsForTheFinalTranscript: waitsForTheFinalTranscript
+        )
+        #if DEBUG
+        harnessVoiceCommandsSent += 1
+        #endif
+        return StartedHarnessVoiceCommand(commandID: commandID, lines: commandLines, events: commandEvents, sentAt: Date())
     }
 
     /// What decides which app tools the model is offered. The router and the Debug tool server both read it here, so the
@@ -2729,9 +3491,11 @@ final class CompanionManager: ObservableObject {
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
             simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
-            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil,
+            approvalIsWaiting: approvalAtThePressStillWaiting != nil,
             themeStudioIsOpen: themeStudioController.isOpen,
-            themeStudioShowsIdeas: themeStudioController.state.isShowingIdeas
+            themeStudioShowsIdeas: themeStudioController.state.isShowingIdeas,
+            backgroundAgentIsRunning: backgroundAgentStore.anAgentIsRunning,
+            backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused
         )
     }
 
@@ -2739,49 +3503,58 @@ final class CompanionManager: ObservableObject {
         transcript: String,
         frontVideoState: JSONValue?,
         pageReadStartedAtRelease: Task<VoiceCommandPageRead, Never>?,
+        confirmedSpeculativeCommand: SpeculativeVoiceCommand?,
         timing: VoiceCommandTimingRecorder
     ) async {
         // Every exit logs the line once: a finished, cancelled, failed, or handed-off command.
         defer { timing.logTheLineOnce() }
         let commandStartedAt = Date()
-        // The read started at the press's release is awaited when it has not finished, and a command with no read of its own
-        // (a quiz scene command, or a transcript whose read was dropped) reads the page now.
-        // A press during the read cancels this command, so it must not send anything to the harness or the Worker.
-        guard let pageRead = await pageReadForTheVoiceCommand(
-            startedAtRelease: pageReadStartedAtRelease,
-            readNow: { await readThePageForTheVoiceCommand(frontVideoState: frontVideoState) }
-        ) else { return }
+        let pageRead: VoiceCommandPageRead
+        if let confirmedSpeculativeCommand {
+            pageRead = confirmedSpeculativeCommand.screenRead.pageRead
+        } else {
+            // The read started at the press's release is awaited when it has not finished, and a command with no read of
+            // its own (a quiz scene command, or a transcript whose read was dropped) reads the page now.
+            // A press during the read cancels this command, so it must not send anything to the harness or the Worker.
+            guard let pageReadForThisCommand = await pageReadForTheVoiceCommand(
+                startedAtRelease: pageReadStartedAtRelease,
+                readNow: { await readThePageForTheVoiceCommand(frontVideoState: frontVideoState) }
+            ) else { return }
+            pageRead = pageReadForThisCommand
+        }
         timing.mark(\.screenStateReadyAt, at: pageRead.finishedAt)
-        let pageTools = pageRead.pageTools
-        let pageState = pageRead.pageState
-        // A quiz answer or a scene still building reads no video, so there is no front video for a guide to belong to.
-        let studyGuideExistsForTheFrontVideo = frontVideoState != nil && pageRead.studyGuideExistsForTheFrontVideo
-        let appToolContext = appVoiceToolContext(
-            pageState: pageState,
-            frontVideoState: frontVideoState,
-            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo
-        )
-        let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext), skills: TaskAgentSkillCatalog.currentSkills())
-        let offeredToolNames = Set(tools.map(\.name))
+        // A kept command was built from these same inputs at its start, which the final transcript checked again.
+        let inputs = confirmedSpeculativeCommand?.inputs ?? voiceCommandInputs(frontVideoState: frontVideoState, pageRead: pageRead)
+        let tools = inputs.tools
         print("Voice command: offering \(tools.count) tools, \(frontVideoState == nil ? "no video" : "a video") in front")
-        // A "yes" answers the request the learner could see when they pressed push-to-talk, never one that came on
-        // screen while they spoke or while the model ran, such as after the shown one's task ended.
-        let approvalIDWaitingWhenTheCommandStarted = approvalRequestAVoiceAnswerMayReach?.approvalID
         if voiceCommandBackend.runsInTheHarness {
-            // The harness names the waiting request's kind of action itself, so this scene state has no approvalWaiting.
+            let startedCommand: StartedHarnessVoiceCommand
+            if let confirmedSpeculativeCommand {
+                startedCommand = confirmedSpeculativeCommand.command
+            } else {
+                do {
+                    startedCommand = try startTheHarnessVoiceCommand(transcript: transcript, inputs: inputs, waitsForTheFinalTranscript: false)
+                } catch {
+                    await runTheRouterFailureFallback(transcript: transcript, failureDescription: "the agent harness could not start: \(error)")
+                    return
+                }
+            }
+            timing.mark(\.commandSentAt, at: startedCommand.sentAt)
             let commandIsResentOnTheOldPath = await runVoiceCommandInTheHarness(
+                startedCommand,
                 transcript: transcript,
-                sceneState: voiceCommandSceneState(pageState: pageState, frontVideoState: frontVideoState, namesTheWaitingApproval: false),
-                tools: tools,
-                offeredToolNames: offeredToolNames,
-                approvalIDWaitingWhenTheCommandStarted: approvalIDWaitingWhenTheCommandStarted,
+                offeredToolNames: inputs.offeredToolNames,
+                lookupToolNames: inputs.lookupToolNames,
+                approvalWhenTheCommandStarted: inputs.approvalWhenTheCommandStarted,
                 commandStartedAt: commandStartedAt,
                 timing: timing
             )
             guard commandIsResentOnTheOldPath else { return }
             print("Brain: the Worker refused the app secret, so this command goes to the Worker router once, and so does every command until Clicky restarts")
         }
-        let sceneState = voiceCommandSceneState(pageState: pageState, frontVideoState: frontVideoState, namesTheWaitingApproval: true)
+        let offeredToolNames = inputs.offeredToolNames
+        let approvalWhenTheCommandStarted = inputs.approvalWhenTheCommandStarted
+        let sceneState = voiceCommandSceneState(pageState: inputs.pageState, frontVideoState: inputs.frontVideoState, namesTheWaitingApproval: true)
         let userMessageText = voiceCommandUserMessageText(
             transcript: transcript,
             sceneState: sceneState,
@@ -2819,7 +3592,7 @@ final class CompanionManager: ObservableObject {
                     transcript: transcript,
                     // Only the model's first reply to the learner's words may answer a request. A later turn has read
                     // tool results, which can hold text a page or a server wrote.
-                    approvalIDTheLearnerIsAnswering: turnIndex == 0 ? approvalIDWaitingWhenTheCommandStarted : nil,
+                    approvalTheLearnerIsAnswering: turnIndex == 0 ? approvalWhenTheCommandStarted : nil,
                     commandStartedAt: commandStartedAt
                 )
             }) else { return }
@@ -2851,7 +3624,7 @@ final class CompanionManager: ObservableObject {
         }
         guard !Task.isCancelled else { return }
         if theTurnsRanOut {
-            if await speakLiveSceneLine(voiceCommandGaveUpLine) { timing.mark(\.firstLineAudioStartedAt) }
+            if await speakTheGaveUpLine() { timing.mark(\.firstLineAudioStartedAt) }
         }
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -2861,42 +3634,29 @@ final class CompanionManager: ObservableObject {
     /// The voice command with the harness flag on: the brain in the harness runs the model's turns, and each tool call
     /// it sends runs here through `runOneVoiceToolCall`, as on the old path. Returns true only when the Worker refused the
     /// app secret before any tool of the command ran, so the caller sends the same command once on the old path.
+    /// A command kept from the partial transcript arrives here once the harness was told to go on, so its events, which
+    /// waited in the stream, run here like any other command's, and its event deadline starts only now.
     private func runVoiceCommandInTheHarness(
+        _ startedCommand: StartedHarnessVoiceCommand,
         transcript: String,
-        sceneState: JSONValue,
-        tools: [VoiceToolDescriptor],
         offeredToolNames: Set<String>,
-        approvalIDWaitingWhenTheCommandStarted: String?,
+        lookupToolNames: Set<String>,
+        approvalWhenTheCommandStarted: ApprovalAtPress?,
         commandStartedAt: Date,
         timing: VoiceCommandTimingRecorder
     ) async -> Bool {
-        let commandID = UUID()
-        let standardInputWriter = agentHarness.standardInputWriter
-        let commandLines = HarnessVoiceCommandLines(taskID: commandID) { harnessCommand in
-            standardInputWriter.write(harnessCommand)
-        }
-        let commandEvents: AsyncStream<HarnessTaskEvent>
-        do {
-            commandEvents = try agentHarness.startVoiceCommand(
-                taskID: commandID,
-                transcript: transcript,
-                sceneState: sceneState,
-                tools: tools,
-                approvalIDSeenAtPress: approvalIDWaitingWhenTheCommandStarted
-            )
-        } catch {
-            await runTheRouterFailureFallback(transcript: transcript, failureDescription: "the agent harness could not start: \(error)")
-            return false
-        }
-        timing.mark(\.commandSentAt)
-        #if DEBUG
-        harnessVoiceCommandsSent += 1
-        #endif
+        let commandID = startedCommand.commandID
+        let commandLines = startedCommand.lines
+        let commandEvents = startedCommand.events
         var aToolOfTheCommandRan = false
+        // The audio of the line the current turn speaks if every call changes the screen, fetched while the calls run.
+        // Every exit that does not play it cancels it: a cancel, a hand-off, a failure, a gave-up line, or other words.
+        var earlyLineFetch: SpokenLineFetch?
+        defer { earlyLineFetch?.cancel() }
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
-            approvalIDWaitingWhenTheCommandStarted: approvalIDWaitingWhenTheCommandStarted,
+            approvalWhenTheCommandStarted: approvalWhenTheCommandStarted,
             whenNoEventArrivesInTime: { [weak self] in
                 commandLines.commandWasCancelled()
                 self?.agentHarness.endVoiceCommand(
@@ -2904,7 +3664,15 @@ final class CompanionManager: ObservableObject {
                     lastEvent: .failed(reason: "the agent harness sent nothing in time")
                 )
             },
-            runTool: { toolCall, approvalIDTheLearnerIsAnswering in
+            whenTheLineIfEveryCallChangesArrives: { spokenLine, turnToolNames in
+                // A later turn's line replaces an earlier one, which a lookup or a failure made wrong.
+                earlyLineFetch?.cancel()
+                earlyLineFetch = nil
+                let lineToSpeak = voiceCommandLineToSpeak(spokenLine)
+                guard !lineToSpeak.isEmpty, earlyLineIsWorthFetching(turnToolNames: turnToolNames, lookupToolNames: lookupToolNames) else { return }
+                earlyLineFetch = self.elevenLabsTTSClient.startFetching(lineToSpeak)
+            },
+            runTool: { toolCall, approvalTheLearnerIsAnswering in
                 aToolOfTheCommandRan = true
                 timing.mark(\.firstToolCallReceivedAt)
                 // The old path logs each model reply under the debug switch, and here the harness holds the reply, so
@@ -2919,7 +3687,7 @@ final class CompanionManager: ObservableObject {
                     toolCall,
                     offeredToolNames: offeredToolNames,
                     transcript: transcript,
-                    approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering,
+                    approvalTheLearnerIsAnswering: approvalTheLearnerIsAnswering,
                     commandStartedAt: commandStartedAt,
                     handOffMark: commandLines
                 ) ?? .failed(error: "The command was cancelled", state: nil)
@@ -2942,18 +3710,29 @@ final class CompanionManager: ObservableObject {
             }
         case .finished(let spokenLine, let gaveUp):
             guard !Task.isCancelled else { return false }
-            // The harness sends the line whole, and this is the one cut, since only Swift counts characters as the
-            // speech does, by grapheme cluster.
-            let lineToSpeak = String(spokenLine.prefix(longestSpokenVoiceCommandLine))
+            let lineToSpeak = voiceCommandLineToSpeak(spokenLine)
             if !lineToSpeak.isEmpty {
                 // An agent the command started serves its token from the cursor first, and the line plays after it lands.
                 await agentTokenDockController.waitForTheServeToLand()
                 guard !Task.isCancelled else { return false }
-                if await speakLiveSceneLine(lineToSpeak) { timing.mark(\.firstLineAudioStartedAt) }
+                let lineAudio = voiceCommandLineAudio(lineToSpeak: lineToSpeak, earlyLineFetched: earlyLineFetch?.text)
+                timing.lineAudio = lineAudio
+                let lineFetch: SpokenLineFetch
+                if lineAudio == .theAudioFetchedEarly, let earlyLineFetch {
+                    lineFetch = earlyLineFetch
+                } else {
+                    // The early audio has other words, so it stops downloading before the finished line's fetch starts.
+                    earlyLineFetch?.cancel()
+                    earlyLineFetch = nil
+                    lineFetch = elevenLabsTTSClient.startFetching(lineToSpeak)
+                }
+                // The player owns the fetch from here, so the cancel on the way out must not cut the line off.
+                if lineFetch === earlyLineFetch { earlyLineFetch = nil }
+                if await speakLiveSceneLine(lineFetch) { timing.mark(\.firstLineAudioStartedAt) }
             }
             guard !Task.isCancelled else { return false }
             if gaveUp {
-                if await speakLiveSceneLine(voiceCommandGaveUpLine) { timing.mark(\.firstLineAudioStartedAt) }
+                if await speakTheGaveUpLine() { timing.mark(\.firstLineAudioStartedAt) }
             }
             guard !Task.isCancelled else { return false }
             voiceState = .idle
@@ -2971,7 +3750,7 @@ final class CompanionManager: ObservableObject {
         _ toolCall: VoiceToolCall,
         offeredToolNames: Set<String>,
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String?,
+        approvalTheLearnerIsAnswering: ApprovalAtPress?,
         commandStartedAt: Date,
         handOffMark: HarnessVoiceCommandLines? = nil
     ) async -> VoiceToolOutcome? {
@@ -2981,7 +3760,7 @@ final class CompanionManager: ObservableObject {
             toolCall,
             offeredToolNames: offeredToolNames,
             transcript: transcript,
-            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering,
+            approvalTheLearnerIsAnswering: approvalTheLearnerIsAnswering,
             handOffMark: handOffMark
         )
         // A push-to-talk press during a slow call, like play_video's check, ends the command here.
@@ -3003,7 +3782,7 @@ final class CompanionManager: ObservableObject {
         // so handing it back would loop between the two on every failure.
         if liveScenePhaseIsWaitingForAQuizAnswer {
             print("Voice command: the router failed during a quiz question: \(failureDescription)")
-            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            await speakTheGaveUpLine()
             guard !Task.isCancelled else { return }
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -3016,7 +3795,7 @@ final class CompanionManager: ObservableObject {
             themeStudioIsOpen: themeStudioController.isOpen
         ) {
         case .giveUp:
-            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            await speakTheGaveUpLine()
             guard !Task.isCancelled else { return }
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -3024,6 +3803,9 @@ final class CompanionManager: ObservableObject {
             startTheExperimentInTheBackground(transcript: transcript)
         case .designATheme(let themeStudioRequest):
             startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
+        case .showArtInMyRoom:
+            theRequestBecameALookAtTheMedia()
+            startShowingTheArtInMyRoom(learnerRequest: transcript)
         case .keywordPath:
             respondByTheKeywordPath(transcript: transcript)
         }
@@ -3035,7 +3817,7 @@ final class CompanionManager: ObservableObject {
         _ toolCall: VoiceToolCall,
         offeredToolNames: Set<String>,
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String? = nil,
+        approvalTheLearnerIsAnswering: ApprovalAtPress? = nil,
         handOffMark: HarnessVoiceCommandLines? = nil
     ) async -> VoiceToolOutcome {
         guard offeredToolNames.contains(toolCall.name) else {
@@ -3048,7 +3830,7 @@ final class CompanionManager: ObservableObject {
             appVoiceTool,
             input: toolCall.inputWithoutConfirmation,
             transcript: transcript,
-            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering,
+            approvalTheLearnerIsAnswering: approvalTheLearnerIsAnswering,
             handOffMark: handOffMark
         )
     }
@@ -3060,7 +3842,7 @@ final class CompanionManager: ObservableObject {
         _ appVoiceTool: AppVoiceTool,
         input: [String: JSONValue],
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String?,
+        approvalTheLearnerIsAnswering: ApprovalAtPress?,
         handOffMark: HarnessVoiceCommandLines? = nil
     ) async -> VoiceToolOutcome {
         if appVoiceTool.handsOffToALookAtTheMedia {
@@ -3070,7 +3852,7 @@ final class CompanionManager: ObservableObject {
             appVoiceTool,
             input: input,
             transcript: transcript,
-            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering
+            approvalTheLearnerIsAnswering: approvalTheLearnerIsAnswering
         )
         return voiceToolOutcome(of: toolStep, handOffMark: handOffMark)
     }
@@ -3081,7 +3863,7 @@ final class CompanionManager: ObservableObject {
         _ appVoiceTool: AppVoiceTool,
         input: [String: JSONValue],
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String?
+        approvalTheLearnerIsAnswering: ApprovalAtPress?
     ) async -> AppVoiceToolStep {
         switch appVoiceTool {
         case .answerWithScreen:
@@ -3103,6 +3885,9 @@ final class CompanionManager: ObservableObject {
         case .animatePicture:
             theRequestBecameALookAtTheMedia()
             return .handOff { self.respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout) }
+        case .showArtInMyRoom:
+            theRequestBecameALookAtTheMedia()
+            return .handOff { self.startShowingTheArtInMyRoom(learnerRequest: transcript) }
         case .closeScene:
             return .handOff { self.closeTheSceneByVoice() }
         case .explainPart:
@@ -3176,12 +3961,7 @@ final class CompanionManager: ObservableObject {
             guard let studyGuideRecord = await savedStudyGuideStillInNotion(forVideoURL: frontVideoURL, checkEvenIfCheckedBefore: true) else {
                 return .outcome(.failed(error: "This video's study guide was deleted in Notion, so there is nothing to open. Tell the learner, and that asking for a study guide again will write a new one.", state: nil))
             }
-            let pageURL = studyGuideRecord.pageURL
-            if let chromeTabID = notionPageChromeTabIDsByPageURL[pageURL], videoQuizSession.bringChromeTabForward(tabID: chromeTabID) {
-                return .outcome(.changed(state: nil))
-            }
-            // NSWorkspace opens any URL scheme, and a guide saved by an older build was never checked.
-            guard pageURLIsOnNotion(pageURL), NSWorkspace.shared.open(pageURL) else {
+            guard openTheStudyGuidePage(at: studyGuideRecord.pageURL) else {
                 return .outcome(.failed(error: "The study guide page would not open", state: nil))
             }
             return .outcome(.changed(state: nil))
@@ -3201,13 +3981,17 @@ final class CompanionManager: ObservableObject {
             if skillChoice.skillWasDropped {
                 print("Task agent: the skill \(input["skill"]?.stringValue ?? "") is not in the catalog, so the task runs with no skill")
             }
-            return .outcome(startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)), skillName: skillChoice.name))
+            return .outcome(startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)), skillName: skillChoice.name, learnerWords: transcript))
         case .hearTaskAnswer:
             return .handOff { self.startSpeakingTheTaskAnswer() }
+        case .pauseAgents:
+            return .outcome(setEveryAgentIsPaused(true))
+        case .resumeAgents:
+            return .outcome(setEveryAgentIsPaused(false))
         case .recordGuess:
             return .outcome(await recordTheSimulationGuess(input["guess"]?.stringValue ?? ""))
         case .answerApproval:
-            return .outcome(answerTheApproval(approvalIDTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript))
+            return .outcome(answerTheApproval(approvalTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript))
         case .designTheme:
             let themeRequest = (input["request"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !themeRequest.isEmpty else { return .outcome(.failed(error: "request must say what the learner wants", state: nil)) }
@@ -3245,21 +4029,8 @@ final class CompanionManager: ObservableObject {
         // The request that started this design already pressed push-to-talk, so only a later press is the learner's next request.
         pushToTalkPressCountWhenTheThemeDesignStarted = pushToTalkPressCount
         currentResponseTask?.cancel()
-        liveSceneRequestTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
-        // A scene still building is cancelled whole, the way "let me try it" cancels it. Left in the building phase, the
-        // router would stay off for the studio's next command, and a video Clicky paused for the scene would stay paused.
-        if case .buildingScene = liveScenePhase {
-            liveSceneRequestGeneration += 1
-            let cancelledBuildGeneration = liveSceneRequestGeneration
-            liveScenePhase = .idle
-            Task {
-                await LiveSceneOverlay.shared.waitForReturnToFinish()
-                // A newer scene request holds the pause for its own scene, so only the latest cancel resumes the video.
-                guard cancelledBuildGeneration == self.liveSceneRequestGeneration else { return }
-                self.videoQuizSession.resumeVideoAfterRequestedScene()
-            }
-        }
+        cancelTheSceneStillBuilding()
         if pictureChoice == .captureAgain {
             theRequestBecameALookAtTheMedia()
         }
@@ -3281,7 +4052,7 @@ final class CompanionManager: ObservableObject {
     /// the line waits for another. The press counts tell the studio's own design apart from a request the learner made
     /// after it started, since both hold the thinking state.
     /// It has its own task, since a push-to-talk press cancels the reply task and must not drop a line the card is waiting on.
-    private func speakAThemeStudioLine(_ line: String) {
+    private func speakAThemeStudioLine(_ line: String, isAFailure: Bool) {
         themeStudioSpeechTask?.cancel()
         themeStudioSpeechTask = Task {
             while !Task.isCancelled && !themeStudioLineMayStart(
@@ -3296,7 +4067,7 @@ final class CompanionManager: ObservableObject {
             }
             guard !Task.isCancelled else { return }
             // A line that did not start keeps the previous token, which matches nothing once that line has ended.
-            if let lineToken = await self.speakLiveSceneLineAndReturnItsToken(line) {
+            if let lineToken = await self.speakLiveSceneLineAndReturnItsToken(line, isAFailure: isAFailure) {
                 self.themeStudioLineToken = lineToken
             }
             await self.waitForClickyToFinishSpeaking()
@@ -3308,20 +4079,121 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Ends the studio's spoken line when the card closes or saves. Cancelling the speech task also drops a line still waiting
-    /// for its turn, which a bare `stopPlayback` would let start after the card is gone. The task's own reset to idle never
-    /// runs once it is cancelled, so this does it, but only when the stop reached the studio's own line, since the audio may
-    /// be an answer the router handed off with the card open. A line still loading never started playing, so cancelling the
-    /// task is what ends it, and the token ends a line that is already playing.
+    /// Ends the studio's spoken line when the card closes or saves.
     private func stopTheThemeStudioSpeech() {
-        themeStudioSpeechTask?.cancel()
-        themeStudioSpeechTask = nil
-        let studioLineToken = themeStudioLineToken
-        themeStudioLineToken = nil
-        guard let studioLineToken, elevenLabsTTSClient.stopPlayback(ifTheCurrentLineIs: studioLineToken) else { return }
-        if voiceState == .responding {
-            voiceState = .idle
-            scheduleTransientHideIfNeeded()
+        endAPanelsSpokenLine(speechTask: &themeStudioSpeechTask, lineToken: &themeStudioLineToken)
+    }
+
+    /// Ends the room art's spoken line on every close of the panel: Escape, the Close button, and a new request.
+    private func stopTheRoomArtSpeech() {
+        endAPanelsSpokenLine(speechTask: &roomArtSpeechTask, lineToken: &roomArtLineToken)
+    }
+
+    /// Ends a panel's spoken line when the panel closes. Cancelling the speech task also drops a line still waiting for its
+    /// turn, which a bare `stopPlayback` would let start after the panel is gone. A line still loading never started
+    /// playing, so cancelling the task is what ends it, and the token ends a line that is already playing. The task's own
+    /// reset to idle never runs once it is cancelled, so this does it (`voiceStateAfterAPanelStoppedItsLine`).
+    private func endAPanelsSpokenLine(speechTask: inout Task<Void, Never>?, lineToken: inout SpokenLineToken?) {
+        speechTask?.cancel()
+        speechTask = nil
+        let panelLineToken = lineToken
+        lineToken = nil
+        let theStopReachedThePanelsLine = panelLineToken.map { elevenLabsTTSClient.stopPlayback(ifTheCurrentLineIs: $0) } ?? false
+        let voiceStateAfterTheStop = voiceStateAfterAPanelStoppedItsLine(voiceState, theStopReachedThePanelsLine: theStopReachedThePanelsLine)
+        guard voiceStateAfterTheStop != voiceState else { return }
+        voiceState = voiceStateAfterTheStop
+        scheduleTransientHideIfNeeded()
+    }
+
+    /// Cancels a scene still building, the way "let me try it" cancels it, for a request that takes over the screen
+    /// instead: an experiment, the Theme Studio, or the room art panel. Left in the building phase, the router would stay
+    /// off for the next command, the finished scene would play over what replaced it, and a video Clicky paused for the
+    /// scene would stay paused.
+    private func cancelTheSceneStillBuilding() {
+        liveSceneRequestTask?.cancel()
+        guard case .buildingScene = liveScenePhase else { return }
+        liveSceneRequestGeneration += 1
+        let cancelledBuildGeneration = liveSceneRequestGeneration
+        liveScenePhase = .idle
+        Task {
+            await LiveSceneOverlay.shared.waitForReturnToFinish()
+            // A newer scene request, or a ready experiment rising now, holds the pause for its own scene, so only the
+            // latest cancel resumes the video.
+            guard cancelledBuildGeneration == self.liveSceneRequestGeneration else { return }
+            self.videoQuizSession.resumeVideoAfterRequestedScene()
+        }
+    }
+
+    /// Reads the picture and the page and opens the room art panel. The thinking state shows while the page is read, and
+    /// the panel and its spoken line say the rest. Like any hand-off, it takes over the reply. `learnerRequest` is the
+    /// learner's words, which tell the page reader which item they mean.
+    private func startShowingTheArtInMyRoom(learnerRequest: String) {
+        // The request that asked already pressed push-to-talk, so only a later press is the learner's next request.
+        pushToTalkPressCountWhenTheRoomArtStarted = pushToTalkPressCount
+        roomArtSpeechTask?.cancel()
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        // A scene that finished building would play over the panel, so it is cancelled first.
+        cancelTheSceneStillBuilding()
+        voiceState = .processing
+        roomArtIsOpeningThePanel = true
+        currentResponseTask = Task {
+            await self.roomArtPreviewController.showTheArtInTheRoom(learnerRequest: learnerRequest)
+            // A push-to-talk press cancelled this task, and the newer request owns the voice state and, when it is another
+            // room art request, the opening flag too.
+            guard !Task.isCancelled else { return }
+            self.roomArtIsOpeningThePanel = false
+            if self.voiceState == .processing { self.voiceState = .idle }
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// Says a room art line once nothing else is happening (`roomArtLineStep`). "Here it is" lands about 14 seconds after
+    /// the request, so it waits for a newer answer to finish instead of cutting it off, and it is dropped when the learner
+    /// pressed push-to-talk since asking. It has its own task, since a press cancels the reply task. `isAFailure` says the
+    /// line reports something that went wrong, so the cursor shakes as Clicky says it.
+    private func speakARoomArtLine(_ line: String, isAFailure: Bool) {
+        roomArtSpeechTask?.cancel()
+        roomArtSpeechTask = Task {
+            while !Task.isCancelled {
+                let lineStep = roomArtLineStep(
+                    dictationIsInProgress: self.buddyDictationManager.isDictationInProgress,
+                    clickyIsThinking: self.voiceState == .processing,
+                    audioIsPlaying: self.elevenLabsTTSClient.isPlaying,
+                    roomArtIsOpeningThePanel: self.roomArtIsOpeningThePanel,
+                    pushToTalkPressCount: self.pushToTalkPressCount,
+                    pushToTalkPressCountWhenTheRoomArtStarted: self.pushToTalkPressCountWhenTheRoomArtStarted
+                )
+                switch lineStep {
+                case .drop:
+                    print("Room art: dropped the line \"\(line)\", since the learner pressed push-to-talk after asking")
+                    return
+                case .waitForQuiet:
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                case .speakNow:
+                    // The token lets a close of the panel stop this line once it plays (`stopTheRoomArtSpeech`).
+                    guard let lineToken = await self.speakLiveSceneLineAndReturnItsToken(line, isAFailure: isAFailure) else { return }
+                    self.roomArtLineToken = lineToken
+                    await self.waitForClickyToFinishSpeaking()
+                    guard !Task.isCancelled else { return }
+                    if self.voiceState == .responding { self.voiceState = .idle }
+                    self.scheduleTransientHideIfNeeded()
+                    return
+                }
+            }
+        }
+    }
+
+    /// The room art panel floats under the live scene's window, so a scene or pop-out on screen is cleared before it opens.
+    /// The clear does nothing when no scene is up, and a video paused for the scene stays paused under the panel.
+    private func clearTheLiveSceneForTheRoomArtPanel() {
+        clearTheLiveSceneAndReleaseTheBuddy()
+        switch liveScenePhase {
+        case .touring, .allLabelsShowing:
+            liveSceneTourFinishedTask?.cancel()
+            liveScenePhase = .idle
+        default:
+            break
         }
     }
 
@@ -3340,16 +4212,23 @@ final class CompanionManager: ObservableObject {
 
     /// Starts a general agent on the learner's task and returns at once, so the router speaks its confirmation and the
     /// video keeps playing.
-    private func startTheTaskAgent(goal: String, skillName: String? = nil) -> VoiceToolOutcome {
+    private func startTheTaskAgent(goal: String, skillName: String? = nil, learnerWords: String) -> VoiceToolOutcome {
         let agentID = backgroundAgentStore.start(kind: .task)
         agentTokenDockController.startServingTheToken(of: agentID)
         backgroundAgentStore.setSubject(goal, for: agentID)
+        backgroundAgentStore.setLearnerWords(learnerWords, for: agentID)
         if let skillName {
             // The first step line, before the agent reports its own, so the learner sees which skill runs.
             backgroundAgentStore.reportStep(TaskAgentSkillCatalog.startingStepText(skillName: skillName), for: agentID)
         }
         runInTheBackground(agentID) {
             await self.runTheTaskAgent(goal: goal, skillName: skillName, agentID: agentID)
+        }
+        allowTryingAgain(agentID) { [weak self] in
+            guard let self, self.agentMayBeTriedAgainNow(agentKind: .task) else { return false }
+            // The new try keeps the words that started the first, so its approval card says them too.
+            _ = self.startTheTaskAgent(goal: goal, skillName: skillName, learnerWords: learnerWords)
+            return true
         }
         return .changed(state: .object(["task": .string("started")]))
     }
@@ -3363,25 +4242,37 @@ final class CompanionManager: ObservableObject {
         let frontTab = videoQuizSession.frontTabTitleAndURLOfTheFrontWindow()
         var writtenPageURL: URL?
         do {
-            let taskEvents = try agentHarness.startTask(taskID: agentID, goal: goal, frontTabTitle: frontTab?.title, frontTabURL: frontTab?.url, skill: skillName)
+            let taskEvents = try agentHarness.startTask(
+                taskID: agentID,
+                goal: goal,
+                frontTabTitle: frontTab?.title,
+                frontTabURL: frontTab?.url,
+                skill: skillName,
+                startsPaused: backgroundAgentStore.agentsArePaused
+            )
             for await taskEvent in taskEvents {
                 try Task.checkCancellation()
                 switch taskEvent {
                 case .toolCall(let toolCall):
+                    // A call the harness sent just before its pause_task arrived still waits for "go ahead", since an
+                    // app tool such as open_url changes the Mac.
+                    try await holdWhileEveryAgentIsPaused("the task agent's \(toolCall.toolName) call")
                     let toolRun = await runTaskAgentTool(toolCall, agentID: agentID, pageAlreadyWritten: writtenPageURL != nil)
                     writtenPageURL = toolRun.writtenPageURL ?? writtenPageURL
                     try Task.checkCancellation()
                     agentHarness.sendToolResult(taskID: agentID, toolUseID: toolCall.toolUseID, content: toolRun.content, isError: toolRun.isError, sourceURL: toolRun.sourceURL)
                 case .finished(let spokenSummary):
+                    try await holdWhileEveryAgentIsPaused("the task agent's answer")
                     finishTheTaskAgent(agentID, spokenSummary: spokenSummary, pageURL: writtenPageURL)
                     return
                 case .failed(let reason):
+                    try await holdWhileEveryAgentIsPaused("the task agent's failure")
                     throw TaskAgentError.harnessReportedFailure(reason: reason)
                 case .voiceCommandFinished:
                     // Only a voice command ends this way, so a task never hears it.
                     throw TaskAgentError.harnessEndedWithNoResult
-                case .planningTurnStarted:
-                    // Only a voice command's turn plans, so a task has nothing to wait longer for.
+                case .planningTurnStarted, .spokenLineIfEveryCallChanges:
+                    // Only a voice command's turn plans or sends an early line, so a task has nothing to do for either.
                     break
                 }
             }
@@ -3395,8 +4286,15 @@ final class CompanionManager: ObservableObject {
                 return
             }
             print("Task agent: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
+            guard await holdWhileEveryAgentIsPausedUnlessCancelled("the task agent's failure") else {
+                agentHarness.cancelTask(taskID: agentID)
+                return
+            }
             backgroundAgentStore.fail(agentID, reason: "The task could not be finished. Ask again to try once more.")
-            VoiceToolCallChip.shared.show("Couldn't finish the task", sender: chipSender(forAgent: agentID, kind: .task), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
+            playCursorEmote(.shake)
+            bringBackTheEndingChip(ofAgent: agentID) {
+                VoiceToolCallChip.shared.show("Couldn't finish the task", sender: .failure, secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
+            }
         }
     }
 
@@ -3422,6 +4320,7 @@ final class CompanionManager: ObservableObject {
                     .map { transcriptLine in "[\(backgroundAgentElapsedTimeText(seconds: transcriptLine.seconds))] \(transcriptLine.text)" }
                     .joined(separator: "\n")
                 let captionsResult = "Title: \(video.title)\nLink: \(video.url)\nCaptions:\n\(captionText)"
+                backgroundAgentStore.setReadingHost(agentListHost(ofLink: video.url), for: agentID)
                 return (.string(String(captionsResult.prefix(longestTaskAgentCaptionText))), false, nil, video.url)
             } catch {
                 return errorResult((error as? LocalizedError)?.errorDescription ?? "No YouTube video with captions is in Chrome's front tab")
@@ -3454,6 +4353,9 @@ final class CompanionManager: ObservableObject {
                 return errorResult("The page could not be written: \(error)")
             }
         case .takeScreenshot, .readClipboard, .writeClipboard, .openURL:
+            if TaskAgentTool(rawValue: toolCall.toolName) == .openURL {
+                backgroundAgentStore.setReadingHost(toolCall.input["url"]?.stringValue.flatMap(agentListHost(ofLink:)), for: agentID)
+            }
             let generalToolRun = await runTaskAgentGeneralTool(named: toolCall.toolName, input: toolCall.input, taskID: agentID)
             return (generalToolRun.content, generalToolRun.isError, nil, nil)
         case nil:
@@ -3498,35 +4400,61 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Installing a theme file
 
-    /// Installs a `.clickytheme` package the learner opened and puts it on, with a chip that says how it went. A package
-    /// that does not parse is refused with a log line naming the rule it broke, and nothing changes.
+    /// A `.clickytheme` package the learner opened: reads and checks it, and asks "Add theme?" before installing anything. A
+    /// package that does not parse is refused with a log line naming the rule it broke and a chip, with no card, and nothing
+    /// changes.
     func installTheThemePackage(at themePackageURL: URL) {
         do {
-            let installedTheme = try themeSettings.installAndApply(packageAt: themePackageURL)
-            print("Themes: installed \(themePackageURL.lastPathComponent) as \(installedTheme.id)")
+            let packagePreview = try themeSettings.previewPackage(at: themePackageURL)
+            themeInstallConfirmation.ask(about: PendingThemeInstall(packageURL: themePackageURL, theme: packagePreview.theme, pictureJPEG: packagePreview.pictureJPEG))
+        } catch let parseError as CustomThemeParseError {
+            print("Themes: refused \(themePackageURL.lastPathComponent): \(parseError.reason)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
+        } catch {
+            print("Themes: refused \(themePackageURL.lastPathComponent): \(error)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
+        }
+    }
+
+    /// The learner added the theme on the card: installs it, puts it on, plays its done sound, and says so. The package is
+    /// read and checked again, since it may have changed while the card showed.
+    private func installTheConfirmedThemePackage(_ confirmedInstall: PendingThemeInstall) {
+        do {
+            let installedTheme = try themeSettings.installAndApply(
+                packageAt: confirmedInstall.packageURL,
+                expectedPreview: CustomThemeStore.ThemePackagePreview(theme: confirmedInstall.theme, pictureJPEG: confirmedInstall.pictureJPEG)
+            )
+            print("Themes: installed \(confirmedInstall.packageURL.lastPathComponent) as \(installedTheme.id)")
             VoiceToolCallChip.shared.show(themeAddedChipPhrase, secondaryChipText: installedTheme.name)
             installedTheme.sounds.done.play()
         } catch let parseError as CustomThemeParseError {
-            print("Themes: refused \(themePackageURL.lastPathComponent): \(parseError.reason)")
-            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+            print("Themes: refused \(confirmedInstall.packageURL.lastPathComponent): \(parseError.reason)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         } catch {
-            print("Themes: refused \(themePackageURL.lastPathComponent): \(error)")
-            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+            print("Themes: refused \(confirmedInstall.packageURL.lastPathComponent): \(error)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         }
     }
 
     // MARK: - Task Agent Approvals
 
     /// A task agent's tool waits for the learner to allow it. Nothing is spoken, since the learner is usually watching a
-    /// video: "Pop" plays once and the agent list opens next to the mouse with the request in its agent's row.
+    /// video: "Pop" plays once and the agent list opens next to the mouse with the request in its agent's row, unless the
+    /// menu bar panel is open on its home, whose banner shows the card.
+    /// A request the harness sent just before its pause_task shows at once too, like one that was already waiting when the
+    /// learner paused, since "go ahead" answers it before it resumes the agents and a hidden card could not be answered.
     private func showTheApprovalRequest(_ approvalRequest: HarnessApprovalRequest) {
         themeSettings.shownTheme.sounds.needsYourOK.play()
+        // The panel's banner already shows the card, so the list does not open over it.
+        guard !menuPanelShowsTheApprovalCard() else { return }
         agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
     }
 
     /// Keeps the chip in step with the approval desk, after each arrival and answer.
     private func syncTheApprovalWaitingState(_ waitingRequests: [HarnessApprovalRequest]) {
         backgroundAgentStore.agentIDsWaitingForApproval = Set(waitingRequests.map(\.taskID))
+        // The oldest request of an agent speaks for it, and the requests arrive oldest first.
+        backgroundAgentStore.approvalCapabilitiesByAgentID = Dictionary(waitingRequests.map { ($0.taskID, $0.capability) }, uniquingKeysWith: { oldestCapability, _ in oldestCapability })
         if let previousChipText = approvalWaitingChipPrimaryText {
             VoiceToolCallChip.shared.hide(ifShowing: previousChipText)
             approvalWaitingChipPrimaryText = nil
@@ -3539,30 +4467,77 @@ final class CompanionManager: ObservableObject {
             chipTexts.primary,
             sender: chipSender(forAgent: waitingAgent.id, kind: waitingAgent.kind),
             secondaryChipText: chipTexts.secondary,
+            survivesARecall: true,
             secondsOnScreen: HarnessApprovalDesk.defaultTimeoutSeconds
         )
     }
 
     /// The router's `answer_approval` answers the request that was oldest when the learner spoke, the one the agent
-    /// list showed, and only as far as the learner's own words say yes.
+    /// list showed. A no counts at once, with a word of no for an unread request. A yes counts only when the card had
+    /// shown the whole summary for a second at the press and the learner's own words say yes.
     private func answerTheApproval(
-        _ approvalIDTheLearnerIsAnswering: String?,
+        _ approvalTheLearnerIsAnswering: ApprovalAtPress?,
         byVoiceInput input: [String: JSONValue],
         transcript: String
     ) -> VoiceToolOutcome {
         guard let modelAnswer = ApprovalVoiceAnswer(toolInput: input) else {
             return .failed(error: "approved must be true or false", state: nil)
         }
-        guard let approvalIDTheLearnerIsAnswering else {
+        guard let approvalTheLearnerIsAnswering else {
             return .failed(error: "Only your first reply to the learner's words can answer a request", state: nil)
         }
-        guard let learnerAnswer = approvalVoiceAnswerTheLearnerSaid(modelAnswer, transcript: transcript) else {
+        guard !modelAnswer.approved || approvalTheLearnerIsAnswering.wholeSummaryWasSeen else {
+            return .failed(error: "The learner has not read the whole request on the card yet, so only a no counts. Tell them to read it there first", state: nil)
+        }
+        guard let learnerAnswer = approvalVoiceAnswerTheLearnerSaid(
+            modelAnswer,
+            transcript: transcript,
+            requestWasSeenAtPress: approvalTheLearnerIsAnswering.wholeSummaryWasSeen
+        ) else {
             return .failed(error: "The learner's words did not give that answer, so nothing was allowed", state: nil)
         }
-        guard agentHarness.approvalDesk.answer(approvalID: approvalIDTheLearnerIsAnswering, approved: learnerAnswer.approved, scope: learnerAnswer.scope) else {
+        guard agentHarness.approvalDesk.answer(approvalID: approvalTheLearnerIsAnswering.approvalID, approved: learnerAnswer.approved, scope: learnerAnswer.scope) else {
             return .failed(error: "That request is no longer waiting", state: nil)
         }
         return .changed(state: .object(["approval": .string(learnerAnswer.approved ? "allowed" : "declined")]))
+    }
+
+    // MARK: - Pausing every agent
+
+    /// "Hold on" and "go ahead". The Swift agents read the Mac at once and wait before their Worker call and their ending
+    /// (`waitWhileAgentsArePaused`). Each running task agent's harness task gets `pause_task` or `resume_task`, so no model
+    /// turn or tool call starts for it. Push-to-talk and the voice brain never pause.
+    private func setEveryAgentIsPaused(_ agentsArePaused: Bool) -> VoiceToolOutcome {
+        let pauseChanged = agentsArePaused ? backgroundAgentStore.pauseEveryAgent() : backgroundAgentStore.resumeEveryAgent()
+        guard pauseChanged else {
+            return .failed(error: agentsArePaused ? "The agents are already paused" : "No agent is paused", state: nil)
+        }
+        let runningAgents = backgroundAgentStore.agents.filter(\.isRunning)
+        for runningTaskAgent in runningAgents where runningTaskAgent.kind == .task {
+            agentHarness.setTaskIsPaused(agentsArePaused, taskID: runningTaskAgent.id)
+        }
+        print("Agents: \(agentsArePaused ? "paused" : "resumed") \(runningAgents.count) running \(runningAgents.count == 1 ? "agent" : "agents")")
+        return .changed(state: .object(["backgroundAgents": .string(agentsArePaused ? "paused" : "running")]))
+    }
+
+    /// Holds an agent's Worker call, a task agent's tool call, or an ending while every agent is paused, and throws once
+    /// the agent was cancelled.
+    /// `heldStep` names what waits, for the log.
+    private func holdWhileEveryAgentIsPaused(_ heldStep: String) async throws {
+        await waitWhileEveryAgentIsPaused(heldStep)
+        try Task.checkCancellation()
+    }
+
+    /// The same, for a failure's ending: false when the agent was cancelled during the pause, so it shows nothing.
+    private func holdWhileEveryAgentIsPausedUnlessCancelled(_ heldStep: String) async -> Bool {
+        await waitWhileEveryAgentIsPaused(heldStep)
+        return !Task.isCancelled
+    }
+
+    private func waitWhileEveryAgentIsPaused(_ heldStep: String) async {
+        guard backgroundAgentStore.agentsArePaused else { return }
+        print("Agents: holding \(heldStep) until the learner resumes")
+        await backgroundAgentStore.waitWhileAgentsArePaused()
     }
 
     // MARK: - Background Scene Agents (3D model and experiment)
@@ -3572,19 +4547,8 @@ final class CompanionManager: ObservableObject {
     /// the video's pause do not stay behind.
     private func startTheExperimentInTheBackground(transcript: String) {
         currentResponseTask?.cancel()
-        liveSceneRequestTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
-        if case .buildingScene = liveScenePhase {
-            liveSceneRequestGeneration += 1
-            let cancelledBuildGeneration = liveSceneRequestGeneration
-            liveScenePhase = .idle
-            Task {
-                await LiveSceneOverlay.shared.waitForReturnToFinish()
-                // A ready experiment rising now takes over the pause, so the video stays paused for it.
-                guard cancelledBuildGeneration == self.liveSceneRequestGeneration else { return }
-                self.videoQuizSession.resumeVideoAfterRequestedScene()
-            }
-        }
+        cancelTheSceneStillBuilding()
         let spokenLine: String
         switch currentExperimentRequestStep {
         case .showTheReadyExperiment:
@@ -3594,7 +4558,7 @@ final class CompanionManager: ObservableObject {
             spokenLine = "Your experiment is still building."
         case .startBuilding:
             _ = startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment)
-            spokenLine = "Sure, I'll build that while you watch."
+            spokenLine = experimentStartedSpokenLine(agentsArePaused: backgroundAgentStore.agentsArePaused)
         }
         currentResponseTask = Task {
             // The experiment agent serves its token from the cursor first, and the line plays after it lands.
@@ -3622,6 +4586,13 @@ final class CompanionManager: ObservableObject {
         runInTheBackground(agentID) {
             await self.buildTheBackgroundScene(whatToBuild: whatToBuild, agentID: agentID, agentKind: agentKind)
         }
+        allowTryingAgain(agentID) { [weak self] in
+            // The same rules the voice tools keep: one experiment builds at a time, a question owns the scene while it is
+            // open, and a 3D model is built from a video in front.
+            guard let self, self.agentMayBeTriedAgainNow(agentKind: agentKind) else { return false }
+            _ = self.startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: agentKind)
+            return true
+        }
         return .changed(state: .object(["backgroundScene": .string("started")]))
     }
 
@@ -3644,8 +4615,13 @@ final class CompanionManager: ObservableObject {
             try Task.checkCancellation()
             backgroundAgentStore.setSubject(whatToBuild, for: agentID)
             backgroundAgentStore.completeStep(for: agentID)
+            // The frame, tab, and words above are read at once, even during a pause, so the build is of what the learner
+            // asked about. Only the Worker call waits for "go ahead".
+            try await holdWhileEveryAgentIsPaused("the \(agentKind.builtThingName)'s build")
             let sceneQuestion = heardText.isEmpty ? whatToBuild : "\(whatToBuild) The video just said: \(heardText)"
             let liveScene = try await liveSceneClient.requestLiveScene(question: sceneQuestion, cursorScreenJPEGData: videoScreenJPEGData, sceneKind: sceneKind)
+            // A reply that arrives during a pause waits with the agent, and never rises over what the learner held still for.
+            try await holdWhileEveryAgentIsPaused("the finished \(agentKind.builtThingName)")
             // A scene cancelled from the agent list never shows, even when the Worker had already replied.
             try Task.checkCancellation()
             print("\(agentKind.displayName): built \"\(whatToBuild)\" in \(Int(Date().timeIntervalSince(startedAt))) s")
@@ -3672,12 +4648,17 @@ final class CompanionManager: ObservableObject {
                 return
             }
             print("\(agentKind.displayName): failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
+            // A failure's chip waits through a pause like a result, and a cancel during it shows nothing.
+            guard await holdWhileEveryAgentIsPausedUnlessCancelled("the \(agentKind.builtThingName)'s failure") else { return }
             backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
-            VoiceToolCallChip.shared.show(
-                "Couldn't build the \(agentKind.builtThingName)",
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            playCursorEmote(.shake)
+            bringBackTheEndingChip(ofAgent: agentID) {
+                VoiceToolCallChip.shared.show(
+                    "Couldn't build the \(agentKind.builtThingName)",
+                    sender: .failure,
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
         }
     }
 
@@ -3706,6 +4687,8 @@ final class CompanionManager: ObservableObject {
             clickyIsIdleAndDoneSpeaking: voiceState == .idle && !elevenLabsTTSClient.isPlaying,
             aSceneOrPopOutIsBuildingOrShowing: !liveScenePhaseIsIdle || LiveSceneOverlay.shared.isShowingAScene,
             aVideoQuizQuestionIsOpen: videoQuizQuestionIsActive,
+            // The panel floats under the live scene's window, so a scene rising now would cover the learner's room.
+            theRoomArtPanelIsOpen: roomArtPreviewController.isOpen,
             readFrontTabURL: { self.videoQuizSession.frontTabURLOfTheFrontWindow() }
         )
     }
@@ -3863,6 +4846,15 @@ final class CompanionManager: ObservableObject {
                 }
             }
         }
+        allowTryingAgain(agentID) { [weak self] in
+            // A guide is written from the video in front, so a retry waits for the video the first one was for.
+            guard let self,
+                  self.agentMayBeTriedAgainNow(agentKind: studyGuideJob.agentKind),
+                  let frontVideoURL = self.videoQuizSession.frontTabURLOfTheFrontWindow(),
+                  studyGuideVideoKey(forVideoURL: frontVideoURL) == videoKey else { return false }
+            if case .failed = self.startWritingTheStudyGuide(studyGuideJob) { return false }
+            return true
+        }
         return .changed(state: .object(["studyGuide": .string("started")]))
     }
 
@@ -3913,12 +4905,14 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Nothing is spoken when the guide ends, because the learner is watching a video. The token beside the notch,
-    /// the chip under it, and the page in a background tab say it instead. Returns whether the guide was written.
+    /// the chip above the cursor, and the page in a background tab say it instead. Returns whether the guide was written.
     @discardableResult
     private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob, agentID: UUID) async -> Bool {
         let startedAt = Date()
         let agentKind = studyGuideJob.agentKind
         do {
+            // The captions are read at once, even during a pause, so the guide is written for the video the learner
+            // asked about. Only the Worker call below waits for "go ahead".
             let video = try await videoQuizSession.frontVideoForStudyGuide()
             backgroundAgentStore.setSubject(video.title, for: agentID)
             backgroundAgentStore.completeStep(for: agentID)
@@ -3948,6 +4942,7 @@ final class CompanionManager: ObservableObject {
                 // go along with the ones logged since launch.
                 quizResultsForTheGuide = studyGuideQuizResults(saved: previousRecord.quizResults, logged: video.quizResults)
             }
+            try await holdWhileEveryAgentIsPaused("the study guide's writing")
             var studyGuideRecord = try await studyGuideClient.writeStudyGuide(StudyGuideRequest(
                 videoTitle: video.title,
                 videoURL: video.url,
@@ -3957,10 +4952,14 @@ final class CompanionManager: ObservableObject {
                 revision: studyGuideRevision
             ))
             studyGuideRecord.quizResults = quizResultsForTheGuide
+            // A guide written during a pause waits to be saved and opened. A cancel meanwhile takes the cancelled path below,
+            // which still keeps a revision whose old page the Worker already trashed.
+            await waitWhileEveryAgentIsPaused("the written study guide")
             let agentWasCancelled = Task.isCancelled
             guard !agentWasCancelled || studyGuideJob.replyIsSavedEvenWhenCancelled else { throw CancellationError() }
             // Filed under the video the guide was written for, not whichever tab is in front now.
             savedStudyGuides.save(studyGuideRecord, forVideoURL: video.url)
+            videoRecapWatcher.startWatching(forVideoURL: video.url)
             // The Worker just wrote this page, so the next voice command does not wait on a status check for it.
             studyGuidePageHandlesFoundInNotion.insert(studyGuideRecord.pageHandle)
             guard !agentWasCancelled else {
@@ -3982,12 +4981,16 @@ final class CompanionManager: ObservableObject {
                 return false
             }
             print("Study guide: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
+            guard await holdWhileEveryAgentIsPausedUnlessCancelled("the study guide's failure") else { return false }
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
-            VoiceToolCallChip.shared.show(
-                studyGuideFailureLine(for: error),
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            playCursorEmote(.shake)
+            bringBackTheEndingChip(ofAgent: agentID) {
+                VoiceToolCallChip.shared.show(
+                    studyGuideFailureLine(for: error),
+                    sender: .failure,
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
             return false
         }
     }
@@ -4021,21 +5024,25 @@ final class CompanionManager: ObservableObject {
                 notionPageChromeTabIDsByPageURL[pageURL] = openedChromeTabID
                 secondaryChipText = "· opened in a new tab"
             }
-            VoiceToolCallChip.shared.show(
-                agentKind.finishedChipText,
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondaryChipText: secondaryChipText,
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    agentKind.finishedChipText,
+                    sender: chipSender(forAgent: agentID, kind: agentKind),
+                    secondaryChipText: secondaryChipText,
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
         case .readyScene:
             themeSettings.shownTheme.sounds.done.play()
             let sceneRisesNow = aReadyBackgroundSceneMayRiseNow
-            VoiceToolCallChip.shared.show(
-                agentKind.finishedChipText,
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondaryChipText: sceneRisesNow ? nil : "· say \(agentKind.waitingPhrase)",
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    agentKind.finishedChipText,
+                    sender: chipSender(forAgent: agentID, kind: agentKind),
+                    secondaryChipText: sceneRisesNow ? nil : "· say \(agentKind.waitingPhrase)",
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
             if sceneRisesNow {
                 startShowingTheReadyBackgroundScene()
             } else {
@@ -4047,18 +5054,64 @@ final class CompanionManager: ObservableObject {
             if let pageURL, let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL) {
                 notionPageChromeTabIDsByPageURL[pageURL] = openedChromeTabID
             }
-            VoiceToolCallChip.shared.show(
-                agentKind.finishedChipText,
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondaryChipText: "· say what did you find",
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    agentKind.finishedChipText,
+                    sender: chipSender(forAgent: agentID, kind: agentKind),
+                    secondaryChipText: "· say what did you find",
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
         }
+    }
+
+    /// Shows an agent's ending chip after the spark carries it from the agent's disc to the cursor (Bring back), so the chip shows
+    /// where the spark lands. An agent with no disc to leave from shows the chip at once.
+    private func bringBackTheEndingChip(ofAgent agentID: UUID, showTheChip: @escaping () -> Void) {
+        let agentColor = backgroundAgentStore.agents.first { $0.id == agentID }?.displayColor.color ?? DS.Colors.textSecondary
+        agentTokenDockController.bringBack(agentID: agentID, in: agentColor, showTheChip: showTheChip)
     }
 
     /// Who an ending chip speaks for: the agent's kind, and its player while a team theme is on.
     private func chipSender(forAgent agentID: UUID, kind: BackgroundAgentKind) -> VoiceToolCallChipSender {
         .backgroundAgent(color: backgroundAgentStore.displayColor(for: agentID) ?? kind.preferredPaletteColor, face: backgroundAgentStore.face(for: agentID))
+    }
+
+    /// What starts a failed agent's work again, by agent, for the agent list's "Try again". Each returns whether the work
+    /// started.
+    private var tryAgainActionsByAgentID: [UUID: @MainActor () -> Bool] = [:]
+
+    /// Lets the agent list offer "Try again" if this agent fails. `start` begins the same work as a new agent.
+    private func allowTryingAgain(_ agentID: UUID, start: @escaping @MainActor () -> Bool) {
+        // An agent the store dropped can never be tried again, so its action goes with it.
+        let agentIDsInTheStore = Set(backgroundAgentStore.agents.map(\.id))
+        tryAgainActionsByAgentID = tryAgainActionsByAgentID.filter { agentIDsInTheStore.contains($0.key) }
+        tryAgainActionsByAgentID[agentID] = start
+        backgroundAgentStore.allowTryingAgain(agentID)
+    }
+
+    /// Whether a failed agent's work may start again now, by the rules the voice tools that start it keep.
+    private func agentMayBeTriedAgainNow(agentKind: BackgroundAgentKind) -> Bool {
+        backgroundAgentMayBeTriedAgain(
+            agentKind: agentKind,
+            aQuizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer || videoQuizQuestionIsActive,
+            experimentRequestStep: currentExperimentRequestStep,
+            anExperimentIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
+            aVideoIsInFront: agentKind == .threeDModel ? videoQuizSession.frontVideoStateForVoiceCommands() != nil : false
+        )
+    }
+
+    /// "Try again" on a failed agent's row. It starts the same work once, as a new agent with its own row, and the failed
+    /// row stops offering it only when the work started.
+    private func tryTheBackgroundAgentAgain(_ agentID: UUID) {
+        guard let startTheWorkAgain = tryAgainActionsByAgentID[agentID] else { return }
+        guard startTheWorkAgain() else {
+            print("Agent list: could not try \(agentID) again, so its row keeps the button")
+            VoiceToolCallChip.shared.show("Couldn't try that again", sender: .failure)
+            return
+        }
+        tryAgainActionsByAgentID[agentID] = nil
+        backgroundAgentStore.markTriedAgain(agentID)
     }
 
     /// Cancels a running agent from the agent list. A cancelled agent shows no chip, and a cancelled new guide keeps no
@@ -4093,8 +5146,14 @@ final class CompanionManager: ObservableObject {
 
     /// Not listed by tools/list, since it is for screenshots and demo takes, not for the model.
     private static let debugSeedAgentsToolName = "debug_seed_agents"
+    /// Clicks the menu bar icon, as the learner does, since a status item can sit where no script can find its window.
+    private static let debugClickMenuBarIconToolName = "debug_click_menu_bar_icon"
 
     private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
+        if toolName == Self.debugClickMenuBarIconToolName {
+            NotificationCenter.default.post(name: .clickyClickMenuBarIcon, object: nil)
+            return .changed(state: nil)
+        }
         if toolName == Self.debugSeedAgentsToolName {
             if let kindNames = toolInput["kinds"]?.arrayValue {
                 // Running agents of the kinds named, in order, with no finished or failed ones.
@@ -4107,6 +5166,12 @@ final class CompanionManager: ObservableObject {
                     for seededAgentID in seededAgentIDs {
                         agentTokenDockController.startServingTheToken(of: seededAgentID)
                     }
+                }
+                // "waitingForApproval": true puts the seeded agents in the waiting state the approval desk gives them, so their
+                // discs show the "!" face, the notch, the pulse, and the peek card's capability line.
+                if toolInput["waitingForApproval"]?.boolValue == true {
+                    backgroundAgentStore.agentIDsWaitingForApproval.formUnion(seededAgentIDs)
+                    for seededAgentID in seededAgentIDs { backgroundAgentStore.approvalCapabilitiesByAgentID[seededAgentID] = .sends }
                 }
             } else {
                 seedBackgroundAgentsForScreenshots(runningAgentCount: toolInput["runningAgentCount"]?.numberValue.map { Int(min(max($0, 0), 3)) } ?? 3)
@@ -4130,12 +5195,18 @@ final class CompanionManager: ObservableObject {
         let finishedAgentID = backgroundAgentStore.seedAgentsForScreenshots(runningAgentCount: runningAgentCount)
         // The seeded task's answer waits to be heard like a real one, so its list row's Hear answer button speaks it.
         holdTheTaskAnswerUntilItIsHeard("Karasuno won 2 sets to 1.", forAgent: finishedAgentID)
-        VoiceToolCallChip.shared.show(
-            BackgroundAgentKind.task.finishedChipText,
-            sender: chipSender(forAgent: finishedAgentID, kind: .task),
-            secondaryChipText: "· say what did you find",
-            secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-        )
+        // The agent is new to the dock, which makes its disc on the next turn of the run loop. A real agent has had its disc
+        // since it started, so this waits for the disc that Bring back leaves from.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [self] in
+            bringBackTheEndingChip(ofAgent: finishedAgentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    BackgroundAgentKind.task.finishedChipText,
+                    sender: chipSender(forAgent: finishedAgentID, kind: .task),
+                    secondaryChipText: "· say what did you find",
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
+        }
     }
     #endif
 
@@ -4181,11 +5252,18 @@ final class CompanionManager: ObservableObject {
             sceneStateFields["predictionQuestion"] = .string(simulationLesson.predictionQuestion)
         }
         // Only the capability word, never the summary, which a web page or an MCP server may have written.
-        if namesTheWaitingApproval, let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: approvalRequestAVoiceAnswerMayReach) {
+        if namesTheWaitingApproval, approvalAtThePressStillWaiting != nil,
+           let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: agentHarness.approvalDesk.oldestWaitingRequest) {
             sceneStateFields["approvalWaiting"] = .string(approvalWaitingState)
         }
         if let themeStudioState = voiceCommandThemeStudioState(themeStudioController.state) {
             sceneStateFields["themeStudio"] = themeStudioState
+        }
+        if let backgroundAgentsState = backgroundAgentsStateText(
+            runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count,
+            agentsArePaused: backgroundAgentStore.agentsArePaused
+        ) {
+            sceneStateFields["backgroundAgents"] = .string(backgroundAgentsState)
         }
         if let readyBackgroundScene {
             sceneStateFields["readyToShow"] = .string(readyToShowStateText(
@@ -4257,22 +5335,42 @@ final class CompanionManager: ObservableObject {
     }
 
     /// How far through `text` Clicky's voice is, from 0 to 1, or nil when Clicky is not speaking that line.
-    /// The pointing bubble types along with it.
+    /// The speech Callout brightens its words along with it.
     func spokenFractionOfTheLine(_ text: String) -> Double? {
         elevenLabsTTSClient.spokenFraction(ofLine: text)
     }
 
-    /// Returns true once the line's own audio has started, and false on a cancel or when the credits fallback plays instead.
+    /// Says that a command did not work, with the red failure chip above the cursor, so the failure never rests on the voice alone.
     @discardableResult
-    private func speakLiveSceneLine(_ line: String) async -> Bool {
-        await speakLiveSceneLineAndReturnItsToken(line) != nil
+    private func speakTheGaveUpLine() async -> Bool {
+        VoiceToolCallChip.shared.show("Couldn't do that one", sender: .failure)
+        return await speakLiveSceneLine(voiceCommandGaveUpLine, isAFailure: true)
+    }
+
+    /// Returns true once the line's own audio has started, and false on a cancel or when the credits fallback plays instead.
+    /// `isAFailure` says the line reports something that went wrong, so the cursor shakes as Clicky says it. The caller says
+    /// so, since a failure line can start with any words ("I couldn't find a YouTube video open in Chrome.").
+    @discardableResult
+    private func speakLiveSceneLine(_ line: String, isAFailure: Bool = false) async -> Bool {
+        await speakLiveSceneLineAndReturnItsToken(line, isAFailure: isAFailure) != nil
+    }
+
+    /// `speakLiveSceneLine` for a line whose audio may already be fetching, such as a voice command's line fetched while its
+    /// calls ran.
+    private func speakLiveSceneLine(_ lineFetch: SpokenLineFetch) async -> Bool {
+        await speakTheFetchedLineAndReturnItsToken(lineFetch) != nil
     }
 
     /// Like `speakLiveSceneLine`, but returns the token of the line once its own audio has started, for a caller that must
     /// stop that exact line later. Nil on a cancel or when the credits fallback plays instead.
-    private func speakLiveSceneLineAndReturnItsToken(_ line: String) async -> SpokenLineToken? {
+    private func speakLiveSceneLineAndReturnItsToken(_ line: String, isAFailure: Bool = false) async -> SpokenLineToken? {
+        await speakTheFetchedLineAndReturnItsToken(elevenLabsTTSClient.startFetching(line), isAFailure: isAFailure)
+    }
+
+    private func speakTheFetchedLineAndReturnItsToken(_ lineFetch: SpokenLineFetch, isAFailure: Bool = false) async -> SpokenLineToken? {
+        if isAFailure { playCursorEmote(.shake) }
         do {
-            let lineToken = try await elevenLabsTTSClient.speakText(line)
+            let lineToken = try await elevenLabsTTSClient.play(lineFetch)
             voiceState = .responding
             return lineToken
         } catch is CancellationError {
@@ -4398,7 +5496,7 @@ final class CompanionManager: ObservableObject {
         detectedElementScreenLocation = partScreenPoint.globalPoint
     }
 
-    /// The blue cursor flies to the quiz's "?" label and its bubble shows the question, typed along with the voice, so a
+    /// The blue cursor flies to the quiz's "?" label and its speech Callout shows the question, brightening its words along with the voice, so a
     /// learner can read a long question again while answering. It stays until the question is answered, or the scene
     /// clears, which releases any held pointing.
     private func pointTheBuddyAtTheQuizQuestion(_ quiz: LiveSceneQuiz, labelScreenPoints: [LiveScenePartScreenPoint]) {
@@ -4482,6 +5580,7 @@ final class CompanionManager: ObservableObject {
     /// or reply request fails. Uses NSSpeechSynthesizer so it works even when
     /// ElevenLabs is down.
     private func speakCreditsErrorFallback() {
+        playCursorEmote(.shake)
         let utterance = "Sorry, I lost my voice for a second. Please try that again."
         let synthesizer = NSSpeechSynthesizer()
         synthesizer.startSpeaking(utterance)

@@ -6,8 +6,18 @@
 
 export const appSecretHeaderName = "x-clicky-app-secret";
 
-/** Every route that uses the Notion token, and the Messages passthrough, which spends the owner's Anthropic key for the agent harness. */
-export const routesThatNeedTheAppSecret = new Set(["/notion-page", "/study-guide", "/study-guide-status", "/v1/messages"]);
+/**
+ * Every route that uses the Notion token, the Messages passthrough, which spends the owner's Anthropic key for the agent
+ * harness, and the try-it routes, which spend it on a page read and keep the local depth service's GPU busy for about 14 s.
+ */
+export const routesThatNeedTheAppSecret = new Set([
+  "/notion-page",
+  "/study-guide",
+  "/study-guide-status",
+  "/v1/messages",
+  "/try-it-item",
+  "/room-wall",
+]);
 
 async function sha256Digest(text: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));

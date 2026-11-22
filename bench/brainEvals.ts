@@ -31,10 +31,10 @@
 //
 // The harness decides voice approvals itself and handles `answer_approval` without sending it to the app, so the harness
 // backend scores the cases of a context with a waiting request (`approvalWaiting`) from what the harness's approval gate
-// settled. It seeds a waiting request with the bench-only `seed_approval_request`, names it in `approvalIDSeenAtPress`, and
-// reads the answer from the `approval_settled` line or the `Brain: approval` log line. An unrelated command passes only
-// with its own tool call and no settlement. The Worker backend still sends `approvalWaiting` in the scene state and scores
-// the tool's input, as the app's old path does.
+// settled. It seeds a waiting request with the bench-only `seed_approval_request`, names it in `approvalIDWaitingAtPress`
+// and `approvalIDSeenAtPress`, and reads the answer from the `approval_settled` line or the `Brain: approval` log line. An
+// unrelated command passes only with its own tool call and no settlement. The Worker backend still sends
+// `approvalWaiting` in the scene state and scores the tool's input, as the app's old path does.
 //
 // How a request is built. The app sends { messages, tools } to the Worker, which adds the model, the system prompt, and a
 // `confirmation` property on every tool. `voiceCommandUserMessageText` mirrors the app's function of the same name in
@@ -854,6 +854,7 @@ export const handOffToolNames = new Set([
   "show_ready_model",
   "hear_task_answer",
   "design_theme",
+  "show_art_in_my_room",
 ]);
 /** The tools whose step is a read-only lookup, which the model reads before it acts again. */
 export const lookupToolNames = new Set(["find_moment"]);
@@ -965,7 +966,7 @@ export class HarnessCommandRecorder {
   private readonly brainCase: BrainCase;
   private readonly commandID: string;
 
-  /** `approvalID` is the request the command may answer, which `voiceCommandMessageFor` names in `approvalIDSeenAtPress`. */
+  /** `approvalID` is the request the command may answer, which `voiceCommandMessageFor` names in `approvalIDWaitingAtPress` and `approvalIDSeenAtPress`. */
   constructor(brainCase: BrainCase, commandID: string, approvalID: string | null = null) {
     this.brainCase = brainCase;
     this.commandID = commandID;
@@ -1111,7 +1112,7 @@ export function waitingApprovalCapabilityOf(brainCase: BrainCase, evalFile: Brai
   return typeof capabilityWord === "string" ? capabilityWord : undefined;
 }
 
-/** The ID of the request a case's command answers, which the bench seeds before the command and names in `approvalIDSeenAtPress`. */
+/** The ID of the request a case's command answers, which the bench seeds before the command and names in `approvalIDWaitingAtPress` and `approvalIDSeenAtPress`. */
 export function approvalIDFor(commandID: string): string {
   return `approval-${commandID}`;
 }
@@ -1119,18 +1120,21 @@ export function approvalIDFor(commandID: string): string {
 /**
  * The `voice_command` line for one case, with the same words and tools the Worker request has. It carries no recent
  * actions, since the harness keeps earlier commands in its session, which `sessionLinesFor` sets up. A case in a context
- * with a waiting request names that request in `approvalIDSeenAtPress`, as the app does when the learner had seen its card
- * at the press, and its scene state has no `approvalWaiting`, which only the Worker backend sends.
+ * with a waiting request names that request in `approvalIDWaitingAtPress` and `approvalIDSeenAtPress`, as the app does when
+ * its card had shown the whole summary for a second at the press, and its scene state has no `approvalWaiting`, which only
+ * the Worker backend sends.
  */
 export function voiceCommandMessageFor(brainCase: BrainCase, evalFile: BrainEvalFile, toolCatalog: ToolCatalog, commandID: string) {
   const { approvalWaiting: _approvalWaiting, ...sceneStateWithoutApproval } = sceneStateOf(brainCase, evalFile);
+  const waitingApprovalID = waitingApprovalCapabilityOf(brainCase, evalFile) === undefined ? null : approvalIDFor(commandID);
   return {
     type: "voice_command",
     taskID: commandID,
     transcript: brainCase.say,
     sceneState: sceneStateWithoutApproval,
     tools: requestBodyFor(brainCase, evalFile, toolCatalog).tools,
-    approvalIDSeenAtPress: waitingApprovalCapabilityOf(brainCase, evalFile) === undefined ? null : approvalIDFor(commandID),
+    approvalIDWaitingAtPress: waitingApprovalID,
+    approvalIDSeenAtPress: waitingApprovalID,
   };
 }
 

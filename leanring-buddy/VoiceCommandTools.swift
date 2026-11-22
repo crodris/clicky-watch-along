@@ -11,130 +11,6 @@
 
 import Foundation
 
-// MARK: - JSON
-
-/// A JSON value at the boundaries this path crosses: the page, the Worker, and the debug MCP endpoint.
-nonisolated enum JSONValue: Equatable, Sendable, Codable {
-    case null
-    case bool(Bool)
-    case number(Double)
-    case string(String)
-    case array([JSONValue])
-    case object([String: JSONValue])
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if container.decodeNil() {
-            self = .null
-        } else if let boolValue = try? container.decode(Bool.self) {
-            self = .bool(boolValue)
-        } else if let numberValue = try? container.decode(Double.self) {
-            self = .number(numberValue)
-        } else if let stringValue = try? container.decode(String.self) {
-            self = .string(stringValue)
-        } else if let arrayValue = try? container.decode([JSONValue].self) {
-            self = .array(arrayValue)
-        } else {
-            self = .object(try container.decode([String: JSONValue].self))
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .null: try container.encodeNil()
-        case .bool(let boolValue): try container.encode(boolValue)
-        case .number(let numberValue): try container.encode(numberValue)
-        case .string(let stringValue): try container.encode(stringValue)
-        case .array(let arrayValue): try container.encode(arrayValue)
-        case .object(let objectValue): try container.encode(objectValue)
-        }
-    }
-
-    /// WebKit and JSONSerialization hand back Foundation objects typed as Any. Nil for anything that is not JSON.
-    init?(foundationValue: Any) {
-        switch foundationValue {
-        case is NSNull:
-            self = .null
-        case let numberValue as NSNumber:
-            // A Foundation Bool is an NSNumber too, and only its type ID tells them apart.
-            if CFGetTypeID(numberValue) == CFBooleanGetTypeID() {
-                self = .bool(numberValue.boolValue)
-            } else {
-                self = .number(numberValue.doubleValue)
-            }
-        case let stringValue as String:
-            self = .string(stringValue)
-        case let arrayValue as [Any]:
-            var convertedValues: [JSONValue] = []
-            for element in arrayValue {
-                guard let convertedValue = JSONValue(foundationValue: element) else { return nil }
-                convertedValues.append(convertedValue)
-            }
-            self = .array(convertedValues)
-        case let dictionaryValue as [String: Any]:
-            var convertedObject: [String: JSONValue] = [:]
-            for (key, element) in dictionaryValue {
-                guard let convertedValue = JSONValue(foundationValue: element) else { return nil }
-                convertedObject[key] = convertedValue
-            }
-            self = .object(convertedObject)
-        default:
-            return nil
-        }
-    }
-
-    /// The Foundation form WebKit's callAsyncJavaScript arguments take.
-    var foundationValue: Any {
-        switch self {
-        case .null: return NSNull()
-        case .bool(let boolValue): return boolValue
-        case .number(let numberValue): return numberValue
-        case .string(let stringValue): return stringValue
-        case .array(let arrayValue): return arrayValue.map(\.foundationValue)
-        case .object(let objectValue): return objectValue.mapValues(\.foundationValue)
-        }
-    }
-
-    subscript(key: String) -> JSONValue? {
-        if case .object(let objectValue) = self { return objectValue[key] }
-        return nil
-    }
-
-    var numberValue: Double? {
-        if case .number(let numberValue) = self { return numberValue }
-        return nil
-    }
-
-    var stringValue: String? {
-        if case .string(let stringValue) = self { return stringValue }
-        return nil
-    }
-
-    var boolValue: Bool? {
-        if case .bool(let boolValue) = self { return boolValue }
-        return nil
-    }
-
-    var arrayValue: [JSONValue]? {
-        if case .array(let arrayValue) = self { return arrayValue }
-        return nil
-    }
-
-    var objectValue: [String: JSONValue]? {
-        if case .object(let objectValue) = self { return objectValue }
-        return nil
-    }
-
-    /// One line of JSON with sorted keys, for logs, tool results, and the model's recent actions.
-    var compactJSONText: String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        guard let encodedData = try? encoder.encode(self) else { return "null" }
-        return String(decoding: encodedData, as: UTF8.self)
-    }
-}
-
 // MARK: - Tools
 
 /// One tool in the WebMCP and MCP shape. readOnly marks a tool whose result the model reads before it
@@ -180,6 +56,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case buildSimulation = "build_simulation"
     case popOut = "pop_out"
     case animatePicture = "animate_picture"
+    case showArtInMyRoom = "show_art_in_my_room"
     case closeScene = "close_scene"
     case explainPart = "explain_part"
     case pauseVideo = "pause_video"
@@ -197,6 +74,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case showReadyModel = "show_ready_model"
     case startBackgroundTask = "start_background_task"
     case hearTaskAnswer = "hear_task_answer"
+    case pauseAgents = "pause_agents"
+    case resumeAgents = "resume_agents"
     case recordGuess = "record_guess"
     case answerApproval = "answer_approval"
     case designTheme = "design_theme"
@@ -204,11 +83,25 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case saveTheme = "save_theme"
     case closeThemeStudio = "close_theme_studio"
 
+    /// Whether a call to the tool can hand the request to a slow path, which then owns what Clicky says, so the turn's
+    /// confirmation is never spoken. These are the tools whose branch in CompanionManager's `appVoiceToolStep` returns
+    /// `.handOff`, which `bench/brainEvals.ts` (`appToolStepKindsIn`) also reads, and a tool that hands off only some of
+    /// the time, such as `build_simulation`, counts.
+    var mayHandOff: Bool {
+        switch self {
+        case .answerWithScreen, .buildNewScene, .buildSimulation, .popOut, .animatePicture, .showArtInMyRoom, .closeScene, .explainPart,
+             .endQuiz, .showReadyModel, .hearTaskAnswer, .designTheme:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Whether the tool turns the request into a look at the media on screen, which draws the loop around it.
     /// A turn that only runs tools, such as turning a model or seeking a video, never does.
     var handsOffToALookAtTheMedia: Bool {
         switch self {
-        case .answerWithScreen, .buildNewScene, .popOut, .animatePicture:
+        case .answerWithScreen, .buildNewScene, .popOut, .animatePicture, .showArtInMyRoom:
             return true
         default:
             return false
@@ -242,6 +135,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var themeStudioIsOpen = false
         /// The Theme Studio card shows ideas, so one can be picked and the highlighted one saved.
         var themeStudioShowsIdeas = false
+        /// A background agent is running, so "hold on" can pause every agent.
+        var backgroundAgentIsRunning = false
+        /// The learner paused every agent, so "go ahead" lets them go on (`BackgroundAgentStore.agentsArePaused`).
+        var backgroundAgentsArePaused = false
     }
 
     static func available(in context: Context) -> [AppVoiceTool] {
@@ -249,7 +146,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             switch appVoiceTool {
             // With the brain flag on, a first utterance reaches these with nothing on screen and no video in front, so none of them
             // may depend on either. animate_picture runs the same path as pop_out, which lifts a picture or pops one out first.
-            case .answerWithScreen, .buildNewScene, .popOut, .animatePicture:
+            // show_art_in_my_room reads the picture on Chrome's front tab itself, and says so when there is none.
+            case .answerWithScreen, .buildNewScene, .popOut, .animatePicture, .showArtInMyRoom:
                 return !context.quizQuestionIsOpen
             // With an experiment on screen, set_control and run_simulation change it, and a second build costs a model call.
             case .buildSimulation:
@@ -284,6 +182,13 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 return !context.quizQuestionIsOpen
             case .hearTaskAnswer:
                 return context.taskAnswerIsReady && !context.quizQuestionIsOpen
+            // Pausing holds the agents and never the learner, so it works whatever is on screen.
+            case .pauseAgents:
+                return context.backgroundAgentIsRunning && !context.backgroundAgentsArePaused
+            // While a request the learner can answer by voice waits, "go ahead" is its yes, so the agents go on only after
+            // the learner answers it, and a resume never doubles as an approval.
+            case .resumeAgents:
+                return context.backgroundAgentsArePaused && !context.approvalIsWaiting
             case .recordGuess:
                 return context.simulationIsWaitingForAGuess && !context.quizQuestionIsOpen
             // Offered only while a request waits, so a "yes" with nothing to allow never reaches it. A quiz question
@@ -353,6 +258,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return "Lift the subject of the video frame or the largest picture in Chrome's front tab out in 3D with its parts labeled. Use it only when they say pop this out or pop it out. It pauses a playing video by itself."
         case .animatePicture:
             return "Lift the video frame or the largest picture in Chrome's front tab out in 3D and show what flows through it as moving streams, such as air through an engine or blood through a heart. Over a pop-out already on screen, it animates that one. Use it only when the learner says animate this, make it move, or make it flow. A painting is left as the artist made it, and the app says so. Use answer_with_screen when they ask how to animate something in another app. It pauses a playing video by itself."
+        case .showArtInMyRoom:
+            return "Try the item on Chrome's front tab in the learner's room, in their live camera view. Wall art hangs on their wall at its real size from the page. Furniture and clothes are read too, but not placed yet, and the app says so. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room', also when the item is a chair or a shirt."
         case .closeScene:
             return "Close the 3D scene on screen. A paused video plays again."
         case .explainPart:
@@ -387,6 +294,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return "Hand a task to a background agent that works on its own for a minute or two while the learner keeps watching. It can search the web, read this video's captions, look at the video, and write a Notion page. Use it when the learner asks you to find out, look up, research, compare, check, or collect something that needs more than a quick answer from the screen, such as \"find out how this compares to the first booster catch\". Use make_study_guide for a study guide of this video, and build_model_in_background for a 3D model. Put the task in goal, in the learner's words, with what this or that refers to on screen. Your confirmation is a few plain words that it has started, such as \"looking into it\", never that it is done."
         case .hearTaskAnswer:
             return "Say what the background task agent found. Use it when the learner asks what it found, what the answer was, or to hear the result."
+        case .pauseAgents:
+            return "Pause every background agent, the ones in the scene state's backgroundAgents: none starts its next step or shows its result until the learner says go ahead, and their discs fold into one paused disc. Use it when the learner says hold on, hold on a second, pause the agents, or hold everything. A bare hold on means the agents, never the video, even while a video plays. Do not use it when hold on only starts a question or another command, such as \"hold on, what is that\", which is that question or command, and use pause_video to pause the video. Your confirmation is a few plain words, such as \"holding them\"."
+        case .resumeAgents:
+            return "Let every paused background agent go on from where it stopped, and send their discs back to their places. Use it when the learner says go ahead, keep going, carry on, continue, or resume the agents. When go ahead only starts another command, such as \"go ahead and pop this out\", use that command's tool instead. Your confirmation is a few plain words, such as \"back to work\"."
         case .answerApproval:
             return "Answer the request a background agent is waiting on, which asks the learner to allow one action. The scene state's approvalWaiting names the kind of action, never the action itself. Use it only when the learner answers that request: yes, sure, go ahead, or do it allows it (approved true), and no, don't, stop, or cancel declines it (approved false). Set always true only when they say always or always allow it. Do not use it for any other command. Your confirmation is two plain words, such as \"allowed it\" or \"declined it\"."
         case .designTheme:
@@ -414,7 +325,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             .object(["type": .string("number"), "description": .string(description)])
         }
         switch self {
-        case .answerWithScreen, .buildSimulation, .popOut, .animatePicture, .closeScene, .pauseVideo, .playVideo, .endQuiz:
+        case .answerWithScreen, .buildSimulation, .popOut, .animatePicture, .showArtInMyRoom, .closeScene, .pauseVideo, .playVideo, .endQuiz:
             return objectSchema([:], required: [])
         case .buildNewScene:
             return objectSchema(
@@ -458,7 +369,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return objectSchema([:], required: [])
         case .reviseStudyGuide:
             return objectSchema(["instruction": .object(["type": .string("string"), "description": .string("What to change about the guide, in the learner's words.")])], required: ["instruction"])
-        case .openStudyGuide, .showReadyModel, .hearTaskAnswer:
+        case .openStudyGuide, .showReadyModel, .hearTaskAnswer, .pauseAgents, .resumeAgents:
             return objectSchema([:], required: [])
         case .startBackgroundTask:
             return objectSchema(["goal": .object(["type": .string("string"), "description": .string("The task in the learner's words, with what it refers to on screen.")])], required: ["goal"])
@@ -484,7 +395,7 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         input.filter { inputKey, _ in inputKey != "confirmation" }
     }
 
-    /// What the chip next to the cursor says, in words a learner reads at a glance, such as "Turning it left".
+    /// What the chip above the cursor says, in words a learner reads at a glance, such as "Turning it left".
     /// Nil for a call whose own status line or answer follows at once, like pop_out's "Popping it out",
     /// for a call that changes nothing (a zoom factor of 1, a seek that rounds to 0 seconds), for a missing
     /// or out-of-range argument (a negative or non-finite seek time), and for a name this app does not know.
@@ -520,7 +431,8 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             // The page refuses a missing name or value, so the chip says nothing for them either.
             guard let controlName = textInput("name"), let controlValue = numberInput("value") else { return nil }
             let valueText = Int(exactly: controlValue).map(String.init) ?? String(format: "%.1f", controlValue)
-            return "Setting \(controlName) to \(valueText)"
+            // With run true the page plays the simulation right after setting, so the chip says both. A refused run fails the call, which shows no chip.
+            return input["run"]?.boolValue == true ? "Setting \(controlName) to \(valueText) and running it" : "Setting \(controlName) to \(valueText)"
         case "run_simulation":
             return "Running it"
         case "record_guess":
@@ -574,10 +486,15 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Starting your experiment"
         case "start_background_task":
             return "Starting a task"
+        case "pause_agents":
+            return "Holding every agent"
+        case "resume_agents":
+            return "Back to work"
         default:
-            // pop_out, animate_picture, build_new_scene, answer_with_screen, show_ready_model, and hear_task_answer hand off to
-            // a path with its own status line, thinking dots, rising scene, or voice. answer_approval shows no chip of its
-            // own, since the desk's approval_settled shows the outcome the harness's gate took, on both paths.
+            // pop_out, animate_picture, build_new_scene, answer_with_screen, show_ready_model, hear_task_answer, and
+            // show_art_in_my_room hand off to a path with its own status line, thinking dots, rising scene, panel, or
+            // voice. answer_approval shows no chip of its own, since the desk's approval_settled shows the outcome the
+            // harness's gate took, on both paths.
             return nil
         }
     }
@@ -853,6 +770,15 @@ nonisolated func readyToShowStateText(isExperiment: Bool, whatToBuild: String) -
     return trimmedRequest.isEmpty ? "\(kindText), built and waiting" : "\(kindText) of \"\(trimmedRequest)\", built and waiting"
 }
 
+/// What the router's scene state says about the background agents, such as "2 running", so "hold on" and "go ahead" read as
+/// being about them. During a pause it also says a new agent waits, so a confirmation for one started then says when it
+/// starts. Nil when no agent runs, which leaves the field out.
+nonisolated func backgroundAgentsStateText(runningAgentCount: Int, agentsArePaused: Bool) -> String? {
+    guard runningAgentCount > 0 else { return nil }
+    guard agentsArePaused else { return "\(runningAgentCount) running" }
+    return "\(runningAgentCount) paused, and a new agent waits for go ahead too"
+}
+
 /// Page text and captions sit inside tags the model is told never to obey, so a "<" in them could close the tag early.
 nonisolated func voiceCommandUserMessageText(transcript: String, sceneState: JSONValue, recentActionLines: [String]) -> String {
     let stateText = sceneState.compactJSONText.replacingOccurrences(of: "<", with: " ")
@@ -882,6 +808,8 @@ nonisolated func voiceCommandRouterTakesTheTranscript(
     taskAnswerIsReady: Bool = false,
     approvalIsWaiting: Bool = false,
     themeStudioIsOpen: Bool = false,
+    backgroundAgentIsRunning: Bool = false,
+    backgroundAgentsArePaused: Bool = false,
     phaseIsWaitingForAQuizAnswer: Bool,
     sceneIsBuilding: Bool,
     brainTakesEveryRequest: Bool = false
@@ -890,7 +818,9 @@ nonisolated func voiceCommandRouterTakesTheTranscript(
     if themeStudioIsOpen { return true }
     if sceneIsBuilding { return false }
     if brainTakesEveryRequest { return true }
+    // While an agent runs or waits paused, "hold on" and "go ahead" reach the router with nothing on screen.
     return sceneIsOnScreen || videoIsInFront || backgroundSceneIsReady || taskAnswerIsReady || approvalIsWaiting
+        || backgroundAgentIsRunning || backgroundAgentsArePaused
 }
 
 /// The "one brain" switch. With it on, the voice command model picks the action for every first utterance, instead of
@@ -999,6 +929,9 @@ nonisolated enum KeywordBranchAheadOfTheRouter: Equatable, Sendable {
     case startExperiment
     /// "Change my theme" opens the Theme Studio with no model call to pick the tool.
     case designATheme(ThemeStudioRequest)
+    /// "Show me how this would look in my room" hangs the picture on the learner's wall in the camera panel, ahead of the
+    /// live scene's "show me", which would build a 3D scene of it.
+    case showArtInMyRoom
 }
 
 /// The keyword branch a transcript takes before the router sees it, or nil. When the brain flag is on and the router
@@ -1029,6 +962,9 @@ nonisolated func keywordBranchAheadOfTheRouter(
     if !phaseIsWaitingForAQuizAnswer, let themeStudioRequest = asksToDesignATheme(transcript) {
         return .designATheme(themeStudioRequest)
     }
+    if !phaseIsWaitingForAQuizAnswer, asksToSeeArtInMyRoom(transcript) {
+        return .showArtInMyRoom
+    }
     switch liveSceneKind(for: transcript) {
     case .animatedFramePopout:
         return .animatePicture
@@ -1047,6 +983,8 @@ nonisolated func keywordBranchAheadOfTheRouter(
 nonisolated enum RouterFailureFallback: Equatable {
     case startExperiment
     case designATheme(ThemeStudioRequest)
+    /// "Show this in my room" skipped its keyword branch to reach the router, and the keyword path would build a 3D scene.
+    case showArtInMyRoom
     case keywordPath(LiveSceneKind?)
     case giveUp
 }
@@ -1062,6 +1000,7 @@ nonisolated func routerFailureFallback(for transcript: String, sceneIsOnScreen: 
     )
     if skippedKeywordBranch == .startExperiment { return .startExperiment }
     if case .designATheme(let themeStudioRequest)? = skippedKeywordBranch { return .designATheme(themeStudioRequest) }
+    if skippedKeywordBranch == .showArtInMyRoom { return .showArtInMyRoom }
     return .keywordPath(keywordPathSceneKind(for: transcript))
 }
 

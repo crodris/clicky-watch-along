@@ -39,7 +39,7 @@ A PR in a later wave starts once every PR it depends on has merged.
 | 5 Approval card | B | 2 | Read rail, ring, equal buttons, desk-driven states, per-surface seen state and clock, the stored transcript for "You said", instant No. |
 | 6 Agent list, Theme Studio, dial | B | 2, 3 | Glide from origin, live lines, result buttons, studio states and sound preview, dial plate. |
 | 7 Menu bar | B | 2 | Icon states, the disc dot, the approval disc, peek, right-click menu, and Bring back. |
-| 9 Cursor and ring | B | 2 | Glyph, stretch and landing ring, nod, shake, hop, ticks to dots to bubble. |
+| 9 Cursor and ring | B | 2 | Glyph, stretch and landing ring, nod, shake, hop, ticks to dots to the speech Callout. |
 | 10 Quiz, scenes, edges | B | 2 | Quiz states and summary, scene stylesheet with dark glass labels, lesson stages, error and full-screen states. |
 | 11 Instant replay | B | 2 | Record each stop's label, sentence, and camera pose; voice and click controls; cancelation; the Reduce Motion list. |
 | 8 Panel, onboarding, keyboard | C | 2, 3, 7 | Home panel, banner slot, theme cards, all-themes grid, six-step setup, keyboard and VoiceOver paths. |
@@ -64,6 +64,8 @@ The 6 bigger ideas follow the build order as PRs 13 to 18: Theme Studio designs 
 - Upload PR images to a `pr-assets/<topic>` branch, cropped to Clicky's own windows.
 - Ship with `/ship and merge`; PR bodies go through the `rewrite` skill, as the global rules require.
 - Rebase on `origin/main` right before opening the PR and again before merging, since every PR edits `AGENTS.md`.
+- Stay in your turn until the PR merges. Nothing wakes an agent whose turn has ended, so wait on CI, `watch.sh`, or the app check lock inside the turn, with `t3_background_wait` for a background command, and never end the turn to wait.
+- After an app check, close your project in Xcode (`tell application "Xcode" to close (every workspace document whose path contains "<worktree folder>") saving no`), since about ten open projects stop Xcode from loading new ones.
 - Do not ask Chris anything.
   Make the reversible choice, write it in the PR body's Tradeoffs, and keep going.
   Stop only for something destructive or outside this repository.
@@ -72,10 +74,10 @@ The 6 bigger ideas follow the build order as PRs 13 to 18: Theme Studio designs 
 
 Only one Clicky and one Worker on port 8787 can run at a time on this Mac, and other sessions use them too.
 
-1. Take the lock with `/bin/mkdir /tmp/clicky-app-check.lock` (plain `mkdir` is aliased to `mkdir -p` and never fails), and write your branch name into `/tmp/clicky-app-check.lock/owner`.
-   If it fails, another agent holds it: wait and retry every 60 seconds.
+1. Take the lock with `.claude/skills/verify-clicky/verify-clicky.sh lock-take <your branch name>`.
+   It names the owner in its error while another agent holds the lock: wait and retry every 60 seconds.
 2. Run `pgrep -fl "Clicky.app/Contents/MacOS/Clicky"`.
-   If any Clicky is running, release the lock, wait 5 minutes, and start again.
+   If any Clicky is running, run `verify-clicky.sh lock-release <your branch name>`, wait 5 minutes, and start again.
 3. Build with `verify-clicky.sh build`.
 4. If Chris's Worker holds port 8787 (tmux session `clicky-worker-8787`, serving the main checkout's `worker/`), stop it with `tmux send-keys -t clicky-worker-8787 C-c` and wait for the port to free.
 5. Run `verify-clicky.sh worker-up 8787`, then `app-launch`, and take your evidence.
@@ -83,9 +85,11 @@ Only one Clicky and one Worker on port 8787 can run at a time on this Mac, and o
 7. Restart Chris's Worker in its tmux session with exactly:
    `tmux send-keys -t clicky-worker-8787 'WRANGLER_SEND_METRICS=false pnpm wrangler dev --port 8787 --ip 127.0.0.1 --var LIVE_SCENE_MODEL:sonnet 2>&1 | tee -a ~/Library/Logs/clicky-worker-8787.log' Enter`
    Then confirm `curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8787/judge-answer -H 'Content-Type: application/json' -d '{}'` prints 400, once at once and again a minute later.
-8. Release the lock with `rm -r /tmp/clicky-app-check.lock`.
+8. Release the lock with `verify-clicky.sh lock-release <your branch name>`.
 
 Hold the lock for at most 20 minutes.
+When `lock-take` says another owner has held it longer than that, report the app surface as unverified.
+Never remove `/tmp/clicky-app-check.lock` by hand: `lock-release` refuses a lock that another owner holds and names that owner, and a lock you did not take is another agent's running check.
 Never change a system setting such as Reduce Motion; check Reduce Motion paths with renders and tests.
 
 ## Status
@@ -96,17 +100,42 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 2 Tokens and carrier | Merged: [#72](https://github.com/crodris/clicky-watch-along/pull/72) |
 | 3 Theme files | Merged: [#74](https://github.com/crodris/clicky-watch-along/pull/74) |
 | 12 App icon | Merged: [#73](https://github.com/crodris/clicky-watch-along/pull/73). Dark, tinted, and clear modes still need the layers imported into Icon Composer by hand. |
-| 4, 5, 6, 7, 9, 10, 11 | Building in parallel |
-| 8 Panel, onboarding, keyboard | Waiting for PRs 2, 3, and 7 |
-| 13 Theme Studio designs motion | After the build order |
-| 14 The loop carries background work | After the build order |
-| 15 End-of-video recap | After the build order |
-| 16 Pause every agent by voice | After the build order |
-| 17 Scrub by voice | After the build order |
-| 18 Share themes as files | After the build order |
+| 4 Callouts and speech | Merged: [#81](https://github.com/crodris/clicky-watch-along/pull/81) |
+| 6 Agent list, Theme Studio, dial | Merged: [#87](https://github.com/crodris/clicky-watch-along/pull/87) |
+| 7 Menu bar | Merged: [#86](https://github.com/crodris/clicky-watch-along/pull/86) |
+| 5 Approval card | Merged: [#84](https://github.com/crodris/clicky-watch-along/pull/84) |
+| 9 Cursor and ring | Merged: [#83](https://github.com/crodris/clicky-watch-along/pull/83) |
+| 10 Quiz, scenes, edges | Merged: [#85](https://github.com/crodris/clicky-watch-along/pull/85). The quiz summary Card was seen in the app during PR 15's check |
+| 11 Instant replay | Open: [#88](https://github.com/crodris/clicky-watch-along/pull/88) |
+| 8 Panel, onboarding, keyboard | Merged: [#95](https://github.com/crodris/clicky-watch-along/pull/95). The approval banner and the quiz line are not yet seen live |
+| 13 Theme Studio designs motion | Merged: [#92](https://github.com/crodris/clicky-watch-along/pull/92). The Debug app check and the motion recording are still owed, since Xcode would not load the project |
+| 14 The loop carries background work | Open: [#97](https://github.com/crodris/clicky-watch-along/pull/97) |
+| 15 End-of-video recap | Merged: [#93](https://github.com/crodris/clicky-watch-along/pull/93) |
+| 16 Pause every agent by voice | Merged: [#94](https://github.com/crodris/clicky-watch-along/pull/94) |
+| 17 Scrub by voice | Starts when PR 11 merges |
+| 18 Share themes as files | Merged: [#102](https://github.com/crodris/clicky-watch-along/pull/102) |
+| 19 Tether polish | After the build order: what earlier PRs left open that no later PR owns |
 
 Deferred from PR 1, to fold into later PRs: the Chrome control row hides after onboarding (PR 8), a hover that shows only after the next mouse move on a still pointer (PR 8), the dimmed No button's low contrast (PR 5), a pop-out label's leader line that can point off screen after a resize (PR 10), and the menu bar icon not found beside the notch (PR 7).
 
 Left open by PR 2, folded into PR 7: the serve has no still ring under Reduce Motion, the tether fades for about 200 ms after a disc covers its slot, and the flush is unchecked through a real Apple Event stall. PR 6 writes the first Glide caller.
 
-Deferred from PR 3: the "Add theme?" card shown before an install (PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18).
+Deferred from PR 3: the "Add theme?" card shown before an install (done in PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18, which closed it: an install opens the package folder once and walks each file's path from it with `openat` and `O_NOFOLLOW`, so the package folder is resolved once per read and every name below it is looked up from a folder already open).
+
+Left open by PR 4: a push-to-talk press during a narration leaves the bubble with a rise instead of shrinking it into the cursor (PR 11).
+PR 19 takes the rest, plus PR 7's leftovers: Bring back's drop to the cursor can cross the video, no unit test pins the tether cut when a disc slides, the right-click menu's quiz check, or the press-handler order, and the app icon's cursor points down and right while the app's cursor points up and left. PR 4's leftovers in PR 19: stacked chips (a new chip pushes the old one up, which needs a second panel), the speech underline at exactly 2 points, and the `start_background_task` description that still says "a chip under the cursor", with its three fixtures and recorded evals.
+
+Folded into PR 8 from PR 7: keyboard focus on the agent discs, and the status badge on a light menu bar.
+
+Left open by PR 6, for PR 19: the disc right-click menu has no "Try again" item, `AgentTriangleView` is now unused, and a click in the agent list's shadow margin hits faint shadow pixels. PR 8 makes the panel's theme cards match the studio tiles.
+
+Left open by PR 5, for PR 19: the approval card should glide back into its agent disc when answered, and the disc's "!" should turn into a check.
+Left open by PR 9, for PR 19: a ring dot crosses about 3 points into a status line's Callout at the top of its orbit, the shake, hop, and Reduce Motion tints are checked only on rendered frames, and the failure flag `isAFailure` defaults to false, so make it required once the parallel PRs have merged.
+Left open by PR 10: the panel header's quiz progress line (PR 8), and for PR 19, Escape during the summary Card's 0.42 second glide-in shows the whole Card for 0.05 seconds (needs a carrier option), a video pause stays held when a scene build is cancelled on the quiz tab and a jump back to a question then fails, and an experiment built on the Sonnet scene model took 63 seconds, past the app's 60 second wait. The flaky test PR takes the two timing tests that failed under load.
+Left open by PR 8, for PR 19: a double flight when the agent list is open under a disc and that agent's chip is picked in the panel, the spec's red menu bar badge for the permission-off and offline banners, a full-name pill wider than its card for a long theme name, and a live look at the approval banner and the quiz line.
+Left open by PR 11, for PR 19: under PR 13's slowest theme a long replay flight leaves about 0.72 seconds of dwell at a stop instead of 1.0.
+Left open by PR 15, for PR 19: an open menu bar panel does not count as busy for the recap, keyboard focus can reach a hidden disc while the recap Card is open, the gather is unchecked in the app under Reduce Motion, a press, Escape, or a scene during its 0.5 seconds, and on a second display, and the Escape-order paragraph in `AGENTS.md` lacks the gather step. Known limits: the recap covers only the last quiz, and a playlist that ends can be missed.
+Left open by PR 16, for PR 19: a push-to-talk press during the recap's disc gather sends the discs back on a 0.5 second flight instead of at once, the panel's agent chips stay colored during a pause, keyboard focus does not move to the paused disc or back after "go ahead", a recap within half a second of a pause or resume can leave a disc showing, and three `AGENTS.md` nits (the `AgentPauseTests.swift` line count, the approval line in the Swift agents bullet, and the missing held tool call log line).
+Left open by PR 18, for PR 19: a theme card keeps its hover look when the panel re-lays out under a still pointer, such as after a delete, which comes from the shared `HoverAndPointerNSView`.
+Finder also has no Quick Look thumbnail for a `.clickytheme` file yet (`qlmanage -t`), so its icon is still the app's document icon.
+The Quick Look extension draws its own still cursor, a small copy of the triangle shape and the Clicky blue palette order, because the app's cursor view depends on app-only state.

@@ -55,8 +55,13 @@ func rosterPlayers(of theme: ClickyTheme) -> [ThemeRosterPlayer] {
     return []
 }
 
-/// A store whose folder does not exist, so a test never reads the themes the developer saved on this Mac.
-let themeStoreWithNoSavedThemes = CustomThemeStore(themesDirectoryURL: FileManager.default.temporaryDirectory.appendingPathComponent("clicky-tests-no-saved-themes", isDirectory: true))
+/// A store whose folder does not exist, so a test never reads the themes the developer saved on this Mac. Each use gets its own
+/// folder, since a test that saves a theme (the studio's save, a rename) would otherwise leave it for every later test and
+/// every later run, and Shuffle picks among them, so one run found 209 saved themes and the shuffle test failed whenever its
+/// 30 random picks all had triangle faces.
+var themeStoreWithNoSavedThemes: CustomThemeStore {
+    CustomThemeStore(themesDirectoryURL: FileManager.default.temporaryDirectory.appendingPathComponent("clicky-tests-no-saved-themes-\(UUID().uuidString)", isDirectory: true))
+}
 
 /// Theme settings backed by their own UserDefaults suite, so a test never reads or changes the app's saved theme.
 @MainActor
@@ -80,9 +85,22 @@ func makeBackgroundAgentStore(theme: ClickyTheme = clickyBlueTheme) -> Backgroun
 /// Every CI runner on the Mac runs as the same macOS user and builds the app with its own bundle ID, so the bundle ID
 /// keeps the tests of two runners that run at the same time from clearing or overwriting each other's values. The name
 /// stays fixed for each runner, since macOS keeps an empty preferences file for each suite even after its domain is removed.
+/// `tools/swift-check.sh` runs every checkout's tests under one test runner's bundle ID, and parallel worktrees run it at
+/// the same time, so the name also carries a hash of the checkout's path, which stays fixed for each checkout.
 func fixedTestDefaultsSuiteName(_ testName: String) -> String {
-    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(testName)"
+    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(checkoutPathHash)-\(testName)"
 }
+
+/// A 64-bit FNV-1a hash of the checkout's path, in hex. Swift's own `hashValue` changes with every process, and a path
+/// cannot go in a suite name, since UserDefaults reads a slash as a file path.
+private let checkoutPathHash: String = {
+    var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+    for byte in repositoryRootURL.path.utf8 {
+        hash ^= UInt64(byte)
+        hash = hash &* 0x0000_0100_0000_01b3
+    }
+    return String(hash, radix: 16)
+}()
 
 /// A UserDefaults suite of its own, named by `fixedTestDefaultsSuiteName`, emptied before and after `body`.
 @MainActor
@@ -423,30 +441,41 @@ struct BundledThemeTests {
 
     // MARK: - What views draw
 
-    @Test func aFailedOrCancelledAgentsPortraitBorderShowsItsStateInsteadOfTheAgentsColor() async throws {
-        let agentColor = Color(hex: "#E0313B")
-        #expect(agentListPortraitBorderColor(phase: .running(completedStepCount: 0), agentColor: agentColor) == agentColor)
-        #expect(agentListPortraitBorderColor(phase: .failed(reason: "Broke"), agentColor: agentColor) == DS.Colors.destructive)
-        #expect(agentListPortraitBorderColor(phase: .cancelled, agentColor: agentColor) == DS.Colors.textTertiary)
-    }
-
-    @Test func theChipsIconTileFollowsTheIconsShapeSoNoWhiteCornersShowAroundAPortrait() async throws {
+    @Test func theChipsPortraitFillsItsDiscAndEveryOtherIconIsASymbolOnTheDisc() async throws {
         let karasuno = bundledTheme("school-karasuno")
         let hinataFace = AgentRosterFace(player: try #require(rosterPlayers(of: karasuno).first), of: karasuno)
-        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, face: .rosterFace(hinataFace)).iconShape == .circularPortrait)
-        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, face: .triangle).iconShape == .roundedSquareTile)
-        #expect(VoiceToolCallChipSender.voiceToolCall.iconShape == .roundedSquareTile)
+        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, face: .rosterFace(hinataFace)).iconContent == .circularPortrait)
+        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, face: .triangle).iconContent == .symbolOnDisc)
+        #expect(VoiceToolCallChipSender.voiceToolCall.iconContent == .symbolOnDisc)
+        #expect(VoiceToolCallChipSender.failure.iconContent == .symbolOnDisc)
     }
 
-    @Test func theChipSitsUnderTheCursorAndStaysInsideTheScreen() async throws {
+    @Test func theChipSitsAboveTheCursorAndStaysInsideTheScreen() async throws {
         let screenFrame = CGRect(x: 0, y: 0, width: 1710, height: 1107)
         let chipOriginInTheMiddle = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 500), screenFrame: screenFrame)
-        #expect(chipOriginInTheMiddle.y < 500)
-        #expect(chipOriginInTheMiddle.x > 500)
-        let chipOriginAtTheRightEdge = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 1700, y: 500), screenFrame: screenFrame)
-        #expect(chipOriginAtTheRightEdge.x + VoiceToolCallChip.panelSize.width <= screenFrame.maxX)
+        // The tail's tip is above the triangle, which sits 25 below the mouse, so the panel starts below the mouse and its
+        // Callout reaches above the triangle.
+        #expect(chipOriginInTheMiddle.y + tetherCalloutPanelMargin > 500 - 25)
+        #expect(abs(chipOriginInTheMiddle.x + tetherCalloutPanelMargin + tetherSingleLineCalloutTailTipX - (500 + 35)) < 0.001)
+        // A 200 point chip whose tail would stand at the cursor but run past the screen's edge slides left, and a chip that
+        // fits keeps its tail on the cursor.
+        let chipOriginAtTheRightEdge = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 1700, y: 500), screenFrame: screenFrame, calloutWidth: 200)
+        #expect(abs(chipOriginAtTheRightEdge.x + tetherCalloutPanelMargin + 200 - screenFrame.maxX) < 0.001)
+        let chipOriginThatFits = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 1000, y: 500), screenFrame: screenFrame, calloutWidth: 200)
+        #expect(abs(chipOriginThatFits.x + tetherCalloutPanelMargin + tetherSingleLineCalloutTailTipX - (1000 + 35)) < 0.001)
+        let chipOriginAtTheTop = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 1100), screenFrame: screenFrame)
+        #expect(chipOriginAtTheTop.y + VoiceToolCallChip.panelSize.height <= screenFrame.maxY)
         let chipOriginAtTheBottom = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 10), screenFrame: screenFrame)
         #expect(chipOriginAtTheBottom.y >= screenFrame.minY)
+    }
+
+    @Test func aChipSitsAboveAStatusLineThatShowsAtTheSameSpot() async throws {
+        let screenFrame = CGRect(x: 0, y: 0, width: 1710, height: 1107)
+        let mouseLocation = CGPoint(x: 500, y: 500)
+        let withNoStatusLine = voiceToolCallChipOrigin(mouseLocation: mouseLocation, screenFrame: screenFrame, aStatusLabelIsShowing: false)
+        let withAStatusLine = voiceToolCallChipOrigin(mouseLocation: mouseLocation, screenFrame: screenFrame, aStatusLabelIsShowing: true)
+        #expect(withAStatusLine.y - withNoStatusLine.y >= tetherSingleLineCalloutHeight)
+        #expect(withAStatusLine.x == withNoStatusLine.x)
     }
 
     @Test func aTokenSaysItsStateByItsBadgeAndAWaitingApprovalWins() async throws {
