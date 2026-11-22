@@ -4,7 +4,7 @@
 //
 //  The ring around the cursor, which gives Clicky's voice states one home: a ring of ticks that follows
 //  your voice while you speak, and three dots orbiting the cursor while Clicky thinks. Speaking hides the
-//  ring, because the response bubble types with the voice. While a loop shows around the media Clicky is
+//  ring, because the speech Callout brightens its words with the voice. While a loop shows around the media Clicky is
 //  looking at, the loop's spark is the thinking light instead, and the dots stay away.
 //
 

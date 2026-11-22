@@ -19,7 +19,7 @@ final class ThemeStudioPanelController {
     /// The card at its tallest, which keeps it clear of the pointer when it opens before the ideas arrive.
     static let tallestCardHeight: CGFloat = 360
     /// Far enough from the mouse that the cursor glyph, which sits 35 points right of the pointer and 25 below it, and the
-    /// tool chip under it ("Trying idea 2"), which ends about 82 points below the pointer, both show above the card.
+    /// tool chip above that glyph ("Trying idea 2"), which reaches about 40 points above the pointer, both show clear of the card.
     private static let gapFromTheMouse: CGFloat = 96
     /// Below the cursor overlay windows (one level above screen saver), so the previewed cursor is never under the card.
     private static let panelLevel = NSWindow.Level.screenSaver

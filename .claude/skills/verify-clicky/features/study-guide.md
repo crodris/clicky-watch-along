@@ -2,7 +2,7 @@
 
 While a YouTube video plays in Chrome's front tab, the learner asks for a study guide, and Clicky writes a Notion page about the video in the background while the video keeps playing.
 `POST /study-guide` has Sonnet draft the guide from the captions and writes it as its own page in the Private section of the Notion user who made the token, with a timestamp link on every point and the quiz questions the learner missed or skipped listed first.
-Clicky does not speak when the guide ends. An agent token floats beside the notch while it runs, and a finished guide opens in a Chrome tab behind the video tab, with a quiet chip under the cursor.
+Clicky does not speak when the guide ends. An agent token floats beside the notch while it runs, and a finished guide opens in a Chrome tab behind the video tab, with a quiet chip above the cursor.
 The learner can revise or open the guide by voice, and hold shift + option, then flick to Agents, to see every agent and cancel one.
 
 ## Sub-features
@@ -11,7 +11,7 @@ The learner can revise or open the guide by voice, and hold shift + option, then
 - `guide-revise` sends `revision` with the previous page handle and guide, creates the new page, and trashes the old one.
   A handle the Worker did not sign gets a 400 before any model or Notion call.
 - `guide-review-first` builds the "Review these first" section from the quiz results marked `missed` or `skipped`.
-- `guide-not-connected` answers 503 when `NOTION_API_KEY` is missing, and the chip under the cursor says "Notion isn't connected yet" with a gray token in a red ring and no sound.
+- `guide-not-connected` answers 503 when `NOTION_API_KEY` is missing, and the chip above the cursor says "Notion isn't connected yet" with a gray token in a red ring and no sound.
 - `guide-voice-tools` offers `make_study_guide` with a YouTube video in front, no quiz question open, and no guide saved for that video, and `revise_study_guide` and `open_study_guide` once a guide is saved for it. The guide is saved under `savedStudyGuide.<video id>` in the app's defaults, so it outlives a relaunch, and `defaults delete com.crodris.clicky-watch-along savedStudyGuide.<video id>` makes the video writable again. Trashing the page in Notion does the same at the next voice command, since `POST /study-guide-status` then answers `{ "pageExists": false }` and the app logs `is no longer in Notion, so the saved guide is forgotten`.
 - `guide-background` writes the guide in its own task, so a push-to-talk press does not cancel it, and nothing is spoken when it ends.
 - `guide-token` shows an amber-ringed token right of the notch while the guide runs, its ring filling through each step in step with the agent list's meter, and full with a green check mark after "Tink" and the amber chip "Study guide ready", with an amber triangle icon, when the page exists. The token leaves when the chip ends, since the page opened at once.
@@ -54,7 +54,7 @@ Preconditions:
 
 - **Token.** With a YouTube video in front, post `make_study_guide` as above, then right away run `$V shot guide-running`.
   The screenshot shows an amber-ringed token right of the notch, with the amber triangle on its dark face.
-  After the app log shows `Study guide: wrote`, run `$V shot guide-done` within 4 seconds to see the token with a full ring and a green check mark and the "Study guide ready" chip under the cursor.
+  After the app log shows `Study guide: wrote`, run `$V shot guide-done` within 4 seconds to see the token with a full ring and a green check mark and the "Study guide ready" chip above the cursor.
 - **Team theme.** [`team-theme.md`](./team-theme.md) drives every themed token and list state with seeded agents and no model call.
 - **Agent list.** While the guide runs, run `$V key agents-list`, then `$V shot guide-list`.
   The screenshot shows the "Agents" panel below and right of the mouse, opened through the dial's Agents slice, with a "1 running" header and a Study guide row.

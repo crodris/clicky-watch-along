@@ -449,7 +449,7 @@ final class HarnessApprovalDesk: ObservableObject {
     /// The request that ended last and how, which a card shows for `secondsAnEndedCardStays` when no request waits.
     @Published private(set) var lastEndedCard: ShownApprovalCard?
     /// A request was settled, with the answer the harness's gate took, so the owner shows the outcome. It is not called
-    /// for a request the desk's own timeout declined, since "Declined it" under the cursor would come with no context.
+    /// for a request the desk's own timeout declined, since "Declined it" above the cursor would come with no context.
     var onApprovalSettled: ((_ approved: Bool, _ scope: HarnessApprovalScope) -> Void)?
     var onRequestArrived: ((HarnessApprovalRequest) -> Void)?
     /// Whether the agent list is open, so a request that becomes the oldest shows in its card.

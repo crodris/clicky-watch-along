@@ -65,14 +65,14 @@ enum CursorLoopEndReason: CaseIterable, Equatable {
     case tabOrMediaChanged
     /// The front app is no longer Chrome.
     case appSwitched
-    /// Clicky's answer started to play, so the bubble takes over from the loop.
+    /// Clicky's answer started to play, so the speech Callout takes over from the loop.
     case speechStarted
     /// A scene or pop-out began to show, so it rises from the line Clicky drew.
     case aSceneStartedToShow
 }
 
 /// Whether Clicky's voice state ends a loop that is showing. Going idle covers a cancel and a failure, and an
-/// answer's speech ends the loop too, since the response bubble takes over. A status line speaking, such as
+/// answer's speech ends the loop too, since the speech Callout takes over. A status line speaking, such as
 /// "Sure, let me build that for you", does not, because the loop stays up through the build.
 func cursorLoopEndReason(forVoiceState voiceState: CompanionVoiceState, aStatusLabelIsShowing: Bool) -> CursorLoopEndReason? {
     switch voiceState {
