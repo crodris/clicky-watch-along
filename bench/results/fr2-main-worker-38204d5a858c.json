@@ -1,0 +1,136 @@
+{
+  "label": "fr2-main",
+  "benchKind": "worker",
+  "commitSHA": "38204d5a858c",
+  "workingTreeIsDirty": true,
+  "recordedAt": "2026-11-22T08:16:21.644Z",
+  "runCount": 1,
+  "port": 8781,
+  "interleavedWith": [
+    "fr2-rules"
+  ],
+  "summary": [
+    {
+      "caseId": "live-scene-bicycle",
+      "route": "/live-scene",
+      "description": "Builds a 3D model of the bicycle in a diagram frame",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 23034,
+        "p95": 23034,
+        "min": 23034,
+        "max": 23034
+      },
+      "firstByteMs": {
+        "p50": 23025,
+        "p95": 23025,
+        "min": 23025,
+        "max": 23025
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2207,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 2204,
+      "meanOutputTokens": 8238,
+      "meanCostUSD": 0.49564
+    },
+    {
+      "caseId": "simulation-projectile",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a cannon frame for \"let me try it\"",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 26188,
+        "p95": 26188,
+        "min": 26188,
+        "max": 26188
+      },
+      "firstByteMs": {
+        "p50": 26181,
+        "p95": 26181,
+        "min": 26181,
+        "max": 26181
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4247,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1112,
+      "meanOutputTokens": 6479,
+      "meanCostUSD": 0.42703
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "live-scene-bicycle",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 23025.168999999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 23033.713207999997,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2207,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2204,
+          "outputTokens": 8238
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.4956384,
+      "quality": {
+        "passed": true,
+        "detail": "answer Pedal"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-projectile",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 26181.263250000004,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 26187.890084,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4247,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1112,
+          "outputTokens": 6479
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.42702719999999994,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: If you keep the launch speed the same, will the ball land farther at 45 degrees or at 60 degrees?"
+      },
+      "replyPreview": ""
+    }
+  ]
+}

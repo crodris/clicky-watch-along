@@ -445,6 +445,24 @@ describe("handleLiveScene model setting", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("asks a 3D model for at most 10 labels that never overlap and a view that never crops it, and an experiment for neither", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ output_text: sceneModelReply, usage: {} })));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await handleLiveScene(requestWithBody(sceneRequest), sceneKeys);
+    await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "simulation" }), sceneKeys);
+
+    const [modelInstructions, simulationInstructions] = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1].body)).instructions as string);
+    expect(modelInstructions).toContain("Label at most 10 parts. Place the labels so no two overlap and none crowds or runs past an edge of the window.");
+    expect(modelInstructions).toContain("Frame the whole subject so no part of it is cropped at any edge of the window");
+    // Experiments lost the blind judge 1 to 4 with these rules, so a simulation's prompt keeps none of them.
+    expect(simulationInstructions).not.toContain("Label at most 10 parts");
+    expect(simulationInstructions).not.toContain("Frame the whole subject so no part of it is cropped");
+    // Guards the dropped experiment framing rule, so it does not come back without a new bakeoff.
+    expect(simulationInstructions).not.toContain("the equipment a readout depends on stays large in the frame");
+  });
+
   it("refuses an unknown LIVE_SCENE_MODEL without calling a model", async () => {
     const fetchMock = vi.fn(async () => new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);

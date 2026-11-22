@@ -121,48 +121,64 @@ const openAIResponseSchema = z.object({
 
 type SceneRequest = z.infer<typeof sceneRequestSchema>;
 
-const liveSceneInstructions = [
-  "Reply with a ```html block and then a ```json block. Those two blocks are the entire reply.",
-  "",
-  "The html block is one complete page: a real-time three.js scene for a learning app, drawn with procedural geometry only. No external models or images.",
-  "The subject is what the learner names. When they name nothing, it is the subject in the screenshot.",
-  "Build the subject as the screenshot shows it. When the screenshot shows only part of something, build that part and what it touches in the picture, not the whole object it belongs to.",
-  "Make it look real, not like a cartoon. Build the whole of that subject as it looks from the outside, and label its outer parts.",
-  "Only when the learner asks to see inside the subject, also build the parts inside, and fade the outer shell on the last camera move so the inside shows.",
-  "The html and body background is transparent, and the renderer uses alpha.",
-  "",
-  "Load three through an import map and nothing else:",
-  '<script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js" } }</script>',
-  'Then import it with import * as THREE from "three" in one module script.',
-  "No other URL may appear anywhere in the page. The SVG namespace http://www.w3.org/2000/svg is the only exception, and only if you draw an SVG.",
-  "Do not put any instruction text, heading, or title on the page. Part labels are the only text.",
-  "",
-  "Choose the answer part, the labels, and the question for this subject. The answer part is one a 10-year-old could name.",
-  'Show HTML labels with leader lines. Every label element has class "scene-label".',
-  'The answer part\'s label text is "?" from the start. The other labels use words a 10-year-old can read.',
-  "",
-  "Camera tour: hold outside the whole subject for 1 second, circle it over 3 seconds so every side shows, then over 2 seconds move closer to the answer part. For an inside view, that last move goes in beside the answer part while the outer shell fades. Keep neighboring parts in view at the end.",
-  "",
-  "Follow this contract exactly, because the app depends on it:",
-  "1. Define window.liveScene at the top of the module script, before any await.",
-  '2. window.liveScene.reveal() changes the answer part\'s label from "?" to its real name.',
-  "3. window.liveScene.focusPart(labelText) moves the camera to the part with that label over about 1.5 seconds, makes that part glow, fades every other part to about 35 percent, and returns true. Calling it again moves the highlight. Calling it with an empty string restores every part and moves the camera back over about 1.5 seconds to frame the whole subject, aimed at its center. It returns false when no part has that label. Return the boolean immediately, and let the move run.",
-  '4. When the tour ends, set window.__tourFinished = true and call window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("tourFinished").',
-  "5. After the tour ends only, dragging with the mouse orbits the camera around the center of the whole subject, never around the part the camera last moved to (for an inside view, around the answer part). The first drag eases the camera's aim to that center over about 0.5 seconds, so nothing jumps. window.liveScene.zoomBy(amount) with a positive amount moves the camera closer. Clamp both so the camera stays useful. Before the tour ends both do nothing.",
-  "6. Set window.__ready = true after the first frame renders.",
-  "7. window.liveScene also has rotateBy(yawDegrees, pitchDegrees), which turns the camera around the whole subject by those amounts over about 0.6 seconds and returns at once, even before the tour ends; endTour(), which ends the camera tour at once (setting window.__tourFinished and posting tourFinished as rule 4 says) and lets dragging and zoomBy work; and getState(), which returns { yawDegrees, pitchDegrees, zoom, focusedLabel, tourFinished } with zoom from 0 (farthest) to 1 (closest). It also exposes THREE (the imported module), camera, renderer, and parts: one entry per labeled part, { label, object, isOuterShell }, where object is the THREE.Object3D that holds that part (a THREE.Group named by its label when it has several meshes) and isOuterShell is true for a part that covers others. Set renderer.localClippingEnabled = true.",
-  "",
-  "The json block is one JSON object and nothing else:",
-  '{ "question": "...", "answerLabel": "...", "functionWords": ["..."], "explanation": "..." }',
-  "question opens with one warm, plain sentence about the subject, with no exclamation mark (for an inside view, saying you have arrived inside it), then asks what the part is and what it does. It does not contain the answer.",
-  "answerLabel is the answer part's real label, the words the learner would say out loud.",
-  "functionWords is a list of lowercase words that count as saying what the part does.",
-  "explanation is two short spoken sentences a 10-year-old can follow. It names the part, says what it does, and says why that matters.",
-].join("\n");
+/**
+ * Two rules the scene kernel bakeoff of 2026-11-21 showed the judges reward for 3D models (bench/README.md, "Framing and
+ * label rules"): labels that never pile up, and a view that never crops the subject, such as a bicycle's saddle and front
+ * wheel. A 3D model's prompt carries them, and a simulation's does not, since experiments lost the blind judge 1 to 4 with them.
+ */
+const labelCountAndPlacementRule =
+  "Label at most 10 parts. Place the labels so no two overlap and none crowds or runs past an edge of the window.";
+const modelFramingRule =
+  "Frame the whole subject so no part of it is cropped at any edge of the window, at the end of the tour and when the camera turns halfway around it, so the last move closer stops while the whole subject still fits. For an inside view, the parts around the answer part stay whole in view.";
+
+/** The rules every page shares. A 3D model's lines include the two rules above, in the places they were measured. */
+function liveSceneInstructionLines(kind: LiveSceneRequestKind): string {
+  const onlyForAModel = (rule: string) => (kind === "model" ? [rule] : []);
+  return [
+    "Reply with a ```html block and then a ```json block. Those two blocks are the entire reply.",
+    "",
+    "The html block is one complete page: a real-time three.js scene for a learning app, drawn with procedural geometry only. No external models or images.",
+    "The subject is what the learner names. When they name nothing, it is the subject in the screenshot.",
+    "Build the subject as the screenshot shows it. When the screenshot shows only part of something, build that part and what it touches in the picture, not the whole object it belongs to.",
+    "Make it look real, not like a cartoon. Build the whole of that subject as it looks from the outside, and label its outer parts.",
+    "Only when the learner asks to see inside the subject, also build the parts inside, and fade the outer shell on the last camera move so the inside shows.",
+    "The html and body background is transparent, and the renderer uses alpha.",
+    "",
+    "Load three through an import map and nothing else:",
+    '<script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js" } }</script>',
+    'Then import it with import * as THREE from "three" in one module script.',
+    "No other URL may appear anywhere in the page. The SVG namespace http://www.w3.org/2000/svg is the only exception, and only if you draw an SVG.",
+    "Do not put any instruction text, heading, or title on the page. Part labels are the only text.",
+    "",
+    "Choose the answer part, the labels, and the question for this subject. The answer part is one a 10-year-old could name.",
+    'Show HTML labels with leader lines. Every label element has class "scene-label".',
+    ...onlyForAModel(labelCountAndPlacementRule),
+    'The answer part\'s label text is "?" from the start. The other labels use words a 10-year-old can read.',
+    "",
+    "Camera tour: hold outside the whole subject for 1 second, circle it over 3 seconds so every side shows, then over 2 seconds move closer to the answer part. For an inside view, that last move goes in beside the answer part while the outer shell fades. Keep neighboring parts in view at the end.",
+    ...onlyForAModel(modelFramingRule),
+    "",
+    "Follow this contract exactly, because the app depends on it:",
+    "1. Define window.liveScene at the top of the module script, before any await.",
+    '2. window.liveScene.reveal() changes the answer part\'s label from "?" to its real name.',
+    "3. window.liveScene.focusPart(labelText) moves the camera to the part with that label over about 1.5 seconds, makes that part glow, fades every other part to about 35 percent, and returns true. Calling it again moves the highlight. Calling it with an empty string restores every part and moves the camera back over about 1.5 seconds to frame the whole subject, aimed at its center. It returns false when no part has that label. Return the boolean immediately, and let the move run.",
+    '4. When the tour ends, set window.__tourFinished = true and call window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("tourFinished").',
+    "5. After the tour ends only, dragging with the mouse orbits the camera around the center of the whole subject, never around the part the camera last moved to (for an inside view, around the answer part). The first drag eases the camera's aim to that center over about 0.5 seconds, so nothing jumps. window.liveScene.zoomBy(amount) with a positive amount moves the camera closer. Clamp both so the camera stays useful. Before the tour ends both do nothing.",
+    "6. Set window.__ready = true after the first frame renders.",
+    "7. window.liveScene also has rotateBy(yawDegrees, pitchDegrees), which turns the camera around the whole subject by those amounts over about 0.6 seconds and returns at once, even before the tour ends; endTour(), which ends the camera tour at once (setting window.__tourFinished and posting tourFinished as rule 4 says) and lets dragging and zoomBy work; and getState(), which returns { yawDegrees, pitchDegrees, zoom, focusedLabel, tourFinished } with zoom from 0 (farthest) to 1 (closest). It also exposes THREE (the imported module), camera, renderer, and parts: one entry per labeled part, { label, object, isOuterShell }, where object is the THREE.Object3D that holds that part (a THREE.Group named by its label when it has several meshes) and isOuterShell is true for a part that covers others. Set renderer.localClippingEnabled = true.",
+    "",
+    "The json block is one JSON object and nothing else:",
+    '{ "question": "...", "answerLabel": "...", "functionWords": ["..."], "explanation": "..." }',
+    "question opens with one warm, plain sentence about the subject, with no exclamation mark (for an inside view, saying you have arrived inside it), then asks what the part is and what it does. It does not contain the answer.",
+    "answerLabel is the answer part's real label, the words the learner would say out loud.",
+    "functionWords is a list of lowercase words that count as saying what the part does.",
+    "explanation is two short spoken sentences a 10-year-old can follow. It names the part, says what it does, and says why that matters.",
+  ].join("\n");
+}
 
 /**
- * Added after liveSceneInstructions for a simulation, so a model page's prompt stays exactly as it was and a simulation
- * keeps the whole window.liveScene contract. It replaces the quiz, the "?" label, and the tour, and adds rules 8 to 15.
+ * Appended to the shared rules for a simulation. For a simulation those rules leave out the two 3D-only rules above, and
+ * this part keeps the whole window.liveScene contract. It replaces the quiz, the "?" label, and the tour, and adds rules 8 to 15.
  */
 const simulationInstructions = [
   "",
@@ -192,7 +208,7 @@ const simulationInstructions = [
 ].join("\n");
 
 function liveSceneInstructionsFor(kind: LiveSceneRequestKind): string {
-  return kind === "simulation" ? liveSceneInstructions + "\n" + simulationInstructions : liveSceneInstructions;
+  return kind === "simulation" ? liveSceneInstructionLines(kind) + "\n" + simulationInstructions : liveSceneInstructionLines(kind);
 }
 
 const judgeAnswerSystemPrompt = [
