@@ -147,6 +147,23 @@ The eight corners are `center + right * (sx * W/2) + up * (sy * H) + forward * (
 
 `422` on `/floor` means under 200 bare floor points remain around the anchor, the plane under it is not floor-like (tilted over 25 degrees from the camera's vertical, or the anchor is above the horizon), or the plane has a NaN or infinite number.
 
+### Tables and shelves
+
+`POST /floor` also takes an optional `standsOn`, `"floor"` (the default) or `"tableOrShelf"`.
+Any other value is a `400`, and `standsOn` on `/wall` is a `400` too.
+With `"tableOrShelf"` the anchor is a click on the top of a table, desk, counter, or shelf, and the reply has the same shape.
+
+A floor fit on a table top measured the wall behind it (86 degrees), since its window is 40% of the frame wide and RANSAC keeps the largest plane.
+So the surface fit differs from the floor fit in two ways:
+
+- The window is small: 6% of the frame's width to each side of the click, and 3% of the width above and below it.
+- RANSAC scores only candidate planes whose normal is within 25 degrees of the camera's vertical, so a wall can never win over a small level top.
+  Inliers lie within 1.5 cm of the plane.
+
+The horizon and non-finite checks are the floor's.
+`422` says "table or shelf" when under 200 bare points remain, no level plane lies at the click, or the click is above the surface's horizon.
+On 2026-11-23 it measured a real table top in the room fixture at 4.9 degrees with 63% of the points on it, where the floor fit gave 86 degrees, and the floor under it still at 2.8 degrees.
+
 ## Measured
 
 On a MacBook Air (M-series), a 1920 x 1080 frame takes about 14 to 16 seconds per wall once the model is warm (inference 16.1 s, the rest of the 16.5 s is decoding and the plane fit).
@@ -167,4 +184,5 @@ uv run pytest -q
 
 The tests build a synthetic tilted wall with noise and an object in front, and check the normal within 1 degree, the person mask, the center on the anchor's ray, a plane with a NaN refused, and that RANSAC on 42,000 points takes under 2 s.
 For the floor they build a floor seen from a camera 1.2 m high, pitched 15 degrees down, and check `up` within 2 degrees, the center on the anchor's ray and the floor, the orthonormal right, up, and forward with forward away from the camera, the rejection of a wall and of an anchor above the horizon, and the person mask.
+For the surface fit they build a level table top as a thin band of rows in front of a wall, and check that the surface fit finds it where the floor fit measures the wall, and the "table or shelf" errors.
 `test_server.py` runs the real HTTP handler on a free port with no Depth Pro loaded, and checks the `Origin` and `Content-Type` refusals on both routes, the 422 for a plane it cannot measure, the reply shape of each route with a stand-in for Depth Pro, and the 400 for a frame that is not a JPEG, an image or a mask over 4096 px on a side (refused from its header before any pixel is decoded), and a mask that is not a PNG.

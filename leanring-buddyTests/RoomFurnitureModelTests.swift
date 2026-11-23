@@ -327,18 +327,15 @@ struct RoomFurnitureSpotTests {
     }
 
     private func cornersAreInsideTheMargins(_ corners: [CGPoint]) -> Bool {
-        let insideTheMargins = CGRect(origin: .zero, size: frameSize).insetBy(dx: frameSize.width * roomFurnitureFrameMarginShare, dy: frameSize.height * roomFurnitureFrameMarginShare)
+        let insideTheMargins = roomFurnitureFrameRectangleThePieceFitsIn(frameSize: frameSize)
         return corners.allSatisfy { insideTheMargins.contains($0) }
     }
 
-    @Test func theLoopsSpotIsTheMiddleOfThePiecesFootprint() throws {
-        // A 0.9 m wide, 0.8 m tall, 0.6 m deep chair: the loop goes around the floor it stands on, not its front face.
-        let floor = try #require(try floorMeasuredNearTheRightEdge().moved(toAnchorPixel: CGPoint(x: 640, y: 600)))
-        let placement = try #require(RoomFurniturePlacement(floor: floor, widthMeters: 0.9, heightMeters: 0.8, depthMeters: 0.6))
-        let footprintCenterPixel = try #require(pinholeProjection(of: placement.footprintCenter, focalLengthPixels: 1100, principalPoint: SIMD2(640, 360)))
-        let loopCenter = try #require(roomFurnitureFootprintCenterInTheKeyframe(floor: floor, widthMeters: 0.9, heightMeters: 0.8, depthMeters: 0.6))
-        // The mean of the four projected corners is within a few pixels of the projected middle at this distance.
-        #expect(hypot(loopCenter.x - footprintCenterPixel.x, loopCenter.y - footprintCenterPixel.y) < 4)
+    @Test func thePieceKeepsClearOfTheStatusLineAtTheBottom() {
+        let rectangle = roomFurnitureFrameRectangleThePieceFitsIn(frameSize: CGSize(width: 1280, height: 720))
+        // The status line's top is at about 91 percent of the panel's height, so the box ends above it.
+        #expect(rectangle.maxY <= 720 * 0.9)
+        #expect(abs(rectangle.minY - 720 * 0.04) < 1e-9 && abs(rectangle.minX - 1280 * 0.04) < 1e-9 && abs(rectangle.maxX - 1280 * 0.96) < 1e-9)
     }
 
     @Test func aFloorMovedToAPixelMeetsThatPixelsRayOnTheSamePlane() throws {

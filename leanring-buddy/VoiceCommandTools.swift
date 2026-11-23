@@ -278,7 +278,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .animatePicture:
             return "Lift the video frame or the largest picture in Chrome's front tab out in 3D and show what flows through it as moving streams, such as air through an engine or blood through a heart. Over a pop-out already on screen, it animates that one. Use it only when the learner says animate this, make it move, or make it flow. A painting is left as the artist made it, and the app says so. Use answer_with_screen when they ask how to animate something in another app. It pauses a playing video by itself."
         case .showArtInMyRoom:
-            return "Try the item on Chrome's front tab in the learner's live camera view. Wall art hangs on their wall and furniture stands on their floor, each at its real size from the page, and a shirt is drawn over the shirt they wear. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room', 'how would this chair look in my room', 'could I see this shirt on me', 'how would this look on me', and 'can I try this on'."
+            return "Try the item on Chrome's front tab in the learner's live camera view. A flat print or mirror hangs on their wall, anything that stands goes on their floor or on a table or shelf they click, each at its real size from the page, and a shirt is drawn over the shirt they wear. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room', 'how would this chair look in my room', 'how would this lamp look on my table', 'could I see this shirt on me', 'how would this look on me', and 'can I try this on'."
         case .placeFurniture:
             return "Place the furniture where its ghost stands in the room art panel, so Clicky paints the real piece there. Use it when the learner says right there, put it there, place it, leave it there, or that's good, about the piece they are placing. Your confirmation is a few plain words, such as \"placing it\"."
         case .moveFurniture:
@@ -813,13 +813,18 @@ nonisolated enum KeywordBranchAheadOfTheRouter: Equatable, Sendable {
 /// keyword branch at all, so the router reads every word: "two, but make the cursor a star" is a refinement and not a new
 /// request, and "let me try it" or "make it move" is for the router to decide, not a branch that starts an experiment or
 /// an animation under the open card.
+/// While the furniture's ghost shows, "show this in my room" is no new request, so the router and the ghost's own phrases
+/// take the words, and "put it on the table" never closes the ghost. `aRoomArtItemKeepsTheRoom` lets "on the table" name a
+/// table Clicky painted (`asksToSeeArtInMyRoom`).
 nonisolated func keywordBranchAheadOfTheRouter(
     for transcript: String,
     brainTakesEveryRequest: Bool,
     sceneIsOnScreen: Bool,
     phaseIsWaitingForAQuizAnswer: Bool,
     sceneIsBuilding: Bool,
-    themeStudioIsOpen: Bool = false
+    themeStudioIsOpen: Bool = false,
+    furnitureGhostShows: Bool = false,
+    aRoomArtItemKeepsTheRoom: Bool = false
 ) -> KeywordBranchAheadOfTheRouter? {
     // Nothing else is live to command here, so only the brain flag can make the router take the utterance.
     let brainOwnsTheUtterance = voiceCommandRouterTakesTheTranscript(
@@ -833,7 +838,7 @@ nonisolated func keywordBranchAheadOfTheRouter(
     if !phaseIsWaitingForAQuizAnswer, let themeStudioRequest = asksToDesignATheme(transcript) {
         return .designATheme(themeStudioRequest)
     }
-    if !phaseIsWaitingForAQuizAnswer, asksToSeeArtInMyRoom(transcript) {
+    if !phaseIsWaitingForAQuizAnswer, !furnitureGhostShows, asksToSeeArtInMyRoom(transcript, aRoomArtItemKeepsTheRoom: aRoomArtItemKeepsTheRoom) {
         return .showArtInMyRoom
     }
     switch liveSceneKind(for: transcript) {
@@ -851,6 +856,8 @@ nonisolated func keywordBranchAheadOfTheRouter(
 /// Everything else takes the keyword path, which already pops out or animates from the words.
 /// With the Theme Studio open the words were a number, a change, or "save it", which the keyword path would answer as a
 /// question about the screen, so Clicky says `voiceCommandGaveUpLine` instead (`giveUp`).
+/// While a furniture ghost shows the words were for the panel too, and the keyword path would build a paid 3D scene over it
+/// from "show me how this would look in my room", so Clicky gives up the same way.
 nonisolated enum RouterFailureFallback: Equatable {
     case startExperiment
     case designATheme(ThemeStudioRequest)
@@ -860,14 +867,24 @@ nonisolated enum RouterFailureFallback: Equatable {
     case giveUp
 }
 
-nonisolated func routerFailureFallback(for transcript: String, sceneIsOnScreen: Bool, themeStudioIsOpen: Bool = false) -> RouterFailureFallback {
-    if themeStudioIsOpen { return .giveUp }
+/// The room art facts are the ones `transcriptRoute` reads, so a failed "put it on my desk" while a ghost shows never closes
+/// the ghost, and "how would this lamp look on the table" in a kept room still stacks the lamp.
+nonisolated func routerFailureFallback(
+    for transcript: String,
+    sceneIsOnScreen: Bool,
+    themeStudioIsOpen: Bool = false,
+    furnitureGhostShows: Bool = false,
+    aRoomArtItemKeepsTheRoom: Bool = false
+) -> RouterFailureFallback {
+    if themeStudioIsOpen || furnitureGhostShows { return .giveUp }
     let skippedKeywordBranch = keywordBranchAheadOfTheRouter(
         for: transcript,
         brainTakesEveryRequest: false,
         sceneIsOnScreen: sceneIsOnScreen,
         phaseIsWaitingForAQuizAnswer: false,
-        sceneIsBuilding: false
+        sceneIsBuilding: false,
+        furnitureGhostShows: furnitureGhostShows,
+        aRoomArtItemKeepsTheRoom: aRoomArtItemKeepsTheRoom
     )
     if skippedKeywordBranch == .startExperiment { return .startExperiment }
     if case .designATheme(let themeStudioRequest)? = skippedKeywordBranch { return .designATheme(themeStudioRequest) }

@@ -44,7 +44,7 @@ private func tryItReply(item itemJSON: String, title: String = "Water Lilies pri
 }
 
 private let goodWallArtItem = """
-{"kind": "wallArt", "wallArt": {"sizeFoundOnPage": true,
+{"kind": "wall", "wall": {"fillsItsCorners": true, "sizeFoundOnPage": true,
  "size": {"label": "16x20 in", "widthCentimeters": 40.6, "heightCentimeters": 50.8, "includesFrame": true},
  "otherSizes": [{"label": "8x10 in", "widthCentimeters": 20.3, "heightCentimeters": 25.4}, {"label": "Huge", "widthCentimeters": 5000, "heightCentimeters": 25}]}}
 """
@@ -52,7 +52,7 @@ private let goodWallArtItem = """
 private let goodRoomArtReply = tryItReply(item: goodWallArtItem)
 
 private let goodFurnitureItem = """
-{"kind": "furniture", "furniture": {"sizeFoundOnPage": true,
+{"kind": "standing", "standing": {"standsOn": "floor", "sizeFoundOnPage": true,
  "size": {"label": "180 x 90 cm", "widthCentimeters": 180, "heightCentimeters": 75, "depthCentimeters": 90}, "otherSizes": []}}
 """
 
@@ -70,11 +70,12 @@ private let sliverCorners = #"{"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 40
 private let fullCorners = #"{"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 500}, "bottomLeft": {"x": 0, "y": 500}}"#
 
 private func wallArtItem(sizeFound: String = "true", size: String = #"{"label": "S", "widthCentimeters": 20, "heightCentimeters": 30, "includesFrame": false}"#) -> String {
-    #"{"kind": "wallArt", "wallArt": {"sizeFoundOnPage": \#(sizeFound), "size": \#(size), "otherSizes": []}}"#
+    #"{"kind": "wall", "wall": {"fillsItsCorners": true, "sizeFoundOnPage": \#(sizeFound), "size": \#(size), "otherSizes": []}}"#
 }
 
 /// The fixture the Worker's tests read too: `POST /try-it-item` responses shaped as the Worker returns them, one for each
-/// kind plus wall art and furniture whose page states no size, and a garment whose front is the second picture.
+/// kind plus a wall item and a standing item whose page states no size, a standing item for the floor and one for a table or
+/// shelf, a round wall item that does not fill its corners, a wall shelf that cannot be shown, and a garment whose front is the second picture.
 private struct TryItItemRepliesFixture: Decodable {
     struct PictureSize: Decodable {
         let width: Int
@@ -104,23 +105,25 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
         RoomArtCorners(topLeft: CGPoint(x: left, y: top), topRight: CGPoint(x: right, y: top), bottomRight: CGPoint(x: right, y: bottom), bottomLeft: CGPoint(x: left, y: bottom))
     }
     switch caseName {
-    case "wall art with a stated size":
+    case "a wall item with a stated size":
         return .wallArt(RoomArtWallArtReading(
             title: "Water Lilies print, framed",
             chosenSize: RoomArtSize(label: "16 x 20 in", widthCentimeters: 40.6, heightCentimeters: 50.8),
             chosenSizeIncludesFrame: true,
+            fillsItsCorners: true,
             whyThisSize: "The page's size menu shows 16 x 20 in selected.",
             otherSizes: [RoomArtSize(label: "8 x 10 in", widthCentimeters: 20.3, heightCentimeters: 25.4)],
             artworkCorners: pictureCorners(40, 50, 360, 450)
         ))
-    case "wall art with no size on the page":
+    case "a wall item with no size on the page":
         return .sizeNotOnThePage(title: "Water Lilies print")
-    case "furniture only 5 centimeters deep":
+    case "a floor item only 5 centimeters deep":
         return .furniture(RoomArtFurnitureReading(
             title: "Slim floor mirror",
             chosenSize: RoomArtFurnitureSize(label: "50 x 170 cm", widthCentimeters: 50, heightCentimeters: 170, depthCentimeters: 5),
             whyThisSize: "The page lists one size, 50 x 170 cm.",
-            itemCorners: pictureCorners(120, 20, 280, 480)
+            itemCorners: pictureCorners(120, 20, 280, 480),
+            standsOn: .floor
         ))
     case "a figure whose page states only its height":
         return .furniture(RoomArtFurnitureReading(
@@ -129,12 +132,29 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             whyThisSize: "The page says the figure stands over 10 in. (26 cm) tall and states no width or depth.",
             itemCorners: pictureCorners(120, 20, 280, 480)
         ))
-    case "furniture with no size on the page":
+    case "a rug 1 centimeter tall":
+        return .furniture(RoomArtFurnitureReading(
+            title: "Wool area rug",
+            chosenSize: RoomArtFurnitureSize(label: "5 x 8 ft", widthCentimeters: 152.4, heightCentimeters: 1, depthCentimeters: 243.8),
+            whyThisSize: "The page has 5 x 8 ft selected.",
+            itemCorners: pictureCorners(20, 150, 380, 350),
+            standsOn: .floor
+        ))
+    case "a mug on a table or shelf":
+        return .furniture(RoomArtFurnitureReading(
+            title: "Stoneware mug",
+            chosenSize: RoomArtFurnitureSize(label: "9 x 10 cm", widthCentimeters: 12, heightCentimeters: 10, depthCentimeters: 9),
+            whyThisSize: "The page lists one size, 9 cm wide and 10 cm tall.",
+            itemCorners: pictureCorners(100, 120, 300, 380),
+            standsOn: .tableOrShelf
+        ))
+    case "a standing item with no size on the page":
         return .furniture(RoomArtFurnitureReading(
             title: "Slim floor mirror",
             chosenSize: nil,
             whyThisSize: "The page text states no size.",
-            itemCorners: pictureCorners(120, 20, 280, 480)
+            itemCorners: pictureCorners(120, 20, 280, 480),
+            standsOn: .floor
         ))
     case "clothing":
         return .clothing(RoomArtClothingReading(
@@ -165,6 +185,18 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             itemCorners: pictureCorners(20, 80, 280, 560),
             frontPictureIndex: 1
         ))
+    case "a round wall clock that does not fill its corners":
+        return .wallArt(RoomArtWallArtReading(
+            title: "Round wall clock",
+            chosenSize: RoomArtSize(label: "30 cm", widthCentimeters: 30, heightCentimeters: 30),
+            chosenSizeIncludesFrame: true,
+            fillsItsCorners: false,
+            whyThisSize: "The page states a 30 cm diameter.",
+            otherSizes: [],
+            artworkCorners: pictureCorners(60, 110, 340, 390)
+        ))
+    case "a wall shelf that cannot be shown":
+        return .cannotBeShown(title: "Floating wall shelf", reason: .notFlatForTheWall)
     case "clothing that cannot be drawn on the learner":
         return .clothing(RoomArtClothingReading(
             title: "Linen jumpsuit",
@@ -179,8 +211,6 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             whyThisSize: "The page has size M selected.",
             itemCorners: pictureCorners(60, 20, 340, 480)
         ))
-    case "other":
-        return .other(title: "Wool rug")
     default:
         return nil
     }
@@ -189,7 +219,7 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
 struct RoomArtTryItReplyFixtureTests {
     @Test func everyWorkerReplyInTheSharedFixtureReadsAsItsExpectedReading() throws {
         let fixture = try TryItItemRepliesFixture.load()
-        #expect(Set(fixture.cases.map(\.kind)) == ["wallArt", "furniture", "clothing", "other"])
+        #expect(Set(fixture.cases.map(\.kind)) == ["wall", "standing", "clothing", "cannotBeShown"])
 
         for fixtureCase in fixture.cases {
             let responseData = try JSONEncoder().encode(fixtureCase.response)
@@ -224,6 +254,20 @@ struct RoomArtReplyTests {
         #expect(wallArt.otherSizes.map(\.label) == ["8x10 in"])
     }
 
+    @Test func aWallItemKeepsWhetherItFillsItsCorners() throws {
+        let round = goodRoomArtReply.replacingOccurrences(of: #""fillsItsCorners": true"#, with: #""fillsItsCorners": false"#)
+
+        let roundReading = try RoomArtPageReading(responseData: jsonData(round), pictureWidth: 400, pictureHeight: 500)
+        let rectangleReading = try RoomArtPageReading(responseData: jsonData(goodRoomArtReply), pictureWidth: 400, pictureHeight: 500)
+
+        guard case .wallArt(let roundWallItem) = roundReading, case .wallArt(let rectangularWallItem) = rectangleReading else {
+            Issue.record("Expected wall items, got \(roundReading) and \(rectangleReading)")
+            return
+        }
+        #expect(!roundWallItem.fillsItsCorners)
+        #expect(rectangularWallItem.fillsItsCorners)
+    }
+
     @Test func aFurnitureReplyBecomesItsSizeWithDepthAndCornersClampedIntoThePicture() throws {
         let reading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: goodFurnitureItem, title: "Walnut table")), pictureWidth: 400, pictureHeight: 500)
 
@@ -231,8 +275,21 @@ struct RoomArtReplyTests {
             title: "Walnut table",
             chosenSize: RoomArtFurnitureSize(label: "180 x 90 cm", widthCentimeters: 180, heightCentimeters: 75, depthCentimeters: 90),
             whyThisSize: "The page's size menu shows it selected.",
-            itemCorners: RoomArtCorners(topLeft: CGPoint(x: 0, y: 10), topRight: CGPoint(x: 390, y: 12), bottomRight: CGPoint(x: 392, y: 500), bottomLeft: CGPoint(x: 8, y: 500))
+            itemCorners: RoomArtCorners(topLeft: CGPoint(x: 0, y: 10), topRight: CGPoint(x: 390, y: 12), bottomRight: CGPoint(x: 392, y: 500), bottomLeft: CGPoint(x: 8, y: 500)),
+            standsOn: .floor
         )))
+    }
+
+    @Test func aStandingItemKeepsWhatItStandsOn() throws {
+        let mugItem = goodFurnitureItem.replacingOccurrences(of: #""standsOn": "floor""#, with: #""standsOn": "tableOrShelf""#)
+
+        let reading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: mugItem, title: "Stoneware mug")), pictureWidth: 400, pictureHeight: 500)
+
+        guard case .furniture(let standingItem) = reading else {
+            Issue.record("Expected a standing item, got \(reading)")
+            return
+        }
+        #expect(standingItem.standsOn == .tableOrShelf)
     }
 
     @Test func furnitureWhosePageStatesNoSizeStillReadsAsFurnitureWithNoSize() throws {
@@ -302,10 +359,18 @@ struct RoomArtReplyTests {
         #expect(roomArtReadingPlan(for: trousersReading) == .fail(.cannotBeDrawnOnYou))
     }
 
-    @Test func anOtherReplyNeedsOnlyItsKindAndTitle() throws {
-        let reading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: #"{"kind": "other"}"#, title: "Wool rug")), pictureWidth: 400, pictureHeight: 500)
+    @Test(arguments: [
+        ("notAPhysicalItem", RoomArtCannotBeShownReason.notAPhysicalItem),
+        ("tooSmallToSee", RoomArtCannotBeShownReason.tooSmallToSee),
+        ("noClearPhoto", RoomArtCannotBeShownReason.noClearPhoto),
+        ("notFlatForTheWall", RoomArtCannotBeShownReason.notFlatForTheWall),
+        ("noPlaceClickyCanShow", RoomArtCannotBeShownReason.noPlaceClickyCanShow),
+    ])
+    func aCannotBeShownReplyNeedsOnlyItsReasonAndTitle(wireReason: String, expectedReason: RoomArtCannotBeShownReason) throws {
+        let item = #"{"kind": "cannotBeShown", "cannotBeShown": {"reason": "\#(wireReason)"}}"#
+        let reading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: item, title: "Brass lamp")), pictureWidth: 400, pictureHeight: 500)
 
-        #expect(reading == .other(title: "Wool rug"))
+        #expect(reading == .cannotBeShown(title: "Brass lamp", reason: expectedReason))
     }
 
     @Test func wallArtWhosePageStatesNoSizeIsReadAsSoAndNeverHung() throws {
@@ -318,6 +383,8 @@ struct RoomArtReplyTests {
     }
 
     @Test(arguments: [
+        // No fillsItsCorners, so the reply cannot say whether the photo needs cutting out by its shape.
+        goodRoomArtReply.replacingOccurrences(of: #""fillsItsCorners": true,"#, with: ""),
         // No sizeFoundOnPage, so the reply cannot say whether the size came from the page.
         goodRoomArtReply.replacingOccurrences(of: #""sizeFoundOnPage": true,"#, with: ""),
         // No item.
@@ -327,7 +394,16 @@ struct RoomArtReplyTests {
         // A kind this app does not know.
         tryItReply(item: #"{"kind": "wallpaper"}"#, corners: fullCorners),
         // A kind named without its object.
-        tryItReply(item: #"{"kind": "wallArt"}"#, corners: fullCorners),
+        tryItReply(item: #"{"kind": "wall"}"#, corners: fullCorners),
+        tryItReply(item: #"{"kind": "cannotBeShown"}"#, corners: fullCorners),
+        // The kinds the page reader used before it said where the item goes.
+        tryItReply(item: goodWallArtItem.replacingOccurrences(of: #""wall""#, with: #""wallArt""#), corners: fullCorners),
+        tryItReply(item: #"{"kind": "other"}"#, corners: fullCorners),
+        // A standing item that does not say what it stands on, or says somewhere this app does not know.
+        tryItReply(item: goodFurnitureItem.replacingOccurrences(of: #""standsOn": "floor","#, with: ""), corners: fullCorners),
+        tryItReply(item: goodFurnitureItem.replacingOccurrences(of: #""floor""#, with: #""ceiling""#), corners: fullCorners),
+        // A reason this app has no line for.
+        tryItReply(item: #"{"kind": "cannotBeShown", "cannotBeShown": {"reason": "tooExpensive"}}"#, corners: fullCorners),
         // A width of zero.
         tryItReply(item: wallArtItem(size: #"{"label": "S", "widthCentimeters": 0, "heightCentimeters": 30, "includesFrame": false}"#), corners: fullCorners),
         // An empty label, which the Worker refuses too.
@@ -432,6 +508,19 @@ struct RoomArtReplyTests {
         #expect(pageRequest.json["picture"]?["jpegBase64"]?.stringValue == Data([1, 2, 3]).base64EncodedString())
     }
 
+    @Test func aFloorMeasurementRequestSaysTableOrShelfOnlyForAnItemThatStandsOnOne() {
+        func body(standsOn: RoomArtStandsOn) -> JSONValue {
+            RoomWallRequest(keyframeJPEGData: Data([1]), personMaskPNGData: Data([2]), anchor: CGPoint(x: 10, y: 20), standsOn: standsOn).json
+        }
+
+        #expect(body(standsOn: .tableOrShelf)["standsOn"]?.stringValue == "tableOrShelf")
+        // The field is absent for the floor, and for every wall request, so the depth service fits the floor as before.
+        #expect(body(standsOn: .floor)["standsOn"] == nil)
+        #expect(RoomWallRequest(keyframeJPEGData: Data([1]), personMaskPNGData: Data([2]), anchor: CGPoint(x: 10, y: 20)).json["standsOn"] == nil)
+        // The rest of the body is the same for both.
+        #expect(body(standsOn: .tableOrShelf)["anchor"] == body(standsOn: .floor)["anchor"])
+    }
+
     @Test func theLearnersWordsGoToTheWorkerOnlyWhenTheyHoldAnything() {
         let picture = RoomArtPicture(jpegData: Data([1]), width: 10, height: 10)
         func json(forLearnerRequest learnerRequest: String) -> JSONValue {
@@ -507,6 +596,62 @@ struct RoomArtGeometryTests {
         #expect(spot.y >= 45 && spot.y <= 99)
     }
 
+    @Test func aPrintDrawnIntoTheKeyframeCountsAsBusyTextureSoTheNextPrintHangsBesideIt() throws {
+        let width = 640, height = 360
+        let (trackWidth, trackHeight) = trackSize(forFrameWidth: width, frameHeight: height)
+        let roomMask = [Float](repeating: 1, count: trackWidth * trackHeight)
+        /// A plain gray wall, with a print of black and white squares over `printRect` (counting rows from the top) when given.
+        func keyframe(withAPrintOver printRect: CGRect?) throws -> CGImage {
+            let context = try #require(CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.setFillColor(CGColor(srgbRed: 0.6, green: 0.6, blue: 0.6, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            if let printRect {
+                for column in stride(from: Int(printRect.minX), to: Int(printRect.maxX), by: 8) {
+                    for row in stride(from: Int(printRect.minY), to: Int(printRect.maxY), by: 8) {
+                        let shade: CGFloat = ((column + row) / 8) % 2 == 0 ? 0 : 1
+                        context.setFillColor(CGColor(srgbRed: shade, green: shade, blue: shade, alpha: 1))
+                        // Core Graphics counts rows up from the bottom.
+                        context.fill(CGRect(x: column, y: height - row - 8, width: 8, height: 8))
+                    }
+                }
+            }
+            return try #require(context.makeImage())
+        }
+
+        let plainWall = try #require(trackGrayscale(of: try keyframe(withAPrintOver: nil), width: trackWidth, height: trackHeight))
+        let firstSpot = bareWallSpot(grayscale: plainWall, roomMask: roomMask)
+        // The first print fills the window the search scored, in the keyframe's pixels.
+        let windowWidth = Double(trackWidth) * RoomArtBareWallWindow.widthShareOfTheFrame
+        let windowHeight = Double(trackHeight) * RoomArtBareWallWindow.heightShareOfTheFrame
+        let cameraPixelsPerTrackPixel = Double(width) / Double(trackWidth)
+        let firstPrint = CGRect(
+            x: (firstSpot.x - windowWidth / 2) * cameraPixelsPerTrackPixel, y: (firstSpot.y - windowHeight / 2) * cameraPixelsPerTrackPixel,
+            width: windowWidth * cameraPixelsPerTrackPixel, height: windowHeight * cameraPixelsPerTrackPixel
+        )
+        let wallWithThePrint = try #require(trackGrayscale(of: try keyframe(withAPrintOver: firstPrint), width: trackWidth, height: trackHeight))
+        let secondSpot = bareWallSpot(grayscale: wallWithThePrint, roomMask: roomMask)
+
+        // The second print's window does not overlap the first print.
+        let windowsOverlap = abs(secondSpot.x - firstSpot.x) < windowWidth && abs(secondSpot.y - firstSpot.y) < windowHeight
+        #expect(!windowsOverlap, "the first spot is \(firstSpot) and the second \(secondSpot)")
+
+        // The keyframe baked with the print finds its wall spot again, so a floor item's wall is not measured on the print.
+        let takenKeyframe = RoomArtKeyframe(
+            measurementRequest: RoomWallRequest(keyframeJPEGData: Data([1]), personMaskPNGData: Data([2]), anchor: CGPoint(x: 10, y: 20)),
+            wallLight: .neutral,
+            wallSpotAnchor: CGPoint(x: firstSpot.x * cameraPixelsPerTrackPixel, y: firstSpot.y * cameraPixelsPerTrackPixel)
+        )
+        let bakedKeyframe = takenKeyframe.baked(
+            keyframeJPEGData: Data([3]), trackGrayscale: wallWithThePrint, trackRoomMask: roomMask, cameraPixelsPerTrackPixel: cameraPixelsPerTrackPixel
+        )
+        #expect(bakedKeyframe.wallSpotAnchor == CGPoint(x: secondSpot.x * cameraPixelsPerTrackPixel, y: secondSpot.y * cameraPixelsPerTrackPixel))
+        #expect(bakedKeyframe.measurementRequest.keyframeJPEGData == Data([3]))
+        #expect(bakedKeyframe.measurementRequest.anchor == CGPoint(x: 10, y: 20))
+    }
+
     @Test func theBareFloorSpotIsTheOpenFloorLowInTheFrameAwayFromThePerson() {
         let width = 320, height = 180
         var pixels = [Float](repeating: 200, count: width * height)
@@ -552,12 +697,11 @@ struct RoomArtGeometryTests {
         }
         let spot = bareFloorSpot(grayscale: RoomGrayscaleImage(width: width, height: height, pixels: pixels), roomMask: [Float](repeating: 1, count: width * height))
 
-        // The piece stands where the whole of it shows, near the middle, so the loop outlines the middle while the floor
-        // is measured.
+        // The piece stands where the whole of it shows, near the middle of the frame.
         #expect(abs(spot.x - 160) <= 40, "the spot is at \(spot)")
     }
 
-    @Test func theFloorWindowStaysAboveTheStatusLine() {
+    @Test func theFloorSpotIsInTheLowRowsWhereTheFloorShows() {
         let width = 320, height = 180
         // Grain everywhere but a plain band along the bottom, so the lowest window the search allows wins.
         var pixels = [Float](repeating: 100, count: width * height)
@@ -566,9 +710,7 @@ struct RoomArtGeometryTests {
         }
         let spot = bareFloorSpot(grayscale: RoomGrayscaleImage(width: width, height: height, pixels: pixels), roomMask: [Float](repeating: 1, count: width * height))
 
-        let windowBottom = spot.y + Double(height) * RoomArtBareFloorWindow.heightShareOfTheFrame / 2
         #expect(spot.y >= Double(height) * 0.75, "the plainest rows are low in the frame: \(spot)")
-        #expect(windowBottom <= Double(height) * RoomArtBareFloorWindow.statusLineTopShareOfThePanel, "the window reaches \(windowBottom)")
     }
 
     @Test func flatteningCutsTheArtOutOfItsPhotoAtTheSizesShape() throws {
@@ -596,6 +738,91 @@ struct RoomArtGeometryTests {
             #expect(bytes[pixelStart] > 200 && bytes[pixelStart + 1] < 60, "pixel (\(column), \(row)) should be red")
         }
     }
+
+    /// A square photo that holds only a disc of an item (red, opaque) with everything else clear, as the cutout by the item's
+    /// own shape gives, so the corners of the box around the disc are clear.
+    private func photoOfARoundItemOnClear(side: Int = 200) throws -> CGImage {
+        let context = try #require(CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fillEllipse(in: CGRect(x: 40, y: 40, width: side - 80, height: side - 80))
+        return try #require(context.makeImage())
+    }
+
+    /// The alpha byte (0 to 255) of the pixel at `column`, `row` from the top left of `image`.
+    private func alphaByte(of image: CGImage, column: Int, row: Int) throws -> UInt8 {
+        let bitmap = try #require(CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        bitmap.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let bytes = try #require(bitmap.data).assumingMemoryBound(to: UInt8.self)
+        return bytes[(row * image.width + column) * 4 + 3]
+    }
+
+    @Test func flatteningARoundItemOnAClearPhotoKeepsItsCornersTransparent() throws {
+        let photo = try photoOfARoundItemOnClear()
+        // The corners of the box around the disc, as the page reader gives them for a round item.
+        let corners = RoomArtCorners(topLeft: CGPoint(x: 40, y: 40), topRight: CGPoint(x: 160, y: 40), bottomRight: CGPoint(x: 160, y: 160), bottomLeft: CGPoint(x: 40, y: 160))
+
+        let flattened = try #require(flattenedArtwork(picture: photo, corners: corners, size: RoomArtSize(label: "30 cm", widthCentimeters: 30, heightCentimeters: 30), context: CIContext()))
+
+        #expect(flattened.width == 1200 && flattened.height == 1200)
+        for (column, row) in [(10, 10), (flattened.width - 11, 10), (10, flattened.height - 11), (flattened.width - 11, flattened.height - 11)] {
+            #expect(try alphaByte(of: flattened, column: column, row: row) < 10, "pixel (\(column), \(row)) is the photo's background and should be clear")
+        }
+        #expect(try alphaByte(of: flattened, column: 600, row: 600) > 245, "the middle is the item")
+    }
+
+    /// The shadow image rendered over its own extent, with the extent so a test can find a pixel from art coordinates.
+    private func renderedShadow(of art: CGImage) throws -> (image: CGImage, extent: CGRect) {
+        let shadow = wallArtShadow(of: art)
+        let image = try #require(CIContext().createCGImage(shadow, from: shadow.extent))
+        return (image, shadow.extent)
+    }
+
+    @Test func aRoundItemCastsARoundShadowWhereARectangleCastsADarkCorner() throws {
+        let round = try photoOfARoundItemOnClear(side: 400)
+        let squareContext = try #require(CGContext(data: nil, width: 400, height: 400, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        squareContext.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        squareContext.fill(CGRect(x: 0, y: 0, width: 400, height: 400))
+        let square = try #require(squareContext.makeImage())
+        let roundShadow = try renderedShadow(of: round)
+        let squareShadow = try renderedShadow(of: square)
+
+        // A point 12 pixels inside the art's top left corner, in Core Image's y-up art coordinates.
+        func alphaInsideTheTopLeftCorner(of shadow: (image: CGImage, extent: CGRect)) throws -> UInt8 {
+            try alphaByte(of: shadow.image, column: Int(12 - shadow.extent.minX), row: Int(shadow.extent.maxY - (400 - 12)))
+        }
+        func alphaAtTheMiddle(of shadow: (image: CGImage, extent: CGRect)) throws -> UInt8 {
+            try alphaByte(of: shadow.image, column: Int(200 - shadow.extent.minX), row: Int(shadow.extent.maxY - 190))
+        }
+        // 35 percent of 255 is 89. A rectangle's corner is mostly inside its shadow, and a disc's corner is clear of it.
+        #expect(try alphaAtTheMiddle(of: roundShadow) > 80 && alphaAtTheMiddle(of: roundShadow) <= 92)
+        #expect(try alphaInsideTheTopLeftCorner(of: roundShadow) < 6, "the round item's shadow leaves the corner of its box clear")
+        #expect(try alphaInsideTheTopLeftCorner(of: squareShadow) > 40, "a rectangle's shadow is dark at its corner")
+    }
+
+    @Test func theShadowOfARectangleThatFillsItsPictureIsTheSameAsBefore() throws {
+        let squareContext = try #require(CGContext(data: nil, width: 400, height: 500, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        squareContext.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.9, alpha: 1))
+        squareContext.fill(CGRect(x: 0, y: 0, width: 400, height: 500))
+        let art = try #require(squareContext.makeImage())
+
+        // The shadow as it was drawn before it followed the art's alpha: a solid 35 percent black box, offset and blurred.
+        let artExtent = CGRect(x: 0, y: 0, width: 400, height: 500)
+        let spread = 500 * 0.015, offset = -500 * 0.02
+        let oldShadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.35))
+            .cropped(to: artExtent.offsetBy(dx: 0, dy: offset))
+            .applyingGaussianBlur(sigma: spread)
+            .cropped(to: artExtent.offsetBy(dx: 0, dy: offset).insetBy(dx: -3 * spread, dy: -3 * spread))
+        let newShadow = wallArtShadow(of: art)
+
+        #expect(newShadow.extent == oldShadow.extent)
+        let context = CIContext()
+        let oldImage = try #require(context.createCGImage(oldShadow, from: oldShadow.extent))
+        let newImage = try #require(context.createCGImage(newShadow, from: newShadow.extent))
+        for (column, row) in [(5, 5), (60, 300), (200, 250), (330, 480), (20, 520), (200, 40)] {
+            let oldAlpha = Int(try alphaByte(of: oldImage, column: column, row: row)), newAlpha = Int(try alphaByte(of: newImage, column: column, row: row))
+            #expect(abs(oldAlpha - newAlpha) <= 2, "pixel (\(column), \(row)) was \(oldAlpha) and is \(newAlpha)")
+        }
+    }
 }
 
 struct RoomArtPhraseTests {
@@ -621,6 +848,10 @@ struct RoomArtPhraseTests {
         "how would this look hanging in my living room",
         // Furniture stands on the floor in the same panel.
         "how would this chair look in my room",
+        // A table or shelf item sits on the surface the learner clicks.
+        "how would this mug look on my table",
+        "put this lamp on my desk",
+        "what would this vase look like on my shelf",
         // A shirt is drawn on the learner.
         "could I see this shirt on me",
         "how would this look on me",
@@ -634,6 +865,19 @@ struct RoomArtPhraseTests {
     ])
     func aPlacingVerbOrALookOnTheItemBeforeARoomPhraseAsksForIt(transcript: String) {
         #expect(asksToSeeArtInMyRoom(transcript))
+    }
+
+    @Test(arguments: [
+        "how would this lamp look on the table",
+        "put this vase on the shelf",
+        "how would this lamp look on that table",
+        "can I see this plant on the desk",
+    ])
+    func aTableOrShelfWithNoOwnerNamesOneOnlyWhileAPlacedItemKeepsTheRoom(transcript: String) {
+        // In a kept room it is a table or shelf Clicky painted there.
+        #expect(asksToSeeArtInMyRoom(transcript, aRoomArtItemKeepsTheRoom: true))
+        // With no such room it is anything on any table, such as a lesson's "put the numbers on the table".
+        #expect(!asksToSeeArtInMyRoom(transcript))
     }
 
     @Test(arguments: [
@@ -654,6 +898,12 @@ struct RoomArtPhraseTests {
         "how do I look good in my room",
         // Words outside the closed list between the look and the room phrase.
         "how would this look next to the lamp in my room",
+        "what's on my desk",
+        "clean my table",
+        "what's on the table",
+        "what is on that shelf",
+        "clean the table",
+        "put the numbers on the table",
         // "On me" or "try on" with no item to place, or "on" that starts another phrase.
         "what's on me",
         "is there something on me",
@@ -692,6 +942,18 @@ struct RoomArtPhraseTests {
     @Test func aFailedRouterHangsTheArtInsteadOfBuildingAScene() {
         #expect(routerFailureFallback(for: "show me how this would look in my room", sceneIsOnScreen: false) == .showArtInMyRoom)
     }
+
+    @Test func aFailedRouterWhileTheGhostShowsNeverReopensThePanel() {
+        #expect(routerFailureFallback(for: "put it on my desk", sceneIsOnScreen: false) == .showArtInMyRoom)
+        #expect(routerFailureFallback(for: "put it on my desk", sceneIsOnScreen: false, furnitureGhostShows: true) == .giveUp)
+        // The keyword path would read "show me" as a request for a paid 3D scene and build it over the panel.
+        #expect(routerFailureFallback(for: "show me how this would look in my room", sceneIsOnScreen: false, furnitureGhostShows: true) == .giveUp)
+    }
+
+    @Test func aFailedRouterInAKeptRoomStillStacksOnThePaintedTable() {
+        #expect(routerFailureFallback(for: "how would this lamp look on the table", sceneIsOnScreen: false) != .showArtInMyRoom)
+        #expect(routerFailureFallback(for: "how would this lamp look on the table", sceneIsOnScreen: false, aRoomArtItemKeepsTheRoom: true) == .showArtInMyRoom)
+    }
 }
 
 struct RoomArtToolTests {
@@ -716,8 +978,8 @@ struct RoomArtToolTests {
     }
 }
 
-private func furniture() -> RoomFurniture {
-    RoomFurniture(title: "LACK side table", widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55, cutoutImage: sharedFurnitureImage)
+private func furniture(standsOn: RoomArtStandsOn = .floor) -> RoomFurniture {
+    RoomFurniture(title: "LACK side table", widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55, cutoutImage: sharedFurnitureImage, standsOn: standsOn)
 }
 
 /// A floor 2 m ahead and 1 m below a camera with a 1000 pixel focal length.
@@ -745,21 +1007,27 @@ private func clothing(
 }
 
 struct RoomArtReadingPlanTests {
-    @Test func wallArtHangsAndFurnitureWithASizeStandsOnTheFloor() {
+    @Test func aWallItemHangsAndAStandingItemWithASizeStandsOnItsSurface() {
         let wallArtReading = RoomArtWallArtReading(
             title: "Print", chosenSize: RoomArtSize(label: "S", widthCentimeters: 20, heightCentimeters: 30), chosenSizeIncludesFrame: false,
-            whyThisSize: "Selected.", otherSizes: [], artworkCorners: pictureCorners
+            fillsItsCorners: true, whyThisSize: "Selected.", otherSizes: [], artworkCorners: pictureCorners
         )
         #expect(roomArtReadingPlan(for: .wallArt(wallArtReading)) == .hangOnTheWall(wallArtReading))
         let tableSize = RoomArtFurnitureSize(label: "55x45 cm", widthCentimeters: 55, heightCentimeters: 45, depthCentimeters: 55)
         let table = RoomArtFurnitureReading(title: "LACK", chosenSize: tableSize, whyThisSize: "Only size.", itemCorners: pictureCorners)
         #expect(roomArtReadingPlan(for: .furniture(table)) == .standOnTheFloor(table, size: tableSize))
+        // A mug on a table or shelf is placed the same way, and keeps what it stands on for the panel to ask for a click.
+        let mugSize = RoomArtFurnitureSize(label: "9 x 10 cm", widthCentimeters: 12, heightCentimeters: 10, depthCentimeters: 9)
+        let mug = RoomArtFurnitureReading(title: "Mug", chosenSize: mugSize, whyThisSize: "Only size.", itemCorners: pictureCorners, standsOn: .tableOrShelf)
+        #expect(roomArtReadingPlan(for: .furniture(mug)) == .standOnTheFloor(mug, size: mugSize))
     }
 
-    @Test func noSizeOnThePageFailsForWallArtAndFurnitureAlike() {
+    @Test func noSizeOnThePageFailsForAWallItemAndAStandingItemAlike() {
         #expect(roomArtReadingPlan(for: .sizeNotOnThePage(title: "Print")) == .fail(.sizeNotOnThePage))
-        let unsizedTable = RoomArtFurnitureReading(title: "LACK", chosenSize: nil, whyThisSize: "No size.", itemCorners: pictureCorners)
-        #expect(roomArtReadingPlan(for: .furniture(unsizedTable)) == .fail(.sizeNotOnThePage))
+        for standsOn in [RoomArtStandsOn.floor, .tableOrShelf] {
+            let unsizedItem = RoomArtFurnitureReading(title: "LACK", chosenSize: nil, whyThisSize: "No size.", itemCorners: pictureCorners, standsOn: standsOn)
+            #expect(roomArtReadingPlan(for: .furniture(unsizedItem)) == .fail(.sizeNotOnThePage))
+        }
     }
 
     @Test func everyGarmentTheReaderSaysCanBeDrawnOnTheLearnerIsTriedOn() {
@@ -784,15 +1052,47 @@ struct RoomArtReadingPlanTests {
         #expect(RoomArtFailure.cannotBeDrawnOnYou.statusLine == "Can't draw that item on you")
     }
 
-    @Test func anythingElseCannotBeTried() {
-        #expect(roomArtReadingPlan(for: .other(title: "Wool rug")) == .fail(.notSomethingToTry))
-        #expect(RoomArtFailure.notSomethingToTry.spokenLine == "That isn't something I can place in your room or try on.")
+    @Test(arguments: [
+        (RoomArtCannotBeShownReason.notAPhysicalItem, RoomArtFailure.notAPhysicalItem, "That isn't something I can show in your room.", "Not something I can show in your room"),
+        (RoomArtCannotBeShownReason.tooSmallToSee, RoomArtFailure.tooSmallToSee, "That's too small to see in your room.", "Too small to see in your room"),
+        (RoomArtCannotBeShownReason.noClearPhoto, RoomArtFailure.noClearPhoto, "I couldn't find a clear photo of it on that page.", "No clear photo of it on the page"),
+        (RoomArtCannotBeShownReason.notFlatForTheWall, RoomArtFailure.notFlatForTheWall, "I can only hang flat things on your wall so far.", "Only flat things hang on the wall so far"),
+        (RoomArtCannotBeShownReason.noPlaceClickyCanShow, RoomArtFailure.noPlaceClickyCanShow, "I can show things on your wall, your floor, or a table so far.", "Only walls, floors, and tables so far"),
+    ])
+    func anItemThatCannotBeShownFailsWithItsReasonsOwnLines(reason: RoomArtCannotBeShownReason, failure: RoomArtFailure, spokenLine: String, statusLine: String) {
+        #expect(roomArtReadingPlan(for: .cannotBeShown(title: "Round wall clock", reason: reason)) == .fail(failure))
+        #expect(failure.spokenLine == spokenLine)
+        #expect(failure.statusLine == statusLine)
+        // The panel fails in the status line's own failure color, and the page's own words are never spoken.
+        #expect(RoomArtPhase.readingThePage.afterThePageFailed(failure).statusLineIsAFailure(theSurfaceIsLost: false))
+    }
+
+    @Test func aStandingItemThatCannotBeCutOutSaysSoWithNoWordForFurniture() {
+        #expect(RoomArtFailure.furnitureNotCutOut.spokenLine == "I couldn't cut it out of its photo.")
+        #expect(RoomArtFailure.furnitureNotCutOut.statusLine == "Couldn't cut it out of its photo")
     }
 }
 
 struct RoomArtPhaseTests {
     private let firstMeasurement = RoomArtMeasurementID(number: 1)
     private let secondMeasurement = RoomArtMeasurementID(number: 2)
+
+    @Test func onlyAnItemThatShowsKeepsTheRoomForANewItem() {
+        #expect(RoomArtPhase.showing(item: .wallArt(artwork()), surface: .wall(wall), moveFailure: nil).keepsTheRoomForANewItem)
+        #expect(RoomArtPhase.showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil).keepsTheRoomForANewItem)
+        // A ghost the learner still moves, a piece still being arranged, and a shirt start over.
+        let notShowing: [RoomArtPhase] = [
+            .closed, .readingThePage, .waitingForTheCamera(.furniture(furniture())),
+            .placingTheFurniture(id: firstMeasurement, item: .furniture(furniture()), surface: .floor(floor)),
+            .arranging(id: firstMeasurement, item: .furniture(furniture()), surface: .floor(floor)),
+            .couldNotDraw(id: firstMeasurement, item: .furniture(furniture()), surface: .floor(floor)),
+            .waitingForAFloorClick(.furniture(furniture(standsOn: .tableOrShelf))),
+            .showingTheShirt(title: "Linen shirt", preview: .liveGarment), .showingThePaintedShirt(title: "Linen shirt", preview: .ghostOutline), .failed(.pageNotRead),
+        ]
+        for phase in notShowing {
+            #expect(!phase.keepsTheRoomForANewItem, "\(phase)")
+        }
+    }
 
     @Test func thePageIsReadFirstThenTheItemWaitsForTheCameraThenItsSurfaceIsMeasured() {
         let reading = RoomArtPhase.closed.opening()
@@ -956,6 +1256,87 @@ struct RoomArtPhaseTests {
         #expect(measuring.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .failed(.depthServiceUnavailable))
     }
 
+    @Test func aTableOrShelfItemWaitsForAClickInsteadOfAnAutomaticMeasurement() {
+        let mug = RoomArtPlacedItem.furniture(furniture(standsOn: .tableOrShelf))
+        let waitingForTheCamera = RoomArtPhase.readingThePage.withTheItemReady(mug)
+
+        // With the camera ready, the panel asks for a click and measures nothing.
+        let waitingForAClick = waitingForTheCamera.askingForAClickIfTheItemNeedsOne()
+        #expect(waitingForAClick == .waitingForAFloorClick(mug, aClickFoundNothing: false))
+        #expect(waitingForAClick.statusLine == "Click the table or shelf where it should go")
+        // The invitation is not a failure, so the status line is not red and the cursor does not shake.
+        #expect(!waitingForAClick.statusLineIsAFailure(theSurfaceIsLost: false))
+        #expect(RoomArtSurfaceClickPrompt.whereTheItemShouldGo.spokenLine == "Click the table or shelf where it should go.")
+        #expect(!RoomArtSurfaceClickPrompt.whereTheItemShouldGo.isAFailure)
+        #expect(waitingForAClick.theItemIsPlacedByClicking)
+
+        // Wall art and a floor item still measure at once, and only a phase that waits for the camera asks.
+        #expect(RoomArtPhase.waitingForTheCamera(.wallArt(artwork())).askingForAClickIfTheItemNeedsOne() == .waitingForTheCamera(.wallArt(artwork())))
+        #expect(RoomArtPhase.waitingForTheCamera(.furniture(furniture())).askingForAClickIfTheItemNeedsOne() == .waitingForTheCamera(.furniture(furniture())))
+        #expect(RoomArtPhase.readingThePage.askingForAClickIfTheItemNeedsOne() == .readingThePage)
+        #expect(waitingForAClick.askingForAClickIfTheItemNeedsOne() == waitingForAClick)
+
+        // The click measures the surface, which the status line calls the surface and not the floor.
+        let measuring = waitingForAClick.startingAMeasurement(id: firstMeasurement)
+        #expect(measuring == .measuring(id: firstMeasurement, item: mug))
+        #expect(measuring.statusLine == "Measuring the surface…")
+        // A click that finds no flat surface asks for the top of a table or shelf, as a failure, and waits for another click.
+        let afterAFailedClick = measuring.afterTheMeasurementFailed(.floorNotFound, measurementID: firstMeasurement)
+        #expect(afterAFailedClick == .waitingForAFloorClick(mug, aClickFoundNothing: true))
+        #expect(afterAFailedClick.statusLine == "Click the top of a table or shelf")
+        #expect(afterAFailedClick.statusLineIsAFailure(theSurfaceIsLost: false))
+        #expect(RoomArtSurfaceClickPrompt.noFlatSurfaceThere.spokenLine == "I couldn't find a flat surface there. Click the top of a table or shelf.")
+        #expect(RoomArtSurfaceClickPrompt.noFlatSurfaceThere.isAFailure)
+        // A surface the piece cannot stand on means the same, and so does a ghost that cannot stand on it.
+        #expect(measuring.withTheSurfaceMeasured(.floor(floorBehindTheCamera), measurementID: firstMeasurement) == afterAFailedClick)
+        let placing = RoomArtPhase.placingTheFurniture(id: firstMeasurement, item: mug, surface: .floor(floor))
+        #expect(placing.afterTheGhostCouldNotStand() == afterAFailedClick)
+        // Any other failure ends the panel, as for a floor.
+        #expect(measuring.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .failed(.depthServiceUnavailable))
+        // The next click measures again and places the ghost.
+        let measuringAgain = afterAFailedClick.startingAMeasurement(id: secondMeasurement)
+        #expect(measuringAgain.withTheSurfaceMeasured(.floor(floor), measurementID: secondMeasurement) == .placingTheFurniture(id: secondMeasurement, item: mug, surface: .floor(floor)))
+    }
+
+    @Test func aTableOrShelfItemSaysTheTableInEveryLineThatSaysFloor() {
+        let mug = RoomArtPlacedItem.furniture(furniture(standsOn: .tableOrShelf))
+        let tableSurface = RoomArtSurface.floor(floor)
+        let placing = RoomArtPhase.placingTheFurniture(id: firstMeasurement, item: mug, surface: tableSurface)
+        #expect(placing.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the table. Turn back to where it stands.")
+        // The ghost's own status line has no floor in it, so it is the same for both.
+        #expect(placing.statusLine == "Drag to move · say \u{201C}right there\u{201D}")
+        let arranging = placing.placingTheFurnitureWhereItsGhostStands(placementID: secondMeasurement)
+        #expect(arranging.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the table. Turn back to where it stands.")
+        #expect(arranging.statusLine == "Arranging it in your room…")
+        let showing = arranging.withTheFurnitureShowing(measurementID: secondMeasurement)
+        #expect(showing.statusLine == "On the table, 21.5 inches wide and 17.5 tall")
+        #expect(showing.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the table. Turn back to where it stands.")
+        // "Here it is" has no floor in it.
+        #expect(mug.hereItIsLine == "Here it is, 21.5 inches wide and 17.5 tall.")
+        let couldNotDraw = arranging.afterTheFurnitureCouldNotBeDrawn(measurementID: secondMeasurement)
+        #expect(couldNotDraw.statusLine == "I couldn't draw it this time. Click the table or shelf to try again")
+        #expect(mug.notDrawnLine == "I couldn't draw it this time. Click the table or shelf to try again.")
+        #expect(roomFurnitureNotDrawnOnATableLine == mug.notDrawnLine)
+    }
+
+    @Test func aFloorItemKeepsEveryFloorLineByteForByte() {
+        let sofa = RoomArtPlacedItem.furniture(furniture())
+        // A floor item's phase is the same value whether or not a click failed, and it says the floor line either way.
+        let measuring = RoomArtPhase.waitingForTheCamera(sofa).startingAMeasurement(id: firstMeasurement)
+        #expect(measuring.afterTheMeasurementFailed(.floorNotFound, measurementID: firstMeasurement) == .waitingForAFloorClick(sofa, aClickFoundNothing: false))
+        #expect(sofa.surfaceClickPrompt(afterAClickFoundNothing: true) == .noFloorWasFound)
+        #expect(sofa.surfaceClickPrompt(afterAClickFoundNothing: false) == .noFloorWasFound)
+        #expect(RoomArtSurfaceClickPrompt.noFloorWasFound.spokenLine == "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor.")
+        #expect(RoomArtSurfaceClickPrompt.noFloorWasFound.statusLine == "Tilt the screen down so the floor shows, then click the floor")
+        #expect(measuring.statusLine == "Measuring your floor…")
+        let placing = RoomArtPhase.placingTheFurniture(id: firstMeasurement, item: sofa, surface: .floor(floor))
+        #expect(placing.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the floor. Turn back to where the piece stands.")
+        #expect(placing.afterTheGhostCouldNotStand() == .waitingForAFloorClick(sofa))
+        let couldNotDraw = RoomArtPhase.couldNotDraw(id: secondMeasurement, item: sofa, surface: .floor(floor))
+        #expect(couldNotDraw.statusLine == "I couldn't draw it this time. Click the floor to try again")
+        #expect(sofa.notDrawnLine == roomFurnitureNotDrawnLine)
+    }
+
     @Test func aWallThatPlacesNothingOnTheFirstMeasurementFailsAndNeverWaitsForAClick() {
         let measuring = RoomArtPhase.waitingForTheCamera(.wallArt(artwork())).startingAMeasurement(id: firstMeasurement)
         let wallBehindTheCamera = WallPlane(
@@ -967,6 +1348,43 @@ struct RoomArtPhaseTests {
         // Only furniture waits for a click, so a floor failure for wall art could only end the panel.
         #expect(measuring.afterTheMeasurementFailed(.floorNotFound, measurementID: firstMeasurement) == .failed(.floorNotFound))
         #expect(RoomArtPhase.failed(.wallNotMeasured).startingAMeasurement(id: secondMeasurement) == .failed(.wallNotMeasured))
+    }
+
+    @Test func aStackedItemsFailedFirstMeasurementKeepsTheRoom() {
+        let wallBehindTheCamera = WallPlane(
+            center: SIMD3(0, 0, -2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 1000,
+            principalPoint: SIMD2(640, 360), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 0.9
+        )
+        let measuringTheArt = RoomArtPhase.readingThePageInTheKeptRoom.withTheItemReady(.wallArt(artwork())).startingAMeasurement(id: firstMeasurement)
+
+        #expect(measuringTheArt.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .roomKeptAfterAFailedItem(.depthServiceUnavailable))
+        #expect(measuringTheArt.withTheSurfaceMeasured(.wall(wallBehindTheCamera), measurementID: firstMeasurement) == .roomKeptAfterAFailedItem(.wallNotMeasured))
+        #expect(measuringTheArt.afterTheMeasurementFailed(.wallNotMeasured, measurementID: firstMeasurement).keepsTheRoomForANewItem)
+
+        // A floor that was not found still asks for a click, and a later click's failure still keeps the room.
+        let measuringTheSofa = RoomArtPhase.readingThePageInTheKeptRoom.withTheItemReady(.furniture(furniture())).startingAMeasurement(id: firstMeasurement)
+        let waitingForAClick = measuringTheSofa.afterTheMeasurementFailed(.floorNotFound, measurementID: firstMeasurement)
+        #expect(waitingForAClick == .waitingForAFloorClick(.furniture(furniture()), inTheKeptRoom: true))
+        let measuringTheClick = waitingForAClick.startingAMeasurement(id: secondMeasurement)
+        #expect(measuringTheClick.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: secondMeasurement) == .roomKeptAfterAFailedItem(.depthServiceUnavailable))
+
+        // A table or shelf item asks for its click and keeps the room through it too.
+        let mug = RoomArtPlacedItem.furniture(furniture(standsOn: .tableOrShelf))
+        let measuringTheMug = RoomArtPhase.readingThePageInTheKeptRoom.withTheItemReady(mug).askingForAClickIfTheItemNeedsOne().startingAMeasurement(id: firstMeasurement)
+        #expect(measuringTheMug.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .roomKeptAfterAFailedItem(.depthServiceUnavailable))
+
+        // A fresh panel still fails.
+        let measuringInAFreshPanel = RoomArtPhase.readingThePage.withTheItemReady(.wallArt(artwork())).startingAMeasurement(id: firstMeasurement)
+        #expect(measuringInAFreshPanel.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .failed(.depthServiceUnavailable))
+    }
+
+    @Test func aKeptRoomWhoseLastItemFailedSaysToTurnBackWhileTheRoomIsLost() {
+        let keptRoom = RoomArtPhase.roomKeptAfterAFailedItem(.pageNotRead)
+
+        #expect(keptRoom.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the room. Turn back to where it was.")
+        #expect(!keptRoom.statusLineIsAFailure(theSurfaceIsLost: true))
+        #expect(keptRoom.statusLine(theSurfaceIsLost: false, shirtCoachingLine: nil) == RoomArtFailure.pageNotRead.statusLine)
+        #expect(keptRoom.statusLineIsAFailure(theSurfaceIsLost: false))
     }
 
     @Test func theSizeIsSaidInInchesToTheNearestHalfInch() {
@@ -1089,7 +1507,7 @@ struct RoomArtPhaseTests {
         #expect(measuring.startingAMeasurement(id: secondMeasurement) == measuring)
         #expect(RoomArtPhase.readingThePage.startingAMeasurement(id: firstMeasurement) == .readingThePage)
         #expect(RoomArtPhase.closed.startingAMeasurement(id: firstMeasurement) == .closed)
-        #expect(RoomArtPhase.failed(.notSomethingToTry).startingAMeasurement(id: firstMeasurement) == .failed(.notSomethingToTry))
+        #expect(RoomArtPhase.failed(.noPlaceClickyCanShow).startingAMeasurement(id: firstMeasurement) == .failed(.noPlaceClickyCanShow))
     }
 
     @Test func aFailureSaysWhatWentWrong() {

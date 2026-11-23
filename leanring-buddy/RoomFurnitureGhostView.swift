@@ -29,8 +29,8 @@ struct RoomFurnitureGhostView: View {
             let secondsSinceBegan = ProcessInfo.processInfo.systemUptime - draw.beganAt
             let frame = reduceMotion
                 ? RoomFurnitureGhostDrawTimeline.Frame.whole
-                : RoomFurnitureGhostDrawTimeline.frame(secondsSinceBegan: secondsSinceBegan, startsFromTheLoop: draw.tracerStartInThePanel != nil)
-            let secondsSinceDrawn = secondsSinceBegan - RoomFurnitureGhostDrawTimeline.totalSeconds(startsFromTheLoop: draw.tracerStartInThePanel != nil)
+                : RoomFurnitureGhostDrawTimeline.frame(secondsSinceBegan: secondsSinceBegan)
+            let secondsSinceDrawn = secondsSinceBegan - RoomFurnitureGhostDrawTimeline.totalSeconds
             let lines = linesProvider()
             ZStack(alignment: .topLeading) {
                 RoomFurnitureGhostCanvas(
@@ -40,7 +40,7 @@ struct RoomFurnitureGhostView: View {
                     fillOpacity: RoomFurnitureGhostGlow.fillOpacity(secondsSinceDrawn: secondsSinceDrawn, reduceMotionIsOn: reduceMotion)
                 )
                 if let lines, let tracerLook,
-                   let placement = RoomFurnitureGhostCanvas.tracerPlacement(for: frame.tracer, lines: lines, tracerStart: draw.tracerStartInThePanel, cursorFacing: tracerLook.theme.cursorFacing) {
+                   let placement = RoomFurnitureGhostCanvas.tracerPlacement(for: frame.tracer, lines: lines, cursorFacing: tracerLook.theme.cursorFacing) {
                     CursorLoopTracerGlyph(look: tracerLook, placement: placement)
                 }
                 if let lines {
@@ -172,9 +172,9 @@ struct RoomFurnitureGhostCanvas: View {
     }
 
     /// Where the theme's cursor glyph sits on the ghost's lines for this moment of the draw, and which way it faces, or nil
-    /// once the lines are drawn. It flies straight from the loop's line to the footprint's first corner, then follows each
+    /// once the lines are drawn. It starts on the footprint's first corner and follows each
     /// line the way the loop's tracer follows the loop (`CursorLoopTracerPlacement`).
-    static func tracerPlacement(for tracer: RoomFurnitureGhostDrawTimeline.Tracer, lines: RoomFurnitureGhostLines, tracerStart: CGPoint?, cursorFacing: CursorFacing) -> CursorLoopTracerPlacement? {
+    static func tracerPlacement(for tracer: RoomFurnitureGhostDrawTimeline.Tracer, lines: RoomFurnitureGhostLines, cursorFacing: CursorFacing) -> CursorLoopTracerPlacement? {
         func placement(along points: [CGPoint], closed: Bool, atShare share: Double) -> CursorLoopTracerPlacement {
             var path = Path()
             path.move(to: points[0])
@@ -183,8 +183,6 @@ struct RoomFurnitureGhostCanvas: View {
             return CursorLoopTracerPlacement(on: line, atShare: min(max(share, 0), 1), cursorFacing: cursorFacing)
         }
         switch tracer {
-        case .leavingTheLoop(let share):
-            return placement(along: [tracerStart ?? lines.footprint[0], lines.footprint[0]], closed: false, atShare: share)
         case .onTheFootprint(let share):
             return placement(along: lines.footprint, closed: true, atShare: share)
         case .onAPost(let index, let share):

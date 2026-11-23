@@ -6,9 +6,10 @@
 //  reads the page's picture, opens the panel, starts the camera, and asks the Worker what the page shows
 //  (`POST /try-it-item`) at once. The item's kind picks the rest: wall art is measured on the wall (`POST /room-wall`) and
 //  furniture on the floor (`POST /room-floor`), each from a keyframe taken on the first frame with a person mask, with
-//  Clicky's loop around the spot while it waits, and a garment the page reader says can be drawn on the learner is tried
-//  on with no measurement: the live preview draws a garment `shirtLiveGarmentMayWork` allows, cut out of its photo, over
-//  the learner's own top, and any other garment shows a ghost outline of the area it will cover. `RoomArtFrameProcessor` handles every camera frame on its own queue: it finds the person,
+//  only the status line while it waits, and a garment the page reader says can be drawn on the learner is tried on with no
+//  measurement: the live preview draws a garment `shirtLiveGarmentMayWork` allows, cut out of its photo, over the learner's
+//  own top, and any other garment shows a ghost outline of the area it will cover. `RoomArtFrameProcessor` handles every
+//  camera frame on its own queue: it finds the person,
 //  tracks the room against the keyframe, and draws the frame with the item on its surface and the learner in front of it,
 //  or, for a garment, finds the learner's torso and draws the preview on them.
 //
@@ -43,6 +44,29 @@ nonisolated struct RoomArtKeyframe: Sendable {
     var floorTexture: RoomFloorTextureMap? = nil
 }
 
+extension RoomArtKeyframe {
+    /// This keyframe with the placed items drawn into it, as the next item is measured on. The bare wall spot and the floor's
+    /// texture are found again on the baked picture, so a floor item's wall is never measured on the front of a bookcase
+    /// Clicky painted where the wall spot used to be.
+    func baked(keyframeJPEGData: Data, trackGrayscale: RoomGrayscaleImage, trackRoomMask: [Float], cameraPixelsPerTrackPixel: Double) -> RoomArtKeyframe {
+        let wallSpotInTrackPixels = bareWallSpot(grayscale: trackGrayscale, roomMask: trackRoomMask)
+        return RoomArtKeyframe(
+            measurementRequest: RoomWallRequest(
+                keyframeJPEGData: keyframeJPEGData, personMaskPNGData: measurementRequest.personMaskPNGData, anchor: measurementRequest.anchor
+            ),
+            wallLight: wallLight,
+            wallSpotAnchor: CGPoint(x: wallSpotInTrackPixels.x * cameraPixelsPerTrackPixel, y: wallSpotInTrackPixels.y * cameraPixelsPerTrackPixel),
+            keyframeNumber: keyframeNumber,
+            floorTexture: RoomFloorTextureMap(
+                width: trackGrayscale.width,
+                height: trackGrayscale.height,
+                texture: textureWithThePersonMarked(grayscale: trackGrayscale, roomMask: trackRoomMask),
+                cameraPixelsPerMapPixel: cameraPixelsPerTrackPixel
+            )
+        )
+    }
+}
+
 // MARK: - Frame processor
 
 /// One 5 second window of drawn frames while the art showed.
@@ -68,8 +92,16 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     func process(_ cameraFrame: CVPixelBuffer)
     /// With no anchor, the spot is the bare wall spot for the wall and the bare floor spot for the floor. With no surface,
     /// which a keyframe taken while the page is still read has, the anchor is the bare floor spot, and the room's light is
-    /// read at the bare wall spot, so the keyframe serves wall art and furniture alike.
+    /// read at the bare wall spot, so the keyframe serves wall art and furniture alike. `anchorInCameraPixels` is in the
+    /// newest frame. While the room has a background (`fixTheShownItemIntoTheBackground`), no new keyframe is taken, since
+    /// the background's items are drawn in the keyframe's pixels: the keyframe returned is the one they stand in, with them
+    /// drawn in, the same number, and the anchor moved back into it through the tracker's turn. With no anchor, the bare spot
+    /// is searched for on that keyframe, so the placed items count as busy texture and the new item is not placed over one.
     func takeAKeyframe(on surfaceKind: RoomArtSurfaceKind?, anchorInCameraPixels: CGPoint?) async -> RoomArtKeyframe?
+    /// A new request keeps the room: the item that shows becomes part of its background (`RoomArtBackground`). It keeps
+    /// drawing every frame through the tracker's turn, under the newest item and with the learner in front of it, nothing
+    /// hides or moves it, and the keyframe and its tracker stay. Does nothing when no item shows.
+    func fixTheShownItemIntoTheBackground()
     func showTheWallArt(_ flattenedArtImage: CGImage, keyframeCorners: RoomArtCorners)
     /// Shows layers rendered or painted for the keyframe numbered `keyframeNumber`, with a short crossfade from the look
     /// before them, or from the bare room when nothing showed yet. Layers for an older keyframe, such as one a click has
@@ -83,17 +115,19 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     /// comes (front left, front right, back right, back left, as a box's footprint runs). The loop starts there, with no
     /// glide from where it was, and follows the room with the tracker's turn.
     func outlineTheLoop(aroundKeyframeQuadrilateral footprint: RoomArtCorners, inKeyframeNumber keyframeNumber: Int)
-    /// Forgets the keyframe and the loop, for a page that turned out to be a shirt after a keyframe was taken for it.
+    /// Forgets the keyframe, the loop, and any background drawn in the keyframe's pixels, for a page that turned out to be a
+    /// shirt after a keyframe was taken for it.
     func forgetTheKeyframe()
     /// The tracker's newest turn from the keyframe to the current frame, eased like the item's corners, or nil before the
     /// first tracked frame of a keyframe. Safe to call from any thread, since the panel draws the ghost through it.
     func currentTrackedWarp() -> RoomArtTrackedWarp?
     /// The newest camera frame, for a painting: its JPEG, the tracker's turn from the keyframe to it, and how much of
     /// `boxInTheKeyframe` (keyframe pixels) the learner covers in it. Nil before a tracked frame or while the room is lost.
+    /// While the room has a background, it is the keyframe with the background drawn in, whatever the newest frame shows:
+    /// the item was measured on that image, and a painting made on it holds the items it stands on or beside, so the item's
+    /// layer, cut out by its difference from that image, is placed on them pixel for pixel with no turn to undo. The learner
+    /// cannot step out of a keyframe, so its share is 0 and the painting never waits.
     func aFrameForThePainting(boxInTheKeyframe: [CGPoint]) async -> RoomArtPaintingFrame?
-    /// Moves the loop to the window around `point` in the keyframe numbered `keyframeNumber`, such as the spot the furniture
-    /// moved to after its floor was measured. The loop glides there, and a newer keyframe's loop is left alone.
-    func outlineTheLoop(around point: CGPoint, on surfaceKind: RoomArtSurfaceKind, inKeyframeNumber keyframeNumber: Int)
     func putBackTheItemFromBeforeTheMove()
     /// Starts drawing a shirt instead of tracking a surface: each frame finds the torso, and `onTheFramingSettled` runs on
     /// the main actor each time the framing settles on a new kind (`ShirtFramingDebouncer`). The loop traces the torso.
@@ -118,8 +152,9 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     func resumeTheLiveShirt()
     /// While the frame is frozen, the loop traces `outline` (camera pixels), the area being painted.
     func outlineTheAreaBeingPainted(_ outline: [CGPoint])
-    /// The loop's window in the newest keyframe and where it is in the newest frame, or nil before the first keyframe of a
-    /// session. Safe to call from any thread, since the panel reads it every frame on the main thread.
+    /// The loop's window in the newest keyframe and where it is in the newest frame, or nil when no loop has a shape to
+    /// follow: a footprint or a shirt's outline. Safe to call from any thread, since the panel reads it every frame on the
+    /// main thread.
     func currentLoop() -> RoomArtLoopSnapshot?
 }
 
@@ -165,6 +200,35 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     private var trackerBeforeTheMove: RoomTracker?
     private var placedArtBeforeTheMove: PlacedArt?
     private var keyframeNumberBeforeTheMove = 0
+    private var latestKeyframeBeforeTheMove: TakenKeyframe?
+    /// The keyframe the tracker aligns to, as it was taken, with the person mask of that moment, which the background's bake
+    /// draws the learner back on top with.
+    private var latestKeyframe: TakenKeyframe?
+    private struct TakenKeyframe {
+        let keyframe: RoomArtKeyframe
+        let personMask: CVPixelBuffer?
+        let personLowestRowShare: Double?
+    }
+    /// The items placed in this panel before its newest one, nil until a request keeps the room.
+    private var background: RoomArtBackground?
+    /// The items a new request fixed into the room, so the next item is placed among them: each draws every frame through
+    /// the tracker's turn, under the newest item and with the learner in front of it, and nothing hides or moves it. They are
+    /// drawn in the keyframe's pixels, so the keyframe and its tracker stay while they do, and the keyframe with them drawn in
+    /// is what the next item is measured and painted on.
+    private struct RoomArtBackground {
+        /// Oldest first, so a later item draws over an earlier one, each with its corners eased like the newest item's.
+        var items: [(placedArt: PlacedArt, smoothedCorners: [CGPoint]?)]
+        /// The keyframe with every item drawn in, as the panel would draw them on the keyframe's own frame: the JPEG the next
+        /// measurement sends, with the keyframe's number, person mask, wall spot, and floor texture, the texture read from
+        /// these pixels.
+        let keyframe: RoomArtKeyframe
+        /// The same pixels, which a painting is made on and the next item is drawn into.
+        let keyframeImage: CGImage
+        /// The same pixels at the track size, and the room in them with the keyframe's learner left out, which the bare wall
+        /// and floor spot search runs on, so a placed item counts as busy texture and the next one is not placed over it.
+        let trackGrayscale: RoomGrayscaleImage
+        let trackRoomMask: [Float]
+    }
     /// The shirt try-on, on while the item is a top. The pose tracker and the renderer belong to this queue's session,
     /// and the renderer is only ever called from this queue.
     private var shirtTryOnIsOn = false
@@ -193,10 +257,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     private let shirtOutlineQueue = DispatchQueue(label: "com.crodris.clicky.room-art.shirt-outline", qos: .utility)
     private static let secondsBetweenShirtOutlines = 0.5
     private var smoothedArtCorners: [CGPoint]?
-    /// The window Clicky's loop outlines in the newest keyframe, tracked with the keyframe's own warp each frame.
+    /// The bounding box of the ghost's footprint in the newest keyframe, which Clicky's loop is drawn around and tracked
+    /// with the keyframe's own warp each frame. Nil with no footprint loop.
     private var loopKeyframeCorners: RoomArtCorners?
-    /// Where the loop's window lands in the keyframe, when that is not the window itself: the ghost's footprint, a
-    /// quadrilateral the loop's line is bent onto. Nil for a loop around its own window.
+    /// The ghost's footprint in the keyframe, a quadrilateral the loop's line is bent onto.
     private var loopKeyframeTargetCorners: RoomArtCorners?
     private var smoothedLoopCorners: [CGPoint]?
     /// The newest loop snapshot, written on `processingQueue` and read from the main thread.
@@ -214,7 +278,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     #endif
 
     /// The item as it is drawn on every frame: already lit like the room and softened like the camera, with its shadow.
-    private struct PlacedArt {
+    struct PlacedArt {
         enum Drawing {
             /// Wall art warped onto its four corners.
             case warpedOntoItsCorners(litArt: CIImage, shadow: CIImage)
@@ -233,6 +297,24 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
         func currentCorners(after cameraWarp: EuclideanWarp) -> [CGPoint] {
             keyframeCorners.map { cameraWarp.apply(to: layerToKeyframe.apply(to: $0)) }
+        }
+
+        /// Furniture's layers over a whole frame of `frameSize`: the tracker carries the frame's own corners, and the layers
+        /// follow them.
+        static func keyframeLayers(_ layers: RoomFurnitureKeyframeLayers, frameSize: CGSize, layerToKeyframe: EuclideanWarp) -> PlacedArt {
+            let frameCorners = [
+                CGPoint(x: 0, y: 0), CGPoint(x: frameSize.width, y: 0), CGPoint(x: frameSize.width, y: frameSize.height), CGPoint(x: 0, y: frameSize.height),
+            ]
+            return PlacedArt(
+                drawing: .keyframeLayers(
+                    item: CIImage(cgImage: layers.itemLayer),
+                    shadow: layers.shadowLayer.map { CIImage(cgImage: $0) },
+                    grainStandardDeviation: layers.cameraNoiseStandardDeviation
+                ),
+                keyframeCorners: frameCorners,
+                keyframeBasePoint: layers.basePointInTheKeyframe,
+                layerToKeyframe: layerToKeyframe
+            )
         }
     }
 
@@ -287,6 +369,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             shirtRenderer.reset()
             trackerBeforeTheMove = nil
             placedArtBeforeTheMove = nil
+            latestKeyframeBeforeTheMove = nil
+            latestKeyframe = nil
+            background = nil
             crossfadeFrom = nil
             latestFrame = nil
             latestPersonMask = nil
@@ -607,8 +692,19 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 fadingArtCorners = crossfadeFrom?.placedArt?.currentCorners(after: cameraWarp)
             }
         }
+        // The background's items move with the same warp and are eased the same way, so they and the newest item move as one.
+        var backgroundItemsToDraw: [(placedArt: PlacedArt, corners: [CGPoint])] = []
+        if var background, let trackStep, !trackStep.theArtIsHidden, let cameraWarp {
+            for itemIndex in background.items.indices {
+                let item = background.items[itemIndex]
+                let corners = smoothedCorners(previous: item.smoothedCorners, current: item.placedArt.currentCorners(after: cameraWarp))
+                background.items[itemIndex].smoothedCorners = corners
+                backgroundItemsToDraw.append((item.placedArt, corners))
+            }
+            self.background = background
+        }
         // A frame that found no drawable was not shown, so it does not count toward the frame rate.
-        if draw(cameraFrame: cameraFrame, artCorners: artCorners, fadingArtCorners: fadingArtCorners, shirtTorso: shirtTorsoToDraw) {
+        if draw(cameraFrame: cameraFrame, backgroundItems: backgroundItemsToDraw, artCorners: artCorners, fadingArtCorners: fadingArtCorners, shirtTorso: shirtTorsoToDraw) {
             noteTheFrame(trackMilliseconds: trackMilliseconds)
         }
     }
@@ -721,19 +817,40 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
     // MARK: Drawing
 
-    /// Draws the frame into the layer's next drawable. False when no drawable was free or Core Image refused the frame.
-    private func draw(cameraFrame: CVPixelBuffer, artCorners: [CGPoint]?, fadingArtCorners: [CGPoint]?, shirtTorso: BodyTorso?) -> Bool {
+    /// Draws the frame into the layer's next drawable: the background's items, oldest first, then the newest item over them.
+    /// False when no drawable was free or Core Image refused the frame.
+    private func draw(
+        cameraFrame: CVPixelBuffer, backgroundItems: [(placedArt: PlacedArt, corners: [CGPoint])], artCorners: [CGPoint]?, fadingArtCorners: [CGPoint]?, shirtTorso: BodyTorso?
+    ) -> Bool {
         let frameImage = CIImage(cvPixelBuffer: cameraFrame)
-        var composedImage = frameImage
+        // The room as the newest item finds it: the frame, with the background's items drawn in. With no background it is
+        // the frame itself. Each step keeps the frame's extent, which the next item's drawing measures.
+        let roomImage = latestPersonMask.map { personMask in
+            backgroundItems.reduce(frameImage) { roomSoFar, backgroundItem in
+                Self.frameWithTheArt(
+                    frameImage: roomSoFar, placedArt: backgroundItem.placedArt, artCorners: backgroundItem.corners,
+                    personMask: personMask, personLowestRowShare: latestPersonLowestRowShare, grainOffset: Self.aNewGrainOffset()
+                ).cropped(to: frameImage.extent)
+            }
+        } ?? frameImage
+        var composedImage = roomImage
         if let placedArt, let artCorners, let latestPersonMask {
-            composedImage = frameWithTheArt(frameImage: frameImage, placedArt: placedArt, artCorners: artCorners, personMask: latestPersonMask)
+            composedImage = Self.frameWithTheArt(
+                frameImage: roomImage, placedArt: placedArt, artCorners: artCorners,
+                personMask: latestPersonMask, personLowestRowShare: latestPersonLowestRowShare, grainOffset: Self.aNewGrainOffset()
+            )
             if let crossfadeFrom {
                 let fadeProgress = (CACurrentMediaTime() - crossfadeFrom.startedAt) / Self.crossfadeSeconds
-                // The bare room is the frame itself, and a drawing hidden this frame has nothing to fade from.
+                // The bare room is the frame with the background drawn in, and a drawing hidden this frame has nothing to fade from.
                 let fadingImage: CIImage? = if let fadingPlacedArt = crossfadeFrom.placedArt {
-                    fadingArtCorners.map { frameWithTheArt(frameImage: frameImage, placedArt: fadingPlacedArt, artCorners: $0, personMask: latestPersonMask) }
+                    fadingArtCorners.map {
+                        Self.frameWithTheArt(
+                            frameImage: roomImage, placedArt: fadingPlacedArt, artCorners: $0,
+                            personMask: latestPersonMask, personLowestRowShare: latestPersonLowestRowShare, grainOffset: Self.aNewGrainOffset()
+                        )
+                    }
                 } else {
-                    frameImage
+                    roomImage
                 }
                 if fadeProgress >= 1 {
                     self.crossfadeFrom = nil
@@ -795,8 +912,11 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
     /// The item over the frame where the tracker put `artCorners` (camera pixels, y down), with the person drawn back on top
     /// through the segmentation mask, so the learner stays in front of it, unless furniture stands nearer the camera than
-    /// the learner's feet (`roomFurnitureDrawsOverThePerson`).
-    private func frameWithTheArt(frameImage: CIImage, placedArt: PlacedArt, artCorners: [CGPoint], personMask: CVPixelBuffer) -> CIImage {
+    /// the learner's feet (`roomFurnitureDrawsOverThePerson`). With no mask, no one is drawn back on top. `grainOffset` moves
+    /// the furniture's grain, a new offset each frame so it moves like the camera's own.
+    static func frameWithTheArt(
+        frameImage: CIImage, placedArt: PlacedArt, artCorners: [CGPoint], personMask: CVPixelBuffer?, personLowestRowShare: Double?, grainOffset: CGPoint
+    ) -> CIImage {
         let itemOverTheFrame: CIImage
         switch placedArt.drawing {
         case .warpedOntoItsCorners(let litArt, let shadow):
@@ -811,15 +931,15 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 shadowLayer: shadow,
                 keyframeToCurrent: keyframeToCurrent,
                 grainStandardDeviation: grainStandardDeviation,
-                // A new offset each frame, so the grain moves like the camera's own.
-                grainOffset: CGPoint(x: Double.random(in: 0..<512), y: Double.random(in: 0..<512))
+                grainOffset: grainOffset
             )
         }
+        guard let personMask else { return itemOverTheFrame }
         if let keyframeBasePoint = placedArt.keyframeBasePoint,
            let currentBasePoint = currentPoint(of: keyframeBasePoint, keyframeCorners: placedArt.keyframeCorners, currentCorners: artCorners),
            roomFurnitureDrawsOverThePerson(
                itemBaseRow: currentBasePoint.y,
-               personLowestRow: latestPersonLowestRowShare.map { $0 * frameImage.extent.height },
+               personLowestRow: personLowestRowShare.map { $0 * frameImage.extent.height },
                frameHeight: frameImage.extent.height
            ) {
             return itemOverTheFrame
@@ -827,8 +947,22 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         return withThePersonOnTop(of: itemOverTheFrame, frameImage: frameImage, personMask: personMask)
     }
 
+    private static func aNewGrainOffset() -> CGPoint {
+        CGPoint(x: Double.random(in: 0..<512), y: Double.random(in: 0..<512))
+    }
+
+    /// The keyframe with `placedArt` drawn in, as the panel draws it on the keyframe's own frame: at its keyframe corners,
+    /// with the learner of that moment drawn back on top through `personMask`. The grain sits at a fixed offset, so the same
+    /// item always bakes to the same pixels. Drawing a second item into the result puts it over the first.
+    static func keyframe(_ keyframeImage: CIImage, withTheItemDrawnIn placedArt: PlacedArt, personMask: CVPixelBuffer?, personLowestRowShare: Double?) -> CIImage {
+        frameWithTheArt(
+            frameImage: keyframeImage, placedArt: placedArt, artCorners: placedArt.currentCorners(after: .identity),
+            personMask: personMask, personLowestRowShare: personLowestRowShare, grainOffset: .zero
+        ).cropped(to: keyframeImage.extent)
+    }
+
     /// Where a keyframe point is now, through the affine map the tracked corners give, in camera pixels with y down.
-    private func currentPoint(of keyframePoint: CGPoint, keyframeCorners: [CGPoint], currentCorners: [CGPoint]) -> CGPoint? {
+    private static func currentPoint(of keyframePoint: CGPoint, keyframeCorners: [CGPoint], currentCorners: [CGPoint]) -> CGPoint? {
         // The map works in Core Image's y-up space, so the point goes in and comes back out with y flipped about 0.
         guard let keyframeToCurrent = RoomFurnitureComposition.keyframeToCurrentFrame(keyframePoints: keyframeCorners, currentPoints: currentCorners, frameHeight: 0) else { return nil }
         let movedPoint = CGPoint(x: keyframePoint.x, y: -keyframePoint.y).applying(keyframeToCurrent)
@@ -836,7 +970,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     }
 
     /// The picture and its shadow warped onto `artCorners`, over the frame.
-    private func pictureWarpedOntoItsCorners(frameImage: CIImage, litArt: CIImage, shadow: CIImage, artCorners: [CGPoint]) -> CIImage {
+    private static func pictureWarpedOntoItsCorners(frameImage: CIImage, litArt: CIImage, shadow: CIImage, artCorners: [CGPoint]) -> CIImage {
         let frameHeight = frameImage.extent.height
         // Core Image's y grows up from the bottom.
         let cornersFromTheBottom = artCorners.map { CGPoint(x: $0.x, y: frameHeight - $0.y) }
@@ -865,7 +999,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     }
 
     /// The learner from the camera frame drawn back over `artOverTheFrame` through the segmentation mask.
-    private func withThePersonOnTop(of artOverTheFrame: CIImage, frameImage: CIImage, personMask: CVPixelBuffer) -> CIImage {
+    private static func withThePersonOnTop(of artOverTheFrame: CIImage, frameImage: CIImage, personMask: CVPixelBuffer) -> CIImage {
         // The mask's confidence from 0.35 to 0.65 becomes the person's opacity, a slightly hard edge that reads as a real
         // occluder instead of a ghost. Every channel reads the first, so a one-channel mask works whichever channel it fills.
         let maskImage = CIImage(cvPixelBuffer: personMask)
@@ -889,7 +1023,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
     /// Takes the newest frame as the keyframe: the tracker starts from it, the item hides until it is measured again, and the
     /// measurement request is built from it. With no anchor, the item centers on the bare wall spot or stands on the bare
-    /// floor spot. Nil before any frame arrived.
+    /// floor spot. Nil before any frame arrived. While the room has a background, the background's keyframe is handed out
+    /// instead (`backgroundKeyframeOnTheQueue`).
     func takeAKeyframe(on surfaceKind: RoomArtSurfaceKind?, anchorInCameraPixels: CGPoint?) async -> RoomArtKeyframe? {
         await withCheckedContinuation { continuation in
             processingQueue.async {
@@ -900,19 +1035,26 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
     private func takeAKeyframeOnTheQueue(on surfaceKind: RoomArtSurfaceKind?, anchorInCameraPixels: CGPoint?) -> RoomArtKeyframe? {
         guard let latestFrame, let latestTrackGrayscale, let latestTrackRoomMask else { return nil }
+        if let background {
+            // A click moves back from the newest frame through the eased turn the panel draws with, so it is measured on the
+            // pixel of the keyframe the learner saw there. The spot search runs on the keyframe with its items drawn in.
+            let keyframeToTheNewestFrame = latestTrackedWarp.withLock { $0?.keyframeToCurrent } ?? .identity
+            let anchor = anchorInCameraPixels.map { keyframeToTheNewestFrame.inverted.apply(to: $0) } ?? bareSpot(
+                on: surfaceKind, grayscale: background.trackGrayscale, roomMask: background.trackRoomMask,
+                cameraPixelsPerTrackPixel: Double(background.keyframeImage.width) / Double(background.trackGrayscale.width)
+            )
+            return backgroundKeyframeOnTheQueue(background, on: surfaceKind, anchor: anchor)
+        }
         let frameWidth = Double(CVPixelBufferGetWidth(latestFrame)), frameHeight = Double(CVPixelBufferGetHeight(latestFrame))
         let cameraPixelsPerTrackPixel = frameWidth / Double(latestTrackGrayscale.width)
-        let anchor = anchorInCameraPixels ?? {
-            let trackSpot = switch surfaceKind {
-            case .wall: bareWallSpot(grayscale: latestTrackGrayscale, roomMask: latestTrackRoomMask)
-            case .floor, nil: bareFloorSpot(grayscale: latestTrackGrayscale, roomMask: latestTrackRoomMask)
-            }
-            return CGPoint(x: trackSpot.x * cameraPixelsPerTrackPixel, y: trackSpot.y * cameraPixelsPerTrackPixel)
-        }()
+        let anchor = anchorInCameraPixels ?? bareSpot(
+            on: surfaceKind, grayscale: latestTrackGrayscale, roomMask: latestTrackRoomMask, cameraPixelsPerTrackPixel: cameraPixelsPerTrackPixel
+        )
 
         trackerBeforeTheMove = tracker
         placedArtBeforeTheMove = placedArt
         keyframeNumberBeforeTheMove = keyframeNumber
+        latestKeyframeBeforeTheMove = latestKeyframe
         keyframeNumber += 1
         tracker = RoomTracker(keyframeGrayscale: latestTrackGrayscale, keyframeRoomMask: latestTrackRoomMask)
         latestTrackedWarp.withLock { $0 = RoomArtTrackedWarp(keyframeNumber: keyframeNumber, keyframeToCurrent: .identity, theRoomIsLost: false) }
@@ -921,12 +1063,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         crossfadeFrom = nil
         smoothedArtCorners = nil
         reportWhetherTheSurfaceIsLost(false)
-        // The loop outlines the window around the spot until the item shows, and starts on the keyframe where it was drawn.
-        let keyframeLoopCorners = RoomArtLoopGeometry.keyframeCorners(around: anchor, frameSize: CGSize(width: frameWidth, height: frameHeight), on: surfaceKind ?? .floor)
-        loopKeyframeCorners = keyframeLoopCorners
-        loopKeyframeTargetCorners = nil
-        smoothedLoopCorners = nil
-        latestLoop.withLock { $0 = RoomArtLoopSnapshot(keyframeCorners: keyframeLoopCorners, currentCorners: keyframeLoopCorners) }
+        // No loop is drawn while the surface is measured, so a footprint loop from an earlier look is forgotten.
+        forgetTheLoopOnTheQueue()
 
         let frameImage = CIImage(cvPixelBuffer: latestFrame)
         guard let keyframeJPEGData = ciContext.jpegRepresentation(
@@ -944,7 +1082,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         let wallSpot = CGPoint(x: wallSpotInTrackPixels.x * cameraPixelsPerTrackPixel, y: wallSpotInTrackPixels.y * cameraPixelsPerTrackPixel)
         // A keyframe whose surface is not known yet may hang wall art, so the light is read on the wall.
         keyframeWallLight = wallLight(around: surfaceKind == nil ? wallSpot : anchor, in: frameImage, frameWidth: frameWidth, frameHeight: frameHeight)
-        return RoomArtKeyframe(
+        let keyframe = RoomArtKeyframe(
             measurementRequest: RoomWallRequest(keyframeJPEGData: keyframeJPEGData, personMaskPNGData: personMaskPNGData, anchor: anchor),
             wallLight: keyframeWallLight,
             wallSpotAnchor: wallSpot,
@@ -956,6 +1094,87 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 cameraPixelsPerMapPixel: cameraPixelsPerTrackPixel
             ) : nil
         )
+        latestKeyframe = TakenKeyframe(keyframe: keyframe, personMask: latestPersonMask, personLowestRowShare: latestPersonLowestRowShare)
+        return keyframe
+    }
+
+    /// Where an item goes with no anchor, in camera pixels: the bare wall spot for the wall, else the bare floor spot.
+    private func bareSpot(on surfaceKind: RoomArtSurfaceKind?, grayscale: RoomGrayscaleImage, roomMask: [Float], cameraPixelsPerTrackPixel: Double) -> CGPoint {
+        let trackSpot = switch surfaceKind {
+        case .wall: bareWallSpot(grayscale: grayscale, roomMask: roomMask)
+        case .floor, nil: bareFloorSpot(grayscale: grayscale, roomMask: roomMask)
+        }
+        return CGPoint(x: trackSpot.x * cameraPixelsPerTrackPixel, y: trackSpot.y * cameraPixelsPerTrackPixel)
+    }
+
+    /// The background's keyframe for the next measurement, in place of a new one, at `anchor` in its pixels. The item before
+    /// the measurement hides and is kept for a failed move, as with a new keyframe, while the tracker, the keyframe's number,
+    /// and the background stay.
+    private func backgroundKeyframeOnTheQueue(_ background: RoomArtBackground, on surfaceKind: RoomArtSurfaceKind?, anchor: CGPoint) -> RoomArtKeyframe {
+        trackerBeforeTheMove = tracker
+        placedArtBeforeTheMove = placedArt
+        keyframeNumberBeforeTheMove = keyframeNumber
+        latestKeyframeBeforeTheMove = latestKeyframe
+        placedArt = nil
+        crossfadeFrom = nil
+        smoothedArtCorners = nil
+        let frameSize = CGSize(width: background.keyframeImage.width, height: background.keyframeImage.height)
+        forgetTheLoopOnTheQueue()
+        let wallSpot = background.keyframe.wallSpotAnchor ?? anchor
+        keyframeWallLight = wallLight(
+            around: surfaceKind == nil ? wallSpot : anchor, in: CIImage(cgImage: background.keyframeImage),
+            frameWidth: frameSize.width, frameHeight: frameSize.height
+        )
+        let backgroundRequest = background.keyframe.measurementRequest
+        return RoomArtKeyframe(
+            measurementRequest: RoomWallRequest(keyframeJPEGData: backgroundRequest.keyframeJPEGData, personMaskPNGData: backgroundRequest.personMaskPNGData, anchor: anchor),
+            wallLight: keyframeWallLight,
+            wallSpotAnchor: background.keyframe.wallSpotAnchor,
+            keyframeNumber: keyframeNumber,
+            floorTexture: background.keyframe.floorTexture
+        )
+    }
+
+    func fixTheShownItemIntoTheBackground() {
+        processingQueue.async {
+            guard let placedArt = self.placedArt, let latestKeyframe = self.latestKeyframe else { return }
+            let keyframeImage = self.background.map { CIImage(cgImage: $0.keyframeImage) }
+                ?? CIImage(data: latestKeyframe.keyframe.measurementRequest.keyframeJPEGData)
+            guard let keyframeImage else { return }
+            let bakedImage = Self.keyframe(
+                keyframeImage, withTheItemDrawnIn: placedArt, personMask: latestKeyframe.personMask, personLowestRowShare: latestKeyframe.personLowestRowShare
+            )
+            guard let bakedCGImage = self.ciContext.createCGImage(bakedImage, from: keyframeImage.extent, format: .RGBA8, colorSpace: self.sRGBColorSpace),
+                  let bakedJPEGData = self.ciContext.jpegRepresentation(
+                      of: CIImage(cgImage: bakedCGImage),
+                      colorSpace: self.sRGBColorSpace,
+                      options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.92]
+                  ) else { return }
+            let takenKeyframe = latestKeyframe.keyframe
+            let (trackWidth, trackHeight) = trackSize(forFrameWidth: bakedCGImage.width, frameHeight: bakedCGImage.height)
+            guard let bakedTrackGrayscale = trackGrayscale(of: bakedCGImage, width: trackWidth, height: trackHeight) else { return }
+            // The baked keyframe draws the learner back where the keyframe's own mask has them, so that mask leaves them out.
+            let bakedTrackRoomMask = latestKeyframe.personMask.map { personMask in
+                roomMaskAtTrackSize(segmentationConfidence: firstPlaneScaled(of: personMask, toWidth: trackWidth, height: trackHeight), width: trackWidth, height: trackHeight)
+            } ?? roomMaskWithNoPerson(width: trackWidth, height: trackHeight)
+            self.background = RoomArtBackground(
+                items: (self.background?.items ?? []) + [(placedArt, self.smoothedArtCorners)],
+                keyframe: takenKeyframe.baked(
+                    keyframeJPEGData: bakedJPEGData, trackGrayscale: bakedTrackGrayscale, trackRoomMask: bakedTrackRoomMask,
+                    cameraPixelsPerTrackPixel: Double(bakedCGImage.width) / Double(trackWidth)
+                ),
+                keyframeImage: bakedCGImage,
+                trackGrayscale: bakedTrackGrayscale,
+                trackRoomMask: bakedTrackRoomMask
+            )
+            print("Room art: the item that showed is now part of the room, which holds \(self.background?.items.count ?? 0) placed items")
+            // The item is the background's now, so no move puts it back and nothing hides it.
+            self.placedArt = nil
+            self.crossfadeFrom = nil
+            self.smoothedArtCorners = nil
+            self.trackerBeforeTheMove = nil
+            self.placedArtBeforeTheMove = nil
+        }
     }
 
     /// The wall's average color in a square 16 percent of the frame wide around the spot, in sRGB.
@@ -992,13 +1211,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 .clampedToExtent()
                 .applyingGaussianBlur(sigma: 0.7 * artPixelsPerCameraPixel)
                 .cropped(to: artExtent)
-            // The shadow sits 2 percent of the art's height below it and spreads 1.5 percent, at 35 percent black.
-            let shadowSpread = artHeight * 0.015
-            let shadowOffset = -artHeight * 0.02
-            let shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.35))
-                .cropped(to: artExtent.offsetBy(dx: 0, dy: shadowOffset))
-                .applyingGaussianBlur(sigma: shadowSpread)
-                .cropped(to: artExtent.offsetBy(dx: 0, dy: shadowOffset).insetBy(dx: -3 * shadowSpread, dy: -3 * shadowSpread))
+            let shadow = wallArtShadow(of: flattenedArt)
             self.placedArt = PlacedArt(drawing: .warpedOntoItsCorners(litArt: litArt, shadow: shadow), keyframeCorners: corners, keyframeBasePoint: nil)
             self.crossfadeFrom = nil
             self.smoothedArtCorners = nil
@@ -1011,21 +1224,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int, layerToKeyframe: EuclideanWarp) {
         processingQueue.async {
             guard keyframeNumber == self.keyframeNumber, let latestFrame = self.latestFrame else { return }
-            let frameWidth = Double(CVPixelBufferGetWidth(latestFrame)), frameHeight = Double(CVPixelBufferGetHeight(latestFrame))
-            // The layers move with the room, so the tracker carries the frame's own corners and the layers follow them.
-            let frameCorners = [CGPoint(x: 0, y: 0), CGPoint(x: frameWidth, y: 0), CGPoint(x: frameWidth, y: frameHeight), CGPoint(x: 0, y: frameHeight)]
+            let frameSize = CGSize(width: CVPixelBufferGetWidth(latestFrame), height: CVPixelBufferGetHeight(latestFrame))
             // A first look fades in from the bare room, and a later one from the look before it.
             self.crossfadeFrom = (self.placedArt, CACurrentMediaTime())
-            self.placedArt = PlacedArt(
-                drawing: .keyframeLayers(
-                    item: CIImage(cgImage: layers.itemLayer),
-                    shadow: layers.shadowLayer.map { CIImage(cgImage: $0) },
-                    grainStandardDeviation: layers.cameraNoiseStandardDeviation
-                ),
-                keyframeCorners: frameCorners,
-                keyframeBasePoint: layers.basePointInTheKeyframe,
-                layerToKeyframe: layerToKeyframe
-            )
+            self.placedArt = .keyframeLayers(layers, frameSize: frameSize, layerToKeyframe: layerToKeyframe)
             self.smoothedArtCorners = nil
         }
     }
@@ -1055,6 +1257,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
     func forgetTheKeyframe() {
         processingQueue.async {
+            // The background is drawn in the keyframe's pixels, so it goes with it.
+            self.background = nil
+            self.latestKeyframe = nil
             self.tracker = nil
             self.loopKeyframeCorners = nil
             self.loopKeyframeTargetCorners = nil
@@ -1077,6 +1282,12 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     }
 
     private func aFrameForThePaintingOnTheQueue(boxInTheKeyframe: [CGPoint]) -> RoomArtPaintingFrame? {
+        if let background {
+            return RoomArtPaintingFrame(
+                jpegData: background.keyframe.measurementRequest.keyframeJPEGData, image: background.keyframeImage,
+                keyframeToFrame: .identity, shareOfTheBoxThePersonCovers: 0
+            )
+        }
         guard let latestFrame, let latestCameraWarp, !theSurfaceIsLostAsLastReported else { return nil }
         let frameImage = CIImage(cvPixelBuffer: latestFrame)
         guard let jpegData = ciContext.jpegRepresentation(
@@ -1091,32 +1302,28 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         return RoomArtPaintingFrame(jpegData: jpegData, image: cgImage, keyframeToFrame: latestCameraWarp, shareOfTheBoxThePersonCovers: shareCovered)
     }
 
-    func outlineTheLoop(around point: CGPoint, on surfaceKind: RoomArtSurfaceKind, inKeyframeNumber keyframeNumber: Int) {
-        processingQueue.async {
-            guard keyframeNumber == self.keyframeNumber, self.loopKeyframeCorners != nil, let latestFrame = self.latestFrame else { return }
-            let frameSize = CGSize(width: CVPixelBufferGetWidth(latestFrame), height: CVPixelBufferGetHeight(latestFrame))
-            // The smoothed corners keep where the loop was, so it glides to the new window over the next frames.
-            self.loopKeyframeCorners = RoomArtLoopGeometry.keyframeCorners(around: point, frameSize: frameSize, on: surfaceKind)
-            self.loopKeyframeTargetCorners = nil
-        }
+    /// Forgets the footprint loop, which a new keyframe's measurement draws no loop to replace.
+    private func forgetTheLoopOnTheQueue() {
+        loopKeyframeCorners = nil
+        loopKeyframeTargetCorners = nil
+        smoothedLoopCorners = nil
+        latestLoop.withLock { $0 = nil }
     }
 
-    /// The loop where the surface or the torso last was, for the panel to draw or fade out.
+    /// The loop where the footprint or the torso last was, for the panel to draw or fade out.
     func currentLoop() -> RoomArtLoopSnapshot? {
         latestLoop.withLock { $0 }
     }
 
     /// A click's measurement failed, so the item goes back where it stood, tracked against the keyframe it stood on. That
-    /// tracker aligns each frame to its own keyframe, so it finds the room again after the frames it missed. The loop
-    /// outlined the failed keyframe, so it stops following the room and fades out where it was.
+    /// tracker aligns each frame to its own keyframe, so it finds the room again after the frames it missed.
     func putBackTheItemFromBeforeTheMove() {
         processingQueue.async {
-            self.loopKeyframeCorners = nil
-            self.loopKeyframeTargetCorners = nil
             guard let placedArtBeforeTheMove = self.placedArtBeforeTheMove else { return }
             self.tracker = self.trackerBeforeTheMove
             self.placedArt = placedArtBeforeTheMove
             self.keyframeNumber = self.keyframeNumberBeforeTheMove
+            self.latestKeyframe = self.latestKeyframeBeforeTheMove
             self.crossfadeFrom = nil
             self.smoothedArtCorners = nil
             self.reportWhetherTheSurfaceIsLost(false)
@@ -1129,11 +1336,14 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 // MARK: - Reading the page
 
 /// The page in Chrome's front tab, as `POST /try-it-item` reads it.
-nonisolated struct RoomArtFrontTab: Equatable, Sendable {
+nonisolated struct RoomArtFrontTab: Sendable {
     let url: String
     let title: String
     /// Nil when the page's script could not run, such as on a page with an open `alert()`, so no size can be read.
     let text: String?
+    /// The page's largest picture, read before the page's sections opened, which this request's picture is taken from. Nil
+    /// when the page shows none or Chrome could not be read.
+    var largestPicture: LargestVisibleMediaInFrontTab? = nil
 }
 
 /// The front tab's address, title, and text, the text cut to what `POST /try-it-item` takes. Nil when Chrome has no window.
@@ -1141,9 +1351,19 @@ nonisolated struct RoomArtFrontTab: Equatable, Sendable {
 /// first opens those sections (`roomArtExpandTheSizeSectionsScript`) and waits a moment for them to fill, and the text then
 /// adds the page's structured data that names a dimension (`roomArtPageTextScript`). The scripts have no double quotes or
 /// backslashes, since they run inside an AppleScript string.
+/// The largest picture is read first, so it is the page as the learner sees it: IKEA opens its Product details section as a
+/// side sheet whose construction cutaway is the largest picture once it shows, and the KIVIK sofa was painted from that
+/// beige cutaway instead of its black product photo.
 @MainActor
 func readTheFrontTabForRoomArt() async -> RoomArtFrontTab? {
     guard let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow() else { return nil }
+    let largestPicture: LargestVisibleMediaInFrontTab?
+    do {
+        largestPicture = try ChromeVideoTab.largestVisibleMediaInFrontTabOrNone()
+    } catch {
+        print("Room art: could not read the largest picture from Chrome: \(error)")
+        largestPicture = nil
+    }
     let sectionsOpened = (try? ChromeVideoTab.runJavaScript(roomArtExpandTheSizeSectionsScript, in: frontTab)).flatMap { Int($0) } ?? 0
     if sectionsOpened > 0 {
         print("Room art: opened \(sectionsOpened) collapsed sections of the page before reading it")
@@ -1151,7 +1371,22 @@ func readTheFrontTabForRoomArt() async -> RoomArtFrontTab? {
         try? await Task.sleep(for: .milliseconds(600))
     }
     let pageText = try? ChromeVideoTab.runJavaScript(roomArtPageTextScript(longestCharacters: RoomArtPageRequest.longestPageText), in: frontTab)
-    return RoomArtFrontTab(url: frontTab.url, title: frontTab.title, text: pageText)
+    return RoomArtFrontTab(url: frontTab.url, title: frontTab.title, text: pageText, largestPicture: largestPicture)
+}
+
+/// The front tab's largest picture for room art: the page's image file when it names one, else a screen capture of it
+/// (`RoomArtPictureSource`), since a capture also holds a cookie banner or any other page element over the picture. Nil when
+/// the page shows no picture.
+@MainActor
+func roomArtPicture(of largestPicture: LargestVisibleMediaInFrontTab?) async -> RoomArtPicture? {
+    guard let largestPicture else { return nil }
+    return await RoomArtPictureSource.picture(imageFileURL: largestPicture.imageFileURL, otherImageFileURLs: largestPicture.otherImageFileURLs) {
+        guard let pictureGrab = try? await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(largestPicture.screenRect),
+              let jpegData = Data(base64Encoded: pictureGrab.jpeg) else {
+            return nil
+        }
+        return RoomArtPicture(jpegData: jpegData, width: pictureGrab.width, height: pictureGrab.height)
+    }
 }
 
 /// What Clicky says when the front tab has no picture to hang.
@@ -1174,13 +1409,17 @@ final class RoomArtPreviewController: ObservableObject {
         /// Every Worker route the panel calls needs the app secret, so with none set the camera never opens.
         var appSecretIsSet: () -> Bool
         var readTheFrontTab: () async -> RoomArtFrontTab?
-        var capturePicture: () async -> RoomArtPicture?
+        /// The request's picture, taken from the front tab that request read.
+        var capturePicture: (RoomArtFrontTab) async -> RoomArtPicture?
         var readThePage: (RoomArtPageRequest) async throws -> RoomArtPageReading
         var measureTheWall: (RoomWallRequest) async throws -> WallPlane
         var measureTheFloor: (RoomWallRequest) async throws -> FloorPlane
         /// The furniture cut out of its product photo, nil when Vision finds none. Vision takes a while, so it runs off the
         /// main actor.
         var cutOutTheFurniture: (_ picture: CGImage, _ itemCorners: RoomArtCorners) async -> CGImage?
+        /// The whole product photo with only the wall item's own shape opaque, nil when Vision finds none: for a wall item whose
+        /// outline does not fill its four corners, such as a round clock. It runs off the main actor.
+        var cutOutTheWallItemByItsShape: (_ picture: CGImage, _ itemCorners: RoomArtCorners) async -> CGImage?
         /// The top cut out of its product photo, nil when no garment is found: `ShirtGarment.make` for a flat lay and
         /// `make(onModelPhoto:itemCorners:)` for a photo of it worn by a model. It runs off the main actor, and only for a
         /// garment the live preview may draw (`shirtLiveGarmentMayWork`).
@@ -1235,7 +1474,6 @@ final class RoomArtPreviewController: ObservableObject {
         /// build's `--room-camera-file`).
         static func live(
             workerBaseURL: String,
-            capturePicture: @escaping () async -> RoomArtPicture?,
             clearTheLiveScene: @escaping () -> Void,
             speak: @escaping (String, Bool) -> Void,
             loopAccentColor: @escaping () -> Color,
@@ -1247,8 +1485,8 @@ final class RoomArtPreviewController: ObservableObject {
             let shirtPaintingClient = ShirtPaintingClient(workerBaseURL: workerBaseURL)
             return Environment(
                 appSecretIsSet: { ClickyAppSecret.isSet() },
-                readTheFrontTab: readTheFrontTabForRoomArt,
-                capturePicture: capturePicture,
+                readTheFrontTab: { await readTheFrontTabForRoomArt() },
+                capturePicture: { frontTab in await roomArtPicture(of: frontTab.largestPicture) },
                 readThePage: { pageRequest in try await roomArtClient.readThePage(pageRequest) },
                 measureTheWall: { wallRequest in try await roomArtClient.measureTheWall(wallRequest) },
                 measureTheFloor: { floorRequest in try await roomArtClient.measureTheFloor(floorRequest) },
@@ -1257,6 +1495,12 @@ final class RoomArtPreviewController: ObservableObject {
                     nonisolated(unsafe) let pictureToCut = picture
                     return await Task.detached(priority: .userInitiated) { () -> CGImage? in
                         furnitureCutout(picture: pictureToCut, itemCorners: itemCorners, context: CIContext())
+                    }.value
+                },
+                cutOutTheWallItemByItsShape: { picture, itemCorners in
+                    nonisolated(unsafe) let pictureToCut = picture
+                    return await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                        pictureWithOnlyTheItemOpaque(picture: pictureToCut, itemCorners: itemCorners, context: CIContext())
                     }.value
                 },
                 makeTheShirtGarment: { picture, itemCorners, photoShows in
@@ -1329,7 +1573,7 @@ final class RoomArtPreviewController: ObservableObject {
     }
     /// When the shirt button last changed role, which a click right after it does not count against.
     private var shirtStillVoiceTargetsChangedAt: TimeInterval = 0
-    /// Clicky's loop around the measured spot or the learner's torso: drawn until the item or the shirt shows, or a failure.
+    /// Clicky's loop around the placed furniture's footprint or the learner's torso: drawn until the item or the shirt shows, or a failure.
     @Published private(set) var loopState = RoomArtLoopState.hidden
     /// The tracker lost the room long enough to hide the item, so the status line says so.
     @Published private(set) var theSurfaceIsLost = false
@@ -1358,13 +1602,19 @@ final class RoomArtPreviewController: ObservableObject {
     /// The picture's download or capture, which a close cancels, so Escape stops a slow download at once.
     private var pictureTask: Task<RoomArtPicture?, Never>?
     private var lastMeasurementNumber = 0
-    /// Each open counts up, so an await that resumes after the panel closed or reopened changes nothing.
+    /// Each request and each close counts up, so an await that resumes after the panel closed, reopened, or moved on to a
+    /// new item changes nothing.
     private var openingNumber = 0
+    /// Each camera session counts up: a request that opens the panel starts one and a close ends it. A request that keeps the
+    /// room (`RoomArtPhase.keepsTheRoomForANewItem`) keeps the session, so the frame processor's reports for it still reach
+    /// the panel while `openingNumber` moves on to the new item.
+    private var cameraSessionNumber = 0
     /// The page and its picture are being read before the panel opens, so Escape has a request to stop.
     private var anOpeningIsUnderway = false
     private var hereItIsWasSaid = false
-    /// The floor line is said once, the first time no floor is found, and a click's failure only shows in the status line.
-    private var floorNotFoundWasSaid = false
+    /// Each prompt for a click on a surface is said once per panel: the floor line the first time no floor is found, and a
+    /// table or shelf's invitation and its first failed click. A later failed click only shows in the status line.
+    private var surfaceClickPromptsSaid: Set<RoomArtSurfaceClickPrompt> = []
     /// The shirt's coaching is said once, before the shirt first shows, and after that only the status line follows it.
     private var shirtCoachingWasSaid = false
     /// The framing last settled on ready, so a garment that is ready later shows the shirt at once.
@@ -1437,7 +1687,8 @@ final class RoomArtPreviewController: ObservableObject {
     /// The furniture's cutout over white, as a JPEG, which both generation services work from. It is the product cut out of
     /// the page's photo, never the raw page picture, which can hold a cookie banner or the rest of the page.
     private var furnitureCutoutJPEG: Data?
-    /// The composite service said it is not set up, so no later placement in this panel asks it again.
+    /// The composite service said it is not set up (503) or OpenAI is out of credit (402), so no later placement in this panel
+    /// asks it again.
     private var compositeServiceIsUnavailable = false
     private var stepBackWasSaid = false
 
@@ -1446,7 +1697,7 @@ final class RoomArtPreviewController: ObservableObject {
     /// The furniture's ghost while the learner places it, and the pose it was placed in afterward, which a pick-up starts
     /// from. Nil until the floor is measured, and after a new measurement starts.
     @Published private(set) var furnitureGhost: RoomFurnitureGhost?
-    /// When the ghost began drawing itself, and where the loop's tracer was then (`RoomFurnitureGhostDrawTimeline`).
+    /// When the ghost began drawing itself (`RoomFurnitureGhostDrawTimeline`).
     @Published private(set) var furnitureGhostDraw: RoomFurnitureGhostDraw?
     /// Whether the furniture's width was measured from its cutout, so the ghost's size pill says "about". Set each time a
     /// piece of furniture is ready, which is before its ghost can show.
@@ -1481,10 +1732,14 @@ final class RoomArtPreviewController: ObservableObject {
     /// follows (`roomArtReadingPlan`). Returns once the camera runs or failed. Everything that can fail before the camera
     /// does, a missing app secret, a page that is not https, and page text that cannot be read, is checked first, so the
     /// camera never opens for a request the Worker would refuse.
+    /// While an item shows, the request keeps the room: the panel, the camera, the keyframe, and the tracker stay, the item
+    /// becomes part of the room's background (`fixTheShownItemIntoTheBackground`), and the new item is measured and painted
+    /// into that room, so a lamp can stand on a table Clicky painted. A check that fails then leaves the room as it was, and a
+    /// page that shows nothing keeps it (`RoomArtPhase.roomKeptAfterAFailedItem`). Any other open panel closes and opens again.
     func showTheArtInTheRoom(learnerRequest: String) async {
-        if isOpen { close() }
+        if isOpen, !phase.keepsTheRoomForANewItem { close() }
         openingNumber += 1
-        let thisOpening = openingNumber
+        var thisOpening = openingNumber
         // An earlier request still fetching its picture is stale now, so its download stops instead of running to its deadline.
         pictureTask?.cancel()
         anOpeningIsUnderway = true
@@ -1498,6 +1753,8 @@ final class RoomArtPreviewController: ObservableObject {
             environment.speak(roomArtNoPictureLine, true)
             return
         }
+        // The read waits while the page's sections open, so a newer request or Escape may have moved on meanwhile.
+        guard thisOpening == openingNumber, !Task.isCancelled else { return }
         guard frontTab.url.lowercased().hasPrefix("https://") else {
             environment.speak(RoomArtFailure.pageNotHTTPS.spokenLine, true)
             return
@@ -1508,7 +1765,7 @@ final class RoomArtPreviewController: ObservableObject {
         }
         // The picture is captured before the panel opens, since the panel covers the screen.
         let capturePicture = environment.capturePicture
-        let pictureTask = Task { await capturePicture() }
+        let pictureTask = Task { await capturePicture(frontTab) }
         self.pictureTask = pictureTask
         let picture = await withTaskCancellationHandler { await pictureTask.value } onCancel: { pictureTask.cancel() }
         // Escape or a new request moved the opening number on, and a push-to-talk press cancelled this task, so the
@@ -1520,29 +1777,52 @@ final class RoomArtPreviewController: ObservableObject {
             environment.speak(roomArtNoPictureLine, true)
             return
         }
+        // Read after the picture's wait, since a pick-up or a click that moves the item during it takes the item out of the
+        // room, and that panel then starts over like any other.
+        let keepsTheRoom = phase.keepsTheRoomForANewItem
+        if isOpen, !keepsTheRoom {
+            close()
+            thisOpening = openingNumber
+            anOpeningIsUnderway = true
+        }
+        if keepsTheRoom {
+            // The item that showed stops being the newest: its own work ends, and it stays in the room for the new one.
+            stopTheItemsWork()
+            frameProcessor.fixTheShownItemIntoTheBackground()
+        }
         self.pictureImage = pictureImage
         pageRequest = RoomArtPageRequest(pageURL: frontTab.url, pageTitle: frontTab.title, pageText: pageText, learnerRequest: learnerRequest, picture: picture)
         hereItIsWasSaid = false
-        floorNotFoundWasSaid = false
+        surfaceClickPromptsSaid = []
         shirtCoachingWasSaid = false
         theLearnerIsInFrame = false
-        theSurfaceIsLost = false
         shirtCoachingLine = nil
-        theFirstFrameIsIn = false
+        if !keepsTheRoom {
+            theSurfaceIsLost = false
+            theFirstFrameIsIn = false
+        }
         environment.clearTheLiveScene()
         phase = phase.opening()
+        if keepsTheRoom {
+            // The panel, the camera, and its session run on, and the camera already has a frame, so the item is measured as
+            // soon as the page is read.
+            pageReadingTask = Task { await self.readThePageAndPrepareTheItem(thisOpening: thisOpening) }
+            return
+        }
         panelPresenter.show()
 
+        cameraSessionNumber += 1
+        let thisSession = cameraSessionNumber
         frameProcessor.startASession(
             onFirstSegmentedFrame: { [weak self] in
                 Task { @MainActor in
-                    guard let self, thisOpening == self.openingNumber else { return }
+                    guard let self, thisSession == self.cameraSessionNumber else { return }
                     self.theFirstSegmentedFrameArrived()
                 }
             },
             onTheSurfaceLostOrFound: { [weak self] surfaceIsLost in
                 Task { @MainActor in
-                    guard let self, thisOpening == self.openingNumber else { return }
+                    guard let self, thisSession == self.cameraSessionNumber else { return }
                     self.theSurfaceIsLost = surfaceIsLost
                 }
             }
@@ -1560,9 +1840,9 @@ final class RoomArtPreviewController: ObservableObject {
             }
             // A close during the start, such as while macOS asks for camera access, stopped this source before it ran,
             // so it stops itself now that it runs.
-            if thisOpening != openingNumber { frameSource.stop() }
+            if thisSession != cameraSessionNumber { frameSource.stop() }
         } catch {
-            guard thisOpening == openingNumber else { return }
+            guard thisSession == cameraSessionNumber else { return }
             let failure: RoomArtFailure
             switch error as? RoomCameraError {
             case .cameraAccessDenied: failure = .cameraAccessDenied
@@ -1587,10 +1867,30 @@ final class RoomArtPreviewController: ObservableObject {
     }
 
     /// Every close goes through here, the Close button's included, so the camera and the spoken line always stop together.
+    /// The room's background goes with the session, since the next panel starts a new one.
     func close() {
         environment.endTheSpokenLine()
         openingNumber += 1
+        cameraSessionNumber += 1
         anOpeningIsUnderway = false
+        stopTheItemsWork()
+        compositeServiceIsUnavailable = false
+        frameSource?.stop()
+        frameSource = nil
+        frameProcessor.endTheSession()
+        panelPresenter.hide()
+        pageRequest = nil
+        pictureImage = nil
+        theSurfaceIsLost = false
+        shirtCoachingLine = nil
+        theFirstFrameIsIn = false
+        phase = phase.closing()
+    }
+
+    /// Stops everything a request started for its item and forgets the item's state: the page read, the picture, the
+    /// measurement, the furniture's looks and their waits, the shirt's painting, and the ghost. A close runs it, and so does a
+    /// request that keeps the room, so nothing asked for the item before reaches the new one.
+    private func stopTheItemsWork() {
         pageReadingTask?.cancel()
         pageReadingTask = nil
         pictureTask?.cancel()
@@ -1618,21 +1918,10 @@ final class RoomArtPreviewController: ObservableObject {
         furnitureRenderHeldBack = nil
         keyframeOfTheLatestMeasurement = nil
         furnitureCutoutJPEG = nil
-        compositeServiceIsUnavailable = false
         stepBackWasSaid = false
         forgetTheGhost()
         earlyMeasurement?.cancel()
         earlyMeasurement = nil
-        frameSource?.stop()
-        frameSource = nil
-        frameProcessor.endTheSession()
-        panelPresenter.hide()
-        pageRequest = nil
-        pictureImage = nil
-        theSurfaceIsLost = false
-        shirtCoachingLine = nil
-        theFirstFrameIsIn = false
-        phase = phase.closing()
     }
 
     /// A click on the video places the item there: it moves an item that shows with a new keyframe and measurement, or
@@ -1646,7 +1935,7 @@ final class RoomArtPreviewController: ObservableObject {
         theFirstFrameIsIn = true
         // The page was read before the camera had a frame, so its surface is measured now.
         if case .waitingForTheCamera = phase {
-            startAMeasurement(anchorInCameraPixels: nil)
+            measureOrAskForAClick()
         } else if case .readingThePage = phase {
             startMeasuringEarly()
         }
@@ -1785,7 +2074,7 @@ final class RoomArtPreviewController: ObservableObject {
         stopTheFurnituresLooks()
         frameProcessor.hideTheItem()
         furnitureGhost = RoomFurnitureGhost(pickedUpFrom: placedGhost)
-        furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, tracerStartInThePanel: nil)
+        furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime)
         print("Room furniture: picked the piece back up as its ghost")
         apply(pickedUpPhase)
     }
@@ -1801,17 +2090,6 @@ final class RoomArtPreviewController: ObservableObject {
     func currentGhostLines(cameraSize: CGSize, panelSize: CGSize) -> RoomFurnitureGhostLines? {
         guard let boxCorners = furnitureGhost?.keyframeBoxCorners, let trackedWarp = trackedWarpForTheGhost() else { return nil }
         return RoomFurnitureGhostLines(keyframeBoxCorners: boxCorners, keyframeToCurrent: trackedWarp.keyframeToCurrent, fit: RoomArtVideoFit(cameraSize: cameraSize, viewSize: panelSize), cameraSize: cameraSize)
-    }
-
-    /// Where the loop's tracer is in the panel now, which the ghost's tracer leaves from, so the theme's glyph moves on from
-    /// one line to the other.
-    private func loopTracerInThePanel() -> CGPoint? {
-        guard let beganAt = loopState.beganAt,
-              let outline = currentLoopOutline(cameraSize: frameProcessor.metalLayer.drawableSize, panelSize: RoomArtPanelController.panelSize) else { return nil }
-        // The loop has just stopped lapping for the ghost, so its glyph's place is read as it was while it lapped.
-        let plan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: ProcessInfo.processInfo.systemUptime - beganAt, reduceMotionIsOn: false, tracesTheLine: true)
-        let line = CursorLoopLine(outline: outline)
-        return line.point(atShare: RoomArtLoopCanvas.shareOfTheLine(for: plan.frame.tracer, on: line))
     }
 
     /// Forgets the ghost and everything asked for it, for a close or a new measurement.
@@ -1849,8 +2127,23 @@ final class RoomArtPreviewController: ObservableObject {
             apply(phase.afterThePageFailed(failure))
 
         case .hangOnTheWall(let wallArtReading):
+            // An item that fills its four corners is flattened from the photo as it is. Any other outline, such as a round
+            // clock, would hang the photo's background corners with it, so it is cut out by its own shape first and the
+            // flattened art keeps transparent pixels outside the item.
+            var pictureToFlatten = pictureImage
+            if !wallArtReading.fillsItsCorners {
+                let itemOnItsOwn = await environment.cutOutTheWallItemByItsShape(pictureImage, wallArtReading.artworkCorners)
+                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                guard let itemOnItsOwn else {
+                    print("Room art: Vision found no shape to cut the wall item out by")
+                    apply(phase.afterThePageFailed(.furnitureNotCutOut))
+                    return
+                }
+                print("Room art: cut the wall item out of its photo by its own shape")
+                pictureToFlatten = itemOnItsOwn
+            }
             guard let flattenedImage = flattenedArtwork(
-                picture: pictureImage,
+                picture: pictureToFlatten,
                 corners: wallArtReading.artworkCorners,
                 size: wallArtReading.chosenSize,
                 context: flatteningContext
@@ -1875,7 +2168,17 @@ final class RoomArtPreviewController: ObservableObject {
                 apply(phase.afterThePageFailed(.furnitureNotCutOut))
                 return
             }
-            guard let furniture = RoomFurniture.standing(title: furnitureReading.title, size: size, cutoutImage: cutoutImage) else {
+            if furnitureReading.standsOn.needsAClickOnItsSurface, let earlyMeasurement {
+                // The click takes its own keyframe, so the depth service cannot answer it from the early frame's cached depth.
+                // The early measurement is cancelled and its keyframe forgotten, as a shirt's are, so its reply is never read.
+                // The service still finishes that run of about 14 seconds under its one lock, since it does not stop when the
+                // app drops the request, so the click's own measurement may wait for it. A request that kept the room took no
+                // early keyframe, and its keyframe holds the items the click is measured on, so it stays.
+                earlyMeasurement.cancel()
+                self.earlyMeasurement = nil
+                frameProcessor.forgetTheKeyframe()
+            }
+            guard let furniture = RoomFurniture.standing(title: furnitureReading.title, size: size, cutoutImage: cutoutImage, standsOn: furnitureReading.standsOn) else {
                 print("Room furniture: the width measured from the cutout is outside 2 to 600 cm, so nothing is placed")
                 apply(phase.afterThePageFailed(.sizeNotOnThePage))
                 return
@@ -1936,10 +2239,21 @@ final class RoomArtPreviewController: ObservableObject {
         }
     }
 
-    /// Wall art or furniture is ready, and its surface is measured as soon as the camera has a frame.
+    /// A wall item or a standing item is ready, and its surface is measured as soon as the camera has a frame.
     private func itemIsReady(_ item: RoomArtPlacedItem) {
         apply(phase.withTheItemReady(item))
-        if theFirstFrameIsIn { startAMeasurement(anchorInCameraPixels: nil) }
+        if theFirstFrameIsIn { measureOrAskForAClick() }
+    }
+
+    /// The item is ready and the camera has a frame: the item's surface is measured where the bare spot search puts it, or a
+    /// table or shelf item asks for a click first (`RoomArtPhase.askingForAClickIfTheItemNeedsOne`).
+    private func measureOrAskForAClick() {
+        let askingPhase = phase.askingForAClickIfTheItemNeedsOne()
+        guard askingPhase == phase else {
+            apply(askingPhase)
+            return
+        }
+        startAMeasurement(anchorInCameraPixels: nil)
     }
 
     // MARK: The shirt
@@ -2163,10 +2477,7 @@ final class RoomArtPreviewController: ObservableObject {
                     switch surfaceKind {
                     case .wall:
                         let wall: WallPlane
-                        if earlyKeyframe != nil, let earlyWall = earlyMeasurement?.wall, let wallSpot = keyframe.wallSpotAnchor {
-                            // The early keyframe's loop went around the floor spot, so it moves to the wall spot it measures,
-                            // now and not when the depth service's run is back, since "Measuring your wall…" shows for all of it.
-                            frameProcessor.outlineTheLoop(around: wallSpot, on: .wall, inKeyframeNumber: keyframe.keyframeNumber)
+                        if earlyKeyframe != nil, let earlyWall = earlyMeasurement?.wall {
                             guard let earlyWallResult = await earlyWall.value else { throw CancellationError() }
                             wall = try earlyWallResult.get()
                         } else {
@@ -2237,7 +2548,7 @@ final class RoomArtPreviewController: ObservableObject {
         case .placingTheFurniture(_, let item, let surface):
             stopTheFurnituresLooks()
             // A pick-up made its ghost already. The first time, the ghost stands where the spot search put the piece, and its
-            // tracer leaves the measuring loop's line.
+            // tracer starts on the footprint, since no loop showed while the floor was measured.
             guard furnitureGhost == nil else { return }
             guard case .furniture(let furniture) = item, case .floor(let floor) = surface,
                   let ghost = RoomFurnitureGhost(standingOn: floor, wall: wallOfTheLatestMeasurement, widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters) else {
@@ -2245,7 +2556,7 @@ final class RoomArtPreviewController: ObservableObject {
                 apply(phase.afterTheGhostCouldNotStand())
                 return
             }
-            furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, tracerStartInThePanel: loopTracerInThePanel())
+            furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime)
             furnitureGhost = ghost
             print("Room furniture: the ghost shows\(ghost.shownPose.isSnappedToTheWall ? ", square to the wall" : "")")
             // Said here and never after a pick-up, which returned above with its ghost already made, so it is once per panel.
@@ -2282,14 +2593,15 @@ final class RoomArtPreviewController: ObservableObject {
             startThePlacementDeadline(measurementID: measurementID)
             startPaintingTheFurniture()
             startRenderingTheFurnituresModel()
-        case .couldNotDraw:
-            // The loop stays and the camera keeps running, so a click on the floor picks the ghost back up there.
-            environment.speak(roomFurnitureNotDrawnLine, true)
-        case .waitingForAFloorClick:
-            // The camera keeps running, so the learner can tilt the screen down and click the floor.
-            guard !floorNotFoundWasSaid else { return }
-            floorNotFoundWasSaid = true
-            environment.speak(RoomArtFailure.floorNotFound.spokenLine, true)
+        case .couldNotDraw(_, let item, _):
+            // The loop stays and the camera keeps running, so a click on the surface picks the ghost back up there.
+            environment.speak(item.notDrawnLine, true)
+        case .waitingForAFloorClick(let item, let aClickFoundNothing, _):
+            // The camera keeps running, so the learner can tilt the screen down and click the floor, or click the table or
+            // shelf where the item goes.
+            let prompt = item.surfaceClickPrompt(afterAClickFoundNothing: aClickFoundNothing)
+            guard surfaceClickPromptsSaid.insert(prompt).inserted else { return }
+            environment.speak(prompt.spokenLine, prompt.isAFailure)
         case .showingTheShirt(_, let preview):
             // The way back from a painting keeps the coaching of a learner still out of view, which the framing reports only
             // when it changes.
@@ -2299,13 +2611,19 @@ final class RoomArtPreviewController: ObservableObject {
             // Said each time a painting shows, since each is a new look the learner asked for.
             environment.speak(roomArtShirtPaintedLine, false)
         case .failed(let failure):
-            // The panel keeps its last frame and says what went wrong until the learner closes it.
+            // The panel keeps its last frame and says what went wrong until the learner closes it. The wall measured on the
+            // early keyframe has nothing left to place, so its request stops too.
+            earlyMeasurement?.cancel()
+            earlyMeasurement = nil
             frameSource?.stop()
             frameSource = nil
             frameProcessor.endTheSession()
             environment.speak(failure.spokenLine, true)
-        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner,
-             .waitingForTheLearnerToStepBack, .paintingTheShirt:
+        case .roomKeptAfterAFailedItem(let failure):
+            // The camera and the room's placed items stay, so the next request places its item among them.
+            environment.speak(failure.spokenLine, true)
+        case .closed, .readingThePage, .readingThePageInTheKeptRoom, .waitingForTheCamera, .measuring, .moving, .preparingTheShirt,
+             .waitingToSeeTheLearner, .waitingForTheLearnerToStepBack, .paintingTheShirt:
             break
         }
     }
@@ -2347,14 +2665,17 @@ extension RoomArtPreviewController {
     ) async throws -> FloorPlane {
         var measuredFloor: FloorPlane?
         var floorError: Error?
+        // A table or shelf top is measured with its own fit, so the request says what the item stands on.
+        var floorRequest = keyframe.measurementRequest
+        floorRequest.standsOn = item?.standsOn ?? .floor
         do {
-            measuredFloor = try await environment.measureTheFloor(keyframe.measurementRequest)
+            measuredFloor = try await environment.measureTheFloor(floorRequest)
         } catch {
             guard roomArtFailure(forAFailedMeasurementOf: .floor, error: error) == .floorNotFound else { throw error }
             floorError = error
         }
         guard !Task.isCancelled else { throw CancellationError() }
-        // The spot is chosen before the wall is measured, so the loop outlines it while the wall request runs.
+        // The spot is chosen before the wall is measured.
         let floorForThePiece = measuredFloor.map { floorWhereTheWholePieceShows($0, on: keyframe, for: item, anchorWasClicked: anchorWasClicked) }
         let wallRequest = RoomWallRequest(
             keyframeJPEGData: keyframe.measurementRequest.keyframeJPEGData,
@@ -2388,7 +2709,8 @@ extension RoomArtPreviewController {
                 return floorForThePiece
             }
         }
-        if let wall, case .furniture(let furniture) = item,
+        // A table or shelf item is never put on a floor inferred from the wall: the learner clicks its surface instead.
+        if let wall, case .furniture(let furniture) = item, !furniture.standsOn.needsAClickOnItsSurface,
            let inferredFloor = FloorPlane.inferred(fromTheWall: wall, itemDepthMeters: furniture.depthMeters),
            let boxCorners = inferredFloor.keyframeBoxCorners(widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters) {
             let frameSize = CGSize(width: inferredFloor.principalPoint.x * 2, height: inferredFloor.principalPoint.y * 2)
@@ -2415,12 +2737,6 @@ extension RoomArtPreviewController {
             texture: keyframe.floorTexture
         )
         print("Room furniture: \(spot.wholePieceFits ? "moved the piece to where all of it shows" : "no spot shows the whole piece, so it stands where most of it shows")")
-        // The loop outlined the bare spot the floor was measured at, so it moves to where the piece will stand.
-        if let footprintCenter = roomFurnitureFootprintCenterInTheKeyframe(
-            floor: spot.floor, widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters
-        ) {
-            frameProcessor.outlineTheLoop(around: footprintCenter, on: .floor, inKeyframeNumber: keyframe.keyframeNumber)
-        }
         return spot.floor
     }
 
@@ -2700,6 +3016,7 @@ extension RoomArtPreviewController {
         // The tracker's turn moves the box, so whether the frame cuts off its feet is read for this painting frame.
         var orientation = orientation
         orientation.itemContinuesPastTheFrameBottom = roomFurnitureFootprintReachesTheFrameBottom(projectedBox: projectedBox, frameHeight: frameImage.height)
+        orientation.standsOn = furniture.standsOn
         guard let furnitureCutoutJPEG,
               let maskPNG = environment.compositeMaskPNG(projectedBox, frameImage.width, frameImage.height, Self.compositeShadowMarginPixels) else { return nil }
         // The service paints each request afresh, so a painting refused for its height or its footprint, or a failed
@@ -2782,7 +3099,7 @@ extension RoomArtPhase {
     /// The item a measurement is running for, nil outside one.
     var itemBeingMeasured: RoomArtPlacedItem? {
         switch self {
-        case .measuring(_, let item), .moving(_, let item, _): return item
+        case .measuring(_, let item, _), .moving(_, let item, _): return item
         default: return nil
         }
     }
@@ -2802,11 +3119,11 @@ extension RoomArtPageReading {
     /// The kind of item, for a log line that never prints page text beyond the title.
     var kindForTheLog: String {
         switch self {
-        case .wallArt(let reading): return "wall art \"\(reading.title)\""
-        case .sizeNotOnThePage(let title): return "wall art \"\(title)\" with no size"
-        case .furniture(let reading): return "furniture \"\(reading.title)\"\(reading.chosenSize == nil ? " with no size" : "")"
+        case .wallArt(let reading): return "a wall item \"\(reading.title)\""
+        case .sizeNotOnThePage(let title): return "a wall item \"\(title)\" with no size"
+        case .furniture(let reading): return "a standing item \"\(reading.title)\" on \(reading.standsOn.rawValue)\(reading.chosenSize == nil ? " with no size" : "")"
         case .clothing(let reading): return "a \(reading.garment.rawValue) \"\(reading.title)\" photographed \(reading.photoShows.rawValue)"
-        case .other(let title): return "\"\(title)\", which is not wall art, furniture, or clothing"
+        case .cannotBeShown(let title, _): return "\"\(title)\""
         }
     }
 }

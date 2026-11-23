@@ -14,7 +14,16 @@ from PIL import Image
 
 import plane
 import server
-from test_plane import FLOOR_ANCHOR, FOCAL_PX, FRAME_H, FRAME_W, floor_depth, noisy_wall_depth  # noqa: F401
+from test_plane import (  # noqa: F401
+    FLOOR_ANCHOR,
+    FOCAL_PX,
+    FRAME_H,
+    FRAME_W,
+    TABLE_TOP_ANCHOR,
+    floor_depth,
+    noisy_wall_depth,
+    table_top_in_front_of_a_wall_depth,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -69,7 +78,14 @@ def test_a_body_that_is_not_application_json_is_refused_with_415(depth_service_p
 
 @pytest.mark.parametrize(
     "route, error_class",
-    [("/wall", plane.NonFinitePlaneError), ("/floor", plane.NonFinitePlaneError), ("/floor", plane.NotFloorLikeError), ("/floor", plane.TooLittleFloorError)],
+    [
+        ("/wall", plane.NonFinitePlaneError),
+        ("/floor", plane.NonFinitePlaneError),
+        ("/floor", plane.NotFloorLikeError),
+        ("/floor", plane.TooLittleFloorError),
+        ("/floor", plane.NotLevelSurfaceError),
+        ("/floor", plane.TooLittleSurfaceError),
+    ],
 )
 def test_a_plane_that_cannot_be_measured_answers_422(depth_service_port, monkeypatch, route, error_class):
     # The Worker's own request: application/json with a charset and no Origin reaches the measurement.
@@ -97,6 +113,42 @@ def test_floor_route_returns_the_frame_with_forward_and_timings(monkeypatch):
 
     assert {"center", "right", "up", "forward", "floorTiltDegrees", "inferenceSeconds", "seconds"} <= reply.keys()
     assert "wallAngleDegrees" not in reply
+
+
+def test_floor_route_with_stands_on_table_or_shelf_measures_the_table_top_the_floor_fit_misses(monkeypatch):
+    monkeypatch.setattr(server, "infer_depth", lambda frame_rgb, focal_hint: (table_top_in_front_of_a_wall_depth(), FOCAL_PX))
+    body = frame_body(TABLE_TOP_ANCHOR)
+
+    with pytest.raises(plane.NotFloorLikeError):
+        server.measure_plane("/floor", body)
+    with pytest.raises(plane.NotFloorLikeError):
+        server.measure_plane("/floor", {**body, "standsOn": "floor"})
+    reply = server.measure_plane("/floor", {**body, "standsOn": "tableOrShelf"})
+
+    assert reply["floorTiltDegrees"] < 20
+    assert reply["planeInlierShare"] > 0.4
+
+
+@pytest.mark.parametrize("stands_on", ["table", "", 3, True, ["floor"]])
+def test_an_unknown_stands_on_is_a_400_before_any_depth_run(monkeypatch, stands_on):
+    monkeypatch.setattr(server, "infer_depth", lambda frame_rgb, focal_hint: pytest.fail("Depth Pro must not run for a bad body"))
+
+    with pytest.raises(server.BadRequestError, match="standsOn"):
+        server.measure_plane("/floor", {**frame_body(FLOOR_ANCHOR), "standsOn": stands_on})
+
+
+def test_stands_on_is_refused_on_the_wall_route():
+    with pytest.raises(server.BadRequestError, match="only for /floor"):
+        server.parse_stands_on("/wall", {"standsOn": "floor"})
+
+
+def test_a_bad_stands_on_answers_400_through_the_handler(depth_service_port):
+    body = json.dumps({"jpegBase64": "AAAA", "anchor": {"u": 1, "v": 1}, "standsOn": "ceiling"}).encode()
+
+    status, reply = post_to_route(depth_service_port, "/floor", {"Content-Type": "application/json"}, body)
+
+    assert status == 400
+    assert "jpegBase64" in reply["error"] or "standsOn" in reply["error"]
 
 
 def test_wall_route_keeps_its_reply_and_a_wall_sent_to_floor_is_a_plane_not_measured_error(monkeypatch, noisy_wall_depth):

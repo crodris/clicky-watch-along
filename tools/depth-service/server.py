@@ -8,6 +8,9 @@ POST /wall   -> { jpegBase64, maskPngBase64?, anchor: { u, v }, focalPx? }
                 with the size read from the header before any pixel is decoded), 422 { error } when under 200 bare wall points remain
                 or the plane is not finite.
 POST /floor  -> the same body, where anchor is the pixel the furniture's front-bottom center stands on.
+                The optional "standsOn" is "floor" (the default) or "tableOrShelf", where the anchor is a click on
+                the top of a table or shelf: a small window and a level-only fit, and the 422 errors say table or shelf.
+                "standsOn" on /wall is a 400.
                 200 { center, right, up, forward, focalPx, principal, distanceMeters,
                       floorTiltDegrees, planeInlierShare, inferenceSeconds, seconds }
                 400 { error } for a bad body, 422 { error } when under 200 bare floor points remain, the
@@ -188,16 +191,33 @@ def parse_plane_request(body):
     return frame_rgb, person_mask, anchor, focal_hint
 
 
+def parse_stands_on(route, body):
+    """What /floor measures: "floor" when `standsOn` is absent, else "floor" or "tableOrShelf". /wall takes none."""
+    stands_on = body.get("standsOn") if isinstance(body, dict) else None
+    if stands_on is None:
+        return "floor"
+    if route != "/floor":
+        raise BadRequestError("standsOn is only for /floor")
+    if not isinstance(stands_on, str) or stands_on not in plane.SURFACE_KIND_BY_STANDS_ON:
+        raise BadRequestError('standsOn must be "floor" or "tableOrShelf"')
+    return stands_on
+
+
 # Each route runs the one Depth Pro path (`infer_depth`, one lock) and then its own geometry.
-GEOMETRY_BY_ROUTE = {"/wall": plane.wall_frame, "/floor": plane.floor_frame}
+# The wall's geometry takes no surface kind; the floor's takes `stands_on`.
+GEOMETRY_BY_ROUTE = {
+    "/wall": lambda depth_m, focal_px, person_mask, anchor, stands_on: plane.wall_frame(depth_m, focal_px, person_mask, anchor),
+    "/floor": lambda depth_m, focal_px, person_mask, anchor, stands_on: plane.floor_frame(depth_m, focal_px, person_mask, anchor, stands_on),
+}
 
 
 def measure_plane(route, body):
     started_at = time.time()
     frame_rgb, person_mask, anchor, focal_hint = parse_plane_request(body)
+    stands_on = parse_stands_on(route, body)
     depth_m, focal_px, depth_was_cached = cached_depth(depth_cache_key(body["jpegBase64"], focal_hint), frame_rgb, focal_hint)
     inference_seconds = time.time() - started_at
-    frame = GEOMETRY_BY_ROUTE[route](depth_m, focal_px, person_mask, anchor)
+    frame = GEOMETRY_BY_ROUTE[route](depth_m, focal_px, person_mask, anchor, stands_on)
     return {
         **frame,
         "depthWasCached": depth_was_cached,

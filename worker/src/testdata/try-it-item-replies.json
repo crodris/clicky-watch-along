@@ -1,69 +1,222 @@
 {
-  "description": "POST /try-it-item responses shaped exactly as the Worker returns them: one for each kind, plus wall art and furniture whose page states no size, a garment whose front is the second picture, and a garment the reader says cannot be drawn on the learner. worker/src/tryItItem.test.ts feeds each one to handleTryItItem as the model's reply and expects it back unchanged, and leanring-buddyTests/RoomArtTests.swift parses each one with RoomArtPageReading and checks its whole reading by case name, failing on a case it has no expectation for, so the Worker's response and the app's reader cannot drift apart. Each request carries the picture and one other picture of the sizes below, and the corners fit the picture they are in.",
-  "picture": { "width": 400, "height": 500 },
-  "otherPicture": { "width": 300, "height": 600 },
+  "description": "POST /try-it-item responses shaped exactly as the Worker returns them: one for each kind, plus a wall item, a round wall item that does not fill its corners, and a standing item whose page states no size, a standing item for the floor and one for a table or shelf, a figure whose page states only its height, a wall shelf that cannot be shown, a garment whose front is the second picture, and a garment the reader says cannot be drawn on the learner. worker/src/tryItItem.test.ts feeds each one to handleTryItItem as the model's reply and expects it back unchanged, and leanring-buddyTests/RoomArtTests.swift parses each one with RoomArtPageReading and checks its whole reading by case name, failing on a case it has no expectation for, so the Worker's response and the app's reader cannot drift apart. Each request carries the picture and one other picture of the sizes below, and the corners fit the picture they are in.",
+  "picture": {
+    "width": 400,
+    "height": 500
+  },
+  "otherPicture": {
+    "width": 300,
+    "height": 600
+  },
   "cases": [
     {
-      "name": "wall art with a stated size",
-      "kind": "wallArt",
+      "name": "a wall item with a stated size",
+      "kind": "wall",
       "response": {
         "title": "Water Lilies print, framed",
         "whyThisSize": "The page's size menu shows 16 x 20 in selected.",
         "itemCorners": {
-          "topLeft": { "x": 40, "y": 50 },
-          "topRight": { "x": 360, "y": 50 },
-          "bottomRight": { "x": 360, "y": 450 },
-          "bottomLeft": { "x": 40, "y": 450 }
+          "topLeft": {
+            "x": 40,
+            "y": 50
+          },
+          "topRight": {
+            "x": 360,
+            "y": 50
+          },
+          "bottomRight": {
+            "x": 360,
+            "y": 450
+          },
+          "bottomLeft": {
+            "x": 40,
+            "y": 450
+          }
         },
         "item": {
-          "kind": "wallArt",
-          "wallArt": {
+          "kind": "wall",
+          "wall": {
+            "fillsItsCorners": true,
             "sizeFoundOnPage": true,
-            "size": { "label": "16 x 20 in", "widthCentimeters": 40.6, "heightCentimeters": 50.8, "includesFrame": true },
-            "otherSizes": [{ "label": "8 x 10 in", "widthCentimeters": 20.3, "heightCentimeters": 25.4 }]
+            "size": {
+              "label": "16 x 20 in",
+              "widthCentimeters": 40.6,
+              "heightCentimeters": 50.8,
+              "includesFrame": true
+            },
+            "otherSizes": [
+              {
+                "label": "8 x 10 in",
+                "widthCentimeters": 20.3,
+                "heightCentimeters": 25.4
+              }
+            ]
           }
         }
       }
     },
     {
-      "name": "wall art with no size on the page",
-      "kind": "wallArt",
+      "name": "a wall item with no size on the page",
+      "kind": "wall",
       "response": {
         "title": "Water Lilies print",
         "whyThisSize": "The page text states no size.",
         "itemCorners": {
-          "topLeft": { "x": 40, "y": 50 },
-          "topRight": { "x": 360, "y": 50 },
-          "bottomRight": { "x": 360, "y": 450 },
-          "bottomLeft": { "x": 40, "y": 450 }
+          "topLeft": {
+            "x": 40,
+            "y": 50
+          },
+          "topRight": {
+            "x": 360,
+            "y": 50
+          },
+          "bottomRight": {
+            "x": 360,
+            "y": 450
+          },
+          "bottomLeft": {
+            "x": 40,
+            "y": 450
+          }
         },
         "item": {
-          "kind": "wallArt",
-          "wallArt": {
+          "kind": "wall",
+          "wall": {
+            "fillsItsCorners": true,
             "sizeFoundOnPage": false,
-            "size": { "label": "", "widthCentimeters": 0, "heightCentimeters": 0, "includesFrame": false },
+            "size": {
+              "label": "",
+              "widthCentimeters": 0,
+              "heightCentimeters": 0,
+              "includesFrame": false
+            },
             "otherSizes": []
           }
         }
       }
     },
     {
-      "name": "furniture only 5 centimeters deep",
-      "kind": "furniture",
+      "name": "a floor item only 5 centimeters deep",
+      "kind": "standing",
       "response": {
         "title": "Slim floor mirror",
         "whyThisSize": "The page lists one size, 50 x 170 cm.",
         "itemCorners": {
-          "topLeft": { "x": 120, "y": 20 },
-          "topRight": { "x": 280, "y": 20 },
-          "bottomRight": { "x": 280, "y": 480 },
-          "bottomLeft": { "x": 120, "y": 480 }
+          "topLeft": {
+            "x": 120,
+            "y": 20
+          },
+          "topRight": {
+            "x": 280,
+            "y": 20
+          },
+          "bottomRight": {
+            "x": 280,
+            "y": 480
+          },
+          "bottomLeft": {
+            "x": 120,
+            "y": 480
+          }
         },
         "item": {
-          "kind": "furniture",
-          "furniture": {
+          "kind": "standing",
+          "standing": {
+            "standsOn": "floor",
             "sizeFoundOnPage": true,
-            "size": { "label": "50 x 170 cm", "widthCentimeters": 50, "heightCentimeters": 170, "depthCentimeters": 5 },
+            "size": {
+              "label": "50 x 170 cm",
+              "widthCentimeters": 50,
+              "heightCentimeters": 170,
+              "depthCentimeters": 5
+            },
+            "otherSizes": []
+          }
+        }
+      }
+    },
+    {
+      "name": "a rug 1 centimeter tall",
+      "kind": "standing",
+      "response": {
+        "title": "Wool area rug",
+        "whyThisSize": "The page has 5 x 8 ft selected.",
+        "itemCorners": {
+          "topLeft": {
+            "x": 20,
+            "y": 150
+          },
+          "topRight": {
+            "x": 380,
+            "y": 150
+          },
+          "bottomRight": {
+            "x": 380,
+            "y": 350
+          },
+          "bottomLeft": {
+            "x": 20,
+            "y": 350
+          }
+        },
+        "item": {
+          "kind": "standing",
+          "standing": {
+            "standsOn": "floor",
+            "sizeFoundOnPage": true,
+            "size": {
+              "label": "5 x 8 ft",
+              "widthCentimeters": 152.4,
+              "heightCentimeters": 1,
+              "depthCentimeters": 243.8
+            },
+            "otherSizes": [
+              {
+                "label": "8 x 10 ft",
+                "widthCentimeters": 243.8,
+                "heightCentimeters": 1,
+                "depthCentimeters": 304.8
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a mug on a table or shelf",
+      "kind": "standing",
+      "response": {
+        "title": "Stoneware mug",
+        "whyThisSize": "The page lists one size, 9 cm wide and 10 cm tall.",
+        "itemCorners": {
+          "topLeft": {
+            "x": 100,
+            "y": 120
+          },
+          "topRight": {
+            "x": 300,
+            "y": 120
+          },
+          "bottomRight": {
+            "x": 300,
+            "y": 380
+          },
+          "bottomLeft": {
+            "x": 100,
+            "y": 380
+          }
+        },
+        "item": {
+          "kind": "standing",
+          "standing": {
+            "standsOn": "tableOrShelf",
+            "sizeFoundOnPage": true,
+            "size": {
+              "label": "9 x 10 cm",
+              "widthCentimeters": 12,
+              "heightCentimeters": 10,
+              "depthCentimeters": 9
+            },
             "otherSizes": []
           }
         }
@@ -71,43 +224,79 @@
     },
     {
       "name": "a figure whose page states only its height",
-      "kind": "furniture",
+      "kind": "standing",
       "response": {
         "title": "Up-Scaled Blue Astronaut Minifigure",
         "whyThisSize": "The page says the figure stands over 10 in. (26 cm) tall and states no width or depth.",
         "itemCorners": {
-          "topLeft": { "x": 120, "y": 20 },
-          "topRight": { "x": 280, "y": 20 },
-          "bottomRight": { "x": 280, "y": 480 },
-          "bottomLeft": { "x": 120, "y": 480 }
+          "topLeft": {
+            "x": 120,
+            "y": 20
+          },
+          "topRight": {
+            "x": 280,
+            "y": 20
+          },
+          "bottomRight": {
+            "x": 280,
+            "y": 480
+          },
+          "bottomLeft": {
+            "x": 120,
+            "y": 480
+          }
         },
         "item": {
-          "kind": "furniture",
-          "furniture": {
+          "kind": "standing",
+          "standing": {
+            "standsOn": "floor",
             "sizeFoundOnPage": true,
-            "size": { "label": "over 10 in. (26 cm) tall", "widthCentimeters": null, "heightCentimeters": 26, "depthCentimeters": null },
+            "size": {
+              "label": "over 10 in. (26 cm) tall",
+              "widthCentimeters": null,
+              "heightCentimeters": 26,
+              "depthCentimeters": null
+            },
             "otherSizes": []
           }
         }
       }
     },
     {
-      "name": "furniture with no size on the page",
-      "kind": "furniture",
+      "name": "a standing item with no size on the page",
+      "kind": "standing",
       "response": {
         "title": "Slim floor mirror",
         "whyThisSize": "The page text states no size.",
         "itemCorners": {
-          "topLeft": { "x": 120, "y": 20 },
-          "topRight": { "x": 280, "y": 20 },
-          "bottomRight": { "x": 280, "y": 480 },
-          "bottomLeft": { "x": 120, "y": 480 }
+          "topLeft": {
+            "x": 120,
+            "y": 20
+          },
+          "topRight": {
+            "x": 280,
+            "y": 20
+          },
+          "bottomRight": {
+            "x": 280,
+            "y": 480
+          },
+          "bottomLeft": {
+            "x": 120,
+            "y": 480
+          }
         },
         "item": {
-          "kind": "furniture",
-          "furniture": {
+          "kind": "standing",
+          "standing": {
+            "standsOn": "floor",
             "sizeFoundOnPage": false,
-            "size": { "label": "", "widthCentimeters": 0, "heightCentimeters": 0, "depthCentimeters": 0 },
+            "size": {
+              "label": "",
+              "widthCentimeters": 0,
+              "heightCentimeters": 0,
+              "depthCentimeters": 0
+            },
             "otherSizes": []
           }
         }
@@ -120,10 +309,22 @@
         "title": "Great Wave tee",
         "whyThisSize": "The page has size M selected.",
         "itemCorners": {
-          "topLeft": { "x": 30, "y": 60 },
-          "topRight": { "x": 370, "y": 60 },
-          "bottomRight": { "x": 370, "y": 440 },
-          "bottomLeft": { "x": 30, "y": 440 }
+          "topLeft": {
+            "x": 30,
+            "y": 60
+          },
+          "topRight": {
+            "x": 370,
+            "y": 60
+          },
+          "bottomRight": {
+            "x": 370,
+            "y": 440
+          },
+          "bottomLeft": {
+            "x": 30,
+            "y": 440
+          }
         },
         "item": {
           "kind": "clothing",
@@ -148,10 +349,22 @@
         "title": "Sasquatch tee",
         "whyThisSize": "The page has size M selected.",
         "itemCorners": {
-          "topLeft": { "x": 20, "y": 80 },
-          "topRight": { "x": 280, "y": 80 },
-          "bottomRight": { "x": 280, "y": 560 },
-          "bottomLeft": { "x": 20, "y": 560 }
+          "topLeft": {
+            "x": 20,
+            "y": 80
+          },
+          "topRight": {
+            "x": 280,
+            "y": 80
+          },
+          "bottomRight": {
+            "x": 280,
+            "y": 560
+          },
+          "bottomLeft": {
+            "x": 20,
+            "y": 560
+          }
         },
         "item": {
           "kind": "clothing",
@@ -198,18 +411,75 @@
       }
     },
     {
-      "name": "other",
-      "kind": "other",
+      "name": "a round wall clock that does not fill its corners",
+      "kind": "wall",
       "response": {
-        "title": "Wool rug",
-        "whyThisSize": "A rug lies flat, so it is not wall art, furniture, or clothing.",
+        "title": "Round wall clock",
+        "whyThisSize": "The page states a 30 cm diameter.",
         "itemCorners": {
-          "topLeft": { "x": 100, "y": 40 },
-          "topRight": { "x": 300, "y": 40 },
-          "bottomRight": { "x": 300, "y": 460 },
-          "bottomLeft": { "x": 100, "y": 460 }
+          "topLeft": {
+            "x": 60,
+            "y": 110
+          },
+          "topRight": {
+            "x": 340,
+            "y": 110
+          },
+          "bottomRight": {
+            "x": 340,
+            "y": 390
+          },
+          "bottomLeft": {
+            "x": 60,
+            "y": 390
+          }
         },
-        "item": { "kind": "other" }
+        "item": {
+          "kind": "wall",
+          "wall": {
+            "fillsItsCorners": false,
+            "sizeFoundOnPage": true,
+            "size": {
+              "label": "30 cm",
+              "widthCentimeters": 30,
+              "heightCentimeters": 30,
+              "includesFrame": true
+            },
+            "otherSizes": []
+          }
+        }
+      }
+    },
+    {
+      "name": "a wall shelf that cannot be shown",
+      "kind": "cannotBeShown",
+      "response": {
+        "title": "Floating wall shelf",
+        "whyThisSize": "The shelf hangs on a wall but sticks out of it by 20 cm.",
+        "itemCorners": {
+          "topLeft": {
+            "x": 60,
+            "y": 110
+          },
+          "topRight": {
+            "x": 340,
+            "y": 110
+          },
+          "bottomRight": {
+            "x": 340,
+            "y": 390
+          },
+          "bottomLeft": {
+            "x": 60,
+            "y": 390
+          }
+        },
+        "item": {
+          "kind": "cannotBeShown",
+          "cannotBeShown": {
+            "reason": "notFlatForTheWall"
+          }
+        }
       }
     }
   ]

@@ -341,6 +341,67 @@ struct RoomFloorTests {
         #expect(alphaOfThePixel(in: cutout, x: cutout.width / 2, y: cutout.height / 2) > 200)
     }
 
+    /// A clock that fills its store photo on white: Vision took the orange face of IKEA's BONDIS clock for background and hung
+    /// only its hands. The plain backdrop is cleared instead, so the face's edge and a white numeral inside the face stay
+    /// opaque, and the photo's white corner is clear.
+    @Test func aClockThatFillsItsPhotoKeepsItsWholeFace() throws {
+        let side = 240
+        let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+        context.setFillColor(CGColor(red: 0.9, green: 0.35, blue: 0.1, alpha: 1))
+        context.fillEllipse(in: CGRect(x: 4, y: 4, width: 232, height: 232))
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        // A white numeral on the face, top left origin (30 to 45, 110 to 130), and a white hand.
+        context.fill(CGRect(x: 30, y: Double(side) - 130, width: 15, height: 20))
+        context.fill(CGRect(x: 117, y: 117, width: 70, height: 6))
+        let picture = try #require(context.makeImage())
+        let corners = RoomArtCorners(
+            topLeft: CGPoint(x: 4, y: 4), topRight: CGPoint(x: 236, y: 4), bottomRight: CGPoint(x: 236, y: 236), bottomLeft: CGPoint(x: 4, y: 236)
+        )
+
+        let itemOnly = try #require(pictureWithOnlyTheItemOpaque(picture: picture, itemCorners: corners, context: CIContext()))
+
+        #expect(itemOnly.width == side && itemOnly.height == side)
+        #expect(alphaOfThePixel(in: itemOnly, x: 10, y: side / 2) > 200, "the face near its left edge")
+        #expect(alphaOfThePixel(in: itemOnly, x: 37, y: 120) > 200, "the white numeral inside the face")
+        #expect(alphaOfThePixel(in: itemOnly, x: 150, y: 120) > 200, "the white hand")
+        #expect(alphaOfThePixel(in: itemOnly, x: 2, y: 2) < 20, "the photo's white corner")
+    }
+
+    @Test func aPhotoWithNoPlainBackdropIsNotClearedByColor() throws {
+        // A border of alternating black and white bars, which no one color covers.
+        let context = CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        for column in stride(from: 0, to: 100, by: 10) {
+            let shade: CGFloat = (column / 10) % 2 == 0 ? 0 : 1
+            context.setFillColor(CGColor(red: shade, green: shade, blue: shade, alpha: 1))
+            context.fill(CGRect(x: column, y: 0, width: 10, height: 100))
+        }
+
+        #expect(cutoutFromAPlainBackdrop(try #require(context.makeImage())) == nil)
+    }
+
+    /// The labels of a clock Vision split in two: the face is instance 1, and the hands, instance 2, cover the center.
+    @Test func aWallItemKeepsBothPiecesOfASplitClockWhileFurnitureKeepsTheCenterPiece() throws {
+        var pixelBuffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, 20, 20, kCVPixelFormatType_OneComponent8, nil, &pixelBuffer)
+        let labels = try #require(pixelBuffer)
+        CVPixelBufferLockBaseAddress(labels, [])
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(labels)
+        let base = try #require(CVPixelBufferGetBaseAddress(labels)).assumingMemoryBound(to: UInt8.self)
+        for row in 0..<20 {
+            for column in 0..<20 {
+                let distanceFromTheCenter = hypot(Double(row) - 10, Double(column) - 10)
+                base[row * bytesPerRow + column] = distanceFromTheCenter <= 2 ? 2 : (distanceFromTheCenter <= 9 ? 1 : 0)
+            }
+        }
+        CVPixelBufferUnlockBaseAddress(labels, [])
+
+        #expect(foregroundInstancesToKeep(instanceLabels: labels, allInstances: IndexSet([1, 2]), keepsEveryInstance: true) == IndexSet([1, 2]))
+        #expect(foregroundInstancesToKeep(instanceLabels: labels, allInstances: IndexSet([1, 2]), keepsEveryInstance: false) == IndexSet(integer: 2))
+        #expect(foregroundInstancesToKeep(instanceLabels: labels, allInstances: IndexSet(), keepsEveryInstance: true) == nil)
+    }
+
     @Test func theOpaqueBoxIsTheSmallestRectangleHoldingEveryOpaquePixel() throws {
         // A clear 50 by 40 image with an opaque patch from column 10 to 29 and row 5 to 34, top left origin.
         let context = CGContext(data: nil, width: 50, height: 40, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!

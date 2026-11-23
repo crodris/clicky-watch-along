@@ -23,6 +23,12 @@ export const depthServiceRequestSchema = z.object({
   anchor: z.object({ u: z.number().finite(), v: z.number().finite() }),
 });
 
+/** What a /room-floor anchor stands on: the floor (absent means this), or the top of a table, desk, counter, or shelf. */
+export const standsOnSchema = z.enum(["floor", "tableOrShelf"]);
+
+/** /room-floor's body: the depth service request plus the optional surface kind. /room-wall takes no such field. */
+export const floorRequestSchema = depthServiceRequestSchema.extend({ standsOn: standsOnSchema.optional() });
+
 const vector3Schema = z.tuple([z.number(), z.number(), z.number()]);
 
 /** The fields the service reports for every plane, wall or floor. A route's reply schema extends this one. */
@@ -54,6 +60,8 @@ function serviceErrorOnOneLine(errorBodyText: string): string {
 }
 
 export interface DepthServiceRoute<Reply> {
+  /** The body schema, depthServiceRequestSchema unless the route takes more. */
+  requestSchema?: z.ZodType<object, z.ZodTypeDef, unknown>;
   /** The Worker route's name, such as "/room-wall", which prefixes every log line. */
   routeName: string;
   /** The service's path for this measurement, such as "/wall". */
@@ -72,7 +80,7 @@ export async function forwardToDepthService<Reply>(
   route: DepthServiceRoute<Reply>,
 ): Promise<Response> {
   const { routeName } = route;
-  const parsedRequest = await parseJSONRequest(request, depthServiceRequestSchema);
+  const parsedRequest = await parseJSONRequest(request, route.requestSchema ?? depthServiceRequestSchema);
   if (!parsedRequest.ok) {
     return parsedRequest.response;
   }

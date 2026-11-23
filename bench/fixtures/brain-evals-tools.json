@@ -599,7 +599,7 @@
     },
     {
       "name": "show_art_in_my_room",
-      "description": "Try the item on Chrome's front tab in the learner's live camera view. Wall art hangs on their wall and furniture stands on their floor, each at its real size from the page, and a shirt is drawn over the shirt they wear. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room', 'how would this chair look in my room', 'could I see this shirt on me', 'how would this look on me', and 'can I try this on'.",
+      "description": "Try the item on Chrome's front tab in the learner's live camera view. A flat print or mirror hangs on their wall, anything that stands goes on their floor or on a table or shelf they click, each at its real size from the page, and a shirt is drawn over the shirt they wear. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room', 'how would this chair look in my room', 'how would this lamp look on my table', 'could I see this shirt on me', 'how would this look on me', and 'can I try this on'.",
       "inputSchema": {
         "type": "object",
         "properties": {},

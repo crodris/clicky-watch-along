@@ -419,20 +419,19 @@ struct RoomFurnitureGhostDrawTimelineTests {
     typealias Timeline = RoomFurnitureGhostDrawTimeline
 
     @Test func theWholeDrawTakesAboutASecondAndAHalf() {
-        #expect((1.2...1.5).contains(Timeline.totalSeconds(startsFromTheLoop: true)))
-        #expect((1.2...1.5).contains(Timeline.totalSeconds(startsFromTheLoop: false)))
+        #expect((1.2...1.5).contains(Timeline.totalSeconds))
     }
 
-    @Test func theTracerLeavesTheLoopFirst() {
-        let frame = Timeline.frame(secondsSinceBegan: Timeline.handoffSeconds / 2, startsFromTheLoop: true)
-        #expect(frame.tracer == .leavingTheLoop(share: 0.5))
+    @Test func theFirstFrameOfTheDrawIsTheTracerOnTheFootprintsFirstCorner() {
+        // No loop shows while the floor is measured, so the ghost's tracer starts on the footprint with nothing drawn yet.
+        let frame = Timeline.frame(secondsSinceBegan: 0)
+        #expect(frame.tracer == .onTheFootprint(share: 0))
         #expect(frame.footprintShare == 0)
-        // A pick-up has no loop, so it starts on the footprint.
-        #expect(Timeline.frame(secondsSinceBegan: 0, startsFromTheLoop: false).tracer == .onTheFootprint(share: 0))
+        #expect(frame.postShares == [0, 0, 0, 0] && frame.topShare == 0 && frame.fillShare == 0 && !frame.pillIsShown)
     }
 
     @Test func theFootprintDrawsBeforeAnyPost() {
-        let midFootprint = Timeline.frame(secondsSinceBegan: Timeline.footprintSeconds * 0.4, startsFromTheLoop: false)
+        let midFootprint = Timeline.frame(secondsSinceBegan: Timeline.footprintSeconds * 0.4)
         #expect(abs(midFootprint.footprintShare - 0.4) < 1e-9)
         #expect(midFootprint.tracer == .onTheFootprint(share: midFootprint.footprintShare))
         #expect(midFootprint.postShares == [0, 0, 0, 0])
@@ -441,7 +440,7 @@ struct RoomFurnitureGhostDrawTimelineTests {
 
     @Test func thePostsGrowOneAfterAnother() {
         let secondPostHalfway = Timeline.footprintSeconds + Timeline.secondsPerPost * 1.5
-        let frame = Timeline.frame(secondsSinceBegan: secondPostHalfway, startsFromTheLoop: false)
+        let frame = Timeline.frame(secondsSinceBegan: secondPostHalfway)
         #expect(frame.footprintShare == 1)
         #expect(frame.postShares[0] == 1)
         #expect(abs(frame.postShares[1] - 0.5) < 1e-9)
@@ -456,16 +455,16 @@ struct RoomFurnitureGhostDrawTimelineTests {
 
     @Test func theTopDrawsAfterTheLastPostThenTheFillAndThePillComeIn() {
         let postsEnd = Timeline.footprintSeconds + Timeline.secondsPerPost * 4
-        let midTop = Timeline.frame(secondsSinceBegan: postsEnd + Timeline.topSeconds / 2, startsFromTheLoop: false)
+        let midTop = Timeline.frame(secondsSinceBegan: postsEnd + Timeline.topSeconds / 2)
         #expect(midTop.postShares == [1, 1, 1, 1])
         #expect(abs(midTop.topShare - 0.5) < 1e-9)
         #expect(midTop.fillShare == 0 && !midTop.pillIsShown)
-        let midFill = Timeline.frame(secondsSinceBegan: postsEnd + Timeline.topSeconds + Timeline.fillSeconds / 2, startsFromTheLoop: false)
+        let midFill = Timeline.frame(secondsSinceBegan: postsEnd + Timeline.topSeconds + Timeline.fillSeconds / 2)
         #expect(midFill.topShare == 1)
         #expect(abs(midFill.fillShare - 0.5) < 1e-9)
         #expect(midFill.pillIsShown)
         #expect(midFill.tracer == .gone)
-        #expect(Timeline.frame(secondsSinceBegan: 10, startsFromTheLoop: true) == .whole)
+        #expect(Timeline.frame(secondsSinceBegan: 10) == .whole)
     }
 
     @Test func theGlowBreathesAndHoldsStillWithReduceMotion() {
@@ -497,21 +496,17 @@ struct RoomFurnitureGhostLinesTests {
         let fit = RoomArtVideoFit(cameraSize: CGSize(width: 1280, height: 720), viewSize: CGSize(width: 960, height: 540))
         let boxCorners = try #require(ghost.keyframeBoxCorners)
         let lines = try #require(RoomFurnitureGhostLines(keyframeBoxCorners: boxCorners, keyframeToCurrent: .identity, fit: fit, cameraSize: CGSize(width: 1280, height: 720)))
-        func ink(_ tracer: RoomFurnitureGhostDrawTimeline.Tracer, from tracerStart: CGPoint? = nil) -> CGPoint? {
-            RoomFurnitureGhostCanvas.tracerPlacement(for: tracer, lines: lines, tracerStart: tracerStart, cursorFacing: .followsMouseMovement)?.inkPoint
+        func ink(_ tracer: RoomFurnitureGhostDrawTimeline.Tracer) -> CGPoint? {
+            RoomFurnitureGhostCanvas.tracerPlacement(for: tracer, lines: lines, cursorFacing: .followsMouseMovement)?.inkPoint
         }
         func isNear(_ point: CGPoint?, _ expected: CGPoint) -> Bool { point.map { hypot($0.x - expected.x, $0.y - expected.y) < 0.5 } ?? false }
-        // It leaves the loop's tracer and flies to the footprint's first corner.
-        let loopTracer = CGPoint(x: 10, y: 20)
-        #expect(isNear(ink(.leavingTheLoop(share: 0), from: loopTracer), loopTracer))
-        #expect(isNear(ink(.leavingTheLoop(share: 1), from: loopTracer), lines.footprint[0]))
-        // It goes around the footprint from that corner, up each post, and around the top.
+        // It goes around the footprint from its first corner, up each post, and around the top.
         #expect(isNear(ink(.onTheFootprint(share: 0)), lines.footprint[0]))
         let post = lines.posts[1]
         #expect(isNear(ink(.onAPost(index: 1, share: 0.5)), CGPoint(x: (post.bottom.x + post.top.x) / 2, y: (post.bottom.y + post.top.y) / 2)))
         #expect(isNear(ink(.onTheTop(share: 0)), lines.top[0]))
         // A volleyball faces up a post, the way the line runs, and the glyph is gone once the lines are drawn.
-        let onThePost = try #require(RoomFurnitureGhostCanvas.tracerPlacement(for: .onAPost(index: 1, share: 0.5), lines: lines, tracerStart: nil, cursorFacing: .followsMouseMovement))
+        let onThePost = try #require(RoomFurnitureGhostCanvas.tracerPlacement(for: .onAPost(index: 1, share: 0.5), lines: lines, cursorFacing: .followsMouseMovement))
         let postHeading = atan2(Double(post.top.y - post.bottom.y), Double(post.top.x - post.bottom.x)) * 180 / .pi + 90
         #expect(abs(onThePost.rotationDegrees - postHeading) < 1)
         #expect(ink(.gone) == nil)
@@ -624,6 +619,23 @@ struct RoomFurnitureGhostVoiceRoutingTests {
         // With no ghost, a store page has nothing for the router, and "right there" is a question for the keyword path.
         #expect(transcriptRoute(for: "right there", in: storePageContext(ghostShows: false), videoIsInFront: { false }) == .keywordPath)
         #expect(transcriptRoute(for: "move it a bit to the left", in: storePageContext(ghostShows: false), videoIsInFront: { false }) == .keywordPath)
+    }
+
+    @Test func whileTheGhostShowsARoomPhraseReachesTheRouterAndNeverClosesTheGhost() {
+        #expect(transcriptRoute(for: "put it on the table", in: storePageContext(ghostShows: true), videoIsInFront: { false }) == .voiceCommandRouter)
+        #expect(transcriptRoute(for: "put this lamp on my desk", in: storePageContext(ghostShows: true), videoIsInFront: { false }) == .voiceCommandRouter)
+        // With no ghost, the same words open the panel for a new item.
+        #expect(transcriptRoute(for: "put this lamp on my desk", in: storePageContext(ghostShows: false), videoIsInFront: { false }) == .keywordBranch(.showArtInMyRoom))
+    }
+
+    @Test func onTheTableNamesAPaintedTableOnlyWhileAPlacedItemKeepsTheRoom() {
+        var keptRoom = storePageContext(ghostShows: false)
+        keptRoom.aRoomArtItemKeepsTheRoom = true
+        #expect(transcriptRoute(for: "how would this lamp look on the table", in: keptRoom, videoIsInFront: { false }) == .keywordBranch(.showArtInMyRoom))
+        // With no panel, "put the numbers on the table" is no request for the camera: a question on a store page, and the
+        // router's during a video lesson.
+        #expect(transcriptRoute(for: "put the numbers on the table", in: storePageContext(ghostShows: false), videoIsInFront: { false }) == .keywordPath)
+        #expect(transcriptRoute(for: "put the numbers on the table", in: storePageContext(ghostShows: false), videoIsInFront: { true }) == .voiceCommandRouter)
     }
 
     @Test func theRouterTakesTheGhostsCommandsButNotAQuizAnswerOrABuildingScene() {

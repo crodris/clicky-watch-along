@@ -2,18 +2,20 @@
 //  RoomArtLoop.swift
 //  leanring-buddy
 //
-//  Clicky's loop around the spot the room art panel measures: the wall spot for wall art, and the floor spot for furniture.
-//  It is the cursor loop's own line (`CursorLoopOutline`, `CursorLoopTimeline`, `CursorLoopDrawing`) in the theme's accent,
-//  drawn by the theme's own cursor glyph (`CursorLoopTracerGlyph`), which traces it and keeps lapping it while the work
-//  runs, around the window `bareWallSpot` or `bareFloorSpot` scored, and it follows the room as the camera
-//  turns: the window's four corners go through the tracker's current warp each frame, and the line is bent onto the mapped
-//  corners. It starts when the keyframe is taken and leaves with a fade when the item shows or the measurement fails. For a
-//  shirt it traces the shirt itself instead (`ShirtOutline`): the outline of the learner's own top from the moment the panel
-//  knows it is a shirt until the shirt first shows, and the outline of the area being painted while the shirt is painted,
-//  until the painted still shows.
+//  Clicky's loop around a real shape in the room art panel. It is the cursor loop's own line (`CursorLoopOutline`,
+//  `CursorLoopTimeline`, `CursorLoopDrawing`) in the theme's accent, drawn by the theme's own cursor glyph
+//  (`CursorLoopTracerGlyph`), which traces it and keeps lapping it while the work runs. It shows in three places only,
+//  each around a shape the learner can recognize: the shirt (`ShirtOutline`, the outline of the learner's own top from the
+//  moment the panel knows it is a shirt until the live garment first shows, held still with a soft fill as the ghost
+//  outline for a garment the live preview cannot draw until the painting starts, and the outline of the area being
+//  painted until the painted still shows), the placed furniture's footprint while its painting comes, and that footprint
+//  again after the piece could not be drawn. The footprint's four corners go through the tracker's current warp each frame, and the line
+//  is bent onto the mapped corners, so it follows the room as the camera turns. While a surface is measured, whether a
+//  wall, a floor, or a clicked table top, no loop shows at all: the only shape known then is a bare window the spot search
+//  scored, which says nothing about the item, so the status line is all the panel draws.
 //
-//  This file holds the pure rules (when the loop shows and clears, the window's corners, the corner mapping, the camera to
-//  panel fit, the bent outline) and the views that draw it.
+//  This file holds the pure rules (when the loop shows and clears, the corner mapping, the camera to panel fit, the bent
+//  outline) and the views that draw it.
 //
 
 import SwiftUI
@@ -21,8 +23,8 @@ import simd
 
 // MARK: - When the loop shows
 
-/// The loop as the panel draws it. `beganAt` is `ProcessInfo.systemUptime` when the measurement began, which is when the
-/// keyframe is taken, so the glyph's timeline starts there.
+/// The loop as the panel draws it. `beganAt` is `ProcessInfo.systemUptime` when the loop began, so the glyph's timeline
+/// starts there.
 enum RoomArtLoopState: Equatable {
     case hidden
     case drawing(beganAt: TimeInterval)
@@ -37,16 +39,17 @@ enum RoomArtLoopState: Equatable {
     /// finish itself with no glyph drawing it.
     case fadingOut(beganAt: TimeInterval, tracesTheLine: Bool, stillDrawnShare: Double = 1)
 
-    /// The panel's phase changed. The loop starts with a measurement, a first one or a click's, with a shirt being prepared,
-    /// and with a shirt being painted, and keeps its clock while the work goes on: while placed furniture waits for its
-    /// painting around its ghost's footprint, and when the live garment is ready before the learner stands in view. After the
-    /// furniture could not be drawn, the line stays still until a press picks the ghost back up. The ghost appearing, the
-    /// item or the live garment showing, a floor that was not found, or a failure fades it, and a panel that closes or is
-    /// still reading the page has no loop at all. A shirt's ghost outline is the preview, so its loop stays up as a still line
-    /// with a fill (`holdingTheGhost`) through the step-back countdown, until the painting starts.
+    /// The panel's phase changed. The loop starts with placed furniture waiting for its painting, around its ghost's
+    /// footprint, with a shirt being prepared, and with a shirt being painted, and keeps its clock while the work goes on,
+    /// as when the live garment is ready before the learner stands in view. After the furniture could not be drawn, the line
+    /// stays still until a press picks the ghost back up. The ghost appearing, the item or the live garment showing, a floor
+    /// that was not found, or a failure fades it. A panel that closes, is still reading the page, or measures a surface, a
+    /// first measurement or a click's, has no loop at all, since no shape of the item is known until the measurement is back.
+    /// A shirt's ghost outline is the preview, so its loop stays up as a still line with a fill (`holdingTheGhost`) through
+    /// the step-back countdown, until the painting starts.
     func after(phaseChangedTo phase: RoomArtPhase, at now: TimeInterval) -> RoomArtLoopState {
         switch phase {
-        case .measuring, .moving, .arranging, .preparingTheShirt, .paintingTheShirt:
+        case .arranging, .preparingTheShirt, .paintingTheShirt:
             if case .drawing = self { return self }
             return .drawing(beganAt: now)
         case .waitingToSeeTheLearner(_, let preview), .showingTheShirt(_, let preview), .waitingForTheLearnerToStepBack(_, _, let preview):
@@ -65,8 +68,9 @@ enum RoomArtLoopState: Equatable {
         case .couldNotDraw:
             if let beganAt { return .waitingForAClick(beganAt: beganAt) }
             return .waitingForAClick(beganAt: now)
-        // The ghost appearing takes over from the loop: the theme's glyph leaves the loop's line for the ghost's lines, so
-        // the loop fades still, with no second glyph lapping it, keeping the share of the line already drawn.
+        // A pick-up's ghost takes over from the footprint loop still showing: the theme's glyph leaves the loop's line for the
+        // ghost's lines, so the loop fades still, with no second glyph lapping it, keeping the share of the line already
+        // drawn. The ghost's first appearance finds no loop, since none shows while the floor is measured.
         case .placingTheFurniture:
             switch self {
             case .drawing(let beganAt):
@@ -75,9 +79,9 @@ enum RoomArtLoopState: Equatable {
             case .waitingForAClick(let beganAt), .holdingTheGhost(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)
             case .hidden, .fadingOut: return self
             }
-        case .showing, .waitingForAFloorClick, .showingThePaintedShirt, .failed:
+        case .showing, .waitingForAFloorClick, .showingThePaintedShirt, .failed, .roomKeptAfterAFailedItem:
             return fadingOutAsTheItemShows()
-        case .closed, .readingThePage, .waitingForTheCamera:
+        case .closed, .readingThePage, .readingThePageInTheKeptRoom, .waitingForTheCamera, .measuring, .moving:
             return .hidden
         }
     }
@@ -137,13 +141,14 @@ enum RoomArtLoopState: Equatable {
 
 // MARK: - Where the loop is
 
-/// The loop's window in the keyframe, and where it is in the current frame, both in camera pixels. The processor keeps the
-/// newest one, so a loop that is fading out stays where the wall last was.
+/// The loop's window in the keyframe, and where it is in the current frame, both in camera pixels. For the furniture's
+/// footprint the window is the footprint's bounding box and the current corners are the footprint itself. The processor
+/// keeps the newest one, so a loop that is fading out stays where the footprint last was.
 nonisolated struct RoomArtLoopSnapshot: Equatable, Sendable {
     let keyframeCorners: RoomArtCorners
     let currentCorners: RoomArtCorners
     /// For a shirt, the outline of the shirt itself in camera pixels, which the line traces instead of the window
-    /// (`ShirtOutline`). Nil for the wall and the floor.
+    /// (`ShirtOutline`). Nil for the furniture's footprint.
     var closedOutline: [CGPoint]? = nil
 
     /// A loop that traces `outline`, a closed line in camera pixels, with its bounding box as the window. Nil for an outline
@@ -175,22 +180,6 @@ nonisolated extension RoomArtCorners {
 }
 
 nonisolated enum RoomArtLoopGeometry {
-    /// The window around `anchor` that `bareWallSpot` or `bareFloorSpot` scored, in camera pixels. A spot near an edge,
-    /// which only a click picks, shifts the window inside the frame, keeping its size, so the whole line stays in the panel.
-    static func keyframeCorners(around anchor: CGPoint, frameSize: CGSize, on surfaceKind: RoomArtSurfaceKind) -> RoomArtCorners {
-        let (widthShare, heightShare) = switch surfaceKind {
-        case .wall: (RoomArtBareWallWindow.widthShareOfTheFrame, RoomArtBareWallWindow.heightShareOfTheFrame)
-        case .floor: (RoomArtBareFloorWindow.widthShareOfTheFrame, RoomArtBareFloorWindow.heightShareOfTheFrame)
-        }
-        let windowSize = CGSize(
-            width: min(frameSize.width * widthShare, frameSize.width),
-            height: min(frameSize.height * heightShare, frameSize.height)
-        )
-        let left = min(max(anchor.x - windowSize.width / 2, 0), frameSize.width - windowSize.width)
-        let top = min(max(anchor.y - windowSize.height / 2, 0), frameSize.height - windowSize.height)
-        return RoomArtCorners(rect: CGRect(origin: CGPoint(x: left, y: top), size: windowSize))
-    }
-
     /// The axis-aligned rectangle around four corners, which a loop bent onto those corners is drawn around.
     static func boundingCorners(of corners: RoomArtCorners) -> RoomArtCorners {
         let points = corners.clockwiseFromTopLeft
@@ -237,10 +226,10 @@ nonisolated struct RoomArtVideoFit: Equatable, Sendable {
 // MARK: - The line
 
 /// The cursor loop's outline, drawn around the keyframe's window in panel points and then bent so its corners land on the
-/// window's current corners.
+/// window's current corners, as the furniture's footprint seen at a slant.
 enum RoomArtLoopOutline {
     /// Each curve of the cursor loop's outline is cut into this many straight pieces before it is bent, so a curve bends
-    /// smoothly with the wall's perspective.
+    /// smoothly with the footprint's perspective.
     private static let piecesPerCurve = 12
 
     /// Nil when the camera has no frame yet, or the corners cannot be mapped onto each other (three on one line). A snapshot

@@ -2,9 +2,9 @@
 //  RoomArtLoopTests.swift
 //  leanring-buddyTests
 //
-//  Clicky's loop around the wall spot while the room art panel measures the wall: when it shows and clears for each phase,
-//  the window it outlines, how its corners follow the tracker's warp, how the camera fits the panel, the line bent onto the
-//  mapped corners, the timing, and one render at 2x with its pixels read.
+//  Clicky's loop in the room art panel: when it shows and clears for each phase (never while a surface is measured), how
+//  its corners follow the tracker's warp, how the camera fits the panel, the line bent onto the mapped corners, the timing,
+//  and one render at 2x with its pixels read.
 //
 
 import CoreGraphics
@@ -28,12 +28,49 @@ private func loopTestArtwork() -> RoomArtwork {
 
 private func loopTestItem() -> RoomArtPlacedItem { .wallArt(loopTestArtwork()) }
 
+private func loopTestFurnitureItem(standsOn: RoomArtStandsOn = .floor) -> RoomArtPlacedItem {
+    .furniture(RoomFurniture(title: "Side table", widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55, cutoutImage: loopTestArtwork().flattenedImage, standsOn: standsOn))
+}
+
+/// A window of the size `bareWallSpot` scores, centered at (640, 250) of a 1280 by 720 frame, which stands in for a
+/// footprint's bounding box in the geometry tests.
+private func loopTestWindow() -> RoomArtCorners {
+    RoomArtCorners(rect: CGRect(x: 640 - 153.6, y: 250 - 108, width: 307.2, height: 216))
+}
+
 @MainActor
 struct RoomArtLoopStateTests {
     private let measuring = RoomArtPhase.measuring(id: firstMeasurement, item: .wallArt(loopTestArtwork()))
 
-    @Test func aMeasurementStartsTheLoopAtTheTimeTheKeyframeWasTaken() {
-        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: measuring, at: 10) == .drawing(beganAt: 10))
+    @Test func aSurfaceBeingMeasuredShowsNoLoopForAStandingItemOrAWallItem() {
+        let floorItem = loopTestFurnitureItem()
+        let tableItem = loopTestFurnitureItem(standsOn: .tableOrShelf)
+        let phases: [RoomArtPhase] = [
+            .measuring(id: firstMeasurement, item: floorItem),
+            .measuring(id: firstMeasurement, item: tableItem),
+            .measuring(id: firstMeasurement, item: loopTestItem()),
+            .moving(id: RoomArtMeasurementID(number: 2), item: loopTestItem(), surfaceBeforeTheMove: .wall(loopTestWall())),
+        ]
+        for phase in phases {
+            #expect(RoomArtLoopState.hidden.after(phaseChangedTo: phase, at: 10) == .hidden, "\(phase)")
+        }
+        // The panel waiting for the camera, or for a click on the floor or the table, shows none either.
+        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: .waitingForTheCamera(floorItem), at: 10) == .hidden)
+        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: .waitingForAFloorClick(tableItem, aClickFoundNothing: true), at: 10) == .hidden)
+    }
+
+    @Test func aMeasurementTakesAwayALoopStillOnScreen() {
+        // A loop from the piece that showed before, still fading or waiting for a click, leaves with the new measurement.
+        let measuring = RoomArtPhase.measuring(id: firstMeasurement, item: loopTestItem())
+        let moving = RoomArtPhase.moving(id: RoomArtMeasurementID(number: 2), item: loopTestItem(), surfaceBeforeTheMove: .wall(loopTestWall()))
+        #expect(RoomArtLoopState.fadingOut(beganAt: 10, tracesTheLine: true).after(phaseChangedTo: moving, at: 30) == .hidden)
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: measuring, at: 30) == .hidden)
+        #expect(RoomArtLoopState.waitingForAClick(beganAt: 10).after(phaseChangedTo: measuring, at: 30) == .hidden)
+    }
+
+    @Test func theLoopStartsAroundTheFootprintWhenFurnitureWaitsForItsPainting() {
+        let arranging = RoomArtPhase.arranging(id: firstMeasurement, item: loopTestFurnitureItem(), surface: .wall(loopTestWall()))
+        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: arranging, at: 10) == .drawing(beganAt: 10))
     }
 
     @Test func theLoopKeepsItsClockWhileTheShirtGoesFromPreparedToWaitingForTheLearner() {
@@ -74,14 +111,6 @@ struct RoomArtLoopStateTests {
             let faded = RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: phase, at: 24)
             #expect(faded == .fadingOut(beganAt: 10, tracesTheLine: true) && !faded.isHoldingTheGhost)
         }
-    }
-
-    @Test func aClickedMoveDrawsTheLoopAgain() {
-        let moving = RoomArtPhase.moving(id: RoomArtMeasurementID(number: 2), item: loopTestItem(), surfaceBeforeTheMove: .wall(loopTestWall()))
-
-        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: moving, at: 30) == .drawing(beganAt: 30))
-        // A loop still fading from the item that showed before starts over instead of finishing its fade.
-        #expect(RoomArtLoopState.fadingOut(beganAt: 10, tracesTheLine: true).after(phaseChangedTo: moving, at: 30) == .drawing(beganAt: 30))
     }
 
     @Test func theItemOrTheShirtShowingFadesTheLoopWhereItsClockWas() {
@@ -158,39 +187,6 @@ struct RoomArtLoopStateTests {
 }
 
 struct RoomArtLoopGeometryTests {
-    private let cameraFrame = CGSize(width: 1280, height: 720)
-
-    @Test func theWindowAroundASpotIsTheSizeBareWallSpotScored() {
-        let corners = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 640, y: 250), frameSize: cameraFrame, on: .wall)
-
-        // 24 percent of the width and 30 percent of the height, centered on the spot.
-        #expect(abs(corners.topLeft.x - (640 - 153.6)) < 1e-9 && abs(corners.topRight.x - (640 + 153.6)) < 1e-9)
-        #expect(abs(corners.topLeft.y - (250 - 108)) < 1e-9 && abs(corners.bottomLeft.y - (250 + 108)) < 1e-9)
-        // At the 320 by 180 track size, the scored window is 77 by 54 pixels, which is this window's size to the rounding.
-        let trackPixelsPerCameraPixel = 320.0 / cameraFrame.width
-        #expect(abs((corners.topRight.x - corners.topLeft.x) * trackPixelsPerCameraPixel - 77) < 1)
-        #expect(abs((corners.bottomLeft.y - corners.topLeft.y) * trackPixelsPerCameraPixel - 54) < 1)
-    }
-
-    @Test func aClickNearAnEdgeShiftsTheWindowInsideTheFrameKeepingItsSize() {
-        let nearTheTopLeft = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 10, y: 10), frameSize: cameraFrame, on: .wall)
-        let nearTheBottomRight = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 1275, y: 715), frameSize: cameraFrame, on: .wall)
-
-        #expect(nearTheTopLeft.topLeft == CGPoint(x: 0, y: 0))
-        #expect(abs(nearTheTopLeft.bottomRight.x - 307.2) < 1e-9 && abs(nearTheTopLeft.bottomRight.y - 216) < 1e-9)
-        #expect(abs(nearTheBottomRight.bottomRight.x - 1280) < 1e-9 && abs(nearTheBottomRight.bottomRight.y - 720) < 1e-9)
-        #expect(abs((nearTheBottomRight.bottomRight.x - nearTheBottomRight.topLeft.x) - 307.2) < 1e-9)
-    }
-
-    @Test func theWindowAroundAFloorSpotIsTheWideLowOneBareFloorSpotScored() {
-        let corners = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 640, y: 560), frameSize: cameraFrame, on: .floor)
-
-        // 30 percent of the width and 18 percent of the height, centered on the spot.
-        #expect(abs((corners.topRight.x - corners.topLeft.x) - 384) < 1e-9)
-        #expect(abs((corners.bottomLeft.y - corners.topLeft.y) - 129.6) < 1e-9)
-        #expect(abs((corners.topLeft.y + corners.bottomLeft.y) / 2 - 560) < 1e-9)
-    }
-
     @Test func theCornersFollowTheTrackersWarp() {
         let keyframe = RoomArtCorners(rect: CGRect(x: 100, y: 50, width: 200, height: 100))
         // A quarter turn about the image origin, then a shift: (x, y) goes to (100 - y, x + 50).
@@ -212,9 +208,7 @@ struct RoomArtLoopOutlineTests {
     private let cameraFrame = CGSize(width: 1280, height: 720)
     private let panelSize = CGSize(width: 960, height: 540)
 
-    private var keyframeCorners: RoomArtCorners {
-        RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 640, y: 250), frameSize: cameraFrame, on: .wall)
-    }
+    private var keyframeCorners: RoomArtCorners { loopTestWindow() }
 
     private func outline(after warp: EuclideanWarp) throws -> Path {
         let snapshot = RoomArtLoopSnapshot(keyframeCorners: keyframeCorners, currentCorners: RoomArtLoopGeometry.corners(of: keyframeCorners, after: warp))
@@ -317,7 +311,7 @@ struct RoomArtLoopRenderTests {
     }
 
     private static func loopPath() throws -> Path {
-        let keyframe = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 640, y: 250), frameSize: cameraFrame, on: .wall)
+        let keyframe = loopTestWindow()
         let snapshot = RoomArtLoopSnapshot(keyframeCorners: keyframe, currentCorners: keyframe)
         return try #require(RoomArtLoopOutline.path(for: snapshot, fit: RoomArtVideoFit(cameraSize: cameraFrame, viewSize: panelSize)))
     }

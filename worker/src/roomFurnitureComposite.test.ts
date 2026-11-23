@@ -367,6 +367,62 @@ describe("handleRoomFurnitureComposite", () => {
     }
   });
 
+  it("says the table or shelf instead of the floor when the product stands on one, for both frame cases", async () => {
+    const fetchMock = stubFetch(async () => new Response(JSON.stringify(goodOpenAIReply), { status: 200 }));
+
+    for (const itemContinuesPastTheFrameBottom of [false, true]) {
+      const response = await handleRoomFurnitureComposite(
+        requestWithBody(goodBody({ standsOn: "tableOrShelf", itemContinuesPastTheFrameBottom })),
+        openAIAPIKey,
+      );
+      expect(response.status).toBe(200);
+    }
+
+    for (const call of fetchMock.mock.calls) {
+      const sentPrompt: string = JSON.parse(String(call[1].body)).prompt;
+      expect(sentPrompt).toContain("Image 2 is a store's product photo of one object that stands on a table or shelf, such as a lamp, a vase, or a mug.");
+      expect(sentPrompt).toContain("standing on the table or shelf inside the masked area");
+      expect(sentPrompt).toContain("contact shadow");
+      expect(sentPrompt).toContain("on the table or shelf");
+      expect(sentPrompt).not.toContain("floor");
+      expect(sentPrompt).not.toContain("piece of furniture");
+    }
+    const insidePrompt: string = JSON.parse(String(fetchMock.mock.calls[0][1].body)).prompt;
+    expect(insidePrompt).toContain("its front feet or base stand on the table or shelf a little above the bottom of the area");
+    expect(insidePrompt).toContain("contact shadow on the table or shelf under and around its feet or base, inside the area");
+  });
+
+  it("keeps the floor wording byte for byte when standsOn is floor or absent", async () => {
+    const fetchMock = stubFetch(async () => new Response(JSON.stringify(goodOpenAIReply), { status: 200 }));
+
+    await handleRoomFurnitureComposite(requestWithBody(goodBody()), openAIAPIKey);
+    await handleRoomFurnitureComposite(requestWithBody(goodBody({ standsOn: "floor" })), openAIAPIKey);
+
+    const [absentPrompt, floorPrompt] = fetchMock.mock.calls.map((call): string => JSON.parse(String(call[1].body)).prompt);
+    expect(floorPrompt).toBe(absentPrompt);
+    expect(absentPrompt).toContain("Image 2 is a store's product photo of one object that stands on the floor, such as a piece of furniture, a plant, or a toy.");
+    expect(absentPrompt).toContain("standing on the floor inside the masked area.");
+    expect(absentPrompt).toContain("its front feet stand on the floor a little above the bottom of the area");
+    expect(absentPrompt).toContain("contact shadow on the floor under and around its feet, inside the area");
+  });
+
+  it("builds the same prompt as before from furnitureCompositePrompt when no surface is named", () => {
+    const bounds = { left: 500, top: 300, right: 1000, bottom: 620 };
+
+    expect(furnitureCompositePrompt("Chair", "50 cm wide", bounds, { standsOn: "floor" })).toBe(furnitureCompositePrompt("Chair", "50 cm wide", bounds));
+    expect(furnitureCompositePrompt("Mug", "9 cm wide", bounds, { standsOn: "tableOrShelf" })).not.toBe(furnitureCompositePrompt("Mug", "9 cm wide", bounds));
+  });
+
+  it("refuses a surface it does not know before any model call", async () => {
+    const fetchMock = stubFetch(async () => new Response(JSON.stringify(goodOpenAIReply), { status: 200 }));
+
+    const response = await handleRoomFurnitureComposite(requestWithBody(goodBody({ standsOn: "ceiling" })), openAIAPIKey);
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain("standsOn");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("takes the bottom-edge flag as a boolean only, so the prompt's words stay the Worker's own", async () => {
     const fetchMock = stubFetch(async () => new Response(JSON.stringify(goodOpenAIReply), { status: 200 }));
 
@@ -616,6 +672,17 @@ describe("handleRoomFurnitureComposite for a shirt", () => {
     const sentMask = await alphaValuesOf(bytesOfBase64(sentBody.mask.image_url.slice("data:image/png;base64,".length)));
     expect(sentMask.alphaValues[400 * frameWidth + 700]).toBe(0);
     expect(sentMask.alphaValues[100 * frameWidth + 100]).toBe(255);
+  });
+
+  it("ignores standsOn for a shirt", async () => {
+    const fetchMock = stubFetch(async () => new Response(JSON.stringify(goodOpenAIReply), { status: 200 }));
+
+    await handleRoomFurnitureComposite(requestWithBody(goodShirtBody()), openAIAPIKey);
+    const response = await handleRoomFurnitureComposite(requestWithBody(goodShirtBody({ standsOn: "tableOrShelf" })), openAIAPIKey);
+
+    expect(response.status).toBe(200);
+    const [plainPrompt, withSurfacePrompt] = fetchMock.mock.calls.map((call): string => JSON.parse(String(call[1].body)).prompt);
+    expect(withSurfacePrompt).toBe(plainPrompt);
   });
 
   it("names the kind in its usage line", async () => {

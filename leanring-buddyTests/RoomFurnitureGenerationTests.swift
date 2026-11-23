@@ -645,6 +645,30 @@ struct RoomFurnitureGenerationClientTests {
         #expect(sentFlags == [true, false])
     }
 
+    @Test func theCompositeSaysThePieceStandsOnATableOrShelfAndSaysNothingForTheFloor() async throws {
+        answer("room-furniture-composite", statusCode: 200, body: compositeReply())
+        let furnitureClient = client()
+
+        for standsOn in [RoomArtStandsOn.tableOrShelf, .floor] {
+            _ = try await furnitureClient.paintTheItemIntoTheKeyframe(
+                keyframeJPEG: keyframeJPEG, keyframeWidth: 200, keyframeHeight: 100, productJPEG: productJPEG, maskPNG: maskPNG,
+                itemTitle: "Stoneware mug", itemSizeWords: "4.5 inches wide and 4 tall",
+                orientation: RoomFurniturePaintingOrientation(facing: .camera, backAgainstTheWall: false, standsOn: standsOn)
+            )
+        }
+        // A painting with no orientation says nothing about it either, so an older Worker's request is unchanged.
+        _ = try await paint(using: furnitureClient)
+
+        let sentBodies = try requestBodies(of: "room-furniture-composite").map { sentBody in
+            try #require(JSONSerialization.jsonObject(with: sentBody) as? [String: Any])
+        }
+        #expect(sentBodies.count == 3)
+        #expect(sentBodies[0]["standsOn"] as? String == "tableOrShelf")
+        // The field is absent, never "floor", so the Worker's floor wording stays byte for byte.
+        #expect(sentBodies[1]["standsOn"] == nil)
+        #expect(sentBodies[2]["standsOn"] == nil)
+    }
+
     @Test func aTitleOverTheWorkersLimitIsCutBeforeBothRequestsAreSent() async throws {
         let longTitle = String(repeating: "Sofa ", count: 100)
         answer("room-furniture-composite", statusCode: 200, body: compositeReply())
