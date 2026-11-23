@@ -122,6 +122,13 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             whyThisSize: "The page lists one size, 50 x 170 cm.",
             itemCorners: pictureCorners(120, 20, 280, 480)
         ))
+    case "a figure whose page states only its height":
+        return .furniture(RoomArtFurnitureReading(
+            title: "Up-Scaled Blue Astronaut Minifigure",
+            chosenSize: RoomArtFurnitureSize(label: "over 10 in. (26 cm) tall", widthCentimeters: nil, heightCentimeters: 26, depthCentimeters: nil),
+            whyThisSize: "The page says the figure stands over 10 in. (26 cm) tall and states no width or depth.",
+            itemCorners: pictureCorners(120, 20, 280, 480)
+        ))
     case "furniture with no size on the page":
         return .furniture(RoomArtFurnitureReading(
             title: "Slim floor mirror",

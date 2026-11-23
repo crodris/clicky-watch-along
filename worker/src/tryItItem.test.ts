@@ -239,6 +239,19 @@ describe("checkTryItItem for furniture", () => {
     expect(checked(figurine).accepted).toBe(true);
   });
 
+  it("accepts a figure whose page states only its height, with its width and depth null for the app to measure", () => {
+    const figure = goodFurniture({ furniture: { sizeFoundOnPage: true, size: { label: "26 cm tall", widthCentimeters: null, heightCentimeters: 26, depthCentimeters: null }, otherSizes: [] } });
+
+    expect(checked(figure).accepted).toBe(true);
+  });
+
+  it("still holds a stated width to the range when the depth is not stated", () => {
+    expectRejectedFor(
+      goodFurniture({ furniture: { sizeFoundOnPage: true, size: { label: "1 cm wide", widthCentimeters: 1, heightCentimeters: 26, depthCentimeters: null }, otherSizes: [] } }),
+      "and it is 1 by 26 by not stated.",
+    );
+  });
+
   it("accepts a thin item, such as a picture ledge or a floor mirror 5 centimeters deep", () => {
     const ledge = goodFurniture({ furniture: { sizeFoundOnPage: true, size: { ...furnitureSize, depthCentimeters: 5 }, otherSizes: [{ label: "slim", widthCentimeters: 200, heightCentimeters: 75, depthCentimeters: 3 }] } });
 

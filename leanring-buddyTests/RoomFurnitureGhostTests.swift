@@ -569,7 +569,7 @@ struct RoomFurnitureGhostLinesTests {
     }
 
     @Test func theSizePillSaysWidthAndHeightInInches() {
-        #expect(roomFurnitureGhostSizePillText(widthMeters: 2.286, heightMeters: 0.813) == "90\u{2033} wide · 32\u{2033} tall")
+        #expect(roomFurnitureGhostSizePillText(widthMeters: 2.286, heightMeters: 0.813, widthIsMeasuredFromThePhoto: false) == "90\u{2033} wide · 32\u{2033} tall")
     }
 }
 

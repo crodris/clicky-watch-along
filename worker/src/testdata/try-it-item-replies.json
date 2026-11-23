@@ -70,6 +70,28 @@
       }
     },
     {
+      "name": "a figure whose page states only its height",
+      "kind": "furniture",
+      "response": {
+        "title": "Up-Scaled Blue Astronaut Minifigure",
+        "whyThisSize": "The page says the figure stands over 10 in. (26 cm) tall and states no width or depth.",
+        "itemCorners": {
+          "topLeft": { "x": 120, "y": 20 },
+          "topRight": { "x": 280, "y": 20 },
+          "bottomRight": { "x": 280, "y": 480 },
+          "bottomLeft": { "x": 120, "y": 480 }
+        },
+        "item": {
+          "kind": "furniture",
+          "furniture": {
+            "sizeFoundOnPage": true,
+            "size": { "label": "over 10 in. (26 cm) tall", "widthCentimeters": null, "heightCentimeters": 26, "depthCentimeters": null },
+            "otherSizes": []
+          }
+        }
+      }
+    },
+    {
       "name": "furniture with no size on the page",
       "kind": "furniture",
       "response": {

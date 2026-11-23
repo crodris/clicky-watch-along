@@ -1411,6 +1411,9 @@ final class RoomArtPreviewController: ObservableObject {
     @Published private(set) var furnitureGhost: RoomFurnitureGhost?
     /// When the ghost began drawing itself, and where the loop's tracer was then (`RoomFurnitureGhostDrawTimeline`).
     @Published private(set) var furnitureGhostDraw: RoomFurnitureGhostDraw?
+    /// Whether the furniture's width was measured from its cutout, so the ghost's size pill says "about". Set each time a
+    /// piece of furniture is ready, which is before its ghost can show.
+    private(set) var furnitureWidthIsMeasuredFromThePhoto = false
     /// The learner stands where the piece is about to be painted, so the status line asks them to step aside.
     @Published private(set) var waitingForTheLearnerToStepAside = false
     /// The wall measured on the floor's keyframe, which the ghost snaps to.
@@ -1835,6 +1838,11 @@ final class RoomArtPreviewController: ObservableObject {
                 apply(phase.afterThePageFailed(.furnitureNotCutOut))
                 return
             }
+            guard let furniture = RoomFurniture.standing(title: furnitureReading.title, size: size, cutoutImage: cutoutImage) else {
+                print("Room furniture: the width measured from the cutout is outside 2 to 600 cm, so nothing is placed")
+                apply(phase.afterThePageFailed(.sizeNotOnThePage))
+                return
+            }
             // Both generation services get the cutout over white and never the raw page picture, so the search for the
             // better looks starts once the cutout exists. It then runs while the floor is measured, which takes seconds.
             furnitureCutoutJPEG = roomFurnitureCutoutJPEG(cutoutImage)
@@ -1844,13 +1852,8 @@ final class RoomArtPreviewController: ObservableObject {
             startSearchingForTheFurnituresBestLook(
                 itemTitle: furnitureReading.title, pageURL: pageRequest.pageURL, pagePictureJPEG: pageRequest.picture.jpegData, thisOpening: thisOpening
             )
-            itemIsReady(.furniture(RoomFurniture(
-                title: furnitureReading.title,
-                widthMeters: size.widthCentimeters / 100,
-                heightMeters: size.heightCentimeters / 100,
-                depthMeters: size.depthCentimeters / 100,
-                cutoutImage: cutoutImage
-            )))
+            furnitureWidthIsMeasuredFromThePhoto = furniture.widthIsMeasuredFromThePhoto
+            itemIsReady(.furniture(furniture))
 
         case .tryOnTheShirt(let clothingReading):
             print("Room art: \"\(clothingReading.title)\" is a \(clothingReading.garment.rawValue) photographed \(clothingReading.photoShows.rawValue), size \(clothingReading.chosenSizeLabel)")
@@ -2864,7 +2867,11 @@ private struct RoomArtPanelView: View {
                     draw: ghostDraw,
                     color: previewController.loopAccentColor,
                     tracerLook: previewController.loopTracerLook,
-                    sizePillText: roomFurnitureGhostSizePillText(widthMeters: ghost.widthMeters, heightMeters: ghost.heightMeters),
+                    sizePillText: roomFurnitureGhostSizePillText(
+                        widthMeters: ghost.widthMeters,
+                        heightMeters: ghost.heightMeters,
+                        widthIsMeasuredFromThePhoto: previewController.furnitureWidthIsMeasuredFromThePhoto
+                    ),
                     linesProvider: {
                         previewController.currentGhostLines(cameraSize: metalLayer.drawableSize, panelSize: RoomArtPanelController.panelSize)
                     }
