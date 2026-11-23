@@ -81,6 +81,8 @@ private final class StubbedPictureURLProtocol: URLProtocol, @unchecked Sendable 
     override func stopLoading() {}
 }
 
+// The downloads here get 600 seconds, so a regression that stops one from ending shows as this limit and not as a 10 minute hang.
+@Suite(.timeLimit(.minutes(3)))
 @MainActor
 struct RoomArtPictureSourceTests {
     /// A session whose requests reach the stub, with the cookie and cache settings the real download session has.
@@ -120,7 +122,15 @@ struct RoomArtPictureSourceTests {
     /// The picture room art ends up with, and whether the screen was captured to get it.
     private func pictureAndWhetherTheScreenWasCaptured(imageFileURL: URL?) async -> (picture: RoomArtPicture?, screenWasCaptured: Bool) {
         var screenWasCaptured = false
-        let picture = await RoomArtPictureSource.picture(imageFileURL: imageFileURL, session: stubbedSession()) {
+        // The download's 5 second deadline is wall-clock time, which a loaded Mac can use up before a stubbed reply is read: three
+        // of these tests failed in CI at a load of 24 to 87 with the screen captured instead. A test that does not pin the
+        // deadline gives the download ten minutes, so only what the stub answers decides the result.
+        let picture = await RoomArtPictureSource.picture(
+            imageFileURL: imageFileURL,
+            session: stubbedSession(),
+            downloadDeadlineSeconds: 600,
+            downloadTimeoutSeconds: 600
+        ) {
             screenWasCaptured = true
             return screenCapture
         }
@@ -279,7 +289,14 @@ struct RoomArtPictureSourceTests {
                 return RoomArtPicture(jpegData: Data("screen capture".utf8), width: 640, height: 360)
             }
         }
-        try? await Task.sleep(for: .milliseconds(300))
+        // The cancel comes once the stalled download has started, so it ends a wait that is running.
+        // The wait gives up after 30 seconds, well inside the test's limit, so a download that never starts fails on this line.
+        let stalledImageRequestIsRecorded = { StubbedPictureURLProtocol.startedRequests.withLock { $0.contains("https://\(stalledImageURL.path)") } }
+        let startWaitDeadline = Date().addingTimeInterval(30)
+        while !stalledImageRequestIsRecorded() && Date() < startWaitDeadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(stalledImageRequestIsRecorded())
         roomArtRequest.cancel()
         // Neither the deadline nor the idle timeout passes in 600 seconds, so the request can only end because the cancel
         // ended its wait.
