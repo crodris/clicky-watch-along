@@ -321,7 +321,8 @@ type readyMessage struct {
 }
 
 // toolCallMessage asks the app to run one of the app's tools. Input is the model's JSON object for the tool. TurnIndex,
-// counted from 0, is set only for a voice command's call, since the app lets only the first turn answer an approval.
+// counted from 0, is set only for a voice command's call. The app ignores it, and the brain evals read it to score the
+// first turn.
 type toolCallMessage struct {
 	Type      string          `json:"type"`
 	TaskID    string          `json:"taskID"`

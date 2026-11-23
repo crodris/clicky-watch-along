@@ -78,7 +78,7 @@ Preconditions:
   For a video, run `$V app-launch --brain "go back ten seconds|undo that"`: the last step logs `Voice command: seek_relative(seconds: 10) ran ... ok` after its `calls undo_last_change` line.
   The harness offers `undo_last_change` only while the newest change has an inverse, so with a pop-out as the newest action, "undo that" is the model's own call to `close_scene`.
   A page call a press cut off keeps its inverse when the app's `cancel_task` names it as running and the page's tour has finished, and a cut-off video call, undo, call during the tour, or call the app never started does not (`aCutOffCallHasRun`).
-  A page tool answers in a few milliseconds, so a rehearsal press cannot land inside one, and `cd harness && go test -run 'CutOff|StillRunning' ./...` and `node bench/brainEvals.ts run --label cut-off --backend harness --runs 10 --only session-undo-after-cut-off --port 8797` check it instead.
+  A page tool answers in a few milliseconds, so a rehearsal press cannot land inside one, and `cd harness && go test -run 'CutOff|StillRunning' ./...` and `node bench/brainEvals.ts run --label cut-off --runs 10 --only session-undo-after-cut-off --port 8797` check it instead.
 - **The brain's evals.** With `$V worker-up 8797` ready, run `node bench/brainEvals.ts run --label harness-evals --runs 3 --port 8797`.
   It builds the harness, runs every case in `bench/fixtures/brain-evals.json` on the harness brain, and prints a table with p50 and p95 latency and cost.
   Each failed case prints a `FAIL` line, and the command still exits 0.

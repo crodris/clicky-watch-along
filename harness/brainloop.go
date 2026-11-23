@@ -213,7 +213,8 @@ func (brain *brainRunner) requestTurn(commandContext context.Context, run *sessi
 }
 
 // errAppSecretRefused is the failure of a turn the Worker's own app secret check refused. Its text is the reason the
-// command's task_failed carries, so the app can tell a refused secret from any other failure.
+// command's task_failed carries, and the app logs it, so verify-clicky.sh doctor can tell a refused secret from any
+// other failure.
 var errAppSecretRefused = errors.New("app secret refused")
 
 // theWorkerRefusedTheAppSecret tells the Worker's secret check from Anthropic's own 401, which /v1/messages passes

@@ -155,8 +155,8 @@ func orderedObjectMembers(rawObject json.RawMessage) ([]objectMember, error) {
 	return members, nil
 }
 
-// propertiesWithConfirmationFirst is the port of { confirmation: confirmationProperty, ...existingProperties }: the
-// confirmation comes first, with the app's own value when it has one, then the app's properties in their order.
+// propertiesWithConfirmationFirst puts the confirmation first, with the app's own value when it has one, then the
+// app's properties in their order.
 func propertiesWithConfirmationFirst(appProperties []objectMember) json.RawMessage {
 	confirmationValue := json.RawMessage(mustMarshal(confirmationProperty))
 	for _, appProperty := range appProperties {
@@ -308,8 +308,7 @@ func (speakAndFinish) voiceStep()   {}
 func (askTheModelAgain) voiceStep() {}
 func (finishSilently) voiceStep()   {}
 
-// nextVoiceStep is the port of the app's voiceCommandNextStep. The confirmations are spoken only when every tool
-// changed the screen. A lookup or a failure goes back to the model, which then acts on the lookup or says what went
+// nextVoiceStep decides what follows a turn. The confirmations are spoken only when every tool changed the screen. A lookup or a failure goes back to the model, which then acts on the lookup or says what went
 // wrong.
 func nextVoiceStep(calls []toolCall, outcomes []voiceToolOutcome, replyText string) voiceStep {
 	if slices.Contains(outcomes, voiceToolHandedOff) {

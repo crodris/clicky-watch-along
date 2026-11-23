@@ -156,6 +156,24 @@ const imageSourceSchema = z.object({ type: z.literal("base64"), media_type: z.st
 
 export type BenchRequestMapping = { ok: true; body: Record<string, unknown> } | { ok: false; unsupported: string };
 
+/**
+ * Reads a request both ports take, or says why neither can. No benchmarked route sends tools, so a request with `tools`
+ * or `tool_choice` is refused rather than sent on without them, which would score a model miss instead of a 501.
+ */
+function parsePortableRequest(
+  anthropicBody: unknown,
+): { ok: true; request: z.infer<typeof anthropicRequestSchema> } | { ok: false; unsupported: string } {
+  const parsedRequest = anthropicRequestSchema.safeParse(anthropicBody);
+  if (!parsedRequest.success) {
+    const firstIssue = parsedRequest.error.issues[0];
+    return { ok: false, unsupported: `a request the port cannot read (${firstIssue?.path.join(".")}: ${firstIssue?.message})` };
+  }
+  if (parsedRequest.data.tools !== undefined || parsedRequest.data.tool_choice !== undefined) {
+    return { ok: false, unsupported: "a request with tools" };
+  }
+  return { ok: true, request: parsedRequest.data };
+}
+
 function openAIContentPart(role: "user" | "assistant", block: Record<string, unknown>): Record<string, unknown> | string {
   if (block.type === "text" && typeof block.text === "string") {
     return { type: role === "user" ? "input_text" : "output_text", text: block.text };
@@ -179,15 +197,12 @@ function reasoningEffortFor(request: z.infer<typeof anthropicRequestSchema>, ove
 
 /**
  * Maps one Anthropic Messages request to an OpenAI Responses request. A shape no benchmark case sends, such as
- * tool blocks, is reported as unsupported instead of being guessed at.
+ * tools or tool blocks, is reported as unsupported instead of being guessed at.
  */
 export function anthropicBodyToOpenAIResponsesBody(anthropicBody: unknown, override: OpenAIBenchOverride): BenchRequestMapping {
-  const parsedRequest = anthropicRequestSchema.safeParse(anthropicBody);
-  if (!parsedRequest.success) {
-    const firstIssue = parsedRequest.error.issues[0];
-    return { ok: false, unsupported: `a request the port cannot read (${firstIssue?.path.join(".")}: ${firstIssue?.message})` };
-  }
-  const request = parsedRequest.data;
+  const portableRequest = parsePortableRequest(anthropicBody);
+  if (!portableRequest.ok) return portableRequest;
+  const request = portableRequest.request;
 
   const input: Array<Record<string, unknown>> = [];
   for (const message of request.messages) {
@@ -431,12 +446,9 @@ function geminiChatMessages(
 
 /** Maps one Anthropic Messages request to a Gemini Chat Completions request, or says which shape it cannot port. */
 export function anthropicBodyToGeminiChatBody(anthropicBody: unknown, override: GeminiBenchOverride): BenchRequestMapping {
-  const parsedRequest = anthropicRequestSchema.safeParse(anthropicBody);
-  if (!parsedRequest.success) {
-    const firstIssue = parsedRequest.error.issues[0];
-    return { ok: false, unsupported: `a request the port cannot read (${firstIssue?.path.join(".")}: ${firstIssue?.message})` };
-  }
-  const request = parsedRequest.data;
+  const portableRequest = parsePortableRequest(anthropicBody);
+  if (!portableRequest.ok) return portableRequest;
+  const request = portableRequest.request;
 
   const chatMessages = geminiChatMessages(request);
   if (!chatMessages.ok) {

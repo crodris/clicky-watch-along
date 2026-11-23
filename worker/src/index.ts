@@ -221,7 +221,7 @@ async function forwardToAnthropic(
   // uses Anthropic's server-side web search and fetch, and the brain sends tools, so only a Claude model can run them.
   const benchOverride = benchModelOverride();
   if (options.routeName === "/v1/messages" && benchOverride !== undefined && benchOverride.provider !== "anthropic") {
-    return jsonResponse({ error: `The task agent runs only on Claude, not ${benchOverride.model}` }, 501);
+    return jsonResponse({ error: `The agent harness runs only on Claude, not ${benchOverride.model}` }, 501);
   }
   if (benchOverride?.provider === "openai") {
     return await forwardChatToOpenAI(benchOverride, body);

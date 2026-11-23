@@ -227,8 +227,8 @@ struct VoiceCommandInputs: Equatable {
     /// The scene state the harness reads. It has no `approvalWaiting`, since the harness names the waiting request itself.
     let harnessSceneState: JSONValue
     /// The request the card showed when the learner pressed push-to-talk, and whether its whole summary had shown then. The
-    /// harness lets a voice answer reach only this one. It is part of the inputs, so a final transcript whose approval state differs
-    /// from the partial's discards the command, whether the request is new, gone, or has been read since.
+    /// harness lets a voice answer reach only this one. It is part of the inputs, so a final transcript whose approval
+    /// state differs from the partial's discards the command, whether the request is new, gone, or has been read since.
     let approvalWhenTheCommandStarted: ApprovalAtPress?
 
     var offeredToolNames: Set<String> { Set(tools.map(\.name)) }

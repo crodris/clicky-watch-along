@@ -112,7 +112,7 @@ func TestBrainToolsAddTheConfirmationTheWayTheWorkerDid(t *testing.T) {
 	})
 }
 
-// ---- What follows a turn, ported from the Swift voiceCommandNextStep tests ----
+// ---- What follows a turn ----
 
 func TestNextVoiceStepSpeaksTheConfirmationsOnlyWhenEveryToolChangedTheScreen(t *testing.T) {
 	rotateCall := toolCall{ID: "a", Name: "rotate_model", Input: json.RawMessage(`{"yawDegrees":-45,"confirmation":" There, turned it back! "}`)}

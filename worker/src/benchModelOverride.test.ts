@@ -220,6 +220,8 @@ describe("anthropicBodyToOpenAIResponsesBody", () => {
     ["a tool_use block", "tool_use", { messages: [{ role: "assistant", content: [{ type: "tool_use", id: "t1", name: "x", input: {} }] }] }],
     ["a thinking block", "thinking", { messages: [{ role: "assistant", content: [{ type: "thinking", thinking: "..." }] }] }],
     ["an image that is not base64", "not base64", { messages: [{ role: "user", content: [{ type: "image", source: { type: "url", url: "https://x" } }] }] }],
+    ["a tools list", "tools", { messages: [{ role: "user", content: "x" }], tools: [{ name: "x", input_schema: { type: "object" } }] }],
+    ["a tool_choice", "tools", { messages: [{ role: "user", content: "x" }], tool_choice: { type: "any" } }],
   ])("reports %s as unsupported instead of guessing", (_unsupportedThing, expectedMention, anthropicBody) => {
     const mapping = anthropicBodyToOpenAIResponsesBody(anthropicBody, gptOverride());
 
@@ -604,6 +606,10 @@ describe("anthropicBodyToGeminiChatBody", () => {
       anthropicBodyToGeminiChatBody({ messages: [{ role: "assistant", content: [{ type: "tool_use", id: "t", name: "x", input: {} }] }] }, geminiOverride()),
     ).toEqual({ ok: false, unsupported: "a tool_use block" });
     expect(anthropicBodyToGeminiChatBody(userRequest([{ type: "document" }]), geminiOverride())).toEqual({ ok: false, unsupported: "a document block" });
+    expect(anthropicBodyToGeminiChatBody({ ...userRequest("x"), tools: [{ name: "x", input_schema: { type: "object" } }] }, geminiOverride())).toEqual({
+      ok: false,
+      unsupported: "a request with tools",
+    });
     expect(
       anthropicBodyToGeminiChatBody({ messages: [{ role: "assistant", content: [{ type: "thinking", thinking: "" }] }] }, geminiOverride()),
     ).toEqual({ ok: false, unsupported: "a thinking block" });

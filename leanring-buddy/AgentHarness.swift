@@ -3,8 +3,8 @@
 //  leanring-buddy
 //
 //  The task agent's loop runs in a Go helper process, harness/ in the repo, bundled at Contents/Helpers/
-//  clicky-agent-harness. The voice command brain (harness/brain.go) runs there too. The app and the harness talk in JSON lines on the harness's stdin and stdout. The harness runs Claude through
-//  the Worker's /v1/messages passthrough. It asks the app for the task agent's tools that touch the Mac or Notion, and
+//  clicky-agent-harness. The voice command brain (harness/brain.go) runs there too. The app and the harness talk in
+//  JSON lines on the harness's stdin and stdout. The harness runs Claude through the Worker's /v1/messages passthrough. It asks the app for the task agent's tools that touch the Mac or Notion, and
 //  for a voice command's scene, video, and agent tools. harness/protocol.go is the other half of the messages in this
 //  file.
 //

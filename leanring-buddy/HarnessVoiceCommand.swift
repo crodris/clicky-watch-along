@@ -196,8 +196,8 @@ nonisolated let harnessPlanningLogLinePrefix = "Brain: planning on "
 nonisolated let secondsToWaitForAPlanningTurn: Double = 35
 
 /// Runs one voice command's events: each tool call through `runTool`, and its outcome back to the harness. The harness
-/// settles `answer_approval` itself, so no call carries an approval request. It returns how the command ended. The wait for each event has a deadline, which stops while a tool runs,
-/// since a tool such as play_video's check takes its own time, and which is 35 seconds instead of 10 after the harness
+/// settles `answer_approval` itself, so no call carries an approval request. It returns how the command ended. The wait
+/// for each event has a deadline, which stops while a tool runs, since a tool such as play_video's check takes its own time, and which is 35 seconds instead of 10 after the harness
 /// says the larger model's turn started.
 /// When it passes, `whenNoEventArrivesInTime` must end the stream with a failure, and no call still queued behind the
 /// deadline runs, since the router failure fallback runs instead. The line a turn speaks if every call changes the screen

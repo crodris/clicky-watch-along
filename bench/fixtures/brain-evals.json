@@ -874,6 +874,33 @@
       "why": "Build, make, or create a model goes to the background build, not build_new_scene."
     },
     {
+      "id": "video-show-in-3d",
+      "context": "video",
+      "say": "show me this shark in 3D",
+      "accept": [
+        "build_new_scene"
+      ],
+      "why": "Show, see, or render in 3D now goes to build_new_scene, not the background build."
+    },
+    {
+      "id": "video-render-this",
+      "context": "video",
+      "say": "render this",
+      "accept": [
+        "build_new_scene"
+      ],
+      "why": "Render goes to build_new_scene, not the background build."
+    },
+    {
+      "id": "video-show-famous-place",
+      "context": "video",
+      "say": "show me the Eiffel Tower in 3D",
+      "accept": [
+        "build_new_scene"
+      ],
+      "why": "A famous place goes to build_new_scene, which keeps the landmark check for Google 3D tiles."
+    },
+    {
       "id": "video-try-it",
       "context": "video",
       "say": "let me play with it",

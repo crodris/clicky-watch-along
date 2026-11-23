@@ -305,7 +305,7 @@ describe("with a GPT BENCH_MODEL", () => {
     );
 
     expect(response.status).toBe(501);
-    expect(await response.text()).toContain("The task agent runs only on Claude");
+    expect(await response.text()).toContain("The agent harness runs only on Claude");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -401,7 +401,7 @@ describe("with a Gemini BENCH_MODEL", () => {
     );
 
     expect(response.status).toBe(501);
-    expect(await response.text()).toContain("The task agent runs only on Claude");
+    expect(await response.text()).toContain("The agent harness runs only on Claude");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
