@@ -108,6 +108,13 @@ nonisolated struct RoomFurnitureGhost: Equatable, Sendable {
         shownPlacement?.keyframeBoxCorners(focalLengthPixels: floor.focalLengthPixels, principalPoint: floor.principalPoint)
     }
 
+    /// The share of the ghost's projected box inside the keyframe, from 0 (gone from view or behind the camera) to 1 (all
+    /// of it shows). The depth service's principal point is the frame's center.
+    var shareOfTheBoxInTheFrame: Double {
+        guard let boxCorners = keyframeBoxCorners else { return 0 }
+        return shareOfTheBoxInsideTheFrame(projectedCorners: boxCorners, frameSize: CGSize(width: floor.principalPoint.x * 2, height: floor.principalPoint.y * 2))
+    }
+
     /// Whether a keyframe pixel is on the ghost: inside the outline of its projected box.
     func contains(keyframePixel: CGPoint) -> Bool {
         guard let boxCorners = keyframeBoxCorners else { return false }
@@ -214,8 +221,10 @@ nonisolated struct RoomFurnitureGhost: Equatable, Sendable {
     /// A voice nudge: `distanceMeters` toward the camera's left or right, nearer to it, or farther from it, then `turnDegrees`.
     /// Moving a squared piece more than a few centimeters away from its wall pulls it off, and any other move lets the snap
     /// apply again, so "move it left" slides a piece along the wall it stands against.
-    mutating func nudge(_ direction: RoomFurnitureNudgeDirection?, distanceMeters: Double, turnDegrees degrees: Double) {
+    mutating func nudge(_ direction: RoomFurnitureNudgeDirection?, distanceMeters requestedDistanceMeters: Double, turnDegrees degrees: Double) {
         let shown = shownPose
+        // A spoken distance comes from the router's model, so it is held to a room's size.
+        let distanceMeters = min(requestedDistanceMeters, roomFurnitureLongestNudgeMeters)
         if let direction, distanceMeters.isFinite, distanceMeters > 0 {
             let towardTheCamera = Self.levelDirectionTowardTheCamera(from: shown.footprintCenter, up: floor.up)
             // The box's right is up x front, which is image-right for a piece facing the camera.
@@ -370,6 +379,11 @@ nonisolated enum RoomFurnitureNudgeDirection: String, CaseIterable, Sendable {
 
 /// How far a nudge moves the piece when the learner names no distance.
 nonisolated let roomFurnitureDefaultNudgeCentimeters = 30.0
+/// The share of the box in the frame above which the whole piece counts as showing, which leaves room for the clipping's
+/// rounding, so Clicky asks the learner to step back only for a piece the frame cuts off.
+nonisolated let roomFurnitureShareOfTheBoxThatShowsWhole = 0.99
+/// The farthest one spoken nudge moves the ghost.
+nonisolated let roomFurnitureLongestNudgeMeters = 3.0
 
 /// The chip for `move_furniture`, such as "Moving it left", or nil for a call that moves and turns nothing.
 nonisolated func roomFurnitureMoveChipPhrase(direction: RoomFurnitureNudgeDirection?, turnDegrees: Double?) -> String? {
@@ -546,8 +560,8 @@ nonisolated struct RoomFurnitureGhostLines: Equatable, Sendable {
     }
 
     /// Where the size pill's center sits: over the middle of the part of the top outline the frame shows, a little above
-    /// its highest point, and at least `pillMarginInPoints` inside the frame, so a piece that runs off the frame's edge
-    /// still has its size next to it.
+    /// its highest point, with the whole pill at least `pillMarginInPoints` inside the frame and above the status line and
+    /// the Place button, so a piece that runs off the frame's edge still has its size next to it.
     var pillCenter: CGPoint {
         let visibleTopPoints = top.indices.flatMap { index -> [CGPoint] in
             let start = top[index], end = top[(index + 1) % top.count]
@@ -560,13 +574,21 @@ nonisolated struct RoomFurnitureGhostLines: Equatable, Sendable {
         let leftmost = anchorPoints.map(\.x).min() ?? videoRect.midX, rightmost = anchorPoints.map(\.x).max() ?? videoRect.midX
         let highest = anchorPoints.map(\.y).min() ?? videoRect.midY
         let wantedCenter = CGPoint(x: (leftmost + rightmost) / 2, y: highest - Self.pillGapAboveTheTopInPoints)
-        let insideTheFrame = videoRect.insetBy(dx: Self.pillMarginInPoints * 3, dy: Self.pillMarginInPoints)
-        guard !insideTheFrame.isNull, insideTheFrame.width > 0, insideTheFrame.height > 0 else { return wantedCenter }
-        return CGPoint(x: min(max(wantedCenter.x, insideTheFrame.minX), insideTheFrame.maxX), y: min(max(wantedCenter.y, insideTheFrame.minY), insideTheFrame.maxY))
+        let lowestX = videoRect.minX + Self.pillHalfWidthInPoints + Self.pillMarginInPoints
+        let highestX = videoRect.maxX - Self.pillHalfWidthInPoints - Self.pillMarginInPoints
+        let lowestY = videoRect.minY + Self.pillHalfHeightInPoints + Self.pillMarginInPoints
+        let highestY = videoRect.maxY - Self.pillHalfHeightInPoints - Self.controlsHeightAtTheBottomInPoints
+        guard lowestX < highestX, lowestY < highestY else { return wantedCenter }
+        return CGPoint(x: min(max(wantedCenter.x, lowestX), highestX), y: min(max(wantedCenter.y, lowestY), highestY))
     }
 
     static let pillGapAboveTheTopInPoints = 26.0
-    static let pillMarginInPoints = 24.0
+    static let pillMarginInPoints = 12.0
+    /// Half the pill's size, with room for the longest size words, such as "31.5″ wide · 32.5″ tall" in 13 point semibold.
+    static let pillHalfWidthInPoints = 100.0
+    static let pillHalfHeightInPoints = 15.0
+    /// The status line and the Place button along the panel's bottom, with the panel's 16 point padding and a gap above.
+    static let controlsHeightAtTheBottomInPoints = 72.0
 }
 
 /// The size pill's words, such as "90″ wide · 32″ tall".
@@ -609,8 +631,13 @@ nonisolated func shareOfTheOutlineThePersonCovers(maskBytes: [UInt8], maskWidth:
     guard maskWidth > 0, maskHeight > 0, maskBytes.count >= maskWidth * maskHeight, outline.count >= 3, frameSize.width > 0, frameSize.height > 0 else { return 0 }
     let scaleX = Double(maskWidth) / frameSize.width, scaleY = Double(maskHeight) / frameSize.height
     let outlineInTheMask = outline.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) }
-    let left = max(0, Int(outlineInTheMask.map(\.x).min() ?? 0)), right = min(maskWidth - 1, Int((outlineInTheMask.map(\.x).max() ?? 0).rounded(.up)))
-    let top = max(0, Int(outlineInTheMask.map(\.y).min() ?? 0)), bottom = min(maskHeight - 1, Int((outlineInTheMask.map(\.y).max() ?? 0).rounded(.up)))
+    guard outlineInTheMask.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else { return 0 }
+    // The bounds are clamped to the mask before they become whole numbers, since a corner projected far off the frame
+    // could be past what an Int holds.
+    func clampedColumn(_ x: CGFloat) -> Int { Int(min(max(x, 0), CGFloat(maskWidth - 1))) }
+    func clampedRow(_ y: CGFloat) -> Int { Int(min(max(y, 0), CGFloat(maskHeight - 1))) }
+    let left = clampedColumn(outlineInTheMask.map(\.x).min() ?? 0), right = clampedColumn((outlineInTheMask.map(\.x).max() ?? 0).rounded(.up))
+    let top = clampedRow(outlineInTheMask.map(\.y).min() ?? 0), bottom = clampedRow((outlineInTheMask.map(\.y).max() ?? 0).rounded(.up))
     guard left <= right, top <= bottom else { return 0 }
     var insidePixels = 0, coveredPixels = 0
     for row in top...bottom {

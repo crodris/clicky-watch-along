@@ -999,9 +999,12 @@ struct RoomArtPreviewControllerTests {
         try await waitFor("the table to stand where the learner clicked") { harness.artIsShowing() }
         #expect(worker.floorRequests.last?.anchor == CGPoint(x: 320, y: 340))
         #expect(harness.frameProcessor.keyframeAnchors == [nil, CGPoint(x: 300, y: 330), CGPoint(x: 320, y: 340)])
+        // The table stands where the learner clicked, low in the frame, which cuts off its front, so Clicky asks them to
+        // step back once.
         #expect(harness.spokenLines() == [
             "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor.",
             "Here it is, 21.5 inches wide and 17.5 tall.",
+            roomFurnitureStepBackLine,
         ])
         harness.controller.close()
     }
@@ -1209,6 +1212,12 @@ struct RoomArtPreviewControllerTests {
         looks.paintingGate = paintingGate
         let ghostCenter = try #require(harness.ghostCenterInTheFrame())
         harness.recorder.ghostPlacer = nil
+        // A press beside the piece keeps the painting, and only a press on it picks it up.
+        #expect(!harness.controller.aPressPicksTheFurnitureUp(atCameraPixel: CGPoint(x: 5, y: 5)))
+        #expect(harness.controller.aPressPicksTheFurnitureUp(atCameraPixel: ghostCenter))
+        harness.controller.pointerPressed(atCameraPixel: CGPoint(x: 5, y: 5))
+        #expect(harness.artIsShowing())
+        #expect(harness.frameProcessor.timesTheItemWasHidden == 0)
         harness.controller.pointerPressed(atCameraPixel: ghostCenter)
         #expect(harness.controller.phase.furnitureGhostShows)
         #expect(harness.frameProcessor.timesTheItemWasHidden == 1)
@@ -1565,9 +1574,16 @@ struct RoomArtPreviewControllerTests {
         #expect(hypot(loopOutline.point.x - expectedLoopCenter.x, loopOutline.point.y - expectedLoopCenter.y) < 1)
         #expect(loopOutline.keyframeNumber == 1)
 
-        // A press off the placed piece picks it up and moves its ghost to the floor under the press, with no measurement.
+        // A press on the placed piece picks it up, and a press off its ghost then moves the ghost to the floor under the
+        // press, with no measurement.
         let pressPixel = CGPoint(x: 600, y: 340)
+        let ghostCenter = try #require(harness.ghostCenterInTheFrame())
+        harness.recorder.ghostPlacer = nil
+        harness.controller.pointerPressed(atCameraPixel: ghostCenter)
+        harness.controller.pointerReleased()
         harness.controller.pointerPressed(atCameraPixel: pressPixel)
+        harness.controller.pointerReleased()
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
         try await waitFor("the placement where the learner pressed") { harness.frameProcessor.furnitureLayersShown.count == 2 }
         let pressedFloorPoint = try #require(firstFloor.moved(toAnchorPixel: pressPixel)?.center)
         let ghost = try #require(harness.controller.furnitureGhost)
@@ -1712,6 +1728,20 @@ struct RoomArtPreviewControllerTests {
         // 30 cm toward the image's left.
         #expect(abs(simd_length(afterTheNudge.footprintCenter - before.footprintCenter) - 0.3) < 1e-6)
         #expect(afterTheNudge.footprintCenter.x < before.footprintCenter.x)
+        // A distance that moves nothing, or one that takes the whole piece out of view, fails and leaves the ghost.
+        #expect(!harness.controller.nudgeTheFurniture(.left, distanceCentimeters: 0, turnDegrees: nil))
+        #expect(!harness.controller.nudgeTheFurniture(.left, distanceCentimeters: -40, turnDegrees: nil))
+        #expect(!harness.controller.nudgeTheFurniture(.left, distanceCentimeters: .infinity, turnDegrees: nil))
+        #expect(!harness.controller.nudgeTheFurniture(.left, distanceCentimeters: 1e20, turnDegrees: nil))
+        #expect(harness.controller.furnitureGhost?.shownPose == afterTheNudge)
+
+        // The room lost while the ghost shows says so in the status line, until it is found.
+        harness.frameProcessor.reportTheSurface(lost: true)
+        try await waitFor("the controller to hear the floor is lost") { harness.controller.theSurfaceIsLost }
+        #expect(harness.statusLine() == RoomArtSurfaceKind.floor.lostLine)
+        harness.frameProcessor.reportTheSurface(lost: false)
+        try await waitFor("the controller to hear the floor is found") { !harness.controller.theSurfaceIsLost }
+        #expect(harness.statusLine() == roomFurnitureGhostStatusLine)
 
         let ghostCenter = try #require(harness.ghostCenterInTheFrame())
         func frontAngle() -> Double { atan2(harness.controller.furnitureGhost?.shownPose.towardTheFront.x ?? 0, -(harness.controller.furnitureGhost?.shownPose.towardTheFront.z ?? 0)) * 180 / .pi }

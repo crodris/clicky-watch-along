@@ -735,7 +735,8 @@ struct RoomArtPhaseTests {
         #expect(arranging.startingAMeasurement(id: RoomArtMeasurementID(number: 3)) == arranging)
         #expect(arranging.withTheSurfaceMeasured(.floor(floor), measurementID: secondMeasurement) == arranging)
         #expect(arranging.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: secondMeasurement) == arranging)
-        #expect(arranging.theItemIsPlacedByClicking)
+        // Only a press on the piece picks it up, so the video shows no crosshair beside it.
+        #expect(!arranging.theItemIsPlacedByClicking)
         // Only an arranged piece takes a look: a piece already showing keeps its phase, so "Here it is" is said once.
         let showing = arranging.withTheFurnitureShowing(measurementID: secondMeasurement)
         #expect(showing.withTheFurnitureShowing(measurementID: secondMeasurement) == showing)
@@ -744,6 +745,7 @@ struct RoomArtPhaseTests {
         // whether its look shows or is still on its way, and the camera failing ends it.
         let thirdPlacement = RoomArtMeasurementID(number: 3)
         #expect(showing.startingAMeasurement(id: thirdPlacement) == showing)
+        #expect(!showing.theItemIsPlacedByClicking)
         #expect(showing.pickingTheFurnitureBackUp(placementID: thirdPlacement) == .placingTheFurniture(id: thirdPlacement, item: .furniture(furniture()), surface: .floor(floor)))
         #expect(arranging.pickingTheFurnitureBackUp(placementID: thirdPlacement) == .placingTheFurniture(id: thirdPlacement, item: .furniture(furniture()), surface: .floor(floor)))
         // Wall art is never picked up, and a ghost waits for its own placement: a click or a late reply changes nothing.
@@ -755,6 +757,10 @@ struct RoomArtPhaseTests {
         #expect(placing.withTheFurnitureShowing(measurementID: secondMeasurement) == placing)
         #expect(placing.pickingTheFurnitureBackUp(placementID: thirdPlacement) == placing)
         #expect(placing.theItemIsPlacedByClicking)
+        #expect(showingTheArt.theItemIsPlacedByClicking)
+        // A floor no ghost can stand on asks for a click on the floor, and only a ghost waiting to be placed takes that.
+        #expect(placing.afterTheGhostCouldNotStand() == .waitingForAFloorClick(.furniture(furniture())))
+        #expect(arranging.afterTheGhostCouldNotStand() == arranging)
         #expect(arranging.afterTheCameraFailed(.noCamera) == .failed(.noCamera))
         #expect(arranging.closing() == .closed)
     }

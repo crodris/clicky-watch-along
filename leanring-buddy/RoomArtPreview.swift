@@ -341,8 +341,12 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
         var artCorners: [CGPoint]?
         var fadingArtCorners: [CGPoint]?
-        if let placedArt, let trackStep {
+        // The lost state is reported whenever the tracker follows the room, so it also covers the ghost, which has no placed
+        // art, and a painting is never made on a frame whose room is lost.
+        if let trackStep, !shirtTryOnIsOn {
             reportWhetherTheSurfaceIsLost(trackStep.theArtIsHidden)
+        }
+        if let placedArt, let trackStep {
             if !trackStep.theArtIsHidden, let cameraWarp {
                 let currentCorners = placedArt.currentCorners(after: cameraWarp)
                 artCorners = smoothedCorners(previous: smoothedArtCorners, current: currentCorners)
@@ -1094,8 +1098,6 @@ final class RoomArtPreviewController: ObservableObject {
     private var furnitureCutoutJPEG: Data?
     /// The composite service said it is not set up, so no later placement in this panel asks it again.
     private var compositeServiceIsUnavailable = false
-    /// The latest furniture spot shows only part of the piece, so Clicky asks the learner to step back.
-    fileprivate var theWholePieceDoesNotShow = false
     private var stepBackWasSaid = false
 
     // MARK: The ghost
@@ -1265,7 +1267,6 @@ final class RoomArtPreviewController: ObservableObject {
         keyframeOfTheLatestMeasurement = nil
         furnitureCutoutJPEG = nil
         compositeServiceIsUnavailable = false
-        theWholePieceDoesNotShow = false
         stepBackWasSaid = false
         forgetTheGhost()
         earlyMeasurement?.cancel()
@@ -1322,10 +1323,10 @@ final class RoomArtPreviewController: ObservableObject {
     // MARK: Placing the ghost
 
     /// The pointer pressed on the video. While the ghost shows, it grabs the ghost, or moves it there when the press is
-    /// off it. On placed furniture, it picks the piece back up as its ghost first. Anywhere else, a press places the item
-    /// the way a click always has (`placeTheItem`).
+    /// off it. A press on placed furniture picks the piece back up as its ghost first (`aPressPicksTheFurnitureUp`).
+    /// Anywhere else, a press places the item the way a click always has (`placeTheItem`).
     func pointerPressed(atCameraPixel cameraPixel: CGPoint) {
-        if phase.pickingTheFurnitureBackUp(placementID: RoomArtMeasurementID(number: 0)) != phase {
+        if aPressPicksTheFurnitureUp(atCameraPixel: cameraPixel) {
             pickTheFurnitureBackUp()
         }
         guard phase.furnitureGhostShows else {
@@ -1363,17 +1364,32 @@ final class RoomArtPreviewController: ObservableObject {
         moveTheGhost(to: ghost)
     }
 
+    /// Whether a press there picks placed furniture back up: a press on the piece while it shows or is being painted, so a
+    /// stray press elsewhere keeps a painting that cost a request, and any press after Clicky could not draw it, since
+    /// nothing is drawn there to aim at.
+    func aPressPicksTheFurnitureUp(atCameraPixel cameraPixel: CGPoint) -> Bool {
+        guard phase.pickingTheFurnitureBackUp(placementID: RoomArtMeasurementID(number: 0)) != phase else { return false }
+        if case .couldNotDraw = phase { return true }
+        guard let furnitureGhost, let trackedWarp = trackedWarpForTheGhost() else { return false }
+        return furnitureGhost.contains(keyframePixel: trackedWarp.keyframeToCurrent.inverted.apply(to: cameraPixel))
+    }
+
     /// Whether a pixel of the current frame is on the ghost, for the open hand over it.
     func ghostIsUnder(cameraPixel: CGPoint) -> Bool {
         guard phase.furnitureGhostShows, let furnitureGhost, let trackedWarp = trackedWarpForTheGhost() else { return false }
         return furnitureGhost.contains(keyframePixel: trackedWarp.keyframeToCurrent.inverted.apply(to: cameraPixel))
     }
 
-    /// "Move it a bit to the left" or "turn it". False when no ghost shows, so the voice tool fails instead of claiming it.
+    /// "Move it a bit to the left" or "turn it". False when no ghost shows, when a direction comes with a distance that
+    /// moves nothing, or when the move would take the whole piece out of view, so the voice tool fails instead of claiming
+    /// it and the ghost stays where it was.
     @discardableResult
     func nudgeTheFurniture(_ direction: RoomFurnitureNudgeDirection?, distanceCentimeters: Double?, turnDegrees: Double?) -> Bool {
         guard phase.furnitureGhostShows, var ghost = furnitureGhost else { return false }
-        ghost.nudge(direction, distanceMeters: (distanceCentimeters ?? roomFurnitureDefaultNudgeCentimeters) / 100, turnDegrees: turnDegrees ?? 0)
+        let distance = distanceCentimeters ?? roomFurnitureDefaultNudgeCentimeters
+        if direction != nil, !(distance.isFinite && distance > 0) { return false }
+        ghost.nudge(direction, distanceMeters: distance / 100, turnDegrees: turnDegrees ?? 0)
+        guard ghost.shareOfTheBoxInTheFrame > 0 else { return false }
         moveTheGhost(to: ghost)
         return true
     }
@@ -1408,6 +1424,8 @@ final class RoomArtPreviewController: ObservableObject {
         guard pickedUpPhase != phase else { return }
         stopTheFurnituresLooks()
         frameProcessor.hideTheItem()
+        // Hiding the item resets the processor's lost report, so the panel's copy starts over with it.
+        theSurfaceIsLost = false
         furnitureGhost = RoomFurnitureGhost(pickedUpFrom: placedGhost)
         furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, sparkStartInThePanel: nil)
         print("Room furniture: picked the piece back up as its ghost")
@@ -1645,19 +1663,20 @@ final class RoomArtPreviewController: ObservableObject {
                 frameProcessor.showTheWallArt(artwork.flattenedImage, keyframeCorners: keyframeCorners)
             }
             sayHereItIsOnce(item.hereItIsLine)
-            if case .furniture = item, theWholePieceDoesNotShow, !stepBackWasSaid {
+            // Whether the whole piece shows is read from where the learner placed its ghost, not from the spot search.
+            if case .furniture = item, let furnitureGhost, furnitureGhost.shareOfTheBoxInTheFrame < roomFurnitureShareOfTheBoxThatShowsWhole, !stepBackWasSaid {
                 stepBackWasSaid = true
                 environment.speak(roomFurnitureStepBackLine, false)
             }
         case .placingTheFurniture(_, let item, let surface):
-            theSurfaceIsLost = false
             stopTheFurnituresLooks()
             // A pick-up made its ghost already. The first time, the ghost stands where the spot search put the piece, and its
             // spark leaves the measuring loop's line.
             guard furnitureGhost == nil else { return }
             guard case .furniture(let furniture) = item, case .floor(let floor) = surface,
                   let ghost = RoomFurnitureGhost(standingOn: floor, wall: wallOfTheLatestMeasurement, widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters) else {
-                print("Room furniture: the ghost cannot stand on this floor")
+                print("Room furniture: the ghost cannot stand on this floor, so the panel asks for a click on the floor")
+                apply(phase.afterTheGhostCouldNotStand())
                 return
             }
             furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, sparkStartInThePanel: loopSparkInThePanel())
@@ -1665,7 +1684,6 @@ final class RoomArtPreviewController: ObservableObject {
             print("Room furniture: the ghost shows\(ghost.shownPose.isSnappedToTheWall ? ", square to the wall" : "")")
             startPaintingAhead(for: ghost, furniture: furniture)
         case .arranging(let measurementID, let item, let surface):
-            theSurfaceIsLost = false
             stopTheFurnituresLooks()
             guard case .furniture(let furniture) = item, case .floor(let floor) = surface, let keyframe = keyframeOfTheLatestMeasurement,
                   let ghost = furnitureGhost, let boxInTheKeyframe = ghost.keyframeBoxCorners else {
@@ -1781,7 +1799,6 @@ extension RoomArtPreviewController {
         if let measuredFloor, let floorForThePiece {
             guard let wall, !measuredFloor.agrees(withTheWall: wall) else { return floorForThePiece }
             print("Room furniture: the measured floor is not level with the wall, so it is a desk or a bed, not the floor")
-            theWholePieceDoesNotShow = false
         }
         if let wall, case .furniture(let furniture) = item,
            let inferredFloor = FloorPlane.inferred(fromTheWall: wall, itemDepthMeters: furniture.depthMeters),
@@ -1796,9 +1813,9 @@ extension RoomArtPreviewController {
 
     /// The floor anchored where the whole piece shows (`roomFurnitureSpotWhereTheWholePieceFits`), since the bare spot it was
     /// measured at is often a corner where the frame cuts the piece off. A click keeps the spot the learner clicked, and a
-    /// piece no spot shows whole is placed where most of it shows, with the step back line said once after "Here it is".
+    /// piece no spot shows whole is placed where most of it shows. Where the learner places its ghost decides the step back
+    /// line, said once after "Here it is" when the placed piece does not all show.
     private func floorWhereTheWholePieceShows(_ measuredFloor: FloorPlane, on keyframe: RoomArtKeyframe, for item: RoomArtPlacedItem?, anchorWasClicked: Bool) -> FloorPlane {
-        theWholePieceDoesNotShow = false
         guard !anchorWasClicked, case .furniture(let furniture) = item else { return measuredFloor }
         let spot = roomFurnitureSpotWhereTheWholePieceFits(
             measuredFloor: measuredFloor,
@@ -1809,7 +1826,6 @@ extension RoomArtPreviewController {
             frameSize: CGSize(width: measuredFloor.principalPoint.x * 2, height: measuredFloor.principalPoint.y * 2),
             texture: keyframe.floorTexture
         )
-        theWholePieceDoesNotShow = !spot.wholePieceFits
         print("Room furniture: \(spot.wholePieceFits ? "moved the piece to where all of it shows" : "no spot shows the whole piece, so it stands where most of it shows")")
         // The loop outlined the bare spot the floor was measured at, so it moves to where the piece will stand.
         if let footprintCenter = roomFurnitureFootprintCenterInTheKeyframe(
@@ -2116,7 +2132,9 @@ extension RoomArtPhase {
     /// A click places a wall or floor item, so the video shows the crosshair in those phases and not for a shirt.
     var theItemIsPlacedByClicking: Bool {
         switch self {
-        case .waitingForTheCamera, .measuring, .placingTheFurniture, .arranging, .couldNotDraw, .showing, .moving, .waitingForAFloorClick: return true
+        case .waitingForTheCamera, .measuring, .placingTheFurniture, .couldNotDraw, .moving, .waitingForAFloorClick: return true
+        // Placed furniture moves only by a press on the piece, which shows the open hand, so a press beside it does nothing.
+        case .showing(let item, _, _): return item.surfaceKind != .floor
         default: return false
         }
     }
@@ -2198,6 +2216,7 @@ private struct RoomArtPanelView: View {
     let metalLayer: CAMetalLayer
     @State private var closeButtonIsHovered = false
     @State private var placeButtonIsHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var ghostOpacity: Double? {
         switch previewController.phase {
@@ -2222,7 +2241,7 @@ private struct RoomArtPanelView: View {
                 },
                 pointerIsOnTheGhost: { cameraPixel in previewController.ghostIsUnder(cameraPixel: cameraPixel) },
                 theGhostIsHeld: { previewController.furnitureGhost?.isBeingDragged == true },
-                aPressPicksTheFurnitureUp: { previewController.phase.pickingTheFurnitureBackUp(placementID: RoomArtMeasurementID(number: 0)) != previewController.phase }
+                aPressPicksTheFurnitureUp: { cameraPixel in previewController.aPressPicksTheFurnitureUp(atCameraPixel: cameraPixel) }
             )
             if !previewController.loopState.isHidden {
                 RoomArtLoopView(
@@ -2307,10 +2326,11 @@ private struct RoomArtPanelView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
             .background(Capsule().fill(previewController.loopAccentColor))
-            .overlay(Capsule().stroke(Color.white.opacity(placeButtonIsHovered ? 0.7 : 0.25), lineWidth: placeButtonIsHovered ? 2 : 1))
-            .shadow(color: .black.opacity(0.35), radius: placeButtonIsHovered ? 8 : 4, y: 2)
-            .scaleEffect(placeButtonIsHovered ? 1.04 : 1)
-            .animation(.easeOut(duration: 0.15), value: placeButtonIsHovered)
+            .overlay(Capsule().stroke(DS.Colors.textPrimary.opacity(placeButtonIsHovered ? 0.7 : 0.25), lineWidth: placeButtonIsHovered ? 2 : 1))
+            .shadow(color: DS.Colors.inkOnAccent.opacity(0.35), radius: placeButtonIsHovered ? 8 : 4, y: 2)
+            // Hover grows the button a little on the Snap move, and with Reduce Motion only its edge and shadow change.
+            .scaleEffect(placeButtonIsHovered && !reduceMotion ? 1.04 : 1)
+            .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: placeButtonIsHovered)
         }
         .buttonStyle(.plain)
         .hoverAndPointer { isHovered in placeButtonIsHovered = isHovered }
@@ -2348,7 +2368,7 @@ private struct RoomArtVideoView: NSViewRepresentable {
     let onScroll: (_ deltaY: Double, _ hasPreciseDeltas: Bool, _ isMomentum: Bool, _ cameraPixel: CGPoint) -> Void
     let pointerIsOnTheGhost: (CGPoint) -> Bool
     let theGhostIsHeld: () -> Bool
-    let aPressPicksTheFurnitureUp: () -> Bool
+    let aPressPicksTheFurnitureUp: (CGPoint) -> Bool
 
     func makeNSView(context: Context) -> RoomArtVideoNSView {
         let videoView = RoomArtVideoNSView(metalLayer: metalLayer)
@@ -2376,7 +2396,7 @@ final class RoomArtVideoNSView: NSView {
     var onScroll: (Double, Bool, Bool, CGPoint) -> Void = { _, _, _, _ in }
     var pointerIsOnTheGhost: (CGPoint) -> Bool = { _ in false }
     var theGhostIsHeld: () -> Bool = { false }
-    var aPressPicksTheFurnitureUp: () -> Bool = { false }
+    var aPressPicksTheFurnitureUp: (CGPoint) -> Bool = { _ in false }
     var showsTheCrosshair = true
     private var crosshairTrackingArea: NSTrackingArea?
 
@@ -2416,7 +2436,7 @@ final class RoomArtVideoNSView: NSView {
     private func setTheCursor(for event: NSEvent) {
         if theGhostIsHeld() {
             NSCursor.closedHand.set()
-        } else if aPressPicksTheFurnitureUp() || cameraPixel(of: event).map(pointerIsOnTheGhost) == true {
+        } else if let pointedCameraPixel = cameraPixel(of: event), aPressPicksTheFurnitureUp(pointedCameraPixel) || pointerIsOnTheGhost(pointedCameraPixel) {
             NSCursor.openHand.set()
         } else {
             (showsTheCrosshair ? NSCursor.crosshair : NSCursor.arrow).set()

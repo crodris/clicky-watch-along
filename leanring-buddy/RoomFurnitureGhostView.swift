@@ -64,7 +64,7 @@ private struct RoomFurnitureGhostSizePill: View {
             .foregroundStyle(DS.Colors.textPrimary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(Capsule().fill(Color(red: 20 / 255, green: 23 / 255, blue: 30 / 255).opacity(0.92)))
+            .background(Capsule().fill(DS.Colors.calloutSurface.opacity(0.92)))
             .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
             .fixedSize()
             .scaleEffect(isShown || reduceMotion ? 1 : DS.Move.popStartScale)

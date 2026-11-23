@@ -272,6 +272,15 @@ struct RoomFurnitureGhostWallSnapTests {
         #expect(abs(degreesBetween(ghost.shownPose.towardTheFront, before.towardTheFront) - 90) < 1e-6)
     }
 
+    @Test func aSpokenNudgeMovesAtMostThreeMetersAndTheShareInTheFrameFollowsTheMove() throws {
+        var ghost = try sofaGhost(wall: nil)
+        let before = ghost.shownPose.footprintCenter
+        #expect(ghost.shareOfTheBoxInTheFrame > 0.99)
+        ghost.nudge(.left, distanceMeters: 2e18, turnDegrees: 0)
+        #expect(abs(simd_length(ghost.shownPose.footprintCenter - before) - roomFurnitureLongestNudgeMeters) < 1e-6)
+        #expect(ghost.shareOfTheBoxInTheFrame < 0.99)
+    }
+
     @Test func aPickedUpPieceKeepsThePoseItWasPlacedIn() throws {
         let floor = floorAhead()
         let wall = wallBehind(floor, metersBeyond: 1.5)
@@ -372,6 +381,13 @@ struct RoomFurnitureGhostPersonShareTests {
         // An outline off the frame, or with no area, covers nothing.
         #expect(share(CGRect(x: 200, y: 200, width: 10, height: 10)) == 0)
         #expect(shareOfTheOutlineThePersonCovers(maskBytes: maskBytes, maskWidth: 10, maskHeight: 10, outlineInFramePixels: [.zero, CGPoint(x: 5, y: 5)], frameSize: frameSize) == 0)
+        // A box projected past what an Int holds, as a ghost nudged absurdly far would be, is measured inside the mask
+        // instead of trapping, and a corner that is not a number covers nothing.
+        #expect(share(CGRect(x: -1e30, y: -1e30, width: 2e30, height: 2e30)) == 0.5)
+        #expect(shareOfTheOutlineThePersonCovers(
+            maskBytes: maskBytes, maskWidth: 10, maskHeight: 10,
+            outlineInFramePixels: [CGPoint(x: Double.nan, y: 0), CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 100)], frameSize: frameSize
+        ) == 0)
     }
 }
 
@@ -490,6 +506,28 @@ struct RoomFurnitureGhostLinesTests {
         #expect(lines.videoRect.insetBy(dx: 1, dy: 1).contains(pill))
         #expect(pill.x > 200 && pill.x < 600)
         #expect(pill.y < 150)
+    }
+
+    @Test func thePillStaysWholeInsideTheFrameAndAboveTheControlsNearAnyEdge() throws {
+        let fit = RoomArtVideoFit(cameraSize: CGSize(width: 1280, height: 720), viewSize: CGSize(width: 960, height: 540))
+        // A box at the frame's right edge and one low near its bottom left corner.
+        let atTheRightEdge = [
+            CGPoint(x: 1200, y: 300), CGPoint(x: 1279, y: 300), CGPoint(x: 1279, y: 500), CGPoint(x: 1200, y: 500),
+            CGPoint(x: 1210, y: 250), CGPoint(x: 1279, y: 250), CGPoint(x: 1279, y: 450), CGPoint(x: 1210, y: 450),
+        ]
+        let lowAtTheLeft = [
+            CGPoint(x: 0, y: 690), CGPoint(x: 80, y: 690), CGPoint(x: 80, y: 719), CGPoint(x: 0, y: 719),
+            CGPoint(x: 5, y: 680), CGPoint(x: 75, y: 680), CGPoint(x: 75, y: 710), CGPoint(x: 5, y: 710),
+        ]
+        for boxCorners in [atTheRightEdge, lowAtTheLeft] {
+            let lines = try #require(RoomFurnitureGhostLines(keyframeBoxCorners: boxCorners, keyframeToCurrent: .identity, fit: fit, cameraSize: CGSize(width: 1280, height: 720)))
+            let pillRect = CGRect(
+                x: lines.pillCenter.x - RoomFurnitureGhostLines.pillHalfWidthInPoints, y: lines.pillCenter.y - RoomFurnitureGhostLines.pillHalfHeightInPoints,
+                width: RoomFurnitureGhostLines.pillHalfWidthInPoints * 2, height: RoomFurnitureGhostLines.pillHalfHeightInPoints * 2
+            )
+            #expect(lines.videoRect.contains(pillRect))
+            #expect(pillRect.maxY <= lines.videoRect.maxY - RoomFurnitureGhostLines.controlsHeightAtTheBottomInPoints)
+        }
     }
 
     @Test func noLinesWithoutEightCornersOrAFrame() {

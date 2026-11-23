@@ -1085,6 +1085,13 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         }
     }
 
+    /// No ghost can stand on the measured floor, such as a floor seen too steeply for the piece's box to project, so
+    /// nothing could move or place it: the panel asks for a click on the floor, which measures it again there.
+    func afterTheGhostCouldNotStand() -> RoomArtPhase {
+        guard case .placingTheFurniture(_, let item, _) = self else { return self }
+        return .waitingForAFloorClick(item)
+    }
+
     /// The ghost shows, so a drag moves it and "right there" places it.
     var furnitureGhostShows: Bool {
         if case .placingTheFurniture = self { return true }
