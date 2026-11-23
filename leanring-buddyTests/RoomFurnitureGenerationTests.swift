@@ -627,6 +627,24 @@ struct RoomFurnitureGenerationClientTests {
         #expect(withoutOrientation["itemFacing"] == nil && withoutOrientation["backAgainstTheWall"] == nil)
     }
 
+    @Test func theCompositeSaysWhetherTheFramesBottomCutsOffThePiecesFeet() async throws {
+        answer("room-furniture-composite", statusCode: 200, body: compositeReply())
+        let furnitureClient = client()
+
+        for itemContinuesPastTheFrameBottom in [true, false] {
+            _ = try await furnitureClient.paintTheItemIntoTheKeyframe(
+                keyframeJPEG: keyframeJPEG, keyframeWidth: 200, keyframeHeight: 100, productJPEG: productJPEG, maskPNG: maskPNG,
+                itemTitle: "Dawson sofa", itemSizeWords: "90 inches wide and 32 tall",
+                orientation: RoomFurniturePaintingOrientation(facing: .camera, backAgainstTheWall: true, itemContinuesPastTheFrameBottom: itemContinuesPastTheFrameBottom)
+            )
+        }
+
+        let sentFlags = try requestBodies(of: "room-furniture-composite").map { sentBody in
+            try #require((JSONSerialization.jsonObject(with: sentBody) as? [String: Any])?["itemContinuesPastTheFrameBottom"] as? Bool)
+        }
+        #expect(sentFlags == [true, false])
+    }
+
     @Test func aTitleOverTheWorkersLimitIsCutBeforeBothRequestsAreSent() async throws {
         let longTitle = String(repeating: "Sofa ", count: 100)
         answer("room-furniture-composite", statusCode: 200, body: compositeReply())

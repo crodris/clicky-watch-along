@@ -654,6 +654,7 @@ final class RoomFurnitureGenerationClient {
         if let orientation {
             requestBody["itemFacing"] = orientation.facing.rawValue
             requestBody["backAgainstTheWall"] = orientation.backAgainstTheWall
+            requestBody["itemContinuesPastTheFrameBottom"] = orientation.itemContinuesPastTheFrameBottom
         }
         let responseData = try await post(requestBody, to: compositeURL)
 

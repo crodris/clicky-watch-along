@@ -251,6 +251,101 @@ struct RoomFurniturePaintedCompositeTests {
         #expect(result.layers != nil, "measured \(String(describing: result.paintedRows)) at \(String(describing: result.paintedHeightRatio))")
     }
 
+    /// A sofa seen by a laptop camera with no floor in view: its whole floor footprint is below the 720 row frame, and the
+    /// frame cuts it off at row 719.
+    private let sofaWithItsFeetBelowTheFrame = [
+        CGPoint(x: 300, y: 500), CGPoint(x: 900, y: 500), CGPoint(x: 900, y: 1020), CGPoint(x: 300, y: 1020),
+        CGPoint(x: 400, y: 420), CGPoint(x: 800, y: 420), CGPoint(x: 800, y: 800), CGPoint(x: 400, y: 800),
+    ]
+
+    /// The keyframe with a white piece in columns 420 to 780 from `topRow` to the row before `bottomRow`.
+    private func layersOfASofaWithItsFeetBelowTheFrame(paintedFromRow topRow: Int, toRow bottomRow: Int) throws -> RoomFurnitureKeyframeLayers? {
+        let keyframe = try #require(roomFurnitureTestKeyframe())
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: sofaWithItsFeetBelowTheFrame, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        let context = try #require(CGContext(data: nil, width: keyframe.width, height: keyframe.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(keyframe, in: CGRect(x: 0, y: 0, width: keyframe.width, height: keyframe.height))
+        context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 420, y: keyframe.height - bottomRow, width: 360, height: bottomRow - topRow))
+        return RoomFurniturePaintedComposite.itemLayers(painted: try #require(context.makeImage()), keyframe: keyframe, maskPNG: maskPNG, projectedBox: sofaWithItsFeetBelowTheFrame).layers
+    }
+
+    @Test func aPaintingWhoseFeetAreCutOffByTheFramesBottomIsKeptEvenWhenItEndsAFewRowsAboveIt() throws {
+        // The footprint clamps to the bottom row 719, which left 0.15 of a row of vertical slack, so the painter's feet
+        // 20 rows above the bottom were refused. The footprint is 220 rows tall before the cut, so the slack is 33 rows, and
+        // the painted rows 400 to 699 end inside it.
+        #expect(try layersOfASofaWithItsFeetBelowTheFrame(paintedFromRow: 400, toRow: 700) != nil)
+        // Painted down to the bottom row, as the frame cuts the piece off, is kept too.
+        #expect(try layersOfASofaWithItsFeetBelowTheFrame(paintedFromRow: 400, toRow: 720) != nil)
+    }
+
+    @Test func aPaintingThatStopsWellAboveTheFramesBottomIsRefusedWhenTheFeetAreBelowIt() throws {
+        // 240 rows tall, so it passes the height checks, but it ends at row 639, 80 rows above the bottom row and 47 above
+        // the footprint's slack. A piece whose feet are below the frame runs down to the bottom edge, so this one floats.
+        #expect(try layersOfASofaWithItsFeetBelowTheFrame(paintedFromRow: 400, toRow: 640) == nil)
+    }
+
+    /// A low table seen by a laptop camera whose front feet are below the 720 row frame and whose back feet are in it: its
+    /// footprint runs from row 560 down past the bottom row, so only the part from row 560 to 719 shows.
+    private let lowTableWithItsBackFeetInTheFrame = [
+        CGPoint(x: 300, y: 600), CGPoint(x: 900, y: 600), CGPoint(x: 900, y: 740), CGPoint(x: 300, y: 740),
+        CGPoint(x: 400, y: 520), CGPoint(x: 800, y: 520), CGPoint(x: 800, y: 560), CGPoint(x: 400, y: 560),
+    ]
+
+    /// A chair whose box is deep: its back feet are on row 700, its front feet below the frame, so only 19 rows of its
+    /// footprint show.
+    private let deepChairWithItsFrontFeetBelowTheFrame = [
+        CGPoint(x: 500, y: 640), CGPoint(x: 700, y: 640), CGPoint(x: 700, y: 740), CGPoint(x: 500, y: 740),
+        CGPoint(x: 520, y: 540), CGPoint(x: 680, y: 540), CGPoint(x: 680, y: 700), CGPoint(x: 520, y: 700),
+    ]
+
+    /// The keyframe with a white piece in `columns` from `topRow` to the row before `bottomRow`, checked against `box`.
+    private func layersOfAPiece(
+        in box: [CGPoint], paintedFromRow topRow: Int, toRow bottomRow: Int, columns: Range<Int>
+    ) throws -> RoomFurnitureKeyframeLayers? {
+        let keyframe = try #require(roomFurnitureTestKeyframe())
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: box, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        let context = try #require(CGContext(data: nil, width: keyframe.width, height: keyframe.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(keyframe, in: CGRect(x: 0, y: 0, width: keyframe.width, height: keyframe.height))
+        context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: columns.lowerBound, y: keyframe.height - bottomRow, width: columns.count, height: bottomRow - topRow))
+        return RoomFurniturePaintedComposite.itemLayers(painted: try #require(context.makeImage()), keyframe: keyframe, maskPNG: maskPNG, projectedBox: box).layers
+    }
+
+    @Test func aPieceWhoseBackFeetAreInTheFrameMayStandAnywhereOnTheVisiblePartOfItsFootprint() throws {
+        // The footprint's visible part runs from row 560 to the bottom row, and it is 180 rows tall before the cut, so the
+        // floor contact may lie from row 533 down. A piece ending at row 689 stands on the visible floor. The band that
+        // refused it (within 10 percent of the outline's height of the bottom row, row 699) was meant for a footprint with
+        // no part in the frame.
+        #expect(try layersOfAPiece(in: lowTableWithItsBackFeetInTheFrame, paintedFromRow: 560, toRow: 690, columns: 320..<880) != nil)
+        #expect(try layersOfAPiece(in: lowTableWithItsBackFeetInTheFrame, paintedFromRow: 560, toRow: 720, columns: 320..<880) != nil)
+        #expect(try layersOfAPiece(in: deepChairWithItsFrontFeetBelowTheFrame, paintedFromRow: 560, toRow: 700, columns: 540..<660) != nil)
+    }
+
+    @Test func aPieceWhoseBackFeetAreInTheFrameIsRefusedWhenItFloatsAboveTheVisibleFootprint() throws {
+        // The visible footprint starts at row 700 and the slack is 6 rows, so a piece ending at row 639 floats 55 rows above it
+        // even though its 100 rows pass the height checks. The same piece 90 rows lower stands on it.
+        #expect(try layersOfAPiece(in: deepChairWithItsFrontFeetBelowTheFrame, paintedFromRow: 540, toRow: 640, columns: 540..<660) == nil)
+        #expect(try layersOfAPiece(in: deepChairWithItsFrontFeetBelowTheFrame, paintedFromRow: 630, toRow: 720, columns: 540..<660) != nil)
+    }
+
+    @Test func aFootprintTheFrameCutOffGetsItsVerticalSlackFromItsHeightBeforeTheCut() {
+        // The footprint is 600 columns wide and 220 rows tall before the frame cuts it to a line on the bottom row.
+        let clampedToTheBottomRow = [CGPoint(x: 900, y: 719), CGPoint(x: 300, y: 719), CGPoint(x: 800, y: 719), CGPoint(x: 400, y: 719)]
+        // 15 percent of 220 rows is 33 rows of slack above the line, and 15 percent of 600 columns is 90 beside it.
+        #expect(RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 600, y: 690), footprint: clampedToTheBottomRow, footprintHeightBeforeClamping: 220))
+        #expect(!RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 600, y: 680), footprint: clampedToTheBottomRow, footprintHeightBeforeClamping: 220))
+        #expect(RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 985, y: 719), footprint: clampedToTheBottomRow, footprintHeightBeforeClamping: 220))
+        #expect(!RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 995, y: 719), footprint: clampedToTheBottomRow, footprintHeightBeforeClamping: 220))
+        // Without the height before the cut, a line has under one row of slack.
+        #expect(!RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 600, y: 690), footprint: clampedToTheBottomRow))
+        // A footprint the frame cuts in part has its visible top for the upper limit: row 560, less 27 rows.
+        let cutInPart = [CGPoint(x: 900, y: 719), CGPoint(x: 300, y: 719), CGPoint(x: 800, y: 560), CGPoint(x: 400, y: 560)]
+        #expect(RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 600, y: 535), footprint: cutInPart, footprintHeightBeforeClamping: 180))
+        #expect(!RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 600, y: 530), footprint: cutInPart, footprintHeightBeforeClamping: 180))
+    }
+
     @Test func theFloorContactMustLandOnTheFootprint() {
         let footprint = [CGPoint(x: 700, y: 500), CGPoint(x: 500, y: 500), CGPoint(x: 680, y: 460), CGPoint(x: 520, y: 460)]
         #expect(RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 600, y: 500), footprint: footprint))
