@@ -27,7 +27,9 @@ enum RoomArtLoopState: Equatable {
     /// The whole line stays where a click arranges the item again, with no glyph lapping it, since no work runs until the
     /// learner clicks.
     case waitingForAClick(beganAt: TimeInterval)
-    case fadingOut(beganAt: TimeInterval)
+    /// `tracesTheLine` is the state it left: a lapping glyph keeps lapping while the line fades, and a still line fades with
+    /// no glyph appearing on it.
+    case fadingOut(beganAt: TimeInterval, tracesTheLine: Bool = true)
 
     /// The panel's phase changed. The loop starts with a measurement, a first one or a click's, a retry click included, and
     /// with a shirt being prepared, and keeps its clock while the work goes on: while furniture waits for its first look
@@ -45,7 +47,8 @@ enum RoomArtLoopState: Equatable {
             return .waitingForAClick(beganAt: now)
         case .showing, .waitingForAFloorClick, .showingTheShirt, .failed:
             switch self {
-            case .drawing(let beganAt), .waitingForAClick(let beganAt): return .fadingOut(beganAt: beganAt)
+            case .drawing(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: true)
+            case .waitingForAClick(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)
             case .hidden, .fadingOut: return self
             }
         case .closed, .readingThePage, .waitingForTheCamera:
@@ -68,14 +71,17 @@ enum RoomArtLoopState: Equatable {
 
     /// Whether the theme's glyph traces and laps the line. A loop waiting for a click shows its whole line still.
     var tracesTheLine: Bool {
-        if case .waitingForAClick = self { return false }
-        return true
+        switch self {
+        case .waitingForAClick: return false
+        case .fadingOut(_, let tracesTheLine): return tracesTheLine
+        case .hidden, .drawing: return true
+        }
     }
 
     var beganAt: TimeInterval? {
         switch self {
         case .hidden: return nil
-        case .drawing(let beganAt), .waitingForAClick(let beganAt), .fadingOut(let beganAt): return beganAt
+        case .drawing(let beganAt), .waitingForAClick(let beganAt), .fadingOut(let beganAt, _): return beganAt
         }
     }
 }
@@ -249,7 +255,7 @@ struct RoomArtLoopDrawingPlan: Equatable {
 
     /// The glyph traces the line from the loop's first moment and keeps lapping it, since the panel has no cursor to fly in.
     /// With Reduce Motion on, the whole line shows at once with no glyph, and the view fades it in.
-    static func at(secondsSinceTheLoopBegan: TimeInterval, reduceMotionIsOn: Bool, tracesTheLine: Bool = true) -> RoomArtLoopDrawingPlan {
+    static func at(secondsSinceTheLoopBegan: TimeInterval, reduceMotionIsOn: Bool, tracesTheLine: Bool) -> RoomArtLoopDrawingPlan {
         if reduceMotionIsOn || !tracesTheLine {
             return RoomArtLoopDrawingPlan(frame: CursorLoopTimeline.Frame(drawnShare: 1, tracer: .lapping(lapShare: 0)), showsTheTracer: false)
         }

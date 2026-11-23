@@ -83,7 +83,11 @@ struct RoomArtLoopStateTests {
         #expect(waiting.after(phaseChangedTo: retrying, at: 40) == .drawing(beganAt: 40))
         // The piece showing at last fades the still line.
         let showing = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: nil)
-        #expect(waiting.after(phaseChangedTo: showing, at: 41) == .fadingOut(beganAt: 10))
+        let fadingStill = waiting.after(phaseChangedTo: showing, at: 41)
+        #expect(fadingStill == .fadingOut(beganAt: 10, tracesTheLine: false))
+        // No glyph appears on a still line while it fades.
+        #expect(!fadingStill.tracesTheLine)
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showing, at: 41).tracesTheLine)
     }
 
     @Test func aPhaseWithNoMeasurementShowsNoLoopAndStartsNone() {
@@ -251,11 +255,11 @@ struct RoomArtLoopOutlineTests {
     }
 
     @Test func theGlyphTracesTheLineFromTheLoopsStartThenLapsItAndReduceMotionDrawsTheWholeLineWithNoGlyph() {
-        let tracing = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 0.5, reduceMotionIsOn: false)
+        let tracing = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 0.5, reduceMotionIsOn: false, tracesTheLine: true)
         #expect(tracing.showsTheTracer)
         #expect(tracing.frame == CursorLoopTimeline.Frame(drawnShare: 0.5, tracer: .tracing(share: 0.5)))
 
-        let lapping = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 1 + 1.1, reduceMotionIsOn: false)
+        let lapping = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 1 + 1.1, reduceMotionIsOn: false, tracesTheLine: true)
         #expect(lapping.showsTheTracer)
         #expect(lapping.frame.drawnShare == 1)
         guard case .lapping(let lapShare) = lapping.frame.tracer else {
@@ -265,7 +269,7 @@ struct RoomArtLoopOutlineTests {
         #expect(abs(lapShare - 0.5) < 1e-9)
 
         for seconds in [0.0, 0.65, 9] {
-            let reduced = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: seconds, reduceMotionIsOn: true)
+            let reduced = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: seconds, reduceMotionIsOn: true, tracesTheLine: true)
             #expect(!reduced.showsTheTracer)
             #expect(reduced.frame.drawnShare == 1)
         }
