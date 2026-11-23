@@ -63,6 +63,26 @@ nonisolated func shirtStillVoiceRequest(for transcript: String) -> ShirtStillVoi
     return nil
 }
 
+/// A click on the panel's shirt button within this many seconds of it changing role is not counted, as the "Add theme?"
+/// card ignores clicks for its first 0.4 seconds.
+nonisolated let shirtButtonSecondsIgnoredAfterItChanges = 0.4
+
+/// Whether a click on the shirt button at `now` counts, given when the button last changed role.
+nonisolated func shirtButtonPressCounts(atUptime now: TimeInterval, theButtonChangedAt changedAt: TimeInterval) -> Bool {
+    now - changedAt >= shirtButtonSecondsIgnoredAfterItChanges
+}
+
+extension RoomArtPhase {
+    /// What the shirt panel can do by voice or by its button in this phase.
+    nonisolated var shirtStillVoiceTargets: ShirtStillVoiceTargets {
+        switch self {
+        case .showingTheShirt: return .livePreview
+        case .paintingTheShirt, .showingThePaintedShirt: return .paintedStill
+        default: return .none
+        }
+    }
+}
+
 /// What the shirt panel can do by voice right now.
 nonisolated enum ShirtStillVoiceTargets: Equatable, Sendable {
     /// No shirt shows, so the phrases go to the router as before.
@@ -109,6 +129,8 @@ nonisolated enum ShirtPaintingFailure: Error, Equatable, Sendable {
     case maskNotMade
     /// The Worker has no OpenAI key.
     case serviceIsNotSetUp
+    /// The Worker refused the app secret, which trying again does not change.
+    case appSecretRefused
     /// Any other failed call: a refused edit, a timeout, or a reply that could not be pasted.
     case paintingFailed
 
@@ -117,6 +139,7 @@ nonisolated enum ShirtPaintingFailure: Error, Equatable, Sendable {
         case .nobodyToPaintOn: return "Step in front of the camera, then say right there."
         case .maskNotMade: return "I couldn't find your shirt in that frame. Try again with your shirt in view."
         case .serviceIsNotSetUp: return "Painting a shirt on you needs Clicky's OpenAI key."
+        case .appSecretRefused: return RoomArtFailure.appSecretMissing.spokenLine
         case .paintingFailed: return "I couldn't put it on you that time. Say right there to try again."
         }
     }
@@ -384,8 +407,8 @@ nonisolated enum ShirtPaintMask {
         for handPoints in bodyParts.hands where !handPoints.isEmpty {
             let hull = convexHull(of: handPoints).map { SIMD2(Double($0.x), Double($0.y)) }
             let radius = handPoints.count == 1 ? wristRadiusInShoulderWidths * shoulderWidth : handMargin
-            let xs = handPoints.map { Double($0.x) }, ys = handPoints.map { Double($0.y) }
-            guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max(),
+            let handXValues = handPoints.map { Double($0.x) }, handYValues = handPoints.map { Double($0.y) }
+            guard let minX = handXValues.min(), let maxX = handXValues.max(), let minY = handYValues.min(), let maxY = handYValues.max(),
                   [minX, maxX, minY, maxY, radius].allSatisfy(\.isFinite) else { continue }
             let left = max(0, Int((minX - radius).rounded(.down))), right = min(width - 1, Int((maxX + radius).rounded(.up)))
             let top = max(0, Int((minY - radius).rounded(.down))), bottom = min(height - 1, Int((maxY + radius).rounded(.up)))
@@ -706,8 +729,6 @@ nonisolated struct ShirtPaintingGarment: Equatable, Sendable {
     let baseColorHex: String
     let printDescription: String
 
-    /// The Worker paints only these kinds, as the try-on does.
-    static let kindsTheWorkerPaints: Set<RoomArtGarment> = [.tshirt, .shirt, .sweater, .hoodie, .jacket]
     /// The Worker takes at most this many UTF-16 units of print description.
     static let mostPrintDescriptionUTF16Units = 300
 }
@@ -727,8 +748,8 @@ nonisolated func sRGBHex(ofLinear color: ShirtRGB) -> String {
 /// under 32 pixels on a side.
 nonisolated func shirtPaintingProductJPEG(picture: CGImage, itemCorners: RoomArtCorners) -> Data? {
     let corners = itemCorners.clockwiseFromTopLeft
-    let xs = corners.map(\.x), ys = corners.map(\.y)
-    guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else { return nil }
+    let cornerXValues = corners.map(\.x), cornerYValues = corners.map(\.y)
+    guard let minX = cornerXValues.min(), let maxX = cornerXValues.max(), let minY = cornerYValues.min(), let maxY = cornerYValues.max() else { return nil }
     let cornersBox = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     let cropBox = cornersBox.insetBy(dx: -cornersBox.width * 0.05, dy: -cornersBox.height * 0.05)
         .intersection(CGRect(x: 0, y: 0, width: picture.width, height: picture.height)).integral
@@ -822,6 +843,7 @@ final class ShirtPaintingClient {
         }
         // The paste walks every pixel of the frame, so it runs off the main actor, where the panel draws.
         let pasteContext = ciContext
+        // A CGImage is immutable, so the detached task may read it.
         nonisolated(unsafe) let keyframe = request.keyframe
         let masks = request.masks
         let pastedOrNil = await Task.detached(priority: .userInitiated) {
@@ -836,6 +858,10 @@ final class ShirtPaintingClient {
 
 /// The failure a painting call ends in, for its spoken line.
 nonisolated func shirtPaintingFailure(for error: Error) -> ShirtPaintingFailure {
-    if case RoomFurnitureGenerationError.serviceIsNotSetUp = error { return .serviceIsNotSetUp }
-    return .paintingFailed
+    switch error {
+    case RoomFurnitureGenerationError.serviceIsNotSetUp: return .serviceIsNotSetUp
+    // Every room art route answers 401 to a missing or wrong app secret.
+    case RoomFurnitureGenerationError.workerReturned(statusCode: 401, _): return .appSecretRefused
+    default: return .paintingFailed
+    }
 }

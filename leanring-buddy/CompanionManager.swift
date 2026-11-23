@@ -391,7 +391,12 @@ final class CompanionManager: ObservableObject {
         // shirt's coaching do not.
         speak: { [weak self] line, isAFailure in self?.speakARoomArtLine(line, isAFailure: isAFailure) },
         loopAccentColor: { [weak self] in self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue },
-        endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() }
+        endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() },
+        // A painting or a return to the preview, by voice or by a click, is this request's own, so its line is not dropped.
+        theLearnerAskedThePanel: { [weak self] in
+            guard let self else { return }
+            self.roomArtRequest.continued(atPushToTalkPressCount: self.pushToTalkPressCount)
+        }
     ))
     /// The room art line waiting for its turn or playing. A new line replaces it, and every close of the panel ends it.
     private var roomArtSpeechTask: Task<Void, Never>?
@@ -1745,8 +1750,6 @@ final class CompanionManager: ObservableObject {
             print("Instant replay: replaying on request")
             instantReplay.playFromTheStart()
         case .shirtPaintedStill(let shirtStillRequest):
-            // The panel answers this press, so its "Here it is on you." is not dropped as a line the learner moved on from.
-            roomArtRequest.continued(atPushToTalkPressCount: pushToTalkPressCount)
             switch shirtStillRequest {
             case .paintIt:
                 print("Shirt painting: painting on request")

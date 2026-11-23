@@ -561,6 +561,8 @@ private final class HarnessRecorder {
     var timesTheSpokenLineWasEnded = 0
     /// How many times the panel had shown each time the live scene was cleared.
     var timesTheSceneWasClearedBeforeThePanel: [Int] = []
+    /// How many times the learner asked the open panel for a painting or a return to the preview.
+    var timesTheLearnerAskedThePanel = 0
 }
 
 @MainActor
@@ -617,6 +619,7 @@ private struct RoomArtHarness {
         (furnitureLooks ?? FurnitureLookStub.thatPaintsAtOnce()).apply(to: &environment)
         if let furnitureLookDeadline { environment.waitTheLongestForAFurnitureLook = { await furnitureLookDeadline.wait() } }
         shirtPainting?.apply(to: &environment)
+        environment.theLearnerAskedThePanel = { recorder.timesTheLearnerAskedThePanel += 1 }
         controller = RoomArtPreviewController(environment: environment, frameProcessor: frameProcessor, panelPresenter: panel)
         self.panel = panel
         self.worker = worker
@@ -1714,6 +1717,67 @@ struct RoomArtPreviewControllerTests {
         harness.controller.paintTheShirt()
         try await waitFor("the second painted still") { harness.controller.phase == .showingThePaintedShirt(title: "Linen shirt") }
         #expect(harness.spokenLines().filter { $0 == "Here it is on you." }.count == 2)
+        harness.controller.close()
+    }
+
+    @Test func theButtonPaintsAndGoesBackAsTheVoiceDoesAndIgnoresAClickRightAfterItChanges() async throws {
+        let shirtPainting = ShirtPaintingStub()
+        shirtPainting.secondsBeforeThePaintingReturns = 0.3
+        let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
+        let later = ProcessInfo.processInfo.systemUptime + 60
+
+        harness.controller.pressTheShirtButton(atUptime: later)
+        #expect(harness.controller.shirtStillVoiceTargets == .paintedStill)
+        // A click asks the panel as the voice does, so "Here it is on you." is not dropped after an earlier press.
+        #expect(harness.recorder.timesTheLearnerAskedThePanel == 1)
+        // The button is Back to live now, and the second click of a double-click lands right after it changed.
+        harness.controller.pressTheShirtButton()
+        #expect(harness.controller.shirtStillVoiceTargets == .paintedStill)
+        #expect(harness.recorder.timesTheLearnerAskedThePanel == 1)
+
+        try await waitFor("the painted still") { harness.controller.phase == .showingThePaintedShirt(title: "Linen shirt") }
+        harness.controller.pressTheShirtButton(atUptime: later + 60)
+        #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt"))
+        #expect(harness.recorder.timesTheLearnerAskedThePanel == 2)
+        #expect(shirtButtonPressCounts(atUptime: 10.4, theButtonChangedAt: 10) && !shirtButtonPressCounts(atUptime: 10.39, theButtonChangedAt: 10))
+        harness.controller.close()
+    }
+
+    @Test func aRefusedAppSecretSaysSoInsteadOfTryAgain() async throws {
+        let shirtPainting = ShirtPaintingStub()
+        shirtPainting.paintingResult = .failure(RoomFurnitureGenerationError.workerReturned(statusCode: 401, body: ""))
+        let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
+
+        harness.controller.paintTheShirt()
+        try await waitFor("the app secret line") { harness.spokenLines().last == RoomArtFailure.appSecretMissing.spokenLine }
+        #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt"))
+        harness.controller.close()
+    }
+
+    @Test func theCoachingStaysWhenTheLearnerIsOutOfViewOnTheWayBack() async throws {
+        let shirtPainting = ShirtPaintingStub()
+        shirtPainting.secondsBeforeThePaintingReturns = 0.5
+        let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
+        harness.controller.paintTheShirt()
+        // The learner steps out of view while the frame is frozen.
+        harness.frameProcessor.settleTheShirtFraming(on: .standBack)
+        try await waitFor("the coaching to be noted") { harness.controller.shirtCoachingLine != nil }
+
+        harness.controller.goBackToTheLiveShirt()
+        #expect(harness.statusLine() == "Stand back so I can see your shoulders and chest.")
+        harness.controller.close()
+    }
+
+    @Test func goingBackBeforeThePaintingStartsFreezesNothing() async throws {
+        let shirtPainting = ShirtPaintingStub()
+        let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
+
+        // Both on the main actor in one turn, so the painting's task has not run when the learner goes back.
+        harness.controller.paintTheShirt()
+        harness.controller.goBackToTheLiveShirt()
+        try await Task.sleep(for: .seconds(0.5))
+        #expect(harness.frameProcessor.freezes == 0 && !harness.frameProcessor.isFrozen)
+        #expect(shirtPainting.requests.isEmpty)
         harness.controller.close()
     }
 

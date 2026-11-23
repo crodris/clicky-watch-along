@@ -173,7 +173,8 @@ nonisolated struct RoomArtClothingReading: Equatable, Sendable {
     /// The size the page shows as selected, as the page writes it, such as "M". Page text, so it is only logged.
     let chosenSizeLabel: String
     let photoShows: RoomArtGarmentPhoto
-    /// What the print on the garment looks like, empty for a plain garment. Page-derived text, so it is only logged.
+    /// What the print on the garment looks like, empty for a plain garment. Page-derived text, so it is logged and goes
+    /// into the shirt painting's prompt only inside a tag the Worker marks as untrusted data.
     let printDescription: String
     let whyThisSize: String
     /// Where the garment sits in the picture, clamped into it.
@@ -957,12 +958,13 @@ nonisolated struct RoomArtMeasurementID: Hashable, Sendable {
     let number: Int
 }
 
-/// What the panel is doing. The page is read as the panel opens, and its kind picks the rest: wall art and furniture are
-/// measured on their surface and tracked, and a shirt is drawn over the learner with no measurement at all.
 /// Names one painting of the shirt, so a reply for a painting the learner left changes nothing.
 nonisolated struct ShirtPaintingID: Equatable, Sendable {
     let number: Int
 }
+
+/// What the panel is doing. The page is read as the panel opens, and its kind picks the rest: wall art and furniture are
+/// measured on their surface and tracked, and a shirt is drawn over the learner with no measurement at all.
 
 nonisolated enum RoomArtPhase: Equatable, Sendable {
     case closed

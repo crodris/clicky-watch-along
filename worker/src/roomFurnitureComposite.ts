@@ -430,9 +430,13 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 // MARK: - The prompt
 
-/** Wraps store text in a tag with every "<" replaced, so the text cannot close the tag. "‹" reads as "<" to the model. */
-function untrustedTextInTag(tagName: string, untrustedText: string): string {
-  return `<${tagName}>\n${untrustedText.replaceAll("<", "‹")}\n</${tagName}>`;
+/**
+ * Wraps store text in a tag with every "<" replaced, so the text cannot close the tag ("‹" reads as "<" to the model),
+ * and every line break character a space, so the text cannot start a line that reads like the prompt's own.
+ */
+export function untrustedTextInTag(tagName: string, untrustedText: string): string {
+  const oneLineText = untrustedText.replaceAll("<", "‹").replace(/[\r\n\v\f\u0085\u2028\u2029]/g, " ");
+  return `<${tagName}>\n${oneLineText}\n</${tagName}>`;
 }
 
 /**

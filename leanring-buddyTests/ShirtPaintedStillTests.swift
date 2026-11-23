@@ -150,8 +150,8 @@ private struct MadeUpPerson {
     enum Region { case wall, skin, oldTop, print, shorts }
 
     static func region(column: Int, row: Int) -> Region {
-        let x = Double(column), y = Double(row)
-        if pow((x - 160) / 22, 2) + pow((y - 35) / 25, 2) < 1 { return .skin }
+        let columnPosition = Double(column), rowPosition = Double(row)
+        if pow((columnPosition - 160) / 22, 2) + pow((rowPosition - 35) / 25, 2) < 1 { return .skin }
         if (148..<172).contains(column), (55..<74).contains(row) { return .skin }
         if (140..<180).contains(column), (100..<130).contains(row) { return .print }
         if (90..<230).contains(column), (72..<215).contains(row) { return .oldTop }

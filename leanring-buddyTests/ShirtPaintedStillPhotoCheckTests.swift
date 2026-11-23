@@ -89,10 +89,10 @@ private func sideBySide(_ images: [CGImage], height: Int) -> CGImage? {
     context.setFillColor(CGColor(red: 0.09, green: 0.09, blue: 0.11, alpha: 1))
     context.fill(CGRect(x: 0, y: 0, width: width, height: height + 2 * gap))
     context.interpolationQuality = .high
-    var x = gap
+    var nextImageLeftEdge = gap
     for (image, scaledWidth) in zip(images, scaledWidths) {
-        context.draw(image, in: CGRect(x: x, y: gap, width: scaledWidth, height: height))
-        x += scaledWidth + gap
+        context.draw(image, in: CGRect(x: nextImageLeftEdge, y: gap, width: scaledWidth, height: height))
+        nextImageLeftEdge += scaledWidth + gap
     }
     return context.makeImage()
 }

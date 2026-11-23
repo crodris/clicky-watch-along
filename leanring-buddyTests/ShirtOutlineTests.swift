@@ -72,6 +72,21 @@ struct ShirtOutlineTests {
         #expect(outline.contains { $0.y > 176 })
     }
 
+    @Test func theContourGoesRoundBothPartsWhenItsStartJoinsThem() {
+        // Two blocks that touch only at the top left pixel of the whole piece, (5, 2), each through a diagonal.
+        let width = 12, height = 12
+        var mask = [Bool](repeating: false, count: width * height)
+        mask[2 * width + 5] = true
+        for row in 3...10 {
+            for column in 0...4 { mask[row * width + column] = true }
+            for column in 6...10 { mask[row * width + column] = true }
+        }
+        let contour = ShirtOutline.outerContour(of: mask, width: width, height: height)
+        #expect(contour.first == CGPoint(x: 5.5, y: 2.5))
+        #expect(contour.map(\.x).min() == 0.5 && contour.map(\.x).max() == 10.5)
+        #expect(contour.map(\.y).max() == 10.5)
+    }
+
     @Test func aContourWithFewPointsIsLeftAsItIs() {
         let square = [CGPoint(x: 0, y: 0), CGPoint(x: 10, y: 0), CGPoint(x: 10, y: 10), CGPoint(x: 0, y: 10)]
         #expect(ShirtOutline.simplified(square) == square)

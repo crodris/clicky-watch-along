@@ -83,7 +83,8 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     func wearTheGarment(_ garment: ShirtGarment)
     /// Freezes the panel on the newest frame with the live preview's shirt on it, and returns that frame with what the preview
     /// knew about it, or nil when no shirt is drawn this moment (no torso in view, no garment, or no person mask yet). The
-    /// loop traces the frozen torso until the painted still shows or the preview comes back.
+    /// loop traces the learner's own top, held still, then the area being painted, until the painted still shows or the
+    /// preview comes back.
     func freezeTheShirtFrame() async -> ShirtFrozenFrame?
     /// Crossfades from the frozen preview to the painted still over `shirtPaintedStillCrossfadeSeconds`, and holds it.
     func showThePaintedStill(_ paintedImage: CGImage)
@@ -325,6 +326,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     }
 
     func showThePaintedStill(_ paintedImage: CGImage) {
+        // A CGImage is immutable, so the processing queue may read it.
         nonisolated(unsafe) let painted = paintedImage
         processingQueue.async {
             guard let frozenShirt = self.frozenShirt else { return }
@@ -414,16 +416,16 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             metalLayer.drawableSize = CGSize(width: frameWidth, height: frameHeight)
         }
 
-        startSegmentingIfIdle(cameraFrame)
-
         // A frozen frame holds still while the shirt is painted into it and while the painted still shows, so the camera's
-        // frames only pace the redraw, which plays the crossfade.
+        // frames only pace the redraw, which plays the crossfade. Nothing is segmented or tracked meanwhile.
         if let frozenShirt {
             if present(frozenShirtImage(frozenShirt), extent: CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)) {
                 noteTheFrame(trackMilliseconds: 0)
             }
             return
         }
+
+        startSegmentingIfIdle(cameraFrame)
 
         // No person until the segmenter has seen a frame, so the room mask is all room before then.
         let trackRoomMask = latestPersonMask.map { personMask in
@@ -460,7 +462,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         var shirtTorsoToDraw: BodyTorso?
         if shirtTryOnIsOn {
             shirtTorsoToDraw = torsoForTheShirt(in: cameraFrame, frameSize: CGSize(width: frameWidth, height: frameHeight))
-            if shirtTorsoToDraw != nil, shirtGarment != nil { lastShirtTorsoDrawn = shirtTorsoToDraw }
+            // Only a torso the shirt is drawn on this frame may be painted on, so a learner out of view is never painted at
+            // where they stood seconds ago.
+            lastShirtTorsoDrawn = shirtGarment == nil ? nil : shirtTorsoToDraw
         }
 
         var artCorners: [CGPoint]?
@@ -483,7 +487,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
     /// The torso the shirt is drawn on this frame, or nil when it is not drawn. The framing is assessed every frame, but the
     /// shirt is drawn only once the debounced framing has settled on ready, so a learner at the edge of a threshold does not
-    /// make it flicker. Each settled change goes to the main actor, and the loop traces the torso whenever there is one.
+    /// make it flicker. Each settled change goes to the main actor, and the loop traces the learner's own top, moved with the
+    /// torso whenever there is one.
     private func torsoForTheShirt(in cameraFrame: CVPixelBuffer, frameSize: CGSize) -> BodyTorso? {
         let now = CACurrentMediaTime()
         let torso = shirtPoseTracker.torso(forFrame: cameraFrame, atTime: now)
@@ -991,6 +996,9 @@ final class RoomArtPreviewController: ObservableObject {
         var makeTheShirtPaintMasks: (ShirtFrozenFrame) async -> ShirtPaintMasks? = { _ in nil }
         /// Paints the shirt into the frozen frame through the Worker and pastes it back (`ShirtPaintingClient`).
         var paintTheShirt: (ShirtPaintingRequest) async throws -> CGImage = { _ in throw ShirtPaintingFailure.serviceIsNotSetUp }
+        /// The learner asked the open panel for something, by voice or by a click: a painting or a return to the preview. The
+        /// line that answers it lands after any press they made before, so it must not be dropped as one they moved on from.
+        var theLearnerAskedThePanel: () -> Void = {}
 
         /// Chrome, the Worker at `workerBaseURL`, the app's defaults for the secret, Vision, and the camera (or a Debug
         /// build's `--room-camera-file`).
@@ -1000,7 +1008,8 @@ final class RoomArtPreviewController: ObservableObject {
             clearTheLiveScene: @escaping () -> Void,
             speak: @escaping (String, Bool) -> Void,
             loopAccentColor: @escaping () -> Color,
-            endTheSpokenLine: @escaping () -> Void
+            endTheSpokenLine: @escaping () -> Void,
+            theLearnerAskedThePanel: @escaping () -> Void
         ) -> Environment {
             let roomArtClient = RoomArtClient(workerBaseURL: workerBaseURL)
             let shirtPaintingClient = ShirtPaintingClient(workerBaseURL: workerBaseURL)
@@ -1070,14 +1079,21 @@ final class RoomArtPreviewController: ObservableObject {
                         ShirtPaintMask.make(frame: frozenFrame, bodyParts: shirtPaintBodyParts(in: frozenFrame.cameraImage))
                     }.value
                 },
-                paintTheShirt: { paintingRequest in try await shirtPaintingClient.paint(paintingRequest) }
+                paintTheShirt: { paintingRequest in try await shirtPaintingClient.paint(paintingRequest) },
+                theLearnerAskedThePanel: theLearnerAskedThePanel
             )
         }
     }
 
     @Published private(set) var phase = RoomArtPhase.closed {
-        didSet { loopState = loopState.after(phaseChangedTo: phase, at: ProcessInfo.processInfo.systemUptime) }
+        didSet {
+            let now = ProcessInfo.processInfo.systemUptime
+            loopState = loopState.after(phaseChangedTo: phase, at: now)
+            if phase.shirtStillVoiceTargets != oldValue.shirtStillVoiceTargets { shirtStillVoiceTargetsChangedAt = now }
+        }
     }
+    /// When the shirt button last changed role, which a click right after it does not count against.
+    private var shirtStillVoiceTargetsChangedAt: TimeInterval = 0
     /// Clicky's loop around the measured spot or the learner's torso: drawn until the item or the shirt shows, or a failure.
     @Published private(set) var loopState = RoomArtLoopState.hidden
     /// The tracker lost the room long enough to hide the item, so the status line says so.
@@ -1473,6 +1489,7 @@ final class RoomArtPreviewController: ObservableObject {
         let paintingID = ShirtPaintingID(number: lastShirtPaintingNumber + 1)
         let paintingPhase = phase.startingToPaintTheShirt(id: paintingID)
         guard paintingPhase != phase, let shirtBeingTried, let pictureImage else { return }
+        environment.theLearnerAskedThePanel()
         lastShirtPaintingNumber = paintingID.number
         apply(paintingPhase)
         let thisOpening = openingNumber
@@ -1480,6 +1497,8 @@ final class RoomArtPreviewController: ObservableObject {
         shirtPaintingTask = Task {
             // Each await below can come back to a panel the learner closed or went back from, which both cancel this task.
             @MainActor func isStillThisPainting() -> Bool { !Task.isCancelled && thisOpening == self.openingNumber }
+            // A go back before this task first ran resumed nothing yet, so the frame must not freeze after it.
+            guard isStillThisPainting() else { return }
             guard let frozenFrame = await frameProcessor.freezeTheShirtFrame() else {
                 guard isStillThisPainting() else { return }
                 theShirtPaintingFailed(.nobodyToPaintOn, id: paintingID)
@@ -1492,12 +1511,11 @@ final class RoomArtPreviewController: ObservableObject {
                 return
             }
             guard isStillThisPainting() else { return }
-            // The loop now traces the area being painted, the mask's own outline.
-            let frameProcessor = frameProcessor
-            Task.detached(priority: .userInitiated) {
-                guard let paintedAreaOutline = ShirtPaintMask.outlineOfThePaintableArea(masks) else { return }
-                frameProcessor.outlineTheAreaBeingPainted(paintedAreaOutline)
-            }
+            // The loop now traces the area being painted, the mask's own outline. It is traced here, under the same check as
+            // every other step, so an outline from a painting the learner left never lands on a newer freeze.
+            let paintedAreaOutline = await Task.detached(priority: .userInitiated) { ShirtPaintMask.outlineOfThePaintableArea(masks) }.value
+            guard isStillThisPainting() else { return }
+            if let paintedAreaOutline { frameProcessor.outlineTheAreaBeingPainted(paintedAreaOutline) }
             print(String(format: "Shirt painting: the mask covers %.1f%% of the frame, %.1f s after the request", masks.paintableShare * 100, Date().timeIntervalSince(startedAt)))
             guard let productJPEG = shirtPaintingProductJPEG(picture: pictureImage, itemCorners: shirtBeingTried.reading.itemCorners) else {
                 theShirtPaintingFailed(.paintingFailed, id: paintingID)
@@ -1536,6 +1554,7 @@ final class RoomArtPreviewController: ObservableObject {
     func goBackToTheLiveShirt() {
         let livePhase = phase.backToTheLiveShirt()
         guard livePhase != phase else { return }
+        environment.theLearnerAskedThePanel()
         shirtPaintingTask?.cancel()
         shirtPaintingTask = nil
         frameProcessor.resumeTheLiveShirt()
@@ -1543,11 +1562,21 @@ final class RoomArtPreviewController: ObservableObject {
     }
 
     /// What the shirt panel can do by voice now, which the voice route reads.
-    var shirtStillVoiceTargets: ShirtStillVoiceTargets {
-        switch phase {
-        case .showingTheShirt: return .livePreview
-        case .paintingTheShirt, .showingThePaintedShirt: return .paintedStill
-        default: return .none
+    var shirtStillVoiceTargets: ShirtStillVoiceTargets { phase.shirtStillVoiceTargets }
+
+    /// A click on the panel's shirt button: Paint it while the live preview shows, Back to live while a painting is made or
+    /// the painted still shows. The one button changes role as the phase does, so a click within
+    /// `shirtButtonSecondsIgnoredAfterItChanges` of a change is not counted (`shirtButtonPressCounts`), or the second click
+    /// of a double-click on Back to live would send a new camera frame out. `now` is the system uptime, which a test passes.
+    func pressTheShirtButton(atUptime now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        guard shirtButtonPressCounts(atUptime: now, theButtonChangedAt: shirtStillVoiceTargetsChangedAt) else {
+            print("Shirt painting: a click on the button right after it changed was not counted")
+            return
+        }
+        switch shirtStillVoiceTargets {
+        case .livePreview: paintTheShirt()
+        case .paintedStill: goBackToTheLiveShirt()
+        case .none: break
         }
     }
 
@@ -1660,7 +1689,9 @@ final class RoomArtPreviewController: ObservableObject {
             floorNotFoundWasSaid = true
             environment.speak(RoomArtFailure.floorNotFound.spokenLine, true)
         case .showingTheShirt:
-            shirtCoachingLine = nil
+            // The way back from a painting keeps the coaching of a learner still out of view, which the framing reports only
+            // when it changes.
+            if theLearnerIsInFrame { shirtCoachingLine = nil }
             sayHereItIsOnce(roomArtShirtPreviewLine)
         case .showingThePaintedShirt:
             // Said each time a painting shows, since each is a new look the learner asked for.
@@ -2122,24 +2153,24 @@ private struct RoomArtPanelView: View {
     /// does what its spoken phrase does ("right there", "go back").
     @ViewBuilder
     private var shirtButton: some View {
-        let shirtButtonAction: (title: String, run: () -> Void)? = switch previewController.shirtStillVoiceTargets {
-        case .livePreview: ("Paint it", { previewController.paintTheShirt() })
-        case .paintedStill: ("Back to live", { previewController.goBackToTheLiveShirt() })
+        let shirtButtonTitle: String? = switch previewController.shirtStillVoiceTargets {
+        case .livePreview: "Paint it"
+        case .paintedStill: "Back to live"
         case .none: nil
         }
-        if let shirtButtonAction {
-            Button(action: shirtButtonAction.run) {
-                Text(shirtButtonAction.title)
+        if let shirtButtonTitle {
+            Button { previewController.pressTheShirtButton() } label: {
+                Text(shirtButtonTitle)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(DS.Colors.inkOnAccent)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .background(Capsule().fill(previewController.loopAccentColor.opacity(shirtButtonIsHovered ? 1 : 0.88)))
-                    .overlay(Capsule().stroke(Color.white.opacity(shirtButtonIsHovered ? 0.5 : 0.2), lineWidth: 1))
+                    .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
             }
             .buttonStyle(.plain)
             .hoverAndPointer { isHovered in shirtButtonIsHovered = isHovered }
-            .accessibilityLabel(shirtButtonAction.title)
+            .accessibilityLabel(shirtButtonTitle)
         }
     }
 

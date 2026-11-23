@@ -33,7 +33,9 @@ nonisolated enum ShirtOutline {
     // MARK: The contour
 
     /// The outer boundary of the mask's largest 8-connected piece, as the centers of its boundary pixels in order (Moore
-    /// neighbor tracing), first point the piece's top left pixel. Holes inside the piece are not traced.
+    /// neighbor tracing), first point the piece's top left pixel. Holes inside the piece are not traced. The trace stops when
+    /// it is back at the start about to take its first step again (Jacob's stopping rule), not the first time it is back at
+    /// the start, since a start pixel that joins two parts of the piece is passed through on the way round.
     static func outerContour(of mask: [Bool], width: Int, height: Int) -> [CGPoint] {
         guard width > 0, height > 0, mask.count == width * height, let start = topLeftPixelOfTheLargestPiece(of: mask, width: width, height: height) else { return [] }
         func isSet(_ column: Int, _ row: Int) -> Bool { column >= 0 && row >= 0 && column < width && row < height && mask[row * width + column] }
@@ -41,24 +43,31 @@ nonisolated enum ShirtOutline {
         let neighborOffsets = [(-1, 0), (-1, -1), (0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1)]
         var contour = [CGPoint(x: Double(start.column) + 0.5, y: Double(start.row) + 0.5)]
         var current = start
+        var firstStep: (column: Int, row: Int)?
         // The start is the top left pixel, so the pixel west of it is outside: the search begins there.
         var backtrackDirection = 0
         let mostSteps = 4 * width * height
         for _ in 0..<mostSteps {
-            var foundNext = false
+            var next: (column: Int, row: Int, direction: Int)?
             for turn in 0..<8 {
                 let direction = (backtrackDirection + 1 + turn) % 8
                 let candidate = (column: current.column + neighborOffsets[direction].0, row: current.row + neighborOffsets[direction].1)
-                guard isSet(candidate.column, candidate.row) else { continue }
-                // The next search starts from the neighbor just before the one found, as seen from the new pixel.
-                backtrackDirection = (direction + 4 + 1) % 8
-                current = candidate
-                foundNext = true
-                break
+                if isSet(candidate.column, candidate.row) {
+                    next = (candidate.column, candidate.row, direction)
+                    break
+                }
             }
             // A single pixel has no neighbor to walk to.
-            guard foundNext, !(current == start) else { break }
-            contour.append(CGPoint(x: Double(current.column) + 0.5, y: Double(current.row) + 0.5))
+            guard let next else { break }
+            let isAtTheStart = current.column == start.column && current.row == start.row
+            if isAtTheStart, let firstStep, firstStep.column == next.column, firstStep.row == next.row { break }
+            if firstStep == nil { firstStep = (next.column, next.row) }
+            // The next search starts from the neighbor just before the one found, as seen from the new pixel.
+            backtrackDirection = (next.direction + 4 + 1) % 8
+            current = (next.column, next.row)
+            if !(current.column == start.column && current.row == start.row) {
+                contour.append(CGPoint(x: Double(current.column) + 0.5, y: Double(current.row) + 0.5))
+            }
         }
         return contour
     }
