@@ -612,6 +612,10 @@ struct RoomArtPhraseTests {
         "how would this look hanging in my living room",
         // Furniture stands on the floor in the same panel.
         "how would this chair look in my room",
+        // A table or shelf item sits on the surface the learner clicks.
+        "how would this mug look on my table",
+        "put this lamp on my desk",
+        "what would this vase look like on my shelf",
         // A shirt is drawn on the learner.
         "could I see this shirt on me",
         "how would this look on me",
@@ -645,6 +649,8 @@ struct RoomArtPhraseTests {
         "how do I look good in my room",
         // Words outside the closed list between the look and the room phrase.
         "how would this look next to the lamp in my room",
+        "what's on my desk",
+        "clean my table",
         // "On me" or "try on" with no item to place, or "on" that starts another phrase.
         "what's on me",
         "is there something on me",

@@ -1592,7 +1592,7 @@ nonisolated struct RoomArtRequestRecord: Equatable, Sendable {
 // MARK: - The phrase that asks for it
 
 /// Whether the learner asks to see this item placed in their own room or on themselves: a room phrase ("in my room", "on my
-/// wall", "on the wall behind me", "on me", ...) right after either a placing verb and the item ("show this", "put it",
+/// wall", "on my desk", "on the wall behind me", "on me", ...) right after either a placing verb and the item ("show this", "put it",
 /// "can I see this", "hang that print", "could I see this shirt") or the item and a look ("how would this look", "what
 /// would that poster look like", "would this look good", "how would this look hanging"), or "try" with the item and "on"
 /// ending the request ("can I try this on", "try on that shirt"). The item is "this", "it", or "that", or "this", "that",
@@ -1608,6 +1608,9 @@ nonisolated func asksToSeeArtInMyRoom(_ transcript: String) -> Bool {
         ["in", "my", "room"], ["on", "my", "wall"], ["in", "my", "living", "room"], ["in", "my", "bedroom"],
         ["in", "my", "office"], ["in", "my", "house"], ["in", "my", "home"], ["in", "my", "apartment"],
         ["in", "my", "space"], ["on", "the", "wall", "behind", "me"], ["on", "me"],
+        // A table or shelf item sits on a surface the learner clicks: "how would this mug look on my desk".
+        ["on", "my", "table"], ["on", "my", "desk"], ["on", "my", "shelf"], ["on", "my", "counter"],
+        ["on", "my", "dresser"], ["on", "my", "nightstand"], ["on", "my", "floor"],
     ]
     let placingVerbs: Set<String> = [
         "show", "see", "try", "put", "hang", "place", "preview", "picture", "visualize", "imagine",

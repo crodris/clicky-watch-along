@@ -2781,7 +2781,7 @@ extension RoomArtPageReading {
         case .sizeNotOnThePage(let title): return "a wall item \"\(title)\" with no size"
         case .furniture(let reading): return "a standing item \"\(reading.title)\" on \(reading.standsOn.rawValue)\(reading.chosenSize == nil ? " with no size" : "")"
         case .clothing(let reading): return "a \(reading.garment.rawValue) \"\(reading.title)\" photographed \(reading.photoShows.rawValue)"
-        case .cannotBeShown(let title, let reason): return "\"\(title)\", which cannot be shown (\(reason.rawValue))"
+        case .cannotBeShown(let title, _): return "\"\(title)\""
         }
     }
 }
