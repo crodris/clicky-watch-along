@@ -366,6 +366,10 @@ struct ChromePageGeometry: Decodable, Equatable {
     /// video. Room art downloads this file instead of capturing the screen over the picture. Optional with a default,
     /// so a page script that does not send it still decodes.
     var imageFileURL: String? = nil
+    /// The files of up to 4 visible images at least half the largest one's visible area, in the page's order: a product
+    /// gallery's photos, which room art's page reader chooses a garment's front from. Optional with a default, like
+    /// `imageFileURL`.
+    var imageCandidateFileURLs: [String]? = nil
 
     /// Page layout can move an element by a point or two without anything the learner would call a change, such as a
     /// scrollbar appearing, so numbers within this many points count as the same. The page zoom must match closely.
@@ -396,6 +400,11 @@ struct LargestVisibleMediaInFrontTab {
 
     /// The page's file for the picture, which room art downloads in place of a screen capture. Nil for a video.
     var imageFileURL: URL? { pageGeometry.imageFileURL.flatMap(URL.init(string:)) }
+
+    /// The page's other large product photos besides `imageFileURL`, in the page's order (`imageCandidateFileURLs`).
+    var otherImageFileURLs: [URL] {
+        (pageGeometry.imageCandidateFileURLs ?? []).filter { $0 != pageGeometry.imageFileURL }.compactMap(URL.init(string:))
+    }
 }
 
 /// The element's place on screen. The page zoom is the page's device pixel ratio divided by the

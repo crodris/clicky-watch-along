@@ -4340,7 +4340,7 @@ final class CompanionManager: ObservableObject {
             return nil
         }
         guard let largestMedia else { return nil }
-        return await RoomArtPictureSource.picture(imageFileURL: largestMedia.imageFileURL) {
+        return await RoomArtPictureSource.picture(imageFileURL: largestMedia.imageFileURL, otherImageFileURLs: largestMedia.otherImageFileURLs) {
             guard let pictureGrab = try? await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(largestMedia.screenRect),
                   let jpegData = Data(base64Encoded: pictureGrab.jpeg) else {
                 return nil
