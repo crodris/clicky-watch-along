@@ -609,9 +609,10 @@ nonisolated struct RoomFurnitureGhostLines: Equatable, Sendable {
     static let controlsHeightAtTheBottomInPoints = 72.0
 }
 
-/// The size pill's words, such as "90″ wide · 32″ tall".
-nonisolated func roomFurnitureGhostSizePillText(widthMeters: Double, heightMeters: Double) -> String {
-    "\(roomArtInchesInWords(centimeters: widthMeters * 100))\u{2033} wide · \(roomArtInchesInWords(centimeters: heightMeters * 100))\u{2033} tall"
+/// The size pill's words, such as "90″ wide · 32″ tall", or "~5″ wide · 10″ tall" for a width measured from the photo.
+nonisolated func roomFurnitureGhostSizePillText(widthMeters: Double, heightMeters: Double, widthIsMeasuredFromThePhoto: Bool) -> String {
+    let approximately = widthIsMeasuredFromThePhoto ? "~" : ""
+    return "\(approximately)\(roomArtInchesInWords(centimeters: widthMeters * 100))\u{2033} wide · \(roomArtInchesInWords(centimeters: heightMeters * 100))\u{2033} tall"
 }
 
 /// The status line while the ghost shows.

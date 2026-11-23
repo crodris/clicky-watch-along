@@ -369,4 +369,52 @@ struct RoomFurnitureTests {
         #expect(furniture.sizeInWords == "27 inches wide and 39.5 tall")
         #expect(roomFurnitureSizeInWords(widthCentimeters: 80, heightCentimeters: 75) == "31.5 inches wide and 29.5 tall")
     }
+
+    @Test func aPageThatStatesOnlyTheHeightGetsTheCutoutsWidthAndHalfOfItAsItsDepth() throws {
+        // A cutout half as wide as it is tall, as an upright figure is.
+        let context = CGContext(data: nil, width: 100, height: 200, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let heightOnly = RoomArtFurnitureSize(label: "26 cm tall", widthCentimeters: nil, heightCentimeters: 26, depthCentimeters: nil)
+
+        let cutoutImage = try #require(context.makeImage())
+        let figure = try #require(RoomFurniture.standing(title: "Astronaut", size: heightOnly, cutoutImage: cutoutImage))
+
+        #expect(abs(figure.widthMeters - 0.13) < 1e-9)
+        #expect(abs(figure.depthMeters - 0.065) < 1e-9)
+        #expect(abs(figure.heightMeters - 0.26) < 1e-9)
+        #expect(figure.sizeInWords == "10 inches tall and about 5 wide")
+        #expect(roomFurnitureGhostSizePillText(widthMeters: figure.widthMeters, heightMeters: figure.heightMeters, widthIsMeasuredFromThePhoto: figure.widthIsMeasuredFromThePhoto) == "~5\u{2033} wide · 10\u{2033} tall")
+    }
+
+    @Test func aStatedWidthWithNoDepthGetsAShallowDepthAndNotItsWidth() throws {
+        let context = CGContext(data: nil, width: 100, height: 200, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let tvStandSize = RoomArtFurnitureSize(label: "180 x 50 cm", widthCentimeters: 180, heightCentimeters: 50, depthCentimeters: nil)
+
+        let cutoutImage = try #require(context.makeImage())
+        let tvStand = try #require(RoomFurniture.standing(title: "TV stand", size: tvStandSize, cutoutImage: cutoutImage))
+
+        // Half the width is 90 cm, more than the height, so the depth is the height.
+        #expect(abs(tvStand.depthMeters - 0.5) < 1e-9)
+        #expect(abs(tvStand.widthMeters - 1.8) < 1e-9)
+        #expect(tvStand.sizeInWords == "71 inches wide and 19.5 tall")
+    }
+
+    @Test func aMeasuredWidthOutsideTheWorkersRangeIsRefused() throws {
+        // A cutout 100 times as wide as it is tall, such as a figure and its box side by side in a banner photo.
+        let context = CGContext(data: nil, width: 1000, height: 10, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let heightOnly = RoomArtFurnitureSize(label: "26 cm tall", widthCentimeters: nil, heightCentimeters: 26, depthCentimeters: nil)
+
+        #expect(RoomFurniture.standing(title: "Banner", size: heightOnly, cutoutImage: try #require(context.makeImage())) == nil)
+    }
+
+    @Test func aPageThatStatesEverySideKeepsItAndSaysItWithoutAbout() throws {
+        let context = CGContext(data: nil, width: 100, height: 200, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let everySide = RoomArtFurnitureSize(label: "80 x 75 x 70 cm", widthCentimeters: 80, heightCentimeters: 75, depthCentimeters: 70)
+
+        let cutoutImage = try #require(context.makeImage())
+        let chair = try #require(RoomFurniture.standing(title: "Chair", size: everySide, cutoutImage: cutoutImage))
+
+        #expect(abs(chair.widthMeters - 0.8) < 1e-9)
+        #expect(abs(chair.depthMeters - 0.7) < 1e-9)
+        #expect(chair.sizeInWords == "31.5 inches wide and 29.5 tall")
+    }
 }

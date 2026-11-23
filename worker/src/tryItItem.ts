@@ -80,7 +80,14 @@ const itemCornersSchema = z.object({
 });
 
 const otherSizeSchema = z.object({ label: z.string(), widthCentimeters: z.number(), heightCentimeters: z.number() });
-const otherFurnitureSizeSchema = otherSizeSchema.extend({ depthCentimeters: z.number() });
+// A toy or a figurine page often states only the height, so furniture's width and depth are null when the page does not
+// state them, and the app measures the width from the cutout's own shape.
+const otherFurnitureSizeSchema = z.object({
+  label: z.string(),
+  widthCentimeters: z.number().nullable(),
+  heightCentimeters: z.number(),
+  depthCentimeters: z.number().nullable(),
+});
 
 // Each variant is strict, so a reply that names its kind but also carries another kind's object is refused, not trimmed.
 const wallArtItemSchema = z
@@ -163,7 +170,14 @@ const itemCornersJSONSchema = objectJSONSchema({
   bottomLeft: cornerJSONSchema,
 });
 
-const furnitureSizeJSONSchemaProperties = { ...sizeJSONSchemaProperties, depthCentimeters: { type: "number" } };
+const sideNotAlwaysStatedJSONSchema = { anyOf: [{ type: "number" }, { type: "null" }] };
+
+const furnitureSizeJSONSchemaProperties = {
+  label: { type: "string" },
+  widthCentimeters: sideNotAlwaysStatedJSONSchema,
+  heightCentimeters: { type: "number" },
+  depthCentimeters: sideNotAlwaysStatedJSONSchema,
+};
 
 /** One variant of the `item` union: its kind is a one-value enum, so the model picks a variant by naming its kind. */
 function itemVariantJSONSchema(kind: string, kindProperties: Record<string, unknown>) {
@@ -221,7 +235,8 @@ const tryItItemSystemPrompt = [
   "Convert inches to centimeters with 1 inch = 2.54 centimeters.",
   "A label is the size as the page writes it, such as 50 x 70 cm, at most 60 characters.",
   "whyThisSize is one short sentence that says which size you chose and why.",
-  "For wallArt and furniture, sizeFoundOnPage is true only when the page text states the object's size. Never guess a size from the photo or from what is typical.",
+  "For wallArt, sizeFoundOnPage is true only when the page text states the object's width and height. For furniture, it is true when the page text states at least the object's height. Never guess a size from the photo or from what is typical.",
+  "For furniture, set widthCentimeters or depthCentimeters to null when the page text does not state that side, since the app measures the width from the photo's shape. A page that says a figure stands 26 cm tall has a height of 26 and a null width and depth.",
   "When sizeFoundOnPage is false, the app places nothing, so size may hold any numbers and its label may be empty.",
   "For wallArt, size is the size of the object as it hangs, including the frame when it comes framed, and includesFrame says whether the size includes the frame.",
   "Width is the horizontal side as the photo shows the object hanging, so width and height must match the photo's orientation.",
@@ -273,11 +288,13 @@ function isConvexQuadrilateral(corners: Corner[]): boolean {
 }
 
 type SizeRange = { lowest: number; highest: number };
-type Size = { label: string; widthCentimeters: number; heightCentimeters: number; depthCentimeters?: number };
+/** A side is null when the page does not state it, which only furniture's width and depth may be. */
+type Size = { label: string; widthCentimeters: number | null; heightCentimeters: number; depthCentimeters?: number | null };
 
 function sizeProblem(sizeName: string, size: Size, range: SizeRange, depthRange: SizeRange): string | undefined {
   const sides = [size.widthCentimeters, size.heightCentimeters, ...(size.depthCentimeters === undefined ? [] : [size.depthCentimeters])];
-  const isWithinRange = (centimeters: number, allowedRange: SizeRange) => centimeters >= allowedRange.lowest && centimeters <= allowedRange.highest;
+  const isWithinRange = (centimeters: number | null, allowedRange: SizeRange) =>
+    centimeters === null || (centimeters >= allowedRange.lowest && centimeters <= allowedRange.highest);
   const fitsEverySide =
     isWithinRange(size.widthCentimeters, range) &&
     isWithinRange(size.heightCentimeters, range) &&
@@ -289,7 +306,7 @@ function sizeProblem(sizeName: string, size: Size, range: SizeRange, depthRange:
     size.depthCentimeters === undefined
       ? `from ${range.lowest} to ${range.highest} centimeters on each side`
       : `from ${range.lowest} to ${range.highest} centimeters in width and height, and from ${depthRange.lowest} to ${depthRange.highest} in depth`;
-  return `${sizeName} must be ${rangeText}, and it is ${sides.join(" by ")}.`;
+  return `${sizeName} must be ${rangeText}, and it is ${sides.map((side) => side ?? "not stated").join(" by ")}.`;
 }
 
 /** Checks the labels and the size range of a wallArt or furniture object, other sizes included. Only furniture has a depth. */
@@ -380,7 +397,8 @@ export type CheckedTryItItem = { accepted: true; reply: TryItItem } | { accepted
 /**
  * Uppercases a garment's `mainColorHex`, clamps the corners into the picture they are in (a garment's front picture, else the main one) and checks the rules the
  * app relies on: a garment's front picture is one that was sent, the size range of the kind (wall art 5 to
- * 1000 centimeters, furniture 2 to 600 in width and height and 1 to 600 in depth), short labels and print text, and corners that form a convex
+ * 1000 centimeters, furniture 2 to 600 in width and height and 1 to 600 in depth, with an unstated furniture width or depth
+ * null), short labels and print text, and corners that form a convex
  * quadrilateral covering at least 4 percent of the picture, since the app cuts that quadrilateral out of the photo.
  * An item of kind other, clothing that cannot be drawn on the learner (`canBeDrawnOnTheLearner` false), and wall art or
  * furniture whose page states no size (`sizeFoundOnPage` false), pass with their corners clamped and no other rule, because

@@ -156,12 +156,14 @@ nonisolated struct RoomArtWallArtReading: Equatable, Sendable {
     let artworkCorners: RoomArtCorners
 }
 
-/// A size a store sells furniture in: across the front, floor to top, and front to back.
+/// A size a store sells furniture in: across the front, floor to top, and front to back. A toy or figurine page often
+/// states only the height, so the width and the depth are nil when the page does not state them, and the panel measures
+/// the width from the cutout's own shape (`RoomFurniture.standing`).
 nonisolated struct RoomArtFurnitureSize: Equatable, Sendable {
     let label: String
-    let widthCentimeters: Double
+    let widthCentimeters: Double?
     let heightCentimeters: Double
-    let depthCentimeters: Double
+    let depthCentimeters: Double?
 }
 
 nonisolated struct RoomArtFurnitureReading: Equatable, Sendable {
@@ -249,9 +251,11 @@ nonisolated private struct RoomArtChosenSizeReply: Decodable {
 
 nonisolated private struct RoomArtFurnitureSizeReply: Decodable {
     let label: String
-    let widthCentimeters: Double
+    /// Null when the page does not state it.
+    let widthCentimeters: Double?
     let heightCentimeters: Double
-    let depthCentimeters: Double
+    /// Null when the page does not state it.
+    let depthCentimeters: Double?
 }
 
 nonisolated private struct RoomArtPointReply: Decodable {
@@ -383,9 +387,10 @@ extension RoomArtPageReading {
             let sizeReply = furnitureReply.size
             let chosenSize: RoomArtFurnitureSize?
             if furnitureReply.sizeFoundOnPage {
-                guard [sizeReply.widthCentimeters, sizeReply.heightCentimeters, sizeReply.depthCentimeters].allSatisfy({ sensibleArtCentimeters.contains($0) }),
+                let statedSides = [sizeReply.widthCentimeters, sizeReply.heightCentimeters, sizeReply.depthCentimeters].compactMap { $0 }
+                guard statedSides.allSatisfy({ sensibleArtCentimeters.contains($0) }),
                       !sizeReply.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw RoomArtReplyError(reason: "furniture.size needs a label and a width, height, and depth from 1 to 1000 cm")
+                    throw RoomArtReplyError(reason: "furniture.size needs a label, a height, and any width and depth it states, each from 1 to 1000 cm")
                 }
                 chosenSize = RoomArtFurnitureSize(
                     label: sizeReply.label,
