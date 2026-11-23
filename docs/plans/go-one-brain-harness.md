@@ -1,8 +1,7 @@
 # Go one brain: build plan
 
 Written 2026-11-19, against `origin/main` at f213fda (PR #46 merged).
-This is a plan only.
-Nothing in it is built yet.
+Status on 2026-11-22: every PR in this plan is merged, and the old voice command path is deleted.
 Revised 2026-11-20 after a council review (Claude Opus 5.5, Claude Fable 5.2, GPT-6.2 Sol) that checked it against the code.
 
 ## Goal
@@ -63,7 +62,7 @@ The three approval follow-ups go first, because the cutover PR moves the approva
 | 6 | The brain keeps a session, with compaction | Piece 1 | 1 day | Yes, the harness flag |
 | 7 | The turn budget rule, with no planner tool | Piece 3 | 2 hours, since the evals showed Sonnet planning adds nothing | Yes, the harness flag |
 | 8 | Approval rules move into the harness, and the harness flag turns on | Piece 4 | 1.5 days | The flag's default turns on |
-| 9 | Delete the old path | Cleanup | 2 hours | Chris decides when |
+| 9 | Delete the old path | Cleanup | 2 hours | Done, after the cutover |
 
 Total: about 6.5 days of agent work for the brain, plus about 1.5 days for PR 0 and the three approval items.
 The council review added a day to PR 4 and PR 8, for the hand-off mark, the request limits, the turn index, and the app secret fallback.
@@ -584,14 +583,16 @@ New `harness/voiceapproval.go` (the yes check and the offer rule), `harness/brai
 
 **Fallback.** With the harness down, a command takes the router failure fallback (the keyword path), not the old Worker route.
 
-## PR 9: Delete the old path (Chris decides when)
+## PR 9: Delete the old path
+
+Done after the cutover, once the harness brain had run as the default.
 
 After a few days of use with the harness flag on, delete `POST /voice-command` and its tests, `VoiceCommandClient`, `recentVoiceToolActionLines`, the Swift copy of the voice approval check, the shared fixture's Swift reader, the harness flag, and the Worker backend of the brain evals.
 Update `AGENTS.md`, `bench/README.md`, and the verify-clicky feature map in the same PR.
 Two things go with the old path:
 
 - The no-secret fallback from PR 8, so the secret becomes a setup requirement.
-- Router benchmarks on other vendors' models: a `gpt-*` or `gemini-*` `BENCH_MODEL` answers `/v1/messages` with 501 (`worker/src/index.ts:181-182`).
+- Router benchmarks on other vendors' models: a `gpt-*` or `gemini-*` `BENCH_MODEL` answers `/v1/messages` with 501 (`forwardToAnthropic` in `worker/src/index.ts`).
   The brain evals can then compare Claude models only.
 
 ---
@@ -630,8 +631,8 @@ PR 8 makes this the only path, so check the relaunch time in PR 4's verify run.
 
 ### Two copies of the approval check during the move
 
-From PR 8 to PR 9 the Swift and Go yes checks both exist.
-The shared fixture keeps them from differing, and PR 9 deletes the Swift copy.
+From PR 8 to PR 9 the Swift and Go yes checks both existed, and the shared fixture kept them from differing.
+PR 9 deleted the Swift copy, so `harness/voiceapproval.go` holds the only check.
 
 ### Cache minimum for Haiku
 
@@ -647,7 +648,7 @@ Check Haiku 5.5's minimum with the `claude-api` reference before PR 6 relies on 
 2. **Should the brain hear what `answer_with_screen` said?** Today `/chat` keeps its own history, so "say that again" works there, but the brain does not know what was answered.
    Recommendation: wait for an eval case that needs it.
 3. **"Always" scope (PR 1).** One task (recommended), or a narrower per-tool target such as a link's host.
-4. **Deleting the old path (PR 9).** After how many days of use, or keep `/voice-command` as a bench baseline.
+4. **Deleting the old path (PR 9).** Decided on 2026-11-22. PR 9 deleted it, and the brain evals compare Claude models only.
    Deleting it also ends the no-secret fallback and router benchmarks on GPT and Gemini models.
 5. **PR 0's timeout.** Decided on 2026-11-22. Background builds have a 240 second timeout, and a build the learner watches keeps 60 seconds.
    The question was whether to raise the app's `/live-scene` timeout for the background builds if the Sonnet fallback's p95 passed 60 seconds.

@@ -7,7 +7,6 @@ import {
   acceptedAnswersOf,
   approvalIDFor,
   cacheReadShare,
-  earlierActionLine,
   escapedLine,
   harnessUserMessageText,
   interruptedBeforeTag,
@@ -16,7 +15,6 @@ import {
   sceneStateOf,
   sessionLinesFor,
   splitBySuite,
-  gatedSessionSamples,
   validateSessionFixture,
   appToolDescriptionsIn,
   appToolStepKindsIn,
@@ -26,16 +24,14 @@ import {
   appToolsWhoseStepMayHandOffIn,
   costOfUsageLines,
   descriptionsInAppSource,
-  exitCodeOfGate,
   firstTurnToolCalls,
   handOffToolNames,
-  harnessParityGate,
   HarnessCommandRecorder,
   lookupToolNames,
   pageToolDescriptionsIn,
   parseBrainTurnLine,
   percentile,
-  requestBodyFor,
+  offeredToolsFor,
   runCaseOnTheHarness,
   sampleFromHarnessRecord,
   scoreApprovalCase,
@@ -48,12 +44,10 @@ import {
   startHarnessBrain,
   summarizeByContext,
   summarizeSamples,
-  toolCallsIn,
   toolsWithStaleDescriptions,
   validateBrainEvals,
   voiceCommandMessageFor,
   waitingApprovalCapabilityOf,
-  voiceCommandUserMessageText,
   withSkills,
   type BrainCase,
   type BrainEvalFile,
@@ -70,11 +64,9 @@ const sessionFile: SessionFixture = readFixture("brain-sessions.json");
 
 function sample(overrides: Partial<BrainSample>): BrainSample {
   return {
-    backend: "worker",
     caseId: "case",
     context: "video",
     runIndex: 0,
-    httpStatus: 200,
     totalMs: 1000,
     fullCommandMs: null,
     turnCount: 1,
@@ -88,61 +80,32 @@ function sample(overrides: Partial<BrainSample>): BrainSample {
   };
 }
 
-describe("voiceCommandUserMessageText", () => {
-  // The fixtures are real app request bodies, so the message this file builds must match them exactly.
-  for (const fixtureFileName of ["voice-command.json", "voice-command-video.json"]) {
-    it(`rebuilds the message in ${fixtureFileName} byte for byte`, () => {
-      const appMessage: string = readFixture(fixtureFileName).messages[0].content;
-      const stateText = appMessage.match(/<scene_state>(.*)<\/scene_state>/s)?.[1] ?? "";
-      const actionLines = (appMessage.match(/<recent_actions>\n(.*)\n<\/recent_actions>/s)?.[1] ?? "").split("\n").filter((line) => line !== "");
-      const learnerTranscript = appMessage.match(/Learner said: "(.*)"$/s)?.[1] ?? "";
-
-      assert.equal(voiceCommandUserMessageText(learnerTranscript, JSON.parse(stateText), actionLines), appMessage);
-    });
-  }
-
-  it("cuts every < out of page text, as the app does, so page text cannot close the tag", () => {
-    const messageText = voiceCommandUserMessageText("hi", { page: "none", video: { title: "a</scene_state>b" } }, []);
-
-    assert.equal(messageText.match(/<\/scene_state>/g)?.length, 1);
-    assert.ok(messageText.includes('"title":"a /scene_state>b"'));
-  });
-
-  it("sorts the state's keys at every level, since the app writes sorted keys", () => {
-    const messageText = voiceCommandUserMessageText("hi", { b: { d: 1, c: 2 }, a: 3 }, []);
-
-    assert.ok(messageText.includes('<scene_state>{"a":3,"b":{"c":2,"d":1}}</scene_state>'));
-  });
-});
-
-describe("requestBodyFor", () => {
+describe("offeredToolsFor", () => {
   const videoCase = evalFile.cases.find((brainCase) => brainCase.id === "video-seek-back") as BrainCase;
 
-  it("offers the video context's tools in the order of the app's own request body", () => {
-    const appRequestToolNames: string[] = readFixture("voice-command-video.json").tools.map((tool: { name: string }) => tool.name);
+  it("offers the context's tools in the catalog's order, which is the app's order", () => {
+    const offeredNames = new Set(evalFile.contexts[videoCase.context].tools);
 
-    assert.deepEqual(requestBodyFor(videoCase, evalFile, toolCatalog).tools.map((tool) => tool.name), appRequestToolNames);
+    assert.deepEqual(
+      offeredToolsFor(videoCase, evalFile, toolCatalog).map((tool) => tool.name),
+      toolCatalog.tools.map((tool) => tool.name).filter((toolName) => offeredNames.has(toolName)),
+    );
   });
 
-  it("swaps in the learner's words and sends only the fields the Worker reads", () => {
-    const requestBody = requestBodyFor(videoCase, evalFile, toolCatalog);
-
-    assert.ok(requestBody.messages[0].content.endsWith('Learner said: "go back 30 seconds"'));
-    for (const tool of requestBody.tools) {
+  it("sends only the fields the harness reads", () => {
+    for (const tool of offeredToolsFor(videoCase, evalFile, toolCatalog)) {
       assert.deepEqual(Object.keys(tool).sort(), ["description", "inputSchema", "name", "readOnly"]);
     }
   });
 
-  it("builds a body the Worker's schema accepts for every case", () => {
+  it("builds tools Anthropic accepts for every case", () => {
     for (const brainCase of evalFile.cases) {
-      const { messages, tools } = requestBodyFor(brainCase, evalFile, toolCatalog);
+      const tools = offeredToolsFor(brainCase, evalFile, toolCatalog);
 
-      assert.equal(messages.length, 1);
-      assert.ok(tools.length >= 1 && tools.length <= 40, brainCase.id);
+      assert.ok(tools.length >= 1, brainCase.id);
       for (const tool of tools) {
-        // The same rules as voiceCommandToolSchema in worker/src/voiceCommand.ts.
-        assert.match(tool.name, /^[a-z][a-z_]{0,63}$/);
-        assert.ok(tool.description.length >= 1 && tool.description.length <= 4096, `${tool.name} description length`);
+        assert.match(tool.name, /^[a-zA-Z0-9_-]{1,64}$/);
+        assert.ok(tool.description.length >= 1, `${tool.name} description length`);
         assert.equal(tool.inputSchema.type, "object");
       }
     }
@@ -233,7 +196,7 @@ describe("withSkills", () => {
 
   it("builds every request with the fixture's skills, and leaves a file with no skills alone", () => {
     const taskToolIn = (file: BrainEvalFile) =>
-      requestBodyFor(file.cases.find((brainCase) => brainCase.id === "nothing-research") as BrainCase, file, toolCatalog).tools.find(
+      offeredToolsFor(file.cases.find((brainCase) => brainCase.id === "nothing-research") as BrainCase, file, toolCatalog).find(
         (tool) => tool.name === "start_background_task",
       );
 
@@ -260,30 +223,8 @@ describe("acceptedAnswersOf", () => {
   });
 });
 
-describe("toolCallsIn", () => {
-  it("reads tool calls and spoken text from a Worker reply", () => {
-    const reply = JSON.stringify({
-      content: [
-        { type: "text", text: "On it." },
-        { type: "tool_use", id: "t1", name: "seek_relative", input: { seconds: -30, confirmation: "back 30" } },
-      ],
-      stopReason: "tool_use",
-    });
-
-    assert.deepEqual(toolCallsIn(reply), {
-      toolCalls: [{ name: "seek_relative", input: { seconds: -30, confirmation: "back 30" } }],
-      spokenText: "On it.",
-    });
-  });
-
-  it("reads a reply that is not a Worker reply as no tool", () => {
-    assert.deepEqual(toolCallsIn("<html>bad gateway</html>"), { toolCalls: [], spokenText: "" });
-    assert.deepEqual(toolCallsIn("[1]"), { toolCalls: [], spokenText: "" });
-  });
-});
-
 describe("costOfUsageLines", () => {
-  const haikuLine = { route: "/voice-command", model: "claude-haiku-5-5", serviceTier: undefined, inputTokens: 1000, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 100 };
+  const haikuLine = { route: "/v1/messages", model: "claude-haiku-5-5", serviceTier: undefined, inputTokens: 1000, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 100 };
 
   it("prices each line, and is unknown for a request with no usage line or an unpriced model", () => {
     assert.ok(Math.abs((costOfUsageLines([haikuLine]) ?? 0) - (1000 * 0.1 + 100 * 0.5) / 1_000_000) < 1e-12);
@@ -429,7 +370,7 @@ describe("the tool catalog", () => {
   });
 });
 
-// ---------- The harness backend ----------
+// ---------- The harness driver ----------
 
 const fixtureCase = (caseId: string) => evalFile.cases.find((brainCase) => brainCase.id === caseId) as BrainCase;
 
@@ -663,22 +604,20 @@ describe("standInToolResult", () => {
   });
 });
 
-describe("the harness backend's scoring", () => {
+describe("the harness command scoring", () => {
   const seekCase = fixtureCase("video-seek-back");
 
-  it("scores a recorded tool_call line stream the same as the equivalent Worker reply", () => {
-    const workerReply = JSON.stringify({ content: [{ type: "tool_use", name: "seek_relative", input: { seconds: -30, confirmation: "back thirty" } }] });
+  it("scores a recorded tool_call line stream as the case's accepted call", () => {
     const { record } = replay(seekCase, [
       [turn1Line("seek_relative"), 410],
       [toolCallLine("call-1", "seek_relative", { seconds: -30 }, 0), 412],
       [finishedLine("back thirty"), 430],
     ]);
 
-    assert.equal(sampleFromHarnessRecord(seekCase, 0, record).outcome, scoreBrainCase(toolCallsIn(workerReply).toolCalls, seekCase));
     assert.equal(sampleFromHarnessRecord(seekCase, 0, record).outcome, "pass");
   });
 
-  it("scores a wrong tool and a spoken reply the way the Worker's scoring does", () => {
+  it("scores a wrong tool, and a spoken reply where a tool was expected", () => {
     const wrongToolStream = replay(seekCase, [[turn1Line("pause_video"), 410], [toolCallLine("call-1", "pause_video", {}, 0), 412], [finishedLine("paused"), 430]]);
     const spokenStream = replay(seekCase, [[turn1Line("none"), 410], [finishedLine("it is a shark"), 415]]);
 
@@ -735,20 +674,15 @@ describe("the harness backend's scoring", () => {
     assert.deepEqual(record.toolCalls, []);
   });
 
-  it("scores a call the app never saw, hidden after a hand-off, as the Worker would: a wrong tool", () => {
+  it("scores a call the app never saw, hidden after a hand-off, as a wrong tool", () => {
     const themeCase = fixtureCase("video-seek-back");
     // The model called pop_out and then seek_relative in one turn. The hand-off ended the turn, so only pop_out got a tool_call line.
     const { record } = replay(themeCase, [[turn1Line("pop_out,seek_relative"), 410], [toolCallLine("call-1", "pop_out", {}, 0), 412], [finishedLine(""), 430]]);
 
     const sample = sampleFromHarnessRecord(themeCase, 0, record);
-    const workerScore = scoreBrainCase(
-      toolCallsIn(JSON.stringify({ content: [{ type: "tool_use", name: "pop_out", input: {} }, { type: "tool_use", name: "seek_relative", input: { seconds: -30 } }] })).toolCalls,
-      themeCase,
-    );
 
     assert.deepEqual(sample.toolCalls, [{ name: "pop_out", input: {} }, { name: "seek_relative", input: {}, inputIsUnknown: true }]);
     assert.equal(sample.outcome, "wrongTool");
-    assert.equal(sample.outcome, workerScore);
   });
 
   it("scores a refused call the same way, and a hidden call fails a case that checks that tool's input", () => {
@@ -875,7 +809,7 @@ describe("driving the harness process", () => {
     assert.equal(voiceCommand.type, "voice_command");
     assert.equal(voiceCommand.transcript, "go back 30 seconds");
     assert.deepEqual(voiceCommand.sceneState, evalFile.contexts.video.sceneState);
-    assert.deepEqual(voiceCommand.tools, requestBodyFor(fixtureCase("video-seek-back"), evalFile, toolCatalog).tools);
+    assert.deepEqual(voiceCommand.tools, offeredToolsFor(fixtureCase("video-seek-back"), evalFile, toolCatalog));
   });
 
   it("answers a lookup with lookedUp and its caption lines, so the brain takes a second turn, and counts one turn first and both in full", async () => {
@@ -914,7 +848,7 @@ describe("driving the harness process", () => {
     }
   });
 
-  it("scores a command whose turn called two tools but whose second the app never saw as the Worker would score the pair", async () => {
+  it("scores a command whose turn called two tools but whose second the app never saw as a wrong pair", async () => {
     const harnessBrain = await startHarnessBrain(fakeHarness, 1, "s3cret");
     try {
       // The fake calls pop_out then close_scene. Only pop_out reaches the app, and the turn's log line names both.
@@ -1003,69 +937,21 @@ describe("driving the harness process", () => {
   });
 });
 
-describe("harnessParityGate", () => {
-  const workerSummary = summarizeSamples([sample({ totalMs: 1000, costUSD: 0.001 }), sample({ totalMs: 1000, costUSD: 0.001 })]);
-  const harnessSummary = (overrides: Partial<BrainSample>) =>
-    summarizeSamples([sample({ backend: "harness", totalMs: 1000, costUSD: 0.001, ...overrides }), sample({ backend: "harness", totalMs: 1000, costUSD: 0.001, ...overrides })]);
-
-  it("passes when every harness run passes, p50 is within 100 ms, and cost is within 1.5 times", () => {
-    const gate = harnessParityGate(workerSummary, harnessSummary({ totalMs: 1100, costUSD: 0.0015 }));
-
-    assert.equal(gate.passed, true);
-    assert.equal(gate.checks.length, 3);
-  });
-
-  it("fails on a harness run that does not pass", () => {
-    const gate = harnessParityGate(workerSummary, summarizeSamples([sample({ backend: "harness" }), sample({ backend: "harness", outcome: "wrongTool" })]));
-
-    assert.equal(gate.passed, false);
-    assert.equal(gate.checks[0].passed, false);
-  });
-
-  it("fails when the harness's p50 is more than 100 ms above the Worker's", () => {
-    const gate = harnessParityGate(workerSummary, harnessSummary({ totalMs: 1101 }));
-
-    assert.deepEqual(gate.checks.map((check) => check.passed), [true, false, true]);
-  });
-
-  it("fails when the first-turn cost is above 1.5 times the Worker's, and when it is unknown", () => {
-    assert.deepEqual(harnessParityGate(workerSummary, harnessSummary({ costUSD: 0.0016 })).checks.map((check) => check.passed), [true, true, false]);
-    assert.deepEqual(harnessParityGate(workerSummary, harnessSummary({ costUSD: null })).checks.map((check) => check.passed), [true, true, false]);
-  });
-});
-
-describe("exitCodeOfGate", () => {
-  it("is what a run sets as its exit code once the result file is saved, which only a run against a live Worker could show", () => {
-    const runSource = readFileSync(join(benchDirectory, "brainEvals.ts"), "utf8");
-
-    assert.ok(runSource.includes("process.exitCode = exitCodeOfGate(gate);"));
-  });
-
-  it("is nonzero only when the gate ran and failed, so a failed parity run stops a script that checks the exit code", () => {
-    assert.equal(exitCodeOfGate({ passed: false }), 1);
-    assert.equal(exitCodeOfGate({ passed: true }), 0);
-    assert.equal(exitCodeOfGate(undefined), 0);
-  });
-});
-
 describe("the full-command columns", () => {
-  it("reports the full command's p50 and mean cost for harness samples, and null for Worker samples", () => {
-    const workerOnly = summarizeSamples([sample({}), sample({})]);
-    const harnessOnly = summarizeSamples([
-      sample({ backend: "harness", fullCommandMs: 800, fullCommandCostUSD: 0.002 }),
-      sample({ backend: "harness", fullCommandMs: 1200, fullCommandCostUSD: 0.004 }),
-    ]);
+  it("reports the full command's p50 and mean cost, and null for samples of commands that never ended", () => {
+    const neverEnded = summarizeSamples([sample({ fullCommandMs: null }), sample({ fullCommandMs: null })]);
+    const ended = summarizeSamples([sample({ fullCommandMs: 800, fullCommandCostUSD: 0.002 }), sample({ fullCommandMs: 1200, fullCommandCostUSD: 0.004 })]);
 
-    assert.equal(workerOnly.fullCommandP50Ms, null);
-    assert.equal(workerOnly.meanFullCommandCostUSD, null);
-    assert.equal(harnessOnly.fullCommandP50Ms, 800);
-    assert.equal(harnessOnly.meanFullCommandCostUSD, 0.003);
+    assert.equal(neverEnded.fullCommandP50Ms, null);
+    assert.equal(neverEnded.meanFullCommandCostUSD, null);
+    assert.equal(ended.fullCommandP50Ms, 800);
+    assert.equal(ended.meanFullCommandCostUSD, 0.003);
   });
 
   it("says unknown when a harness command has no cost, so a failed command never reads as free", () => {
     const summary = summarizeSamples([
-      sample({ backend: "harness", fullCommandMs: 800, fullCommandCostUSD: 0.002 }),
-      sample({ backend: "harness", fullCommandMs: 900, fullCommandCostUSD: null }),
+      sample({ fullCommandMs: 800, fullCommandCostUSD: 0.002 }),
+      sample({ fullCommandMs: 900, fullCommandCostUSD: null }),
     ]);
 
     assert.equal(summary.meanFullCommandCostUSD, null);
@@ -1133,19 +1019,9 @@ describe("the session fixture", () => {
 });
 
 describe("the cases that seed earlier commands", () => {
-  const casesWithRecentActions = evalFile.cases.filter((brainCase) => brainCase.recentActions !== undefined);
-
-  it("give the harness the actions the Worker backend reads as recentActions, for both cases that have them", () => {
-    assert.deepEqual(casesWithRecentActions.map((brainCase) => brainCase.id), ["scene-other-way", "popout-other-way"]);
-    for (const brainCase of casesWithRecentActions) {
-      assert.deepEqual(brainCase.earlierCommands?.flatMap((command) => command.calls.map(earlierActionLine)), brainCase.recentActions, brainCase.id);
-    }
-  });
-
-  it("are rejected when recentActions has no earlierCommands to seed for the harness backend", () => {
-    const withoutEarlier: BrainEvalFile = { ...evalFile, cases: [{ ...fixtureCase("scene-other-way"), earlierCommands: undefined }] };
-    assert.throws(() => validateBrainEvals(withoutEarlier, toolCatalog), /no earlierCommands/);
+  it("are rejected when an earlier command has no words or no call", () => {
     const emptyCommand: BrainEvalFile = { ...evalFile, cases: [{ ...fixtureCase("scene-other-way"), earlierCommands: [{ say: "turn it", calls: [] }] }] };
+
     assert.throws(() => validateBrainEvals(emptyCommand, toolCatalog), /earlier command/);
   });
 });
@@ -1225,43 +1101,16 @@ describe("the harness's message and seed", () => {
     assert.deepEqual(voiceCommand.sceneState, { ...evalFile.contexts.scene3D.sceneState, yawDegrees: -45, pitchDegrees: 30 });
     assert.deepEqual(sceneStateOf(fixtureCase("scene-other-way"), evalFile), evalFile.contexts.scene3D.sceneState, "a case with no changes keeps the context's state");
   });
-
-  it("sends no recent actions in the voice_command, since the harness keeps its own session", () => {
-    const voiceCommand = voiceCommandMessageFor(fixtureCase("scene-other-way"), evalFile, toolCatalog, "cmd-1");
-
-    assert.ok(!("recentActions" in voiceCommand));
-  });
 });
 
 describe("the session suite's scoring", () => {
-  it("leaves the session cases out of the parity cases, and fails the gate when a session case fails", () => {
-    const parity = sample({ backend: "harness" });
-    const sessionSample = sample({ backend: "harness", suite: "sessions", outcome: "wrongTool" });
-    const split = splitBySuite([parity, sessionSample]);
+  it("keeps the session cases apart from the plain cases", () => {
+    const plainSample = sample({});
+    const sessionSample = sample({ suite: "sessions", outcome: "wrongTool" });
+    const split = splitBySuite([plainSample, sessionSample]);
 
-    assert.deepEqual(split.parityCaseSamples, [parity]);
+    assert.deepEqual(split.firstTurnSamples, [plainSample]);
     assert.deepEqual(split.sessionSamples, [sessionSample]);
-
-    const workerSummary = summarizeSamples([sample({})]);
-    const harnessSummary = summarizeSamples([parity]);
-    assert.equal(harnessParityGate(workerSummary, harnessSummary).passed, true);
-    assert.equal(harnessParityGate(workerSummary, harnessSummary, summarizeSamples([sample({ suite: "sessions" })])).passed, true);
-    const failedGate = harnessParityGate(workerSummary, harnessSummary, summarizeSamples([sessionSample]));
-    assert.equal(failedGate.passed, false);
-    assert.equal(failedGate.checks.at(-1)?.name, "every session case passes");
-  });
-
-  it("leaves a known miss out of the gate, while another session case that fails still fails it", () => {
-    const knownMissCase = { ...fixtureCase("scene-other-way"), id: "known-miss", knownMiss: "the model reads the turn as an angle" };
-    const gatedCase = { ...fixtureCase("scene-other-way"), id: "gated" };
-    const knownMissSample = sample({ backend: "harness", suite: "sessions", caseId: "known-miss", outcome: "wrongInput" });
-    const gatedSample = sample({ backend: "harness", suite: "sessions", caseId: "gated", outcome: "wrongInput" });
-
-    assert.deepEqual(gatedSessionSamples([knownMissSample, gatedSample], [knownMissCase, gatedCase]), [gatedSample]);
-    const workerSummary = summarizeSamples([sample({})]);
-    const harnessSummary = summarizeSamples([sample({ backend: "harness" })]);
-    assert.equal(harnessParityGate(workerSummary, harnessSummary, summarizeSamples(gatedSessionSamples([knownMissSample], [knownMissCase]))).passed, true);
-    assert.equal(harnessParityGate(workerSummary, harnessSummary, summarizeSamples(gatedSessionSamples([knownMissSample, gatedSample], [knownMissCase, gatedCase]))).passed, false);
   });
 });
 
@@ -1515,14 +1364,14 @@ describe("the planning cases", () => {
     assert.equal(backedUpTheWrongWay.outcome, "wrongInput");
   });
 
-  it("are 10 cases the Worker backend does not run, and the parity cases leave them out", () => {
+  it("are 10 cases, and the plain cases' samples leave them out", () => {
     const planningCases = evalFile.cases.filter((brainCase) => brainCase.scoreWholeCommand === true);
-    const planningSample = sample({ backend: "harness", suite: "planning" });
-    const parityCaseSample = sample({ backend: "harness" });
-    const split = splitBySuite([parityCaseSample, planningSample]);
+    const planningSample = sample({ suite: "planning" });
+    const plainCaseSample = sample({});
+    const split = splitBySuite([plainCaseSample, planningSample]);
 
     assert.equal(planningCases.length, 10);
-    assert.deepEqual(split.parityCaseSamples, [parityCaseSample]);
+    assert.deepEqual(split.firstTurnSamples, [plainCaseSample]);
     assert.deepEqual(split.planningSamples, [planningSample]);
     validateBrainEvals(evalFile, toolCatalog);
   });
@@ -1591,7 +1440,7 @@ describe("the planning cases", () => {
   });
 });
 
-describe("the approval cases on the harness backend", () => {
+describe("the approval cases", () => {
   const fakeHarness = { command: process.execPath, args: [join(benchDirectory, "fixtures", "fake-brain-harness.ts")] };
   const approvalCases = evalFile.cases.filter((brainCase) => waitingApprovalCapabilityOf(brainCase, evalFile) !== undefined);
   const settled = (approved: boolean, scope: "once" | "always") => ({ approved, scope });
@@ -1619,7 +1468,7 @@ describe("the approval cases on the harness backend", () => {
     assert.equal(voiceCommandMessageFor(fixtureCase("video-seek-back"), evalFile, toolCatalog, "cmd-1").approvalIDWaitingAtPress, null);
     assert.ok(!("approvalWaiting" in yes.sceneState), "the app sends no approvalWaiting on the harness path");
     assert.equal(voiceCommandMessageFor(fixtureCase("video-seek-back"), evalFile, toolCatalog, "cmd-1").approvalIDSeenAtPress, null);
-    // The Worker backend still sends the word the old path sends.
+    // The fixture's scene state keeps the capability word, and the driver turns it into a seeded request.
     assert.equal(sceneStateOf(fixtureCase("approval-yes"), evalFile).approvalWaiting, "sends");
   });
 

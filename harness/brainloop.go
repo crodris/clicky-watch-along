@@ -213,15 +213,14 @@ func (brain *brainRunner) requestTurn(commandContext context.Context, run *sessi
 }
 
 // errAppSecretRefused is the failure of a turn the Worker's own app secret check refused. Its text is the reason the
-// command's task_failed carries, which the app reads: it then sends the same command once on the old path, which needs
-// no secret, and uses that path for the rest of the launch. leanring-buddy/VoiceCommandTools.swift
-// (`harnessFailureReasonAppSecretRefused`) holds the same words.
+// command's task_failed carries, and the app logs it, so verify-clicky.sh doctor can tell a refused secret from any
+// other failure.
 var errAppSecretRefused = errors.New("app secret refused")
 
 // theWorkerRefusedTheAppSecret tells the Worker's secret check from Anthropic's own 401, which /v1/messages passes
 // through. Both are a 401, and the Worker's body is {"error":"Missing or wrong x-clicky-app-secret"} (worker/src/index.ts),
 // where the error is a string. Anthropic's is {"type":"error","error":{"type":"authentication_error",...}}, where it is an
-// object. An Anthropic 401 is a router failure like any other, and the old path would hit it too.
+// object. An Anthropic 401 is a router failure like any other.
 func theWorkerRefusedTheAppSecret(err error) bool {
 	var apiError *anthropic.Error
 	if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusUnauthorized {

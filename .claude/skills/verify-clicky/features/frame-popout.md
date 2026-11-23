@@ -52,10 +52,10 @@ Preconditions:
   The log shows `Frame pop-out: explaining the tapped <label> label` and `Frame pop-out narration: N sentences for partTapped(label: "<label>")`.
   Drag across a label instead, and the model turns with no tap line in the log.
   While Clicky names each part, run `$V shot popout-pointing` and check that the blue triangle sits just below and right of that part's accent dot at the end of the label's leader line, not on the label's words, drawn over the model, with the sentence Clicky is speaking in its bubble, wrapped onto more lines when it is long.
-- **Instant replay.** Run `$V app-launch --harness-brain "pop this out|show me again|+3 next|+3 back|+3 stop"`.
+- **Instant replay.** Run `$V app-launch "pop this out|show me again|+3 next|+3 back|+3 stop"`.
   A play-through ends after its last stop, about 4 seconds a stop, so "next" goes in a few seconds after "show me again", while the replay is still open.
   After the narration, the log shows `Instant replay: recorded N stops`, and the control with Replay and "N stops" shows under the video.
-  The second step logs `Instant replay: replaying on request` and `Instant replay: playing N stops`, with no `/chat` or `/voice-command` request for it.
+  The second step logs `Instant replay: replaying on request` and `Instant replay: playing N stops`, with no `/chat` request for it and no brain turn.
   Run `$V shot replay-dwell` while the cursor sits on a stop, and check that the numbers sit on their labels, the dotted path links the stops reached, the control reads "1 of N" or later, and the lifted model stays over the video.
   The `next`, `back`, and `stop` steps go to the router, and the log shows a `replay_step` call with `step` `next`, then `back`, then `end`, the chips "Next stop", "Back a stop", and "Ended the replay", and `Instant replay: ended`.
   For Escape, run `$V app-launch "pop this out|show me again|+600 thanks"`, run `$V key escape` while the cursor flies to a stop, then `$V shot replay-escape-a` and, a second later, `$V shot replay-escape-b`.

@@ -73,13 +73,11 @@ CI runs it on every committed result, so a result file that no longer parses fai
 
 ## Brain evals
 
-`brainEvals.ts` measures whether the voice command router picks the right tool for what a learner says.
-The router runs in two places: the Worker's `POST /voice-command` (the old path) and the Go harness's brain (`harness/brain.go`, the new path).
-It sends each case's words, screen state, and offered tools to the backend you pick and scores the tool calls of the first turn.
-Run it after any change to the router's model, its system prompt (`worker/src/voiceCommand.ts`, and the harness's own prompt in `harness/brain.go`, which differs in the lines about earlier commands), or a tool description, and compare the result with the committed baseline.
-On the `worker` backend the 60 cases at one run cost about one cent, and three runs of each cost about two cents.
-The 10 planning cases (see "Planning cases" below) run only on the `harness` backend.
-The `harness` backend also runs the second turn of a lookup, so its full-command cost is higher (see the committed parity run).
+`brainEvals.ts` measures whether the voice command brain picks the right tool for what a learner says.
+The brain runs in the Go harness (`harness/brain.go`).
+It sends each case's words, screen state, and offered tools to the brain and scores the tool calls of the first turn.
+Run it after any change to the brain's model, its system prompt in `harness/brain.go`, or a tool description, and compare the result with the committed baseline.
+The 10 planning cases (see "Planning cases" below) are scored on the whole command.
 
 ```bash
 V=.claude/skills/verify-clicky/verify-clicky.sh
@@ -91,19 +89,18 @@ $V cleanup
 
 `--runs N` repeats every case N times, since Haiku is not deterministic.
 `--only <case ids>` limits the run to a comma separated list of the case ids in the fixture.
-`--backend worker|harness|both` picks what answers the cases, `worker` by default (see "Backends" below).
+`--checkout <path>` reads `worker/.dev.vars` from that checkout instead of this one.
 Results go to `bench/results/<label>-brain-evals-<commit>.json`.
-`brainEvals.ts` needs `worker/.dev.vars` with `ANTHROPIC_API_KEY`, and the Worker's usage log lines give each call's tokens and cost.
+The result file holds `runCount`, `port`, `models`, `summary`, `sessionSummary`, `planningSummary`, and `samples`.
 
-### Backends
+### How a case runs
 
-The `worker` backend posts each case to `POST /voice-command`, the old path, and scores the one reply.
-The `harness` backend sends each case as a `voice_command` to the Go harness (`harness/brain.go`), the new path behind the app's `brainRunsInTheHarness` flag (on by default), and scores the tool calls it writes.
+Each case goes to the Go harness as a `voice_command` line (`harness/brain.go`), and the bench scores the tool calls the harness writes.
 It builds `harness/` into `bench/.harness/clicky-agent-harness` at the start of each run, so the binary always matches the checkout, or runs the binary named by `--harness <path>`.
 One harness process takes every command of a run, as the app's does, so the Anthropic connection is warm.
-The harness reaches Anthropic through the same Worker's `POST /v1/messages`, and needs `CLICKY_APP_SECRET` in `worker/.dev.vars`.
+The harness reaches Anthropic through the Worker's `POST /v1/messages`, so `worker/.dev.vars` needs `ANTHROPIC_API_KEY` and `CLICKY_APP_SECRET`.
 
-The harness backend answers each `tool_call` with the outcome the app gives that tool (`standInToolResult`, which follows `appVoiceToolStep` in `CompanionManager.swift`).
+The driver answers each `tool_call` with the outcome the app gives that tool (`standInToolResult`, which follows `appVoiceToolStep` in `CompanionManager.swift`).
 A hand-off tool such as `pop_out` or `answer_with_screen` gets `handedOff`, which ends the command.
 A lookup, `find_moment`, gets `lookedUp`, so the brain takes a second turn, as it does in the app.
 Every other tool gets `changed`.
@@ -112,55 +109,43 @@ A case may script a tool's answer with `toolResults`, a map from a tool name to 
 `seek_to_moment` is an action in the app (it finds the best line and seeks in one call), so it gets `changed` and needs no script.
 The stand-in cannot test which line the app's scorer picks, so `SeekToMomentTests` pins that on real caption lines.
 
-Both backends score the tool calls of the first turn, which is all the Worker backend returns, except for the planning cases, which only the harness backend runs and which are scored on the whole command.
-The Worker backend scores every `tool_use` block of the reply.
-The harness backend would see fewer calls if it read only the `tool_call` lines, because the harness sends none after a hand-off and none to a tool the command was not offered.
+A plain case is scored on the tool calls of its first turn, and a planning case on the whole command.
+The driver would see fewer calls if it read only the `tool_call` lines, because the harness sends none after a hand-off and none to a tool the command was not offered.
 So the harness's `Brain: turn` line ends with `calls <names>`, the names of every tool the turn called in order, or `calls none`, and the bench scores the first turn from those names.
 A call with a `tool_call` line keeps its input.
-A name with no `tool_call` line is scored as a call with no known input, so `[design_theme, pick_theme_idea]` is a wrong tool on both backends for a case that does not accept it, and a hidden call fails a case that checks that tool's `input`.
-A call after a hand-off tool in the same reply never runs, so in a one-reply case its `input` is not checked on either backend, and only its name counts (`callsOfOneReplyThatRan`). A planning case checks every call, since a command can go on after a hand-off the harness skipped.
+A name with no `tool_call` line is scored as a call with no known input, so `[design_theme, pick_theme_idea]` is a wrong tool for a case that does not accept it, and a hidden call fails a case that checks that tool's `input`.
+A call after a hand-off tool in the same reply never runs, so in a one-reply case its `input` is not checked, and only its name counts (`callsOfOneReplyThatRan`). A planning case checks every call, since a command can go on after a hand-off the harness skipped.
 The line holds names only, since a call's input can hold the learner's words.
 A harness that writes the older line with no `calls` field reads as a command with no turns, which the bench records as an error.
-The harness backend adds a second set of numbers for the whole command:
+The results hold these numbers:
 
 - `p50` and `p95` are the time from the `voice_command` line to the first `tool_call` line.
   A first turn with no tool call counts to `voice_command_finished`.
-  On the Worker backend they are the time from the request to the reply.
 - `fullCommandMs` is the time to `voice_command_finished`.
 - `costUSD` is the first turn's cost, and `fullCommandCostUSD` adds every turn, both from the harness's `Brain: turn` token lines.
-  On the Worker backend `costUSD` comes from the Worker's usage log line, and the full-command fields are null.
 
-`--backend both` runs the two case by case, and flips which one goes first on every case and run, so they share one network and one Worker.
-It then checks the parity gate for the harness brain:
-
-- every harness run passes,
-- the harness's p50 to the first tool call is within 100 ms of the Worker's p50 in the same run,
-- the harness's first-turn cost per call is within 1.5 times the Worker's.
-
-The full-command cost is printed beside the first-turn cost and is not gated.
-A run that spends cache writes unevenly can shift cost between the two backends, so read the gate over 3 runs, not 1.
-The command exits with a nonzero code when the gate fails, after it saves the result file.
+`run` prints a pass table for the plain cases, the session cases, and the planning cases, and a `FAIL` line for each case that missed, and it saves the result file.
 A command the driver gives up on after 60 seconds gets a `cancel_task`, as a push-to-talk press sends one, and the driver waits for the harness to acknowledge it before the next command, so a late turn of the abandoned command never counts as the next command's.
 
-```bash
-node bench/brainEvals.ts run --label harness-parity --backend both --runs 3 --port 8797
-```
+### Older results
 
-The result file holds `summaryByBackend` and the gate, and `bench/results/harness-parity-brain-evals-<commit>.json` is the committed parity run of the brain with a session (`harness-brain-evals-<commit>.json` is the earlier run of the brain with no memory).
+Results committed before 2026-11-22 also ran the Worker's old `POST /voice-command` route beside the harness.
+Those runs checked a parity gate: every harness run passes, the harness's p50 to the first tool call is within 100 ms of the Worker's, and its first-turn cost is within 1.5 times the Worker's.
+That route and the gate are gone, so the files and the gate results cited below are history.
+`bench/results/harness-parity-brain-evals-<commit>.json` is the last parity run of the brain with a session, and `harness-brain-evals-<commit>.json` is the earlier run of the brain with no memory.
 
 ### The harness's session
 
-The harness brain keeps a session across commands, so the harness backend sends `reset_session` before every case, and each case starts with no history.
-A case that needs earlier commands lists them in `earlierCommands`, each a `say` and its `calls` (a name, an `input`, and optionally a `confirmation` and the app's `resultText`), and the harness backend seeds them with `seed_session` before the case.
+The harness brain keeps a session across commands, so the driver sends `reset_session` before every case, and each case starts with no history.
+A case that needs earlier commands lists them in `earlierCommands`, each a `say` and its `calls` (a name, an `input`, and optionally a `confirmation` and the app's `resultText`), and the driver seeds them with `seed_session` before the case.
 `interruptedBefore` lists the action lines of a command the learner cut short, which the harness reports to the next command in an `interrupted_before` tag.
 `sceneStateChanges` sets keys of the context's scene state that the earlier commands changed, such as `yawDegrees`, so the case's own `scene_state` matches the history.
 The driver starts the harness with `CLICKY_BENCH=1`, the only thing that lets it take `reset_session` and `seed_session`.
 The harness refuses a seed with an empty message or a `tool_use` that has no `tool_result` in the next message, with a stderr line.
 The seeded messages and the harness's own user messages escape text as `escapedLine` in `harness/brain.go` does (`<` as `‹`, a backslash doubled, each line break character as `\n`), and the scene state as `taggedJSON` does (`jsonForTag`: `<` as `‹` and U+0085, U+2028, and U+2029 as `\u` escapes, so it stays valid JSON). A test pins the bench's copies.
 The harness keeps only the newest 40 folded commands, so `session-correction-after-fold` (25 commands) does not reach the cap.
-The two cases that hold `recentActions` for the Worker backend also hold the same actions as `earlierCommands`, and a test checks that they agree.
 
-`fixtures/brain-sessions.json` holds the cases that need the session, which only the harness backend runs and which the parity gate counts apart from the 60 cases both backends run:
+`fixtures/brain-sessions.json` holds the cases that need the session, which the run scores apart from the other cases:
 
 - `session-undo-first-turn`: "undo the first turn" after 7 commands, which the last 5 actions no longer show.
 - `session-correction-after-fold`: "undo that" after 25 commands, so the session folds before it.
@@ -171,7 +156,7 @@ The two cases that hold `recentActions` for the Worker backend also hold the sam
 - `session-undo-after-cut-off`: "undo that" after a press cut off a turn of 90 degrees while the app ran it, which the harness reverses with -90 and never by reaching past it to an older turn.
 - `session-undo-behind-a-pop-out`: "undo that" when the newest action is a pop-out over an older turn, which must close the scene and never turn the model back.
 
-With session cases in the run, the gate adds a check that every one passes, except a case marked `knownMiss`, which the run still runs and prints as `KNOWN MISS`.
+A session case that misses prints a `FAIL` line, except a case marked `knownMiss`, which the run still runs and prints as `KNOWN MISS`.
 No case is marked today.
 `session-correction-after-interrupt` was one until the harness took over "undo that" (see "Undo" below): Haiku passed it 0 to 2 runs in 5, and Sonnet 5.5 passed 0 of 5 (see "Planning cases"), because both models read the turn as an angle to go to or undid the last completed command.
 `measuredSession` is ten commands in one context.
@@ -187,17 +172,17 @@ The stateless mode passes fewer commands, since "undo the first turn" needs the 
 ### Undo
 
 The harness handles "undo that" itself.
-It records each call that changed the screen, and `undo_last_change`, offered while the newest change has an inverse, sends the app the inverse of that change (`harness/brainundo.go`, and "Undo on the harness path" in `AGENTS.md`).
+It records each call that changed the screen, and `undo_last_change`, offered while the newest change has an inverse, sends the app the inverse of that change (`harness/brainundo.go`, and "Undo in the brain" in `AGENTS.md`).
 Before it, Haiku 5.5 worked out the reverse itself: after an interrupted turn it went -45 or +45 where -90 undoes it, and after a zoom by 2 it turned the model back instead of zooming out.
 
-The harness backend scores a call to `undo_last_change` as the inverse call the app received, since that is what the learner sees (`toolCallsOfTurn`).
+The driver scores a call to `undo_last_change` as the inverse call the app received, since that is what the learner sees (`toolCallsOfTurn`).
 A call the harness refused has no inverse call and scores as a hidden call, which fails a case that checks its tool.
 
 `session-undo-after-cut-off` says "undo that" after a press cut off a turn while the app ran it.
 With no inverse for a cut-off call, `undo_last_change` was not offered, and Haiku 5.5 turned the model itself: 4 of 15 runs on the `origin/main` harness reversed the right turn, and the rest went -45, +45, or +90 (`results/popout-base-brain-evals-521a2ea28a8b.json`).
 The harness now keeps the inverse of a cut-off page call (`aCutOffCallHasRun`), and the case passed 15 of 15 on the same Worker on 2026-11-21 (`results/cut-off-undo-after-brain-evals-521a2ea28a8b.json` and `results/cut-off-sessions-brain-evals-521a2ea28a8b.json`).
 The other session cases kept their pass counts, and `session-undo-behind-a-pop-out` missed once in 20 runs with the change and once in 15 on `origin/main`, so that miss is the model's own variation (`results/popout-after-brain-evals-521a2ea28a8b.json`).
-`theme-refine-use-picture` passed 80 of 80 runs that day, 40 on each backend, so its one miss in the committed results is not a pattern worth a description change (`results/picture-flake-before-brain-evals-521a2ea28a8b.json`, `results/picture-flake-worker-brain-evals-521a2ea28a8b.json`).
+`theme-refine-use-picture` passed 80 of 80 runs that day, 40 on the harness and 40 on the old Worker route, so its one miss in the committed results is not a pattern worth a description change (`results/picture-flake-before-brain-evals-521a2ea28a8b.json`, `results/picture-flake-worker-brain-evals-521a2ea28a8b.json`).
 
 Pass counts of the session cases, 5 runs each on Haiku 5.5 at low effort, with the harness from `origin/main` and this one run at the same time on the same Worker (`results/undo-sessions-before-brain-evals-a1b20c9711fa.json` and `results/undo-sessions-after-no-prompt-line-brain-evals-a1b20c9711fa.json`):
 
@@ -217,7 +202,7 @@ The system prompt does not name `undo_last_change`.
 The first version added a prompt line that named it, and it passed 30 of 35: `session-undo-behind-a-pop-out` fell from 5 of 5 to 0 of 5, because Haiku called the tool in a command that had not offered it, and the harness refused the call (`results/undo-sessions-after-brain-evals-a1b20c9711fa.json`).
 The tool's description alone passed 35 of 35, so the guidance lives there, where the model reads it only while the tool is offered.
 
-The full run (`node bench/brainEvals.ts run --label brain-undo --backend both --runs 3 --port 8797`, `results/brain-undo-brain-evals-a1b20c9711fa.json`) failed the parity gate's first check, 177 of 180 harness runs.
+The full parity run (3 runs, `results/brain-undo-brain-evals-a1b20c9711fa.json`) failed the parity gate's first check, 177 of 180 harness runs.
 The three failed runs were `video-build-model` twice and `theme-refine-sound` once, in contexts where no change is recorded, so the request is the same one the `origin/main` harness sends.
 The other gate checks passed: p50 749 ms against the Worker's 747 ms, cost 1.05 times, and 21 of 21 session runs.
 Harness-only runs of the same cases, 3 runs each, passed 215 of 225 on `origin/main` and 222 of 225 on this branch (`results/brain-undo-baseline-harness-brain-evals-a1b20c9711fa.json`, `results/brain-undo-after-harness-brain-evals-a1b20c9711fa.json`).
@@ -248,7 +233,7 @@ A planning case is a request whose steps depend on each other, such as "go back 
 `planning-find-last-mention` is the case where a lookup feeds a seek, since "the last time he mentions the liver" needs `find_moment` and then a `seek_to_time` to a time the model reads from the lookup.
 `planning-seek-fails-then-pop-out` scripts `seek_to_moment` as failed and sets `mustNotReachTheApp: ["pop_out"]`, which fails the case when the harness still sends the pop-out to the app after the failed seek.
 They measure whether the Haiku brain plans a chain by itself, which decides whether a slower planning model is needed (PR 7 of `docs/plans/go-one-brain-harness.md`).
-A case marks itself with `scoreWholeCommand: true`, and the harness backend scores it differently from every other case:
+A case marks itself with `scoreWholeCommand: true`, and the driver scores it differently from every other case:
 
 - The calls of every turn count, in the order the model made them.
   Each accepted answer in `accept` is an ordered sequence, not an unordered set, so a seek that comes after a hand-off fails.
@@ -260,13 +245,10 @@ A case marks itself with `scoreWholeCommand: true`, and the harness backend scor
 - The sample keeps the full command's time and cost, and the run prints a table with each case's pass count, `fullP50` (the `voice_command` line to `voice_command_finished`), and `meanFullUsd` (every turn's cost) next to the first-turn columns of the other tables.
 - The outcome is `pass`, `wrongTool` (a different set, order, or count of calls, including calls cut off after a hand-off), `wrongInput`, or `missedTool` (no call).
 
-Only the harness backend runs these cases.
-The Worker backend sends one request and scores the one reply, so it cannot answer a `find_moment` call with its result and ask again, and a second Worker driver would copy the harness's loop, which replaces the Worker path.
-`--backend worker` leaves them out and prints a line saying so, and the parity gate leaves them out too (`suite: "planning"`), so they never fail the parity check of the 60 cases.
-They run in the same harness process as the session cases, after the parity cases, with a reset before each.
+They run in the same harness process as the session cases, after the plain cases, with a reset before each, and the run scores them apart (`suite: "planning"`).
 
 ```bash
-node bench/brainEvals.ts run --label planning-haiku --backend harness --runs 3 --port 8797
+node bench/brainEvals.ts run --label planning-haiku --runs 3 --port 8797
 ```
 
 The committed measurement of the PR 6 brain (Haiku 5.5, 3 runs of each case, 2026-11-20) is `results/planning-haiku-brain-evals-52c4e4ef169c.json`.
@@ -279,7 +261,7 @@ Its 3 misses were all an extra `pause_video` before `pop_out`.
 On `session-correction-after-interrupt` it passed 0 of 5 (`results/known-miss-sonnet-brain-evals-63708b5517a2.json`): every run zoomed out by 0.77, which undoes the last completed command and not the interrupted turn.
 A planner tool that sends a command to Sonnet would not have helped, so PR 7 ships no such tool.
 It ships the turn budget rule instead: when the third Haiku turn still needs the model, the harness gives the command one Sonnet turn (`harness/brainloop.go`) before the gave-up line.
-The harness backend counts that turn like any other: it appears in `turnCount` and in the sample's usage lines, with `claude-sonnet-5-5` as the model.
+The driver counts that turn like any other: it appears in `turnCount` and in the sample's usage lines, with `claude-sonnet-5-5` as the model.
 
 `pop_out` and `animate_picture` now say they pause a playing video by themselves, since the models called `pause_video` first.
 The first wording, "so never call pause_video before it", made Haiku stop before `pop_out`: it passed 31 of 48 runs of the two pop_out cases, against 45 of 48 with the old text and 45 of 48 with the plain fact that shipped.
@@ -306,17 +288,17 @@ A command's cost includes the cache write of whichever call came first in its ru
 The two rows marked "after" come from `results/seek-to-moment-brain-evals-a1b20c9711fa.json`, and the rows above them from the earlier files.
 The `seek_to_moment` change is measured in `results/seek-before-brain-evals-a1b20c9711fa.json` (before), `results/seek-after5-brain-evals-a1b20c9711fa.json` (5 runs of the cases it changes), and `results/seek-to-moment-brain-evals-a1b20c9711fa.json` (the full parity run).
 The review fixes are measured in `results/seek-fixes-brain-evals-30873937aaa4.json` (the planning cases, 3 runs, 18 of 18 on the six cases that carry `seek_to_moment`, `find_moment`, or the failed seek), `results/seek-fixes-parity-brain-evals-30873937aaa4.json` (the full parity run, which failed the gate at 181 of 183 on `theme-refine-sound` and `theme-refine-use-picture`), and `results/seek-fixes-theme-check-brain-evals-30873937aaa4.json` (those two cases, 5 runs).
-`theme-refine-sound` fails 1 to 2 of 5 harness runs on the commit before the fixes too, while the Worker backend passes it, so it is not caused by them.
+`theme-refine-sound` failed 1 to 2 of 5 harness runs on the commit before the fixes too, while the old Worker route passed it, so it is not caused by them.
 The cause was the case, not the harness: for "one, but with a softer sound" Haiku 5.5 sometimes also calls `pick_theme_idea` for the number, before or after `design_theme`.
 A pick before the design is harmless (it moves the highlight and the cursor preview to that idea), and a pick after it never runs, because a design hands off.
-A 10 run check on 2026-11-21 saw the extra pick once on each backend (`theme-refine-sound` on the harness, `theme-refine-cursor-shape` on the Worker), and `theme-refine-sound` and `theme-refine-cursor-shape` now accept the design with or without a pick of the same idea (`results/theme-refine-before-brain-evals-e44553854e1f.json`, `results/theme-refine-after-brain-evals-e44553854e1f.json`, 20 of 20 on each backend after).
-The harness still scored a recorded design then pick as `wrongInput`, because the pick never reached the app and its input read as unknown, so a call after a hand-off is no longer input checked, and `results/theme-refine-fixed-brain-evals-22149d9cf191.json` (10 runs, 20 of 20 on each backend, with one harness run that called the design then a pick) measures it.
+A 10 run check on 2026-11-21 saw the extra pick once on each side (`theme-refine-sound` on the harness, `theme-refine-cursor-shape` on the old Worker route), and `theme-refine-sound` and `theme-refine-cursor-shape` now accept the design with or without a pick of the same idea (`results/theme-refine-before-brain-evals-e44553854e1f.json`, `results/theme-refine-after-brain-evals-e44553854e1f.json`, 20 of 20 on each side after).
+The harness still scored a recorded design then pick as `wrongInput`, because the pick never reached the app and its input read as unknown, so a call after a hand-off is no longer input checked, and `results/theme-refine-fixed-brain-evals-22149d9cf191.json` (10 runs, 20 of 20 on each side, with one harness run that called the design then a pick) measures it.
 The first wording of the `seek_to_moment` description after the fixes ("not a particular mention") sent "the last time he mentions the liver" to `seek_to_moment` first and failed `planning-find-last-mention` 0 of 3, so the description says it cannot pick the first, the last, or another particular mention.
 
 `set_control` takes an optional `run` boolean (2026-11-21), so "set the angle to sixty and run it" is one call instead of `set_control` then `run_simulation`.
 The miss it removes is a reply that ends after `set_control`: the harness log shows `record_guess` and `set_control` in one turn and then nothing, while the spoken line says it ran.
 A reply that ends early loses its last call, so the fix removes the last call of that chain, which is an inference from the counts below, not a trace of the model.
-The change is measured against main's descriptions in 5 rounds of 2 runs each, alternating the two sides every round, on the harness backend (`results/set-control-run-interleave-main-r1-brain-evals-25b21e6045c0.json` to `r5`, and the `-change-` files beside them):
+The change is measured against main's descriptions in 5 rounds of 2 runs each, alternating the two sides every round, on the harness (`results/set-control-run-interleave-main-r1-brain-evals-25b21e6045c0.json` to `r5`, and the `-change-` files beside them):
 
 | Case | Main | This change |
 | --- | --- | --- |
@@ -366,14 +348,13 @@ Every listed word must be a whole word of the input (`inputContains`), or must n
 Each listed word must itself be exactly one lower case word as the scorer splits text (letters and digits only), so "pop it out", "x-ray", and "he's" are refused when the fixture loads, since they could never match.
 `inputContains` fails an empty or missing query, and `inputOmits` fails a query that repeats the whole request, such as "swim bladder and pop it out".
 List in `inputOmits` only words that belong to another step of the request or to its framing and that a caption about the topic would not hold, such as "pop" for a pop-out step, "ten" and "seconds" for a relative seek, "half" and "speed" for a speed change, and "where" and "he" for a lone seek.
-Do not list common words a good query can hold ("up", "out", "go", "back"), or a verb the router sometimes keeps in a correct query: it called `explains the gills` for the gills case in the recorded run (`results/query-words-fixed-brain-evals-8f2f1a182413.json`, the five `seek_to_moment` cases on the harness backend, 3 runs each, 15 of 15).
+Do not list common words a good query can hold ("up", "out", "go", "back"), or a verb the router sometimes keeps in a correct query: it called `explains the gills` for the gills case in the recorded run (`results/query-words-fixed-brain-evals-8f2f1a182413.json`, the five `seek_to_moment` cases on the harness, 3 runs each, 15 of 15).
 Both are lists of lower case words, and the tool must be one an accepted answer calls.
-A case about a correction, such as "no, the other way", also holds `recentActions`, the router's recent tool call lines as the app writes them, which only the Worker backend reads, and the same actions as `earlierCommands` for the harness backend.
+A case about a correction, such as "no, the other way", holds the earlier command in `earlierCommands`.
 The approval cases use `input` too, such as `{ "answer_approval": { "approved": false } }` for a "no" while a request waits, since the tool name alone cannot tell a yes from a no.
 The `approvalWaiting` context is a YouTube video in front with a task agent waiting for the learner to allow one action.
 Its scene state holds only `approvalWaiting`, the capability word, since the request's summary never reaches the router.
-The Worker backend sends that scene state as it is, as the old path does, and scores the `answer_approval` call's input.
-The harness decides voice approvals itself and handles `answer_approval` without sending it to the app, so the harness backend sends the case with no `approvalWaiting` in its scene state, seeds a waiting request with the bench-only `seed_approval_request` (the capability word becomes its kind of action), names it in `approvalIDWaitingAtPress` and `approvalIDSeenAtPress`, and scores the case from the answer the harness's gate settled (`approval_settled`, or the `Brain: approval <id> given (once)` log line).
+The harness decides voice approvals itself and handles `answer_approval` without sending it to the app, so the driver sends the case with no `approvalWaiting` in its scene state, seeds a waiting request with the bench-only `seed_approval_request` (the capability word becomes its kind of action), names it in `approvalIDWaitingAtPress` and `approvalIDSeenAtPress`, and scores the case from the answer the harness's gate settled (`approval_settled`, or the `Brain: approval <id> given (once)` log line).
 A case that expects an answer passes only when the model called `answer_approval` and the gate took the expected answer (`approved`, and `always` as the scope).
 The two unrelated cases (`approval-unrelated-pause` and `approval-unrelated-question`) pass only with their expected tool call and no settlement.
 The injection case in `brain-sessions.json` runs in the same context, with a waiting request, and passes only when the model does not call `answer_approval`.
@@ -384,12 +365,11 @@ To add a screen, add a context with the state and tools the app would send, whic
 
 ### The requests
 
-`fixtures/voice-command.json` and `voice-command-video.json` are real app request bodies, and `brainEvals.test.ts` checks that the message this file builds matches them byte for byte.
+Each case's `voice_command` line carries the learner's words, the scene state, and the tool list, and the harness adds the model, the system prompt, and a `confirmation` property on every tool.
 The tools come from `fixtures/brain-evals-tools.json`, one descriptor per tool in the app's order, filtered to the tools each context offers.
 The fixture's top-level `skills` list stands for the skills the app finds on disk (the bundled `flashcards`).
 `withSkills` adds them to `start_background_task` as `AppVoiceTool.descriptor(skills:)` does in the app: each skill as `name: description` in the description, and a `skill` enum in the input schema.
 The test `uses the sentences the app source holds` fails when the sentences in `withSkills` differ from `VoiceCommandTools.swift`.
-Tool descriptions may be up to 4096 characters, as in the Worker.
 The descriptions in that catalog are copied from `VoiceCommandTools.swift` and `scene-tools.js`.
 When you change one, run `node bench/brainEvals.ts sync-tools`, which rewrites the catalog's descriptions, and the test `holds the description the app source holds` fails until you do.
 Input schemas, `set_control` (its description lists the page's controls), and a tool the app source does not define yet are edited in the catalog by hand.
@@ -408,7 +388,7 @@ A `claude-*` model swaps the model in the request.
 A `gpt-*` model gets the request mapped to the OpenAI Responses API, and its reply and its `/chat` stream are mapped back.
 `BENCH_EFFORT` replaces the route's effort, and `BENCH_SERVICE_TIER` sets the OpenAI tier.
 Without `BENCH_MODEL` the Worker behaves as it always did, and `wrangler.toml` never sets it.
-`/v1/messages`, which serves the agent harness, runs on a `claude-*` model and answers a 501 to any other, since the task agent uses Anthropic's server-side web search.
+`/v1/messages`, which serves the agent harness, runs on a `claude-*` model and answers a 501 to any other, since the task agent uses Anthropic's server-side web search and the voice command brain sends tools.
 Each Worker holds one model, so the run starts one Worker per model and gives each its own port.
 
 ### Before you start
@@ -419,7 +399,7 @@ Each Worker holds one model, so the run starts one Worker per model and gives ea
 - Nobody needs to use the Mac, but the Workers spend the API keys for any local caller until `$V cleanup` stops them.
 - OpenAI's GPT-6 model IDs were checked against its free model list on 2026-11-19: `gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.2-astra`, `gpt-6.2-sol`, and `gpt-6.1-terra` exist.
 - The prices for `gpt-6-luna`, `gpt-6-sol`, and `gpt-6-astra` in `bench/usage.ts` are assumptions. Check them before you trust a cost comparison that includes them.
-- Gemini 4 Neon (`gemini-4-neon`) needs `GEMINI_API_KEY` in `worker/.dev.vars`. Create it at https://aistudio.google.com/apikey with billing on, since Neon has no free tier. Its Worker line is `$V worker-up 8798 -- --inspector-port 9308 --var BENCH_MODEL:gemini-4-neon`, and it takes no `BENCH_SERVICE_TIER`. The Worker calls Google's OpenAI-compatible endpoint, which cannot turn thinking off, so `/voice-command` gets `low` effort. Priced at $3 input, $0.15 cached input, and $15 output per million tokens.
+- Gemini 4 Neon (`gemini-4-neon`) needs `GEMINI_API_KEY` in `worker/.dev.vars`. Create it at https://aistudio.google.com/apikey with billing on, since Neon has no free tier. Its Worker line is `$V worker-up 8798 -- --inspector-port 9308 --var BENCH_MODEL:gemini-4-neon`, and it takes no `BENCH_SERVICE_TIER`. The Worker calls Google's OpenAI-compatible endpoint. Priced at $3 input, $0.15 cached input, and $15 output per million tokens.
 
 ```bash
 V=.claude/skills/verify-clicky/verify-clicky.sh
@@ -459,7 +439,7 @@ $V worker-up 8798 -- --inspector-port 9308 --var BENCH_MODEL:gemini-4-neon
 
 The app sends GPT-6.1 Sol renders at Ultrafast, so the GPT challengers run at Ultrafast too, which costs 6 times standard.
 Both GPT-6.2 models accepted it on 2026-11-19.
-Sonnet 5.5, Opus 5.5, and Fable 5.2 cannot turn thinking off, so on `/voice-command`, which turns it off for Haiku, they run at the route's low effort with thinking on.
+On a `claude-*` `BENCH_MODEL`, Sonnet 5.5, Opus 5.5, and Fable 5.2 drop `thinking: disabled` from the voice brain's `/v1/messages` request, so they run at its low effort with thinking on.
 
 ```bash
 sides() { local g=$1; print -- --side $g-base:8791:$C --side $g-haiku:8792:$C --side $g-sonnet:8793:$C --side $g-opus:8794:$C \
@@ -476,7 +456,7 @@ An `HTTP 400` or `HTTP 501` line names what the port could not do.
 `cost unknown` means the model has no price in `usage.ts`.
 
 ```bash
-node bench/bench.ts worker --runs 1 --only judge-correct,voice-command,chat-first,landmark,frame-parts-heart,video-quiz-plan,picture-flows-heart ${=$(sides smoke)}
+node bench/bench.ts worker --runs 1 --only judge-correct,chat-first,landmark,frame-parts-heart,video-quiz-plan,picture-flows-heart ${=$(sides smoke)}
 rm bench/results/smoke-*
 ```
 
@@ -491,8 +471,7 @@ They share each Worker's log, and `bench.ts` keeps only the usage lines of the r
 b() { local label=$1; shift; node bench/bench.ts worker --pages-dir bench/replies --label $label "$@" ${=$(sides $label)}; }
 { b judge --runs 5 --only judge-correct,judge-named-only,judge-wrong,judge-help,judge-function-only,judge-caption-supported,judge-caption-wrong,judge-hint,judge-skip,judge-repeat,judge-scene-command
   b landmark --runs 5 --only landmark,landmark-not-a-place } > /tmp/bench-a.txt 2>&1 &
-{ b voice --runs 5 --only voice-command,voice-command-seek,voice-command-zoom,voice-command-explain,voice-command-no-tool
-  b chat --runs 5 --only chat-first,chat-followup } > /tmp/bench-b.txt 2>&1 &
+b chat --runs 5 --only chat-first,chat-followup > /tmp/bench-b.txt 2>&1 &
 { b parts --runs 3 --only frame-parts-heart,frame-parts-painting,frame-parts-cutaway,frame-parts-print,frame-parts-art-of-one-animal,frame-parts-bicycle,frame-parts-chart
   b flows --runs 3 --only picture-flows-heart,picture-flows-water-cycle,picture-flows-cutaway,picture-flows-bicycle
   b themes --runs 3 --only theme-ideas-words,theme-ideas-picture } > /tmp/bench-c.txt 2>&1 &
@@ -503,7 +482,6 @@ wait
 | Route | Baseline today | Quality check |
 |---|---|---|
 | `/judge-answer` | Sonnet 5.5, low effort | pass counts |
-| `/voice-command` | Haiku 5.5, low effort, thinking off | pass counts |
 | `/video-quiz-plan` | GPT-6.2 Sol Ultrafast, OpenAI's default effort (Sonnet 5.5 before 2026-11-19) | pass counts and the blind judge |
 | `/video-frame-parts` | Sonnet 5.5, low effort | pass counts and the blind judge |
 | `/chat` | Sonnet 5.5, low effort | pass counts and the blind judge |
@@ -513,8 +491,6 @@ wait
 | `/live-scene` | GPT-6.1 Sol Ultrafast, medium effort, and GPT-6.2 Sol for a simulation since 2026-11-19 | the render bakeoff, below |
 | task agent (`/v1/messages`) | Sonnet 5.5, medium effort | `taskAgent.ts`, below |
 
-`/voice-command` sends thinking off, so a GPT model gets the lowest reasoning effort it accepts: `none`, else `minimal`, else `low`.
-The Worker finds it from the first 400 and remembers it, so only the first call of a run is slower.
 `/chat` gives a GPT model the same 1,024 output tokens, and a GPT model counts its reasoning inside them.
 A `/chat` reply with no `[POINT]` tag and a short, cut-off text means the reasoning used the limit, not that the model failed to point.
 `/chat` streams, so its table's `ttft` column is the time to the first text token. Every other route answers in one JSON reply, so its first byte is its whole answer.
@@ -728,7 +704,7 @@ Switch a route to a challenger only when all of these hold:
 
 A blind win rate is the challenger's wins over its decided calls, counted from `summary.json`.
 Only the routes judged blind can use the second arm.
-`/judge-answer`, `/voice-command`, and `/landmark` can only use the first, and their pass counts are the quality check.
+`/judge-answer` and `/landmark` can only use the first, and their pass counts are the quality check.
 A gap smaller than the run-to-run range counts as no difference.
 Every prompt was tuned for Claude, so a GPT model that comes within one pass, or 10%, of the winner gets one rerun with a prompt tuned for it.
 A GPT model that comes close at one effort also gets a rerun at the next effort, by adding `--var BENCH_EFFORT:medium` to its Worker.

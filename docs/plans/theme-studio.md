@@ -259,5 +259,5 @@ One runnable check per logic change:
 - The card sits one level below the cursor overlay windows, 96 points from the mouse, so the previewed cursor draws over it and the glyph that sits 35 points right of the pointer has room.
   It has no click-outside close, since the learner clicks elsewhere while it is open, and it shares the agent list's panel class, hover-and-pointer view, and placement functions.
 - `bench/fixtures/brain-evals.json` has two new contexts, `themeStudioClosed` and `themeStudioIdeas`.
-  The older contexts do not list `design_theme`, although the app offers it in all of them, since `fixtures/voice-command-video.json` is a real capture that a test compares them to.
+  The older contexts do not list `design_theme`, although the app offers it in all of them.
 - `ThemeIdeasRealReplyTests` parses two replies recorded from the real route on 2026-11-20, so the parser is checked against what the route writes.

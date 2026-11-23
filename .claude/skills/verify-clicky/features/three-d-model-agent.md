@@ -31,8 +31,8 @@ Preconditions:
 - The app and Chrome preconditions in [Video quiz](./video-quiz.md) apply, with a YouTube video playing in the front tab.
 - A Worker this run started on 8787 with `--var LIVE_SCENE_MODEL:sonnet`, and `worker/.dev.vars` with `NOTION_API_KEY` and `CLICKY_APP_SECRET` for the guide.
 
-- **Router split.** Post `/voice-command` bodies whose `tools` hold the app's descriptions of `build_new_scene` and `build_model_in_background`, one per phrasing.
-  The reply's `tool_use` name is `build_model_in_background` for build, make, or create, and `build_new_scene` for show, see, render, and a famous place.
+- **Router split.** Run `node bench/brainEvals.ts run --label router-split --only video-build-model,video-show-in-3d,video-render-this,video-show-famous-place --port 8797` with `$V worker-up 8797` ready.
+  The harness brain picks `build_model_in_background` for "build me a 3D model of this shark", and `build_new_scene` for "show me this shark in 3D", "render this", and "show me the Eiffel Tower in 3D".
 - **Several agents.** Run `$V app-launch "play the video"`, then post `tools/call` for `make_study_guide` to `http://127.0.0.1:8790/mcp`, twice.
   The first returns `{"studyGuide":"started"}`, and the second fails with "This video's study guide is still being written".
   Post `tools/call` for `build_model_in_background` with `{"whatToBuild":"this jet engine"}`, then run `$V key agents-list` and `$V shot agents-two`.
@@ -45,7 +45,6 @@ Preconditions:
 
 ## Gotchas
 
-- A tool name may hold only lowercase letters and underscores, since the Worker's `/voice-command` check refuses digits, so `build_3d_...` gets a 400.
 - The model rises only while the tab it was built from is in front, so switching tabs during the build makes it wait.
   An experiment rises over any tab when it was built with no tab URL.
 - Each guide run creates a real Notion page, so trash the test pages afterwards.

@@ -330,7 +330,7 @@ func TestAFailedCallSkipsTheLaterCallsOfItsReplyAndTheModelIsAskedAgain(t *testi
 	if got := jsonValueAt(t, results[0], "is_error"); got != true {
 		t.Errorf("the failed call's result was not marked as an error: %v", results[0])
 	}
-	// The words are written out, since the Swift side holds the same text (notRunAfterAFailureResultText).
+	// The words are written out, since the model reads this exact text.
 	if got := jsonValueAt(t, results[1], "content", 0, "text"); got != "Not run: an earlier call in this reply failed" {
 		t.Errorf("the skipped call's result was %v", got)
 	}

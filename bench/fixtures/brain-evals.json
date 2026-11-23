@@ -46,7 +46,7 @@
       ]
     },
     "video": {
-      "description": "A YouTube video is playing in Chrome's front tab. The tools and state match fixtures/voice-command-video.json.",
+      "description": "A YouTube video is playing in Chrome's front tab. The tools and state match what the app offers over a playing YouTube video.",
       "sceneState": {
         "page": "none",
         "video": {
@@ -253,7 +253,7 @@
       ]
     },
     "popout": {
-      "description": "A frame pop-out is on screen with its parts labeled. The state matches fixtures/voice-command.json.",
+      "description": "A frame pop-out is on screen with its parts labeled. The state matches what the app sends over a frame pop-out.",
       "sceneState": {
         "explodeAmount": 0,
         "focusedLabel": "",
@@ -372,7 +372,7 @@
       ]
     },
     "themeStudioClosed": {
-      "description": "Nothing on screen and no video in front, and the studio is closed, so the router can open it. The offered tools are the nothing context's plus design_theme. The existing contexts leave design_theme out, since the app offers it in all of them and fixtures/voice-command-video.json is a real capture from before it existed.",
+      "description": "Nothing on screen and no video in front, and the studio is closed, so the router can open it. The offered tools are the nothing context's plus design_theme. The other contexts leave design_theme out, though the app offers it in all of them.",
       "sceneState": {
         "page": "none",
         "videoQuizIsRunning": false
@@ -874,6 +874,33 @@
       "why": "Build, make, or create a model goes to the background build, not build_new_scene."
     },
     {
+      "id": "video-show-in-3d",
+      "context": "video",
+      "say": "show me this shark in 3D",
+      "accept": [
+        "build_new_scene"
+      ],
+      "why": "Show, see, or render in 3D now goes to build_new_scene, not the background build."
+    },
+    {
+      "id": "video-render-this",
+      "context": "video",
+      "say": "render this",
+      "accept": [
+        "build_new_scene"
+      ],
+      "why": "Render goes to build_new_scene, not the background build."
+    },
+    {
+      "id": "video-show-famous-place",
+      "context": "video",
+      "say": "show me the Eiffel Tower in 3D",
+      "accept": [
+        "build_new_scene"
+      ],
+      "why": "A famous place goes to build_new_scene, which keeps the landmark check for Google 3D tiles."
+    },
+    {
       "id": "video-try-it",
       "context": "video",
       "say": "let me play with it",
@@ -896,9 +923,6 @@
       "id": "scene-other-way",
       "context": "scene3D",
       "say": "no, turn it the other way",
-      "recentActions": [
-        "rotate_model {\"yawDegrees\":45} -> ok"
-      ],
       "earlierCommands": [
         { "say": "turn it right", "calls": [{ "name": "rotate_model", "input": { "yawDegrees": 45 }, "confirmation": "turned it right" }] }
       ],
@@ -1003,9 +1027,6 @@
       "id": "popout-other-way",
       "context": "popout",
       "say": "no, turn it the other way",
-      "recentActions": [
-        "rotate_model {\"yawDegrees\":45} -> ok"
-      ],
       "earlierCommands": [
         { "say": "turn it a bit", "calls": [{ "name": "rotate_model", "input": { "yawDegrees": 45 }, "confirmation": "turned it" }] }
       ],

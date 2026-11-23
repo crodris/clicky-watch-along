@@ -172,31 +172,6 @@ struct SeekToMomentTests {
         #expect(VoiceToolCall(id: "2", name: "seek_to_moment", input: [:]).chipPhrase == nil)
     }
 
-    @Test func aSeekToMomentFollowedByAPopOutNeedsNoSecondModelTurn() {
-        let seek = VoiceToolCall(id: "1", name: "seek_to_moment", input: ["query": .string("swim bladder"), "confirmation": .string("going there")])
-        let popOut = VoiceToolCall(id: "2", name: "pop_out", input: [:])
-        #expect(voiceCommandNextStep(toolCalls: [seek], outcomes: [.changed(state: nil)], replyText: "") == .speak("going there"))
-        #expect(voiceCommandNextStep(toolCalls: [seek, popOut], outcomes: [.changed(state: nil), .handedOff], replyText: "") == .finishSilently)
-    }
-
-    // "Go back to where he explains the gills and pop it out": when the seek fails, the pop-out must not run on the
-    // frame the learner is looking at, and the model must read the failure.
-    @Test func aFailedSeekSkipsTheCallsAfterItAndAsksTheModelAgain() {
-        let seek = VoiceToolCall(id: "1", name: "seek_to_moment", input: ["query": .string("gills")])
-        let popOut = VoiceToolCall(id: "2", name: "pop_out", input: [:])
-        // Only the call that ran has an outcome.
-        #expect(voiceCommandNextStep(toolCalls: [seek, popOut], outcomes: [.failed(error: "No caption line says that.", state: nil)], replyText: "") == .askTheModelAgain)
-        let skippedBlockOfPopOut: JSONValue = .object([
-            "type": .string("tool_result"),
-            "tool_use_id": .string("2"),
-            "content": .string("Not run: an earlier call in this reply failed"),
-            "is_error": .bool(false),
-        ])
-        #expect(notRunAfterAFailureToolResultBlocks(toolCalls: [seek, popOut], failedCallIndex: 0) == [skippedBlockOfPopOut])
-        // Calls before the failed one ran, and a failure in the last call leaves nothing to skip.
-        #expect(notRunAfterAFailureToolResultBlocks(toolCalls: [popOut, seek], failedCallIndex: 1).isEmpty)
-    }
-
     @Test func aSeekIsAllowedOnlyWhileTheFrontTabIsStillTheSamePageWhoseCaptionsWereRead() {
         let videoA = ChromeVideoTab(windowId: 1, tabId: 7, url: "https://www.youtube.com/watch?v=aaa", title: "A")
         let sameTabAndPage = ChromeVideoTab(windowId: 1, tabId: 7, url: "https://www.youtube.com/watch?v=aaa", title: "A (1)")
@@ -205,32 +180,5 @@ struct SeekToMomentTests {
         #expect(sameTabAndPage.isTheSamePage(as: videoA))
         #expect(!anotherTab.isTheSamePage(as: videoA))
         #expect(!sameTabAnotherVideo.isTheSamePage(as: videoA))
-    }
-
-    // The old path's loop: the failed seek is the only call that runs, and the pop-out never reaches `runOne`.
-    @MainActor @Test func theOldPathsLoopRunsNoCallAfterAFailedOne() async throws {
-        let seek = VoiceToolCall(id: "1", name: "seek_to_moment", input: ["query": .string("gills")])
-        let popOut = VoiceToolCall(id: "2", name: "pop_out", input: [:])
-        var callIDsRun: [String] = []
-
-        let ranCalls = await runVoiceToolCallsInOrder([seek, popOut]) { toolCall in
-            callIDsRun.append(toolCall.id)
-            return .failed(error: "No caption line says that.", state: nil)
-        }
-
-        let unwrappedCalls = try #require(ranCalls)
-        #expect(callIDsRun == ["1"])
-        #expect(unwrappedCalls.outcomes == [.failed(error: "No caption line says that.", state: nil)])
-        #expect(unwrappedCalls.toolResultBlocks.count == 2, "every tool_use needs a tool_result")
-        #expect(unwrappedCalls.toolResultBlocks[1] == notRunAfterAFailureToolResultBlocks(toolCalls: [seek, popOut], failedCallIndex: 0)[0])
-
-        var callIDsRunAfterASuccess: [String] = []
-        let afterASuccess = await runVoiceToolCallsInOrder([seek, popOut]) { toolCall in
-            callIDsRunAfterASuccess.append(toolCall.id)
-            return toolCall.id == "1" ? .changed(state: nil) : .handedOff
-        }
-        #expect(callIDsRunAfterASuccess == ["1", "2"])
-        #expect(afterASuccess?.outcomes == [.changed(state: nil), .handedOff])
-        #expect(afterASuccess?.toolResultBlocks.count == 1, "a hand-off ends the command, so it adds no block")
     }
 }

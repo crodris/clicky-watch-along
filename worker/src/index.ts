@@ -19,7 +19,6 @@
  *   POST /room-floor   → the local depth service at DEPTH_SERVICE_URL, which measures the floor plane under an anchor in a photo of the learner's room, for standing furniture
  *   POST /room-furniture-composite → OpenAI image edits (gpt-image-2.6-sunburst draws a furniture product into a camera frame of the learner's room, or with kind "shirt" paints a store's top onto the learner, inside a mask)
  *   POST /try-it-model → fal.ai's queue (TRELLIS 2 by default, or TRY_IT_MODEL_ENDPOINT), which turns the furniture's cutout over white into a GLB the Worker downloads and returns
- *   POST /voice-command → Anthropic Messages API (Haiku picks the app's tools for a spoken follow-up command)
  *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)
  *   POST /theme-ideas  → Anthropic Messages API (Sonnet writes three cursor theme ideas for the theme studio, optionally from a picture)
  *   POST /study-guide  → Anthropic Messages API (Sonnet drafts a study guide), then Notion API (creates the page, trashes the one a revision replaces)
@@ -45,7 +44,6 @@ import { handleRoomFloor } from "./roomFloor";
 import { handleRoomWall } from "./roomWall";
 import { handleRoomFurnitureComposite } from "./roomFurnitureComposite";
 import { handleTryItModel } from "./tryItModel";
-import { handleVoiceCommand } from "./voiceCommand";
 import { handlePictureFlows } from "./pictureFlows";
 import { handleThemeIdeas } from "./themeIdeas";
 import { handleStudyGuide, handleStudyGuideStatus } from "./studyGuide";
@@ -169,10 +167,6 @@ export default {
         return await handleTryItModel(request, env.FAL_KEY, { endpoint: env.TRY_IT_MODEL_ENDPOINT });
       }
 
-      if (url.pathname === "/voice-command") {
-        return await handleVoiceCommand(request, env.ANTHROPIC_API_KEY);
-      }
-
       if (url.pathname === "/picture-flows") {
         return await handlePictureFlows(request, env.ANTHROPIC_API_KEY);
       }
@@ -223,11 +217,11 @@ async function forwardToAnthropic(
 ): Promise<Response> {
   let body = await request.text();
 
-  // /chat and /v1/messages, the agent harness's task agent, run on the benchmark's model. The task agent uses
-  // Anthropic's server-side web search and fetch, so only a Claude model can run it.
+  // /chat and /v1/messages, the agent harness's task agent and voice brain, run on the benchmark's model. The task agent
+  // uses Anthropic's server-side web search and fetch, and the brain sends tools, so only a Claude model can run them.
   const benchOverride = benchModelOverride();
   if (options.routeName === "/v1/messages" && benchOverride !== undefined && benchOverride.provider !== "anthropic") {
-    return jsonResponse({ error: `The task agent runs only on Claude, not ${benchOverride.model}` }, 501);
+    return jsonResponse({ error: `The agent harness runs only on Claude, not ${benchOverride.model}` }, 501);
   }
   if (benchOverride?.provider === "openai") {
     return await forwardChatToOpenAI(benchOverride, body);

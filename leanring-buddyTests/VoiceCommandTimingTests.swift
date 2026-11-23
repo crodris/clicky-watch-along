@@ -59,7 +59,7 @@ struct VoiceCommandTimingTests {
     @Test func theFirstMarkOfEachKindWins() {
         let recorder = VoiceCommandTimingRecorder(pushToTalkReleasedAt: released, transcriptReadyAt: released.addingTimeInterval(0.7))
         recorder.mark(\.commandSentAt, at: released.addingTimeInterval(0.8))
-        // The old path's resend after a refused app secret sends the same command again.
+        // A second mark of the same kind, such as the one a later tool call makes, changes nothing.
         recorder.mark(\.commandSentAt, at: released.addingTimeInterval(3))
         #expect(recorder.timing.commandSentAt == released.addingTimeInterval(0.8))
     }

@@ -1,0 +1,3832 @@
+{
+  "label": "pr9-delete-old-path",
+  "benchKind": "brain-evals",
+  "commitSHA": "45df73ef6f11",
+  "workingTreeIsDirty": true,
+  "recordedAt": "2026-11-23T05:33:13.086Z",
+  "runCount": 1,
+  "port": 8796,
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "summary": {
+    "overall": {
+      "runs": 95,
+      "passed": 95,
+      "passRate": 1,
+      "wrongTool": 0,
+      "wrongInput": 0,
+      "missedTool": 0,
+      "spuriousTool": 0,
+      "errors": 0,
+      "p50Ms": 674,
+      "p95Ms": 1039,
+      "totalCostUSD": 0.02437,
+      "meanCostUSD": 0.000256,
+      "fullCommandP50Ms": 675,
+      "meanFullCommandCostUSD": 0.000258
+    },
+    "byContext": {
+      "nothing": {
+        "runs": 14,
+        "passed": 14,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 614,
+        "p95Ms": 1143,
+        "totalCostUSD": 0.00175,
+        "meanCostUSD": 0.000125,
+        "fullCommandP50Ms": 614,
+        "meanFullCommandCostUSD": 0.000125
+      },
+      "furnitureGhost": {
+        "runs": 6,
+        "passed": 6,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 656,
+        "p95Ms": 799,
+        "totalCostUSD": 0.00116,
+        "meanCostUSD": 0.000194,
+        "fullCommandP50Ms": 656,
+        "meanFullCommandCostUSD": 0.000194
+      },
+      "video": {
+        "runs": 11,
+        "passed": 11,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 660,
+        "p95Ms": 1039,
+        "totalCostUSD": 0.00212,
+        "meanCostUSD": 0.000192,
+        "fullCommandP50Ms": 754,
+        "meanFullCommandCostUSD": 0.000202
+      },
+      "scene3D": {
+        "runs": 5,
+        "passed": 5,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 645,
+        "p95Ms": 952,
+        "totalCostUSD": 0.00196,
+        "meanCostUSD": 0.000392,
+        "fullCommandP50Ms": 645,
+        "meanFullCommandCostUSD": 0.000392
+      },
+      "experimentGuess": {
+        "runs": 4,
+        "passed": 4,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 659,
+        "p95Ms": 747,
+        "totalCostUSD": 0.00125,
+        "meanCostUSD": 0.000312,
+        "fullCommandP50Ms": 660,
+        "meanFullCommandCostUSD": 0.000312
+      },
+      "experimentExplore": {
+        "runs": 2,
+        "passed": 2,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 555,
+        "p95Ms": 725,
+        "totalCostUSD": 0.00093,
+        "meanCostUSD": 0.000465,
+        "fullCommandP50Ms": 556,
+        "meanFullCommandCostUSD": 0.000465
+      },
+      "popout": {
+        "runs": 3,
+        "passed": 3,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 723,
+        "p95Ms": 811,
+        "totalCostUSD": 0.00157,
+        "meanCostUSD": 0.000525,
+        "fullCommandP50Ms": 723,
+        "meanFullCommandCostUSD": 0.000525
+      },
+      "readyModel": {
+        "runs": 2,
+        "passed": 2,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 522,
+        "p95Ms": 625,
+        "totalCostUSD": 0.00097,
+        "meanCostUSD": 0.000483,
+        "fullCommandP50Ms": 522,
+        "meanFullCommandCostUSD": 0.000483
+      },
+      "taskAnswer": {
+        "runs": 3,
+        "passed": 3,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 733,
+        "p95Ms": 741,
+        "totalCostUSD": 0.0007,
+        "meanCostUSD": 0.000232,
+        "fullCommandP50Ms": 733,
+        "meanFullCommandCostUSD": 0.000232
+      },
+      "approvalWaiting": {
+        "runs": 7,
+        "passed": 7,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 743,
+        "p95Ms": 829,
+        "totalCostUSD": 0.00171,
+        "meanCostUSD": 0.000245,
+        "fullCommandP50Ms": 743,
+        "meanFullCommandCostUSD": 0.000245
+      },
+      "themeStudioClosed": {
+        "runs": 4,
+        "passed": 4,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 674,
+        "p95Ms": 906,
+        "totalCostUSD": 0.00089,
+        "meanCostUSD": 0.000223,
+        "fullCommandP50Ms": 674,
+        "meanFullCommandCostUSD": 0.000223
+      },
+      "themeStudioIdeas": {
+        "runs": 13,
+        "passed": 13,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 757,
+        "p95Ms": 1161,
+        "totalCostUSD": 0.00222,
+        "meanCostUSD": 0.000171,
+        "fullCommandP50Ms": 757,
+        "meanFullCommandCostUSD": 0.000171
+      },
+      "agentsRunning": {
+        "runs": 5,
+        "passed": 5,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 630,
+        "p95Ms": 675,
+        "totalCostUSD": 0.00134,
+        "meanCostUSD": 0.000268,
+        "fullCommandP50Ms": 630,
+        "meanFullCommandCostUSD": 0.000268
+      },
+      "agentsRunningNoVideo": {
+        "runs": 2,
+        "passed": 2,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 606,
+        "p95Ms": 797,
+        "totalCostUSD": 0.00064,
+        "meanCostUSD": 0.000321,
+        "fullCommandP50Ms": 606,
+        "meanFullCommandCostUSD": 0.000321
+      },
+      "agentsPaused": {
+        "runs": 4,
+        "passed": 4,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 536,
+        "p95Ms": 626,
+        "totalCostUSD": 0.00119,
+        "meanCostUSD": 0.000298,
+        "fullCommandP50Ms": 537,
+        "meanFullCommandCostUSD": 0.000298
+      },
+      "agentsPausedApprovalWaiting": {
+        "runs": 2,
+        "passed": 2,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 688,
+        "p95Ms": 830,
+        "totalCostUSD": 0.00029,
+        "meanCostUSD": 0.000145,
+        "fullCommandP50Ms": 688,
+        "meanFullCommandCostUSD": 0.000145
+      },
+      "popoutReplayOffered": {
+        "runs": 3,
+        "passed": 3,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 609,
+        "p95Ms": 704,
+        "totalCostUSD": 0.0012,
+        "meanCostUSD": 0.000399,
+        "fullCommandP50Ms": 609,
+        "meanFullCommandCostUSD": 0.000399
+      },
+      "popoutReplayOpen": {
+        "runs": 3,
+        "passed": 3,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 774,
+        "p95Ms": 782,
+        "totalCostUSD": 0.00129,
+        "meanCostUSD": 0.000431,
+        "fullCommandP50Ms": 774,
+        "meanFullCommandCostUSD": 0.000431
+      },
+      "popoutReplayOpenAgentsPaused": {
+        "runs": 2,
+        "passed": 2,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 734,
+        "p95Ms": 887,
+        "totalCostUSD": 0.00119,
+        "meanCostUSD": 0.000593,
+        "fullCommandP50Ms": 734,
+        "meanFullCommandCostUSD": 0.000593
+      }
+    }
+  },
+  "sessionSummary": {
+    "runs": 9,
+    "passed": 8,
+    "passRate": 0.8889,
+    "wrongTool": 1,
+    "wrongInput": 0,
+    "missedTool": 0,
+    "spuriousTool": 0,
+    "errors": 0,
+    "p50Ms": 654,
+    "p95Ms": 1083,
+    "totalCostUSD": 0.00262,
+    "meanCostUSD": 0.000291,
+    "fullCommandP50Ms": 732,
+    "meanFullCommandCostUSD": 0.000304
+  },
+  "planningSummary": {
+    "runs": 10,
+    "passed": 10,
+    "passRate": 1,
+    "wrongTool": 0,
+    "wrongInput": 0,
+    "missedTool": 0,
+    "spuriousTool": 0,
+    "errors": 0,
+    "p50Ms": 877,
+    "p95Ms": 1230,
+    "totalCostUSD": 0.00163,
+    "meanCostUSD": 0.000163,
+    "fullCommandP50Ms": 938,
+    "meanFullCommandCostUSD": 0.000208
+  },
+  "samples": [
+    {
+      "caseId": "nothing-pop-out",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 700.03375,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 125,
+          "cacheWriteTokens": 3877,
+          "cacheReadTokens": 0,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.000524125,
+      "fullCommandCostUSD": 0.000524125,
+      "totalMs": 699.615667,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "nothing-animate",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 567.0196249999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 124,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00007867,
+      "fullCommandCostUSD": 0.00007867,
+      "totalMs": 566.864208,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "animate_picture",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "nothing-try-it",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 604.457375,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 125,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 72
+        }
+      ],
+      "costUSD": 0.00008727000000000001,
+      "fullCommandCostUSD": 0.00008727000000000001,
+      "totalMs": 604.1004160000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "build_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "setting it up"
+    },
+    {
+      "caseId": "nothing-try-again",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 603.608041,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 126,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 53
+        }
+      ],
+      "costUSD": 0.00007787,
+      "fullCommandCostUSD": 0.00007787,
+      "totalMs": 603.608041,
+      "outcome": "pass",
+      "toolCalls": [],
+      "spokenText": "I'm not sure what \"that\" refers to, since nothing is on screen and no earlier simulation or model is showing. Could you tell me what you'd like to try again?"
+    },
+    {
+      "caseId": "nothing-question",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 725.2542080000003,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 128,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00009207,
+      "fullCommandCostUSD": 0.00009207,
+      "totalMs": 724.9831249999997,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "nothing-art-in-my-room",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 614.3507499999996,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 128,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 64
+        }
+      ],
+      "costUSD": 0.00008357,
+      "fullCommandCostUSD": 0.00008357,
+      "totalMs": 614.1177909999997,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "show_art_in_my_room",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "nothing-print-on-my-wall",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 567.8790000000008,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 131,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 62
+        }
+      ],
+      "costUSD": 0.00008287000000000001,
+      "fullCommandCostUSD": 0.00008287000000000001,
+      "totalMs": 567.5215840000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "show_art_in_my_room",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "nothing-chair-in-my-room",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 660.1910829999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 130,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 61
+        }
+      ],
+      "costUSD": 0.00008227000000000001,
+      "fullCommandCostUSD": 0.00008227000000000001,
+      "totalMs": 659.9608330000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "show_art_in_my_room",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "nothing-shirt-on-me",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 558.5204159999994,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 130,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 61
+        }
+      ],
+      "costUSD": 0.00008227000000000001,
+      "fullCommandCostUSD": 0.00008227000000000001,
+      "totalMs": 558.3939579999997,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "show_art_in_my_room",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "nothing-whats-on-my-wall",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 796.8204580000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 133,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 91
+        }
+      ],
+      "costUSD": 0.00009757,
+      "fullCommandCostUSD": 0.00009757,
+      "totalMs": 796.4929579999989,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "nothing-research",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 1142.917875000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 136,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 190
+        }
+      ],
+      "costUSD": 0.00014737,
+      "fullCommandCostUSD": 0.00014737,
+      "totalMs": 1142.667375000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Find out how this catch compares to the first booster catch. The learner said \"find out how this catch compares to the first booster catch.\" Nothing specific is on screen, so search the web for the most likely rocket booster catch being discussed and compare it with the first booster catch."
+          }
+        }
+      ],
+      "spokenText": "Looking into it"
+    },
+    {
+      "caseId": "nothing-make-it-flow",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 513.3545840000006,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 127,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00007897,
+      "fullCommandCostUSD": 0.00007897,
+      "totalMs": 513.2498340000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "animate_picture",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "video-slow-down",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 585.6740420000006,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 6058,
+          "cacheReadTokens": 0,
+          "outputTokens": 79
+        }
+      ],
+      "costUSD": 0.00081635,
+      "fullCommandCostUSD": 0.00081635,
+      "totalMs": 585.3850000000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.75
+          }
+        }
+      ],
+      "spokenText": "slowing it down"
+    },
+    {
+      "caseId": "video-seek-back",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 598.1355409999996,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 191,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00012218,
+      "fullCommandCostUSD": 0.00012218,
+      "totalMs": 597.8169999999991,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -30
+          }
+        }
+      ],
+      "spokenText": "Going back 30 seconds."
+    },
+    {
+      "caseId": "video-seek-to-moment",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 640.333458000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00012368,
+      "fullCommandCostUSD": 0.00012368,
+      "totalMs": 640.1440000000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        }
+      ],
+      "spokenText": "going back to the swim bladder"
+    },
+    {
+      "caseId": "video-find-moment",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 1031.9079170000005,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 204,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 52
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 346,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 30
+        }
+      ],
+      "costUSD": 0.00010698000000000001,
+      "fullCommandCostUSD": 0.00021716000000000001,
+      "totalMs": 536.4415840000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        }
+      ],
+      "spokenText": "The swim bladder is first mentioned at about 1:38, and again at about 2:11."
+    },
+    {
+      "caseId": "video-build-model",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 754.2313340000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 194,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 110
+        }
+      ],
+      "costUSD": 0.00013498,
+      "fullCommandCostUSD": 0.00013498,
+      "totalMs": 753.9818749999995,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "build_model_in_background",
+          "input": {
+            "whatToBuild": "this shark"
+          }
+        }
+      ],
+      "spokenText": "starting the shark model"
+    },
+    {
+      "caseId": "video-try-it",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 642.4624160000003,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 188,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 74
+        }
+      ],
+      "costUSD": 0.00011638,
+      "fullCommandCostUSD": 0.00011638,
+      "totalMs": 642.2713330000006,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "build_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "setting it up"
+    },
+    {
+      "caseId": "video-no-tool",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 659.7803329999988,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 189,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00010648000000000001,
+      "fullCommandCostUSD": 0.00010648000000000001,
+      "totalMs": 659.7803329999988,
+      "outcome": "pass",
+      "toolCalls": [],
+      "spokenText": "I can't order pizza, and no tool here does that. I can pause or seek the video, build a 3D model, or look things up in the background, so tell me if one of those would help."
+    },
+    {
+      "caseId": "scene-other-way",
+      "context": "scene3D",
+      "runIndex": 0,
+      "fullCommandMs": 948.8026250000003,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 159,
+          "cacheWriteTokens": 6075,
+          "cacheReadTokens": 0,
+          "outputTokens": 159
+        }
+      ],
+      "costUSD": 0.000854775,
+      "fullCommandCostUSD": 0.000854775,
+      "totalMs": 948.424583,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        },
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "turned it back turned it left"
+    },
+    {
+      "caseId": "scene-what-for",
+      "context": "scene3D",
+      "runIndex": 0,
+      "fullCommandMs": 952.6475829999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 230,
+          "cacheWriteTokens": 5427,
+          "cacheReadTokens": 0,
+          "outputTokens": 113
+        }
+      ],
+      "costUSD": 0.000757875,
+      "fullCommandCostUSD": 0.000757875,
+      "totalMs": 952.1403330000012,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explain_part",
+          "input": {
+            "label": "crankshaft"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "scene-explode",
+      "context": "scene3D",
+      "runIndex": 0,
+      "fullCommandMs": 565.6763340000034,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 78
+        }
+      ],
+      "costUSD": 0.00011597,
+      "fullCommandCostUSD": 0.00011597,
+      "totalMs": 565.5059590000019,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 1
+          }
+        }
+      ],
+      "spokenText": "pulling it apart"
+    },
+    {
+      "caseId": "scene-inside",
+      "context": "scene3D",
+      "runIndex": 0,
+      "fullCommandMs": 645.1985000000022,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 77
+        }
+      ],
+      "costUSD": 0.00011547,
+      "fullCommandCostUSD": 0.00011547,
+      "totalMs": 644.815042000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_inside_view",
+          "input": {
+            "open": true
+          }
+        }
+      ],
+      "spokenText": "opening it up"
+    },
+    {
+      "caseId": "scene-zoom-try",
+      "context": "scene3D",
+      "runIndex": 0,
+      "fullCommandMs": 564.1296249999978,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 231,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011737000000000001,
+      "fullCommandCostUSD": 0.00011737000000000001,
+      "totalMs": 563.9320000000007,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zooming in a bit"
+    },
+    {
+      "caseId": "experiment-guess-short",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "fullCommandMs": 659.6442919999972,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 405,
+          "cacheWriteTokens": 5822,
+          "cacheReadTokens": 0,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00081175,
+      "fullCommandCostUSD": 0.00081175,
+      "totalMs": 659.4215839999997,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "sixty degrees goes farther"
+          }
+        }
+      ],
+      "spokenText": "got it, now try it"
+    },
+    {
+      "caseId": "experiment-guess-unsure",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "fullCommandMs": 736.6821249999994,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 402,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 86
+        }
+      ],
+      "costUSD": 0.00014142,
+      "fullCommandCostUSD": 0.00014142,
+      "totalMs": 736.4697089999972,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "they'd tie, I guess"
+          }
+        }
+      ],
+      "spokenText": "got it, now try it"
+    },
+    {
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "fullCommandMs": 747.5114170000015,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 97
+        }
+      ],
+      "costUSD": 0.00014622,
+      "fullCommandCostUSD": 0.00014622,
+      "totalMs": 747.3007080000025,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "caseId": "experiment-set-angle",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "fullCommandMs": 631.9261660000011,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 400,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 98
+        }
+      ],
+      "costUSD": 0.00014722,
+      "fullCommandCostUSD": 0.00014722,
+      "totalMs": 631.7567080000008,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "value": 45
+          }
+        }
+      ],
+      "spokenText": "angle set to 45"
+    },
+    {
+      "caseId": "experiment-try-angle",
+      "context": "experimentExplore",
+      "runIndex": 0,
+      "fullCommandMs": 725.1551670000008,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 511,
+          "cacheWriteTokens": 5488,
+          "cacheReadTokens": 0,
+          "outputTokens": 121
+        }
+      ],
+      "costUSD": 0.0007976,
+      "fullCommandCostUSD": 0.0007976,
+      "totalMs": 724.9832500000011,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "run": true,
+            "value": 45
+          }
+        }
+      ],
+      "spokenText": "trying 45 degrees"
+    },
+    {
+      "caseId": "experiment-run-again",
+      "context": "experimentExplore",
+      "runIndex": 0,
+      "fullCommandMs": 555.757625000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 507,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5488,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00013258,
+      "fullCommandCostUSD": 0.00013258,
+      "totalMs": 555.4960840000022,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it again"
+    },
+    {
+      "caseId": "popout-other-way",
+      "context": "popout",
+      "runIndex": 0,
+      "fullCommandMs": 811.3496250000026,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 146,
+          "cacheWriteTokens": 5616,
+          "cacheReadTokens": 0,
+          "outputTokens": 150
+        }
+      ],
+      "costUSD": 0.0007916,
+      "fullCommandCostUSD": 0.0007916,
+      "totalMs": 810.849083000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        },
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "undid it turned it the other way"
+    },
+    {
+      "caseId": "popout-explain",
+      "context": "popout",
+      "runIndex": 0,
+      "fullCommandMs": 722.8145840000034,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 214,
+          "cacheWriteTokens": 4980,
+          "cacheReadTokens": 0,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.0006843999999999999,
+      "fullCommandCostUSD": 0.0006843999999999999,
+      "totalMs": 722.6423750000031,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explain_part",
+          "input": {
+            "label": "engine"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "popout-close",
+      "context": "popout",
+      "runIndex": 0,
+      "fullCommandMs": 604.9456250000003,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 210,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4980,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00009830000000000002,
+      "fullCommandCostUSD": 0.00009830000000000002,
+      "totalMs": 604.6724580000009,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "close_scene",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "ready-show",
+      "context": "readyModel",
+      "runIndex": 0,
+      "fullCommandMs": 522.4930420000019,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 218,
+          "cacheWriteTokens": 6294,
+          "cacheReadTokens": 0,
+          "outputTokens": 62
+        }
+      ],
+      "costUSD": 0.00083955,
+      "fullCommandCostUSD": 0.00083955,
+      "totalMs": 522.2881250000028,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "show_ready_model",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "ready-seek",
+      "context": "readyModel",
+      "runIndex": 0,
+      "fullCommandMs": 625.206041999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 221,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6294,
+          "outputTokens": 83
+        }
+      ],
+      "costUSD": 0.00012654000000000002,
+      "fullCommandCostUSD": 0.00012654000000000002,
+      "totalMs": 624.9887499999968,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -10
+          }
+        }
+      ],
+      "spokenText": "Back ten seconds."
+    },
+    {
+      "caseId": "task-hear",
+      "context": "taskAnswer",
+      "runIndex": 0,
+      "fullCommandMs": 732.7421250000007,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 125,
+          "cacheWriteTokens": 3756,
+          "cacheReadTokens": 0,
+          "outputTokens": 72
+        }
+      ],
+      "costUSD": 0.000518,
+      "fullCommandCostUSD": 0.000518,
+      "totalMs": 732.5324160000018,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "hear_task_answer",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "task-followup",
+      "context": "taskAnswer",
+      "runIndex": 0,
+      "fullCommandMs": 741.3077080000003,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 127,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3756,
+          "outputTokens": 100
+        }
+      ],
+      "costUSD": 0.00010026,
+      "fullCommandCostUSD": 0.00010026,
+      "totalMs": 741.0200000000004,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Look up who built it, based on what is on screen and the video the learner is watching."
+          }
+        }
+      ],
+      "spokenText": "looking into it"
+    },
+    {
+      "caseId": "task-pop-out",
+      "context": "taskAnswer",
+      "runIndex": 0,
+      "fullCommandMs": 488.2425000000003,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 125,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3756,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00007706,
+      "fullCommandCostUSD": 0.00007706,
+      "totalMs": 488.0134999999973,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "video-flashcards",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 774.0460000000021,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 191,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 135
+        }
+      ],
+      "costUSD": 0.00014718,
+      "fullCommandCostUSD": 0.00014718,
+      "totalMs": 773.4140829999997,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Make flashcards from the video that is playing, \"How sharks float\", and save them as a Notion page.",
+            "skill": "flashcards"
+          }
+        }
+      ],
+      "spokenText": "Making flashcards now"
+    },
+    {
+      "caseId": "video-flashcards-quiz-me",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 846.7726670000011,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 194,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 138
+        }
+      ],
+      "costUSD": 0.00014898000000000003,
+      "fullCommandCostUSD": 0.00014898000000000003,
+      "totalMs": 846.4528750000027,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Make flashcards from the video playing in Chrome, \"How sharks float\", and save them as a Notion page.",
+            "skill": "flashcards"
+          }
+        }
+      ],
+      "spokenText": "Making flashcards now"
+    },
+    {
+      "caseId": "video-study-cards",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 995.0870839999989,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 190,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 160
+        }
+      ],
+      "costUSD": 0.00015958,
+      "fullCommandCostUSD": 0.00015958,
+      "totalMs": 994.9195419999996,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Make flashcards from the YouTube video \"How sharks float\" that is playing in the front tab, and save them as a Notion page.",
+            "skill": "flashcards"
+          }
+        }
+      ],
+      "spokenText": "making the cards now"
+    },
+    {
+      "caseId": "video-research-no-skill",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 1039.6112919999978,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 108
+        }
+      ],
+      "costUSD": 0.00013418000000000002,
+      "fullCommandCostUSD": 0.00013418000000000002,
+      "totalMs": 1039.4339589999981,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Find out how this compares to the first booster catch, based on the video currently playing, \"How sharks float\"."
+          }
+        }
+      ],
+      "spokenText": "Looking into it"
+    },
+    {
+      "caseId": "nothing-flashcards",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 743.0590420000008,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 129,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 129
+        }
+      ],
+      "costUSD": 0.00011617000000000001,
+      "fullCommandCostUSD": 0.00011617000000000001,
+      "totalMs": 742.8062080000018,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Make flashcards from the page on screen, and save them as a Notion page.",
+            "skill": "flashcards"
+          }
+        }
+      ],
+      "spokenText": "Making flashcards from this page"
+    },
+    {
+      "caseId": "nothing-research-no-skill",
+      "context": "nothing",
+      "runIndex": 0,
+      "fullCommandMs": 921.1154170000045,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 132,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3877,
+          "outputTokens": 129
+        }
+      ],
+      "costUSD": 0.00011647,
+      "fullCommandCostUSD": 0.00011647,
+      "totalMs": 920.7479170000042,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Look up how many times Starship has flown, with the latest count and date of the most recent flight."
+          }
+        }
+      ],
+      "spokenText": "Looking that up now"
+    },
+    {
+      "caseId": "approval-yes",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "fullCommandMs": 754.4152079999985,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 199,
+          "cacheWriteTokens": 6460,
+          "cacheReadTokens": 0,
+          "outputTokens": 121
+        }
+      ],
+      "costUSD": 0.0008879,
+      "fullCommandCostUSD": 0.0008879,
+      "totalMs": 754.4152079999985,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {},
+          "inputIsUnknown": true
+        }
+      ],
+      "spokenText": "allowed it"
+    },
+    {
+      "caseId": "approval-sure-go-ahead",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "fullCommandMs": 768.6287500000035,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 204,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6460,
+          "outputTokens": 132
+        }
+      ],
+      "costUSD": 0.000151,
+      "fullCommandCostUSD": 0.000151,
+      "totalMs": 768.6287500000035,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {},
+          "inputIsUnknown": true
+        }
+      ],
+      "spokenText": "allowed it"
+    },
+    {
+      "caseId": "approval-no",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "fullCommandMs": 742.7773749999978,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 198,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6460,
+          "outputTokens": 125
+        }
+      ],
+      "costUSD": 0.00014689999999999997,
+      "fullCommandCostUSD": 0.00014689999999999997,
+      "totalMs": 742.7773749999978,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {},
+          "inputIsUnknown": true
+        }
+      ],
+      "spokenText": "declined it"
+    },
+    {
+      "caseId": "approval-dont",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "fullCommandMs": 829.3585409999941,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6460,
+          "outputTokens": 141
+        }
+      ],
+      "costUSD": 0.00015539999999999998,
+      "fullCommandCostUSD": 0.00015539999999999998,
+      "totalMs": 829.3585409999941,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {},
+          "inputIsUnknown": true
+        }
+      ],
+      "spokenText": "declined it"
+    },
+    {
+      "caseId": "approval-always",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "fullCommandMs": 653.3914169999989,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6460,
+          "outputTokens": 99
+        }
+      ],
+      "costUSD": 0.00013419999999999998,
+      "fullCommandCostUSD": 0.00013419999999999998,
+      "totalMs": 653.3914169999989,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {},
+          "inputIsUnknown": true
+        }
+      ],
+      "spokenText": "always allowed it"
+    },
+    {
+      "caseId": "approval-unrelated-pause",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "fullCommandMs": 539.9687080000003,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6460,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.00011269999999999999,
+      "fullCommandCostUSD": 0.00011269999999999999,
+      "totalMs": 539.677499999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {}
+        }
+      ],
+      "spokenText": "Paused the video."
+    },
+    {
+      "caseId": "approval-unrelated-question",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "fullCommandMs": 657.3106669999979,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6460,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.0001249,
+      "fullCommandCostUSD": 0.0001249,
+      "totalMs": 657.0245829999985,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "theme-closed-open-from-words",
+      "context": "themeStudioClosed",
+      "runIndex": 0,
+      "fullCommandMs": 674.4190000000017,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 125,
+          "cacheWriteTokens": 4206,
+          "cacheReadTokens": 0,
+          "outputTokens": 82
+        }
+      ],
+      "costUSD": 0.00057925,
+      "fullCommandCostUSD": 0.00057925,
+      "totalMs": 674.2050840000011,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "change my theme"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "theme-closed-open-from-picture",
+      "context": "themeStudioClosed",
+      "runIndex": 0,
+      "fullCommandMs": 905.7542499999981,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 129,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4206,
+          "outputTokens": 150
+        }
+      ],
+      "costUSD": 0.00012996,
+      "fullCommandCostUSD": 0.00012996,
+      "totalMs": 905.5640419999982,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "fromPicture": true,
+            "request": "make my theme from this picture"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "theme-closed-open-with-a-vibe",
+      "context": "themeStudioClosed",
+      "runIndex": 0,
+      "fullCommandMs": 700.5697500000024,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 136,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4206,
+          "outputTokens": 92
+        }
+      ],
+      "costUSD": 0.00010166,
+      "fullCommandCostUSD": 0.00010166,
+      "totalMs": 700.3325420000037,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "a new theme that feels like a rainy night"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "theme-closed-word-alone",
+      "context": "themeStudioClosed",
+      "runIndex": 0,
+      "fullCommandMs": 561.8041660000017,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 129,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4206,
+          "outputTokens": 53
+        }
+      ],
+      "costUSD": 0.00008146000000000001,
+      "fullCommandCostUSD": 0.00008146000000000001,
+      "totalMs": 561.6600409999955,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "theme-pick-number",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 781.9328749999986,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 166,
+          "cacheWriteTokens": 4964,
+          "cacheReadTokens": 0,
+          "outputTokens": 78
+        }
+      ],
+      "costUSD": 0.0006761,
+      "fullCommandCostUSD": 0.0006761,
+      "totalMs": 781.7562499999985,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pick_theme_idea",
+          "input": {
+            "number": 2
+          }
+        }
+      ],
+      "spokenText": "trying two"
+    },
+    {
+      "caseId": "theme-pick-by-words",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 557.3713749999952,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 170,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 78
+        }
+      ],
+      "costUSD": 0.00010564,
+      "fullCommandCostUSD": 0.00010564,
+      "totalMs": 557.1355419999963,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pick_theme_idea",
+          "input": {
+            "number": 3
+          }
+        }
+      ],
+      "spokenText": "trying three"
+    },
+    {
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 1086.1447919999991,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 183,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 192
+        }
+      ],
+      "costUSD": 0.00016394,
+      "fullCommandCostUSD": 0.00016394,
+      "totalMs": 1085.5929579999938,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 2,
+            "request": "make the cursor a star that spins while it thinks"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "theme-refine-no-idea-named",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 980.6946670000034,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 172,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 152
+        }
+      ],
+      "costUSD": 0.00014284,
+      "fullCommandCostUSD": 0.00014284,
+      "totalMs": 980.4447500000024,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 2,
+            "request": "make it a little bluer"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 1160.925000000003,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 181,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 190
+        }
+      ],
+      "costUSD": 0.00016274,
+      "fullCommandCostUSD": 0.00016274,
+      "totalMs": 1160.763082999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 1,
+            "request": "a softer sound when an agent finishes"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "theme-new-wish",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 697.0932909999974,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 178,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 124
+        }
+      ],
+      "costUSD": 0.00012944,
+      "fullCommandCostUSD": 0.00012944,
+      "totalMs": 696.8800829999964,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "something totally different, like the ocean"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "theme-refine-use-picture",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 1128.757958000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 171,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 163
+        }
+      ],
+      "costUSD": 0.00014824,
+      "fullCommandCostUSD": 0.00014824,
+      "totalMs": 1128.3802080000023,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "fromPicture": true,
+            "request": "use this picture instead"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "theme-save-it",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 692.3602910000045,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 167,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00010884000000000001,
+      "fullCommandCostUSD": 0.00010884000000000001,
+      "totalMs": 692.200125000003,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "save_theme",
+          "input": {}
+        }
+      ],
+      "spokenText": "saved it"
+    },
+    {
+      "caseId": "theme-save-ill-take-it",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 756.992124999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 174,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 92
+        }
+      ],
+      "costUSD": 0.00011304,
+      "fullCommandCostUSD": 0.00011304,
+      "totalMs": 756.7827909999978,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "save_theme",
+          "input": {}
+        }
+      ],
+      "spokenText": "saved it"
+    },
+    {
+      "caseId": "theme-save-another-idea",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 1024.5110830000049,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 167,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 173
+        }
+      ],
+      "costUSD": 0.00015284,
+      "fullCommandCostUSD": 0.00015284,
+      "totalMs": 1024.1215420000008,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pick_theme_idea",
+          "input": {
+            "number": 1
+          }
+        },
+        {
+          "name": "save_theme",
+          "input": {}
+        }
+      ],
+      "spokenText": "trying one saved it"
+    },
+    {
+      "caseId": "theme-close-never-mind",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 650.885457999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 168,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 94
+        }
+      ],
+      "costUSD": 0.00011344,
+      "fullCommandCostUSD": 0.00011344,
+      "totalMs": 650.6559169999964,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "close_theme_studio",
+          "input": {}
+        }
+      ],
+      "spokenText": "kept your old theme"
+    },
+    {
+      "caseId": "theme-close-keep-old",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 577.081041999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 177,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 59
+        }
+      ],
+      "costUSD": 0.00009684,
+      "fullCommandCostUSD": 0.00009684,
+      "totalMs": 576.8691669999971,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "close_theme_studio",
+          "input": {}
+        }
+      ],
+      "spokenText": "kept your old theme"
+    },
+    {
+      "caseId": "theme-unrelated-question",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": 604.5502080000006,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 171,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 78
+        }
+      ],
+      "costUSD": 0.00010574000000000001,
+      "fullCommandCostUSD": 0.00010574000000000001,
+      "totalMs": 604.3953330000004,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "agents-hold-on",
+      "context": "agentsRunning",
+      "runIndex": 0,
+      "fullCommandMs": 665.2522919999974,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 6389,
+          "cacheReadTokens": 0,
+          "outputTokens": 97
+        }
+      ],
+      "costUSD": 0.000867225,
+      "fullCommandCostUSD": 0.000867225,
+      "totalMs": 664.9355419999993,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "caseId": "agents-hold-on-a-second",
+      "context": "agentsRunning",
+      "runIndex": 0,
+      "fullCommandMs": 675.1680829999968,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 79
+        }
+      ],
+      "costUSD": 0.00012369,
+      "fullCommandCostUSD": 0.00012369,
+      "totalMs": 674.7360829999961,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "caseId": "agents-pause-the-agents",
+      "context": "agentsRunning",
+      "runIndex": 0,
+      "fullCommandMs": 529.1122909999976,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011119,
+      "fullCommandCostUSD": 0.00011119,
+      "totalMs": 528.7412909999985,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "caseId": "agents-hold-on-question",
+      "context": "agentsRunning",
+      "runIndex": 0,
+      "fullCommandMs": 630.0489170000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00012689,
+      "fullCommandCostUSD": 0.00012689,
+      "totalMs": 629.8263330000045,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "agents-pause-the-video",
+      "context": "agentsRunning",
+      "runIndex": 0,
+      "fullCommandMs": 504.92879100000573,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6389,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.00011209,
+      "fullCommandCostUSD": 0.00011209,
+      "totalMs": 504.5329580000034,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {}
+        }
+      ],
+      "spokenText": "Pausing it."
+    },
+    {
+      "caseId": "agents-hold-on-no-video",
+      "context": "agentsRunningNoVideo",
+      "runIndex": 0,
+      "fullCommandMs": 606.0588750000024,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 139,
+          "cacheWriteTokens": 3901,
+          "cacheReadTokens": 0,
+          "outputTokens": 77
+        }
+      ],
+      "costUSD": 0.000540025,
+      "fullCommandCostUSD": 0.000540025,
+      "totalMs": 605.8633750000008,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "holding them"
+    },
+    {
+      "caseId": "agents-hold-on-question-no-video",
+      "context": "agentsRunningNoVideo",
+      "runIndex": 0,
+      "fullCommandMs": 797.268541999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 145,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3901,
+          "outputTokens": 95
+        }
+      ],
+      "costUSD": 0.00010101,
+      "fullCommandCostUSD": 0.00010101,
+      "totalMs": 797.1157089999979,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "agents-go-ahead",
+      "context": "agentsPaused",
+      "runIndex": 0,
+      "fullCommandMs": 536.5540000000037,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 217,
+          "cacheWriteTokens": 6321,
+          "cacheReadTokens": 0,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.0008388250000000001,
+      "fullCommandCostUSD": 0.0008388250000000001,
+      "totalMs": 536.2962079999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "caseId": "agents-keep-going",
+      "context": "agentsPaused",
+      "runIndex": 0,
+      "fullCommandMs": 561.916624999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 219,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011211,
+      "fullCommandCostUSD": 0.00011211,
+      "totalMs": 561.5462499999994,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "caseId": "agents-go-ahead-pop-out",
+      "context": "agentsPaused",
+      "runIndex": 0,
+      "fullCommandMs": 519.7356660000005,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 222,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00011241,
+      "fullCommandCostUSD": 0.00011241,
+      "totalMs": 519.3940000000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "agents-paused-question",
+      "context": "agentsPaused",
+      "runIndex": 0,
+      "fullCommandMs": 627.1807499999995,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 219,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6321,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00012861,
+      "fullCommandCostUSD": 0.00012861,
+      "totalMs": 626.1380419999987,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "agents-paused-go-ahead-answers-the-request",
+      "context": "agentsPausedApprovalWaiting",
+      "runIndex": 0,
+      "fullCommandMs": 688.3915419999976,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 229,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6460,
+          "outputTokens": 98
+        }
+      ],
+      "costUSD": 0.0001365,
+      "fullCommandCostUSD": 0.0001365,
+      "totalMs": 688.3915419999976,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {},
+          "inputIsUnknown": true
+        }
+      ],
+      "spokenText": "allowed it"
+    },
+    {
+      "caseId": "agents-paused-no-declines-the-request",
+      "context": "agentsPausedApprovalWaiting",
+      "runIndex": 0,
+      "fullCommandMs": 830.0419580000016,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 231,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6460,
+          "outputTokens": 133
+        }
+      ],
+      "costUSD": 0.00015419999999999998,
+      "fullCommandCostUSD": 0.00015419999999999998,
+      "totalMs": 830.0419580000016,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {},
+          "inputIsUnknown": true
+        }
+      ],
+      "spokenText": "declined it"
+    },
+    {
+      "caseId": "replay-offered-again",
+      "context": "popoutReplayOffered",
+      "runIndex": 0,
+      "fullCommandMs": 609.0542920000007,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 293,
+          "cacheWriteTokens": 6956,
+          "cacheReadTokens": 0,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.0009268,
+      "fullCommandCostUSD": 0.0009268,
+      "totalMs": 608.9116670000003,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "replay_explanation",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "replay-offered-one-more-time",
+      "context": "popoutReplayOffered",
+      "runIndex": 0,
+      "fullCommandMs": 552.9973329999993,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 297,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6956,
+          "outputTokens": 59
+        }
+      ],
+      "costUSD": 0.00012875999999999998,
+      "fullCommandCostUSD": 0.00012875999999999998,
+      "totalMs": 552.6779170000009,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "replay_explanation",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "replay-offered-back-ten",
+      "context": "popoutReplayOffered",
+      "runIndex": 0,
+      "fullCommandMs": 704.1182499999995,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 295,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6956,
+          "outputTokens": 84
+        }
+      ],
+      "costUSD": 0.00014106,
+      "fullCommandCostUSD": 0.00014106,
+      "totalMs": 703.9393329999948,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -10
+          }
+        }
+      ],
+      "spokenText": "Went back ten seconds."
+    },
+    {
+      "caseId": "replay-open-back",
+      "context": "popoutReplayOpen",
+      "runIndex": 0,
+      "fullCommandMs": 782.8157500000016,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 297,
+          "cacheWriteTokens": 7253,
+          "cacheReadTokens": 0,
+          "outputTokens": 99
+        }
+      ],
+      "costUSD": 0.000985825,
+      "fullCommandCostUSD": 0.000985825,
+      "totalMs": 782.3555420000048,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "replay_step",
+          "input": {
+            "step": "back"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "replay-open-next",
+      "context": "popoutReplayOpen",
+      "runIndex": 0,
+      "fullCommandMs": 707.2671669999982,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 298,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 7253,
+          "outputTokens": 97
+        }
+      ],
+      "costUSD": 0.00015083,
+      "fullCommandCostUSD": 0.00015083,
+      "totalMs": 707.0257920000004,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "replay_step",
+          "input": {
+            "step": "next"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "replay-open-stop",
+      "context": "popoutReplayOpen",
+      "runIndex": 0,
+      "fullCommandMs": 773.8630840000042,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 298,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 7253,
+          "outputTokens": 106
+        }
+      ],
+      "costUSD": 0.00015533,
+      "fullCommandCostUSD": 0.00015533,
+      "totalMs": 773.6876249999987,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "replay_step",
+          "input": {
+            "step": "end"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "replay-open-agents-paused-keep-going",
+      "context": "popoutReplayOpenAgentsPaused",
+      "runIndex": 0,
+      "fullCommandMs": 733.6418340000018,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 328,
+          "cacheWriteTokens": 7516,
+          "cacheReadTokens": 0,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.0010148,
+      "fullCommandCostUSD": 0.0010148,
+      "totalMs": 733.5141670000012,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "caseId": "replay-open-agents-paused-go-ahead",
+      "context": "popoutReplayOpenAgentsPaused",
+      "runIndex": 0,
+      "fullCommandMs": 887.057041,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 332,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 7516,
+          "outputTokens": 126
+        }
+      ],
+      "costUSD": 0.00017136,
+      "fullCommandCostUSD": 0.00017136,
+      "totalMs": 886.8106659999976,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "resume_agents",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to work"
+    },
+    {
+      "caseId": "ghost-move-left",
+      "context": "furnitureGhost",
+      "runIndex": 0,
+      "fullCommandMs": 673.1692909999983,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 163,
+          "cacheWriteTokens": 4639,
+          "cacheReadTokens": 0,
+          "outputTokens": 77
+        }
+      ],
+      "costUSD": 0.0006346749999999999,
+      "fullCommandCostUSD": 0.0006346749999999999,
+      "totalMs": 672.8579159999936,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "direction": "left"
+          }
+        }
+      ],
+      "spokenText": "moving it left"
+    },
+    {
+      "caseId": "ghost-move-a-foot-closer",
+      "context": "furnitureGhost",
+      "runIndex": 0,
+      "fullCommandMs": 674.5283340000024,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 164,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 108
+        }
+      ],
+      "costUSD": 0.00011679000000000001,
+      "fullCommandCostUSD": 0.00011679000000000001,
+      "totalMs": 674.3757919999916,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "direction": "closer",
+            "distanceCentimeters": 30
+          }
+        }
+      ],
+      "spokenText": "bringing it closer"
+    },
+    {
+      "caseId": "ghost-turn-around",
+      "context": "furnitureGhost",
+      "runIndex": 0,
+      "fullCommandMs": 592.0535830000008,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 159,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00010279,
+      "fullCommandCostUSD": 0.00010279,
+      "totalMs": 591.8479159999988,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "turnDegrees": 180
+          }
+        }
+      ],
+      "spokenText": "turning it around"
+    },
+    {
+      "caseId": "ghost-push-back",
+      "context": "furnitureGhost",
+      "runIndex": 0,
+      "fullCommandMs": 799.3638749999955,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 162,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 115
+        }
+      ],
+      "costUSD": 0.00012009,
+      "fullCommandCostUSD": 0.00012009,
+      "totalMs": 799.1515840000066,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "move_furniture",
+          "input": {
+            "direction": "farther"
+          }
+        }
+      ],
+      "spokenText": "pushing it back to the wall"
+    },
+    {
+      "caseId": "ghost-place-it-here",
+      "context": "furnitureGhost",
+      "runIndex": 0,
+      "fullCommandMs": 656.4447919999948,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 164,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00008979,
+      "fullCommandCostUSD": 0.00008979,
+      "totalMs": 656.2351670000062,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "place_furniture",
+          "input": {}
+        }
+      ],
+      "spokenText": "placing it"
+    },
+    {
+      "caseId": "ghost-question",
+      "context": "furnitureGhost",
+      "runIndex": 0,
+      "fullCommandMs": 650.5565420000057,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 162,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4639,
+          "outputTokens": 74
+        }
+      ],
+      "costUSD": 0.00009959,
+      "fullCommandCostUSD": 0.00009959,
+      "totalMs": 650.3495419999963,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "caseId": "session-undo-first-turn",
+      "context": "scene3D",
+      "runIndex": 0,
+      "fullCommandMs": 732.1689590000024,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 158,
+          "cacheWriteTokens": 1844,
+          "cacheReadTokens": 5754,
+          "outputTokens": 109
+        }
+      ],
+      "costUSD": 0.00035834,
+      "fullCommandCostUSD": 0.00035834,
+      "totalMs": 731.9111669999984,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": 45
+          }
+        }
+      ],
+      "spokenText": "turned it back",
+      "suite": "sessions"
+    },
+    {
+      "caseId": "session-correction-after-fold",
+      "context": "scene3D",
+      "runIndex": 0,
+      "fullCommandMs": 654.7774170000048,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 155,
+          "cacheWriteTokens": 2297,
+          "cacheReadTokens": 5754,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00038766500000000004,
+      "fullCommandCostUSD": 0.00038766500000000004,
+      "totalMs": 654.4991250000021,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": 45
+          }
+        }
+      ],
+      "spokenText": "undid it",
+      "suite": "sessions"
+    },
+    {
+      "caseId": "session-correction-after-interrupt",
+      "context": "scene3D",
+      "runIndex": 0,
+      "fullCommandMs": 798.1134999999922,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 191,
+          "cacheWriteTokens": 575,
+          "cacheReadTokens": 5754,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.000192015,
+      "fullCommandCostUSD": 0.000192015,
+      "totalMs": 797.9044589999976,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -90
+          }
+        }
+      ],
+      "spokenText": "undid it",
+      "suite": "sessions"
+    },
+    {
+      "caseId": "session-undo-after-cut-off",
+      "context": "scene3D",
+      "runIndex": 0,
+      "fullCommandMs": 557.9107499999955,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 324,
+          "cacheReadTokens": 5754,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00014513999999999998,
+      "fullCommandCostUSD": 0.00014513999999999998,
+      "totalMs": 557.5385830000014,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -90
+          }
+        }
+      ],
+      "spokenText": "undid it",
+      "suite": "sessions"
+    },
+    {
+      "caseId": "session-correction-after-seek-to-moment",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 1212.5978750000068,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 123,
+          "cacheWriteTokens": 350,
+          "cacheReadTokens": 6058,
+          "outputTokens": 79
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 220,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6408,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00015612999999999998,
+      "fullCommandCostUSD": 0.00026971,
+      "totalMs": 612.4061670000083,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        }
+      ],
+      "spokenText": "The search came back empty, so I can't find another mention of the liver in the captions. Try rephrasing, like \"oil\" or \"buoyancy\", and I'll look for that.",
+      "suite": "sessions"
+    },
+    {
+      "caseId": "session-injection-approve",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "fullCommandMs": 762.521166999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 136,
+          "cacheWriteTokens": 322,
+          "cacheReadTokens": 6460,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00015844999999999998,
+      "fullCommandCostUSD": 0.00015844999999999998,
+      "totalMs": 762.3634999999922,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "suite": "sessions"
+    },
+    {
+      "caseId": "session-undo-after-zoom",
+      "context": "scene3D",
+      "runIndex": 0,
+      "fullCommandMs": 651.7151670000021,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 155,
+          "cacheWriteTokens": 249,
+          "cacheReadTokens": 6078,
+          "outputTokens": 74
+        }
+      ],
+      "costUSD": 0.000144405,
+      "fullCommandCostUSD": 0.000144405,
+      "totalMs": 651.4084169999987,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 0.5
+          }
+        }
+      ],
+      "spokenText": "undid it",
+      "suite": "sessions"
+    },
+    {
+      "caseId": "session-undo-after-seek",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 523.0492090000043,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 116,
+          "cacheWriteTokens": 6674,
+          "cacheReadTokens": 0,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.0008733500000000001,
+      "fullCommandCostUSD": 0.0008733500000000001,
+      "totalMs": 522.8247919999994,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -30
+          }
+        }
+      ],
+      "spokenText": "undid it",
+      "suite": "sessions"
+    },
+    {
+      "caseId": "session-undo-behind-a-pop-out",
+      "context": "scene3D",
+      "runIndex": 0,
+      "fullCommandMs": 1083.4028749999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 154,
+          "cacheWriteTokens": 543,
+          "cacheReadTokens": 5427,
+          "outputTokens": 135
+        }
+      ],
+      "costUSD": 0.00020504500000000003,
+      "fullCommandCostUSD": 0.00020504500000000003,
+      "totalMs": 1083.176959000004,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": 45
+          }
+        }
+      ],
+      "spokenText": "turned it back right",
+      "suite": "sessions"
+    },
+    {
+      "caseId": "planning-find-seek-pop-out",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 777.9037090000056,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 138
+        }
+      ],
+      "costUSD": 0.00014968000000000002,
+      "fullCommandCostUSD": 0.00014968000000000002,
+      "totalMs": 777.573000000004,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        },
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "suite": "planning"
+    },
+    {
+      "caseId": "planning-pause-slow-rewind",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 937.6858329999959,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 205
+        }
+      ],
+      "costUSD": 0.00018328,
+      "fullCommandCostUSD": 0.00018328,
+      "totalMs": 937.0818750000035,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {}
+        },
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.5
+          }
+        },
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -60
+          }
+        }
+      ],
+      "spokenText": "pausing it half speed now back a minute",
+      "suite": "planning"
+    },
+    {
+      "caseId": "planning-find-then-back-up",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 877.7092499999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 162
+        }
+      ],
+      "costUSD": 0.00016178,
+      "fullCommandCostUSD": 0.00016178,
+      "totalMs": 877.4112909999967,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -10
+          }
+        }
+      ],
+      "spokenText": "jumping to the liver backing up ten seconds",
+      "suite": "planning"
+    },
+    {
+      "caseId": "planning-find-seek-slow",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 888.1170409999904,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 206,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 174
+        }
+      ],
+      "costUSD": 0.00016818,
+      "fullCommandCostUSD": 0.00016818,
+      "totalMs": 887.823332999993,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "cartilage skeleton"
+          }
+        },
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.5
+          }
+        }
+      ],
+      "spokenText": "jumping to the cartilage skeleton part slowing it to half speed",
+      "suite": "planning"
+    },
+    {
+      "caseId": "planning-seek-back-then-pop-out",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 954.903833999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 139
+        }
+      ],
+      "costUSD": 0.00014968000000000002,
+      "fullCommandCostUSD": 0.00014968000000000002,
+      "totalMs": 954.502833999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -30
+          }
+        },
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "suite": "planning"
+    },
+    {
+      "caseId": "planning-find-last-mention",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 1581.7963750000054,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 116
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 426,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00013818,
+      "fullCommandCostUSD": 0.00028486,
+      "totalMs": 921.3438330000063,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 470
+          }
+        }
+      ],
+      "spokenText": "skipping to the last mention of the liver",
+      "suite": "planning"
+    },
+    {
+      "caseId": "planning-find-second-mention",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 1593.9839580000116,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 195,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 124
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 433,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 142
+        }
+      ],
+      "costUSD": 0.00014208,
+      "fullCommandCostUSD": 0.00031696000000000003,
+      "totalMs": 828.7017500000075,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 402
+          }
+        }
+      ],
+      "spokenText": "going to the second liver mention",
+      "suite": "planning"
+    },
+    {
+      "caseId": "planning-seek-fails-then-pop-out",
+      "context": "video",
+      "runIndex": 0,
+      "fullCommandMs": 1388.457666000002,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 198,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 135
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 444,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 50
+        }
+      ],
+      "costUSD": 0.00014788,
+      "fullCommandCostUSD": 0.00027786,
+      "totalMs": 775.7415000000037,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "explains the gills"
+          }
+        },
+        {
+          "name": "pop_out",
+          "input": {},
+          "inputIsUnknown": true
+        }
+      ],
+      "spokenText": "Sorry, I couldn't find a spot in the captions where gills are explained. Could you tell me another word he might use, like \"breathing\" or \"water\"?",
+      "suite": "planning"
+    },
+    {
+      "caseId": "planning-rotate-then-zoom-part",
+      "context": "scene3D",
+      "runIndex": 0,
+      "fullCommandMs": 861.6363330000022,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 239,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 166
+        }
+      ],
+      "costUSD": 0.00016117,
+      "fullCommandCostUSD": 0.00016117,
+      "totalMs": 861.4006249999948,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        },
+        {
+          "name": "zoom_to_part",
+          "input": {
+            "label": "spark plug"
+          }
+        }
+      ],
+      "spokenText": "turned it left zooming in on the spark plug",
+      "suite": "planning"
+    },
+    {
+      "caseId": "planning-guess-set-run",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "fullCommandMs": 1230.139249999993,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 415,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5822,
+          "outputTokens": 251
+        }
+      ],
+      "costUSD": 0.00022522,
+      "fullCommandCostUSD": 0.00022522,
+      "totalMs": 1229.716374999989,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "sixty goes farther"
+          }
+        },
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "run": true,
+            "value": 60
+          }
+        }
+      ],
+      "spokenText": "got it, let's see set to sixty, running it",
+      "suite": "planning"
+    }
+  ]
+}

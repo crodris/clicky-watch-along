@@ -7,7 +7,7 @@ When it finishes, its page opens in a background tab, and the chip says "Task do
 ## Sub-features
 
 - `task-harness` is the Go helper `harness/`, bundled as `Contents/Helpers/clicky-agent-harness`, which runs the agent's loop with Sonnet 5.5, web search, web fetch, and the app's tools. It talks to the app in JSON lines on stdin and stdout.
-- `task-route` is the Worker's `/v1/messages` passthrough, which the harness's Anthropic SDK calls. It forwards the body and the stream unchanged and needs the app secret, as the voice command brain's turns do. With no secret, or a wrong one, `$V doctor` says `app secret: MISSING` or `REFUSED`, and `$V app-launch --no-app-secret` or `--wrong-app-secret` sets that up with the app's own `--app-secret-mode` argument, which leaves the defaults the everyday Clicky shares alone.
+- `task-route` is the Worker's `/v1/messages` passthrough, which the harness's Anthropic SDK calls. It forwards the body and the stream unchanged and needs the app secret, as the voice command brain's turns do. With no secret, or a wrong one, `$V doctor` says `app secret: MISSING` or `REFUSED`, and `app-launch` copies the real secret from `worker/.dev.vars` into the Debug app's defaults.
 - `task-page` is `/notion-page`, which writes a private page with a summary, sections, and linked sources, and returns `{ pageURL }`.
 - `task-router` sends "find out", "look up", "research", and "compare" requests to `start_background_task`, and "what did you find" to `hear_task_answer`, which the router takes until the answer is heard, even with no video in front.
 - `task-steps` shows each `report_step` as the list's checklist.

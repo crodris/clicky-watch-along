@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// ---- The shared fixture, which the Swift test reads too ----
+// ---- The fixture of transcripts and the answer each keeps ----
 
 type approvalVoiceAnswerFixture struct {
 	Cases []struct {
@@ -30,7 +30,7 @@ type approvalVoiceAnswerFixture struct {
 	} `json:"cases"`
 }
 
-func TestTheSharedFixtureGivesEveryTranscriptItsAnswer(t *testing.T) {
+func TestTheFixtureGivesEveryTranscriptItsAnswer(t *testing.T) {
 	fixtureBytes, err := os.ReadFile("testdata/approval-voice-answers.json")
 	if err != nil {
 		t.Fatal(err)
