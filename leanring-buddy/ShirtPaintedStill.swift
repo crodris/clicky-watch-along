@@ -78,7 +78,7 @@ nonisolated let shirtButtonLongestClickToPressSeconds = 1.0
 
 /// The time a press on the shirt button counts from: a mouse click's own time, so a click queued behind a busy main actor
 /// is measured from when it was made, or the time the press is handled when the current event is not a click, or is a
-/// click from before now or more than `shirtButtonLongestClickToPressSeconds` old.
+/// click timestamped after now or more than `shirtButtonLongestClickToPressSeconds` old.
 nonisolated func shirtButtonPressTime(currentEventIsAMouseClick: Bool, currentEventTimestamp: TimeInterval?, now: TimeInterval) -> TimeInterval {
     guard currentEventIsAMouseClick, let clickTime = currentEventTimestamp,
           now - clickTime >= 0, now - clickTime < shirtButtonLongestClickToPressSeconds else { return now }
