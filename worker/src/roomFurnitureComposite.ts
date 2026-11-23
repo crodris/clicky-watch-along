@@ -79,7 +79,8 @@ const furnitureCompositeRequestSchema = z.object({
 const shirtCompositeRequestSchema = z.object({
   kind: z.literal("shirt"),
   ...imageFields,
-  // The garment in the Worker's own words: enums and a color the app measured, so only the print description is page text.
+  // The garment in the Worker's own words: enums and the page reader's color, checked as #RRGGBB so it cannot carry text,
+  // so only the print description is page text.
   garment: z
     .object({
       kind: z.enum(paintedGarmentKinds),
@@ -585,7 +586,7 @@ function garmentLengthSentences(garment: ShirtCompositeRequest["garment"]): stri
  * garment the learner wears now as well as where the new one lands, so a narrower new top does not leave the old one
  * showing past it: the prompt asks for what belongs there instead (the learner's body, or the room behind them). The
  * print sentence answers the spike's one visible flaw, small printed text redrawn with the wrong letters. Every word but
- * the title and the print description is the Worker's own, from enums and a color the app measured.
+ * the title and the print description is the Worker's own, from enums and the page reader's color, checked as #RRGGBB.
  */
 export function shirtCompositePrompt(itemTitle: string, garment: ShirtCompositeRequest["garment"], bounds: MaskBounds): string {
   const garmentWord = garmentWords[garment.kind];
