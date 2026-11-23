@@ -399,6 +399,42 @@ extension CPUHeavyTests {
             let shadowRow = Int(822 + (855 - 822) * scale)
             #expect(Int(pixel(fittedPixels, 840, shadowRow)[0]) < Int(pixel(keyframePixels, 840, shadowRow)[0]) - 20)
         }
+
+        @Test func aFootPaintedPastTheGrownMaskIsPastedAndDrawnWhole() throws {
+            let keyframe = try keyframe()
+            // The box's mask reaches column 970 beside its front-right foot (946.1 plus the 24 pixel shadow margin), and the paste
+            // grows it 24 more, to about 994. The painter drew a foot from the plush's side out to column 1034, 40 pixels past
+            // that, as it drew the seated plush astronaut's feet on 2026-11-23. A strong patch at columns 1030 to 1060, no part
+            // of the plush, changed past the mask too, inside the columns the piece is looked for in (to 1059).
+            let plush = PaintedPart(columns: Self.plushColumns, rows: 600..<845)
+            let foot = PaintedPart(columns: 986..<1034, rows: 780..<820)
+            let strayPatch = PaintedPart(columns: 1030..<1060, rows: 620..<660)
+            let painting = try reply(parts: [plush, foot, strayPatch], over: keyframe)
+            #expect(try fit(of: painting, over: keyframe) == nil)
+            let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: Self.plushBox, frameWidth: Self.frameWidth, frameHeight: Self.frameHeight, shadowMarginPixels: 24))
+            let pasted = try #require(furnitureCompositePastedWithItsRegion(
+                keyframe: keyframe, generated: painting, mask: try maskImage(maskPNG), projectedBox: Self.plushBox, context: CIContext()
+            ))
+            // The foot's tip is pasted as the plush's body inside the mask is, with the same tone fit, and the room past it, the
+            // stray patch, and the relit room beyond the mask stay as filmed.
+            let footTip = try pixel(pasted.image, 1030, 800), plushBody = try pixel(pasted.image, 900, 700)
+            #expect(footTip == plushBody, "foot \(footTip), body \(plushBody)")
+            #expect(footTip != (try pixel(keyframe, 1030, 800)))
+            for (column, row) in [(1060, 800), (1045, 640), (1050, 500), (1070, 880)] {
+                #expect(try pixel(pasted.image, column, row) == pixel(keyframe, column, row), "(\(column), \(row))")
+            }
+            // The panel draws the item layer, whose alpha is the pasted region, so the foot is drawn there too.
+            let judgement = RoomFurniturePaintedComposite.itemLayers(
+                painted: pasted.image, pastedRegion: pasted.pastedRegion, keyframe: keyframe, maskPNG: maskPNG, projectedBox: Self.plushBox
+            )
+            #expect(judgement.refusal == nil, "\(String(describing: judgement.refusal))")
+            let itemLayer = try #require(judgement.layers?.itemLayer)
+            let layerPixels = try #require(rgbaBytes(of: itemLayer, width: Self.frameWidth, height: Self.frameHeight))
+            func layerAlpha(_ column: Int, _ row: Int) -> UInt8 { layerPixels[(row * Self.frameWidth + column) * 4 + 3] }
+            #expect(layerAlpha(1030, 800) == 255)
+            #expect(layerAlpha(1060, 800) == 0)
+            #expect(layerAlpha(1045, 640) == 0)
+        }
     }
 }
 

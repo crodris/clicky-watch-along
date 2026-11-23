@@ -1510,7 +1510,7 @@ final class RoomArtPreviewController: ObservableObject {
         /// Renders a model standing on the floor as keyframe layers, off the main actor, or nil when the render fails.
         var renderTheFurniture: (RoomFurnitureRenderRequest) async -> RoomFurnitureKeyframeLayers? = { _ in nil }
         /// Turns a painted keyframe into its item layer (`RoomFurniturePaintedComposite`), off the main actor.
-        var paintedItemLayers: (_ painted: CGImage, _ keyframe: CGImage, _ maskPNG: Data, _ projectedBox: [CGPoint]) async -> RoomFurnitureKeyframeLayers? = { _, _, _, _ in nil }
+        var paintedItemLayers: (_ painted: RoomFurniturePaintedKeyframe, _ keyframe: CGImage, _ maskPNG: Data, _ projectedBox: [CGPoint]) async -> RoomFurnitureKeyframeLayers? = { _, _, _, _ in nil }
         /// Returns when furniture has waited long enough for its first look, `roomFurnitureSecondsToWaitForALook` after a
         /// painting request for its placement goes out, so the fallback shows instead. A test returns when it chooses.
         var waitTheLongestForAFurnitureLook: () async -> Void = { try? await Task.sleep(for: .seconds(roomFurnitureSecondsToWaitForALook)) }
@@ -1614,9 +1614,11 @@ final class RoomArtPreviewController: ObservableObject {
                 },
                 paintedItemLayers: { painted, keyframe, maskPNG, projectedBox in
                     // CGImages are immutable, so the detached task may read them.
-                    nonisolated(unsafe) let paintedImage = painted, keyframeImage = keyframe
+                    nonisolated(unsafe) let keyframeImage = keyframe
                     return await Task.detached(priority: .userInitiated) { () -> RoomFurnitureKeyframeLayers? in
-                        let composite = RoomFurniturePaintedComposite.itemLayers(painted: paintedImage, keyframe: keyframeImage, maskPNG: maskPNG, projectedBox: projectedBox)
+                        let composite = RoomFurniturePaintedComposite.itemLayers(
+                            painted: painted.image, pastedRegion: painted.pastedRegion, keyframe: keyframeImage, maskPNG: maskPNG, projectedBox: projectedBox
+                        )
                         if let ratio = composite.paintedHeightRatio, let rows = composite.paintedRows {
                             print(String(format: "Room furniture: the painted item is %.0f%% of the measured box's outline (%@)", ratio * 100, roomFurniturePaintedRowsAgainstTheBox(rows, projectedBox)))
                         }
@@ -3197,7 +3199,7 @@ extension RoomArtPreviewController {
     }
 
     #if DEBUG
-    private func writeThePaintingForVerification(_ painted: CGImage, keyframeJPEG: Data, maskPNG: Data, projectedBox: [CGPoint]) {
+    private func writeThePaintingForVerification(_ painted: RoomFurniturePaintedKeyframe, keyframeJPEG: Data, maskPNG: Data, projectedBox: [CGPoint]) {
         // Only the running Debug app keeps its paintings. A test run's stub paintings left about 21,000 files in the
         // temporary folder on 2026-11-23, so neither `tools/swift-check.sh`'s runner nor Xcode's test host writes them.
         guard debugAppKeepsItsPaintings(
@@ -3208,14 +3210,18 @@ extension RoomArtPreviewController {
         let stem = "clicky-room-furniture-painting-\(Int(Date().timeIntervalSince1970 * 1000))"
         let folder = FileManager.default.temporaryDirectory
         let fileURL = folder.appendingPathComponent("\(stem).png")
-        guard let destination = CGImageDestinationCreateWithURL(fileURL as CFURL, "public.png" as CFString, 1, nil) else { return }
-        CGImageDestinationAddImage(destination, painted, nil)
-        guard CGImageDestinationFinalize(destination) else { return }
+        func writePNG(_ image: CGImage, to url: URL) -> Bool {
+            guard let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return false }
+            CGImageDestinationAddImage(destination, image, nil)
+            return CGImageDestinationFinalize(destination)
+        }
+        guard writePNG(painted.image, to: fileURL) else { return }
+        _ = writePNG(painted.pastedRegion, to: folder.appendingPathComponent("\(stem)-region.png"))
         try? keyframeJPEG.write(to: folder.appendingPathComponent("\(stem)-keyframe.jpg"))
         try? maskPNG.write(to: folder.appendingPathComponent("\(stem)-mask.png"))
         let boxNumbers = projectedBox.flatMap { [Double($0.x), Double($0.y)] }
         try? JSONSerialization.data(withJSONObject: boxNumbers).write(to: folder.appendingPathComponent("\(stem)-box.json"))
-        print("Room furniture: wrote the painting to \(fileURL.path), with its keyframe, mask, and box beside it")
+        print("Room furniture: wrote the painting to \(fileURL.path), with its pasted region, keyframe, mask, and box beside it")
     }
     #endif
 

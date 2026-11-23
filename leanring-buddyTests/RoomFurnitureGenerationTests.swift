@@ -583,7 +583,7 @@ struct RoomFurnitureGenerationClientTests {
             maskPNG: maskPNG,
             itemTitle: "LACK Coffee table",
             itemSizeWords: "118 cm wide, 45 cm tall, 78 cm deep"
-        )
+        ).image
     }
 
     @Test func theCompositeSendsEveryFieldAndPastesTheReplyIntoTheKeyframe() async throws {
