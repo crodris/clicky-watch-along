@@ -24,11 +24,24 @@ import simd
 // MARK: - The picture and the page
 
 /// A JPEG of the largest picture in Chrome's front tab, the page's image file or a screen capture of it
-/// (`RoomArtPictureSource`). The page's corners are in its pixels.
+/// (`RoomArtPictureSource`). The page's corners are in its pixels, except a garment's, which are in the picture its front
+/// is in (`RoomArtClothingReading.frontPictureIndex`).
 nonisolated struct RoomArtPicture: Equatable, Sendable {
+    /// The Worker reads at most this many other pictures besides the main one.
+    static let mostOtherPictures = 3
+
     let jpegData: Data
     let width: Int
     let height: Int
+    /// The page's other large product photos, in the page's order, which the page reader may find a garment's front in,
+    /// since a gallery can show the back of a shirt as large as its front. Empty for a screen capture or a single photo.
+    var otherPictures: [RoomArtPicture] = []
+
+    /// The picture a reading's number names: 0 is this one, and 1 and up are `otherPictures`. Nil for a number past them.
+    func picture(numbered pictureNumber: Int) -> RoomArtPicture? {
+        if pictureNumber == 0 { return self }
+        return otherPictures.indices.contains(pictureNumber - 1) ? otherPictures[pictureNumber - 1] : nil
+    }
 }
 
 /// What Clicky sends `POST /try-it-item`: the page, its picture, and the learner's words.
@@ -59,16 +72,23 @@ nonisolated struct RoomArtPageRequest: Equatable, Sendable {
             "pageURL": .string(pageURL),
             "pageTitle": .string(pageTitle),
             "pageText": .string(pageText),
-            "picture": .object([
-                "jpegBase64": .string(picture.jpegData.base64EncodedString()),
-                "width": .number(Double(picture.width)),
-                "height": .number(Double(picture.height)),
-            ]),
+            "picture": Self.json(of: picture),
         ]
+        if !picture.otherPictures.isEmpty {
+            fields["otherPictures"] = .array(picture.otherPictures.prefix(RoomArtPicture.mostOtherPictures).map(Self.json(of:)))
+        }
         if !learnerRequest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             fields["learnerRequest"] = .string(learnerRequest)
         }
         return .object(fields)
+    }
+
+    private static func json(of picture: RoomArtPicture) -> JSONValue {
+        .object([
+            "jpegBase64": .string(picture.jpegData.base64EncodedString()),
+            "width": .number(Double(picture.width)),
+            "height": .number(Double(picture.height)),
+        ])
     }
 }
 
@@ -176,8 +196,11 @@ nonisolated struct RoomArtClothingReading: Equatable, Sendable {
     /// What the print on the garment looks like, empty for a plain garment. Page-derived text, so it is only logged.
     let printDescription: String
     let whyThisSize: String
-    /// Where the garment sits in the picture, clamped into it.
+    /// Where the garment sits in the picture its front is in, clamped into it.
     let itemCorners: RoomArtCorners
+    /// Which picture shows the garment's front, the one the try-on cuts it out of: 0 is the main picture, and 1 and up are
+    /// its `otherPictures`.
+    var frontPictureIndex = 0
 }
 
 nonisolated struct RoomArtReplyError: Error, Equatable {
@@ -236,6 +259,8 @@ nonisolated private struct RoomArtClothingReply: Decodable {
     let chosenSizeLabel: String
     let photoShows: RoomArtGarmentPhoto
     let printDescription: String
+    /// Absent from a Worker that predates it, which read the main picture only.
+    let frontPictureIndex: Int?
 }
 
 /// The reply's `item`: its kind and the one object that kind names. A kind this app does not know fails to decode.
@@ -274,19 +299,21 @@ extension RoomArtPageReading {
     /// corner can land a pixel or two outside. Sizes that are not sensible are dropped from the other sizes. Wall art whose
     /// page states no size needs neither, since nothing is hung. Furniture and clothing keep what was read, with their
     /// corners clamped into the picture, since a later PR places them.
-    nonisolated init(responseData: Data, pictureWidth: Int, pictureHeight: Int) throws {
+    /// `otherPictureSizes` are the sizes of the other pictures the request sent, in order. A garment's front must be in one of
+    /// the pictures sent, and its corners are clamped into that picture.
+    nonisolated init(responseData: Data, pictureWidth: Int, pictureHeight: Int, otherPictureSizes: [(width: Int, height: Int)] = []) throws {
         let reply: RoomArtTryItReply
         do {
             reply = try JSONDecoder().decode(RoomArtTryItReply.self, from: responseData)
         } catch {
             throw RoomArtReplyError(reason: "the reply is not the try-it-item shape")
         }
-        func pointInThePicture(_ pointReply: RoomArtPointReply) throws -> CGPoint {
-            guard pointReply.x.isFinite, pointReply.y.isFinite else { throw RoomArtReplyError(reason: "a corner is not a number") }
-            return CGPoint(x: min(max(pointReply.x, 0), Double(pictureWidth)), y: min(max(pointReply.y, 0), Double(pictureHeight)))
-        }
-        func itemCornersInThePicture() throws -> RoomArtCorners {
-            RoomArtCorners(
+        func itemCornersInThePicture(width: Int = pictureWidth, height: Int = pictureHeight) throws -> RoomArtCorners {
+            func pointInThePicture(_ pointReply: RoomArtPointReply) throws -> CGPoint {
+                guard pointReply.x.isFinite, pointReply.y.isFinite else { throw RoomArtReplyError(reason: "a corner is not a number") }
+                return CGPoint(x: min(max(pointReply.x, 0), Double(width)), y: min(max(pointReply.y, 0), Double(height)))
+            }
+            return RoomArtCorners(
                 topLeft: try pointInThePicture(reply.itemCorners.topLeft),
                 topRight: try pointInThePicture(reply.itemCorners.topRight),
                 bottomRight: try pointInThePicture(reply.itemCorners.bottomRight),
@@ -298,6 +325,11 @@ extension RoomArtPageReading {
         case .other:
             self = .other(title: reply.title)
         case .clothing(let clothingReply):
+            let frontPictureIndex = clothingReply.frontPictureIndex ?? 0
+            guard frontPictureIndex >= 0, frontPictureIndex <= otherPictureSizes.count else {
+                throw RoomArtReplyError(reason: "clothing.frontPictureIndex names a picture that was not sent")
+            }
+            let frontPictureSize = frontPictureIndex == 0 ? (width: pictureWidth, height: pictureHeight) : otherPictureSizes[frontPictureIndex - 1]
             self = .clothing(RoomArtClothingReading(
                 title: reply.title,
                 garment: clothingReply.garment,
@@ -306,7 +338,8 @@ extension RoomArtPageReading {
                 photoShows: clothingReply.photoShows,
                 printDescription: clothingReply.printDescription,
                 whyThisSize: reply.whyThisSize,
-                itemCorners: try itemCornersInThePicture()
+                itemCorners: try itemCornersInThePicture(width: frontPictureSize.width, height: frontPictureSize.height),
+                frontPictureIndex: frontPictureIndex
             ))
         case .furniture(let furnitureReply):
             let sizeReply = furnitureReply.size
@@ -771,11 +804,12 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
     case furnitureNotCutOut
     /// The clothing is not a top, such as a dress, which the shirt overlay cannot draw.
     case onlyTopsSoFar
-    /// The product photo shows the shirt on a model, whose body would come along with the cutout.
-    case shirtPhotoOnAModel
-    /// The product photo shows the shirt on a hanger or some other way that is not a flat lay.
-    case shirtPhotoNotFlat
-    /// Vision found no garment in the flat lay photo.
+    /// The product photo shows the shirt on a hanger or some other way, neither laid flat nor worn by a model.
+    case shirtPhotoNeitherFlatNorOnAModel
+    /// The top has long sleeves and its photo shows it on a model. The model's forearms are cut away with the arms, so each
+    /// sleeve would end at the upper arm.
+    case longSleevesOnAModel
+    /// Vision found no garment in the product photo.
     case garmentNotCutOut
     /// A request to the Worker never got an answer: the Worker is not running, the connection failed, or it timed out.
     case workerUnreachable
@@ -795,8 +829,8 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .floorNotFound: return "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor."
         case .furnitureNotCutOut: return "I couldn't cut the furniture out of its photo."
         case .onlyTopsSoFar: return "I can try on shirts, sweaters, and jackets so far."
-        case .shirtPhotoOnAModel: return "I can only try on a shirt from a flat photo of it, and this photo shows it on a model."
-        case .shirtPhotoNotFlat: return "I can only try on a shirt from a flat photo of it."
+        case .shirtPhotoNeitherFlatNorOnAModel: return "I can only try on a shirt from a photo of it laid flat or worn by a model."
+        case .longSleevesOnAModel: return "I can only try on long sleeves from a photo of the top laid flat."
         case .garmentNotCutOut: return "I couldn't lift the shirt out of its photo."
         case .workerUnreachable: return "I couldn't reach Clicky's Worker."
         }
@@ -817,8 +851,8 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .floorNotFound: return "Tilt the screen down so the floor shows, then click the floor"
         case .furnitureNotCutOut: return "Couldn't cut the furniture out of its photo"
         case .onlyTopsSoFar: return "Only shirts, sweaters, and jackets so far"
-        case .shirtPhotoOnAModel: return "The photo shows the shirt on a model, not laid flat"
-        case .shirtPhotoNotFlat: return "The photo is not a flat photo of the shirt"
+        case .shirtPhotoNeitherFlatNorOnAModel: return "The photo shows the shirt neither laid flat nor worn"
+        case .longSleevesOnAModel: return "Long sleeves need a photo of the top laid flat"
         case .garmentNotCutOut: return "Couldn't lift the shirt out of its photo"
         case .workerUnreachable: return "Couldn't reach Clicky's Worker"
         }
@@ -828,8 +862,9 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
 // MARK: - What the reading asks for
 
 /// What the panel does with the page's reading. Only wall art and furniture whose page states a size are placed, so a size
-/// the model guessed never reaches the room, and only a top photographed flat is tried on, since a photo on a model would
-/// bring the model's body into the cutout.
+/// the model guessed never reaches the room, and only a top photographed laid flat or worn by a model is tried on, since a
+/// photo on a hanger shows neither the shirt's flat shape nor a body to map from. A long-sleeved top on a model is refused
+/// too, since the model's forearms are cut away with the arms and each sleeve would end at the upper arm.
 nonisolated enum RoomArtReadingPlan: Equatable, Sendable {
     case hangOnTheWall(RoomArtWallArtReading)
     case standOnTheFloor(RoomArtFurnitureReading, size: RoomArtFurnitureSize)
@@ -854,8 +889,8 @@ nonisolated func roomArtReadingPlan(for pageReading: RoomArtPageReading) -> Room
         guard roomArtGarmentsThatCanBeTriedOn.contains(clothingReading.garment) else { return .fail(.onlyTopsSoFar) }
         switch clothingReading.photoShows {
         case .flatLay: return .tryOnTheShirt(clothingReading)
-        case .onModel: return .fail(.shirtPhotoOnAModel)
-        case .onHanger, .other: return .fail(.shirtPhotoNotFlat)
+        case .onModel: return clothingReading.sleeves == .long ? .fail(.longSleevesOnAModel) : .tryOnTheShirt(clothingReading)
+        case .onHanger, .other: return .fail(.shirtPhotoNeitherFlatNorOnAModel)
         }
     case .other:
         return .fail(.notSomethingToTry)
@@ -991,7 +1026,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     case moving(id: RoomArtMeasurementID, item: RoomArtPlacedItem, surfaceBeforeTheMove: RoomArtSurface)
     /// The first floor measurement found no floor, so the camera keeps running and a click on the floor measures again.
     case waitingForAFloorClick(RoomArtPlacedItem)
-    /// A flat lay top: the garment is being cut out of its photo while the camera looks for the learner.
+    /// A top laid flat or worn by a model: the garment is being cut out of its photo while the camera looks for the learner.
     case preparingTheShirt(title: String)
     /// The garment is ready, and the learner is not yet standing where the shirt can be drawn.
     case waitingToSeeTheLearner(title: String)
@@ -1014,7 +1049,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         return .waitingForTheCamera(item)
     }
 
-    /// A flat lay top was read, so the garment is cut out while the camera looks for the learner.
+    /// A top laid flat or worn by a model was read, so the garment is cut out while the camera looks for the learner.
     func startingTheShirt(title: String) -> RoomArtPhase {
         guard case .readingThePage = self else { return self }
         return .preparingTheShirt(title: title)
@@ -1408,7 +1443,10 @@ final class RoomArtClient {
         guard statusCode == 200 else {
             throw RoomArtWorkerError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
         }
-        return try RoomArtPageReading(responseData: responseData, pictureWidth: pageRequest.picture.width, pictureHeight: pageRequest.picture.height)
+        return try RoomArtPageReading(
+            responseData: responseData, pictureWidth: pageRequest.picture.width, pictureHeight: pageRequest.picture.height,
+            otherPictureSizes: pageRequest.picture.otherPictures.prefix(RoomArtPicture.mostOtherPictures).map { ($0.width, $0.height) }
+        )
     }
 
     func measureTheWall(_ wallRequest: RoomWallRequest) async throws -> WallPlane {

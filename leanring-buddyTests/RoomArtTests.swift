@@ -74,7 +74,7 @@ private func wallArtItem(sizeFound: String = "true", size: String = #"{"label": 
 }
 
 /// The fixture the Worker's tests read too: `POST /try-it-item` responses shaped as the Worker returns them, one for each
-/// kind plus wall art and furniture whose page states no size.
+/// kind plus wall art and furniture whose page states no size, and a garment whose front is the second picture.
 private struct TryItItemRepliesFixture: Decodable {
     struct PictureSize: Decodable {
         let width: Int
@@ -88,6 +88,8 @@ private struct TryItItemRepliesFixture: Decodable {
     }
 
     let picture: PictureSize
+    /// The one other picture each request carries, which a garment's front may be in.
+    let otherPicture: PictureSize
     let cases: [Case]
 
     static func load() throws -> TryItItemRepliesFixture {
@@ -138,6 +140,18 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             whyThisSize: "The page has size M selected.",
             itemCorners: pictureCorners(30, 60, 370, 440)
         ))
+    case "clothing whose front is the second picture":
+        return .clothing(RoomArtClothingReading(
+            title: "Sasquatch tee",
+            garment: .tshirt,
+            sleeves: .short,
+            chosenSizeLabel: "M",
+            photoShows: .onModel,
+            printDescription: "large sasquatch graphic across the chest",
+            whyThisSize: "The page has size M selected.",
+            itemCorners: pictureCorners(20, 80, 280, 560),
+            frontPictureIndex: 1
+        ))
     case "other":
         return .other(title: "Brass lamp")
     default:
@@ -152,7 +166,10 @@ struct RoomArtTryItReplyFixtureTests {
 
         for fixtureCase in fixture.cases {
             let responseData = try JSONEncoder().encode(fixtureCase.response)
-            let reading = try RoomArtPageReading(responseData: responseData, pictureWidth: fixture.picture.width, pictureHeight: fixture.picture.height)
+            let reading = try RoomArtPageReading(
+                responseData: responseData, pictureWidth: fixture.picture.width, pictureHeight: fixture.picture.height,
+                otherPictureSizes: [(fixture.otherPicture.width, fixture.otherPicture.height)]
+            )
 
             #expect(reading == expectedReading(ofFixtureCaseNamed: fixtureCase.name), "the \(fixtureCase.name) reply read as \(reading)")
         }
@@ -639,8 +656,8 @@ private let floorBehindTheCamera = FloorPlane(
 
 private let pictureCorners = RoomArtCorners(topLeft: CGPoint(x: 20, y: 25), topRight: CGPoint(x: 380, y: 25), bottomRight: CGPoint(x: 380, y: 475), bottomLeft: CGPoint(x: 20, y: 475))
 
-private func clothing(garment: RoomArtGarment = .tshirt, photoShows: RoomArtGarmentPhoto = .flatLay) -> RoomArtClothingReading {
-    RoomArtClothingReading(title: "Linen shirt", garment: garment, sleeves: .short, chosenSizeLabel: "M", photoShows: photoShows, printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners)
+private func clothing(garment: RoomArtGarment = .tshirt, sleeves: RoomArtSleeves = .short, photoShows: RoomArtGarmentPhoto = .flatLay) -> RoomArtClothingReading {
+    RoomArtClothingReading(title: "Linen shirt", garment: garment, sleeves: sleeves, chosenSizeLabel: "M", photoShows: photoShows, printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners)
 }
 
 struct RoomArtReadingPlanTests {
@@ -661,22 +678,28 @@ struct RoomArtReadingPlanTests {
         #expect(roomArtReadingPlan(for: .furniture(unsizedTable)) == .fail(.sizeNotOnThePage))
     }
 
-    @Test func onlyATopPhotographedFlatIsTriedOn() {
+    @Test func onlyATopPhotographedFlatOrOnAModelIsTriedOn() {
         for garment in [RoomArtGarment.tshirt, .shirt, .sweater, .hoodie, .jacket] {
             #expect(roomArtReadingPlan(for: .clothing(clothing(garment: garment))) == .tryOnTheShirt(clothing(garment: garment)))
         }
         #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .dress))) == .fail(.onlyTopsSoFar))
         #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .other))) == .fail(.onlyTopsSoFar))
-        // A photo on a model would bring the model's body into the cutout.
-        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onModel))) == .fail(.shirtPhotoOnAModel))
-        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onHanger))) == .fail(.shirtPhotoNotFlat))
-        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .other))) == .fail(.shirtPhotoNotFlat))
+        // A photo on a model is cut out around the model's body (ShirtOnModel.swift).
+        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onModel))) == .tryOnTheShirt(clothing(photoShows: .onModel)))
+        #expect(roomArtReadingPlan(for: .clothing(clothing(sleeves: .none, photoShows: .onModel))) == .tryOnTheShirt(clothing(sleeves: .none, photoShows: .onModel)))
+        // The model's forearms are cut away with the arms, so a long sleeve on a model would end at the upper arm. Laid flat,
+        // a long sleeve is whole.
+        #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .hoodie, sleeves: .long, photoShows: .onModel))) == .fail(.longSleevesOnAModel))
+        #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .hoodie, sleeves: .long))) == .tryOnTheShirt(clothing(garment: .hoodie, sleeves: .long)))
+        #expect(RoomArtFailure.longSleevesOnAModel.spokenLine == "I can only try on long sleeves from a photo of the top laid flat.")
+        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onHanger))) == .fail(.shirtPhotoNeitherFlatNorOnAModel))
+        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .other))) == .fail(.shirtPhotoNeitherFlatNorOnAModel))
     }
 
     @Test func anythingElseCannotBeTried() {
         #expect(roomArtReadingPlan(for: .other(title: "Brass lamp")) == .fail(.notSomethingToTry))
         #expect(RoomArtFailure.notSomethingToTry.spokenLine == "That doesn't look like wall art, furniture, or a shirt.")
-        #expect(RoomArtFailure.shirtPhotoOnAModel.spokenLine == "I can only try on a shirt from a flat photo of it, and this photo shows it on a model.")
+        #expect(RoomArtFailure.shirtPhotoNeitherFlatNorOnAModel.spokenLine == "I can only try on a shirt from a photo of it laid flat or worn by a model.")
     }
 }
 

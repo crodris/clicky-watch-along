@@ -6,7 +6,7 @@
 //  reads the page's picture, opens the panel, starts the camera, and asks the Worker what the page shows
 //  (`POST /try-it-item`) at once. The item's kind picks the rest: wall art is measured on the wall (`POST /room-wall`) and
 //  furniture on the floor (`POST /room-floor`), each from a keyframe taken on the first frame with a person mask, with
-//  Clicky's loop around the spot while it waits, and a flat lay top is cut out of its photo and drawn over the learner's
+//  Clicky's loop around the spot while it waits, and a top laid flat or worn by a model is cut out of its photo and drawn over the learner's
 //  own shirt with no measurement. `RoomArtFrameProcessor` handles every camera frame on its own queue: it finds the person,
 //  tracks the room against the keyframe, and draws the frame with the item on its surface and the learner in front of it,
 //  or, for a shirt, finds the learner's torso and draws the shirt on them.
@@ -905,9 +905,9 @@ final class RoomArtPreviewController: ObservableObject {
         /// The furniture cut out of its product photo, nil when Vision finds none. Vision takes a while, so it runs off the
         /// main actor.
         var cutOutTheFurniture: (_ picture: CGImage, _ itemCorners: RoomArtCorners) async -> CGImage?
-        /// The top cut out of its flat lay photo (`ShirtGarment.make`), nil when Vision finds no garment. It runs off the
-        /// main actor.
-        var makeTheShirtGarment: (_ picture: CGImage, _ itemCorners: RoomArtCorners) async -> ShirtGarment?
+        /// The top cut out of its product photo, nil when no garment is found: `ShirtGarment.make` for a flat lay and
+        /// `make(onModelPhoto:itemCorners:)` for a photo of it worn by a model. It runs off the main actor.
+        var makeTheShirtGarment: (_ picture: CGImage, _ itemCorners: RoomArtCorners, _ photoShows: RoomArtGarmentPhoto) async -> ShirtGarment?
         var makeFrameSource: () -> RoomFrameSource
         /// Clears a scene or pop-out on screen, whose window sits above the panel's and would hide it.
         var clearTheLiveScene: () -> Void
@@ -961,10 +961,12 @@ final class RoomArtPreviewController: ObservableObject {
                         furnitureCutout(picture: pictureToCut, itemCorners: itemCorners, context: CIContext())
                     }.value
                 },
-                makeTheShirtGarment: { picture, itemCorners in
+                makeTheShirtGarment: { picture, itemCorners, photoShows in
                     nonisolated(unsafe) let pictureToCut = picture
                     return await Task.detached(priority: .userInitiated) {
-                        ShirtGarment.make(productPhoto: pictureToCut, itemCorners: itemCorners)
+                        photoShows == .onModel
+                            ? ShirtGarment.make(onModelPhoto: pictureToCut, itemCorners: itemCorners)
+                            : ShirtGarment.make(productPhoto: pictureToCut, itemCorners: itemCorners)
                     }.value
                 },
                 makeFrameSource: { makeRoomFrameSource() },
@@ -1536,7 +1538,7 @@ final class RoomArtPreviewController: ObservableObject {
             )))
 
         case .tryOnTheShirt(let clothingReading):
-            print("Room art: \"\(clothingReading.title)\" is a \(clothingReading.garment.rawValue) laid flat, size \(clothingReading.chosenSizeLabel)")
+            print("Room art: \"\(clothingReading.title)\" is a \(clothingReading.garment.rawValue) photographed \(clothingReading.photoShows.rawValue), size \(clothingReading.chosenSizeLabel)")
             // A shirt measures no surface, so the keyframe taken during the page read is not tracked.
             earlyMeasurement?.cancel()
             earlyMeasurement = nil
@@ -1549,7 +1551,16 @@ final class RoomArtPreviewController: ObservableObject {
                     self.theShirtFramingSettled(on: settledKind)
                 }
             })
-            let garment = await environment.makeTheShirtGarment(pictureImage, clothingReading.itemCorners)
+            // The garment is cut out of the picture that shows its front, which the page reader chose from the page's photos.
+            let frontPicture = clothingReading.frontPictureIndex == 0 ? pictureImage : pageRequest.picture.picture(numbered: clothingReading.frontPictureIndex).flatMap { picture in
+                CGImageSourceCreateWithData(picture.jpegData as CFData, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
+            }
+            guard let frontPicture else {
+                apply(phase.afterTheGarmentFailed())
+                return
+            }
+            print("Room art: the garment's front is picture \(clothingReading.frontPictureIndex) of \(1 + pageRequest.picture.otherPictures.count)")
+            let garment = await environment.makeTheShirtGarment(frontPicture, clothingReading.itemCorners, clothingReading.photoShows)
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
             guard let garment else {
                 apply(phase.afterTheGarmentFailed())

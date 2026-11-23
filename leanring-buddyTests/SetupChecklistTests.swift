@@ -132,8 +132,8 @@ struct SetupChecklistTests {
         #expect(setupCaptureDisclosure.contains("Showing art, furniture, or a shirt uses your camera."))
         #expect(setupCaptureDisclosure.contains("one camera frame also goes to the depth service to measure the wall, before Clicky knows the item is a shirt"))
         #expect(setupCaptureDisclosure.contains("After that, a shirt's camera frames stay on this Mac."))
-        // Reading the store page sends its text and picture to Anthropic, which the disclosure names too.
-        #expect(setupCaptureDisclosure.contains("Reading the store page also sends its text and picture through Clicky's own server to Anthropic."))
+        // Reading the store page sends its text and its product photos to Anthropic, which the disclosure names too.
+        #expect(setupCaptureDisclosure.contains("Reading the store page also sends its text and up to four of its pictures through Clicky's own server to Anthropic."))
         // macOS keeps speech recognition on the Mac only where the Mac supports it, so the step never promises it.
         #expect(!SetupStep.speechRecognition.purpose.lowercased().contains("on-device"))
         #expect(!SetupStep.speechRecognition.purpose.lowercased().contains("on your mac"))
