@@ -2,14 +2,14 @@
 //  RoomFloor.swift
 //  leanring-buddy
 //
-//  The furniture half of "try it in my room": furniture stands on the learner's floor at its real size, as a flat cutout
-//  of the product photo facing the camera.
+//  The furniture half of "try it in my room": furniture stands on the learner's floor at its real size, drawn by its
+//  painted composite or its model's render. The flat cutout of the product photo is never drawn.
 //
 //  This file holds the pure parts: the Worker's `POST /room-floor` reply parsed at the boundary (`FloorPlane`), the
 //  furniture's corners in camera pixels from that plane and the item's size (`FloorPlane.keyframeCorners`), the furniture
-//  as the panel stands it (`RoomFurniture`), and the cutout of the product from its photo (`furnitureCutout`). The client
-//  that asks the Worker is `RoomArtClient.measureTheFloor`, and the panel that draws it and the tracker that keeps it still
-//  live in `RoomArtPreview.swift` and `RoomTracker.swift`.
+//  as the panel stands it (`RoomFurniture`), and the cutout of the product from its photo (`furnitureCutout`), which the
+//  generation services work from. The client that asks the Worker is `RoomArtClient.measureTheFloor`, and the panel and the
+//  tracker that keeps the piece still live in `RoomArtPreview.swift` and `RoomTracker.swift`.
 //
 
 import CoreGraphics
@@ -39,12 +39,12 @@ nonisolated struct FloorPlane: Equatable, Sendable {
     /// stands square to the wall with its back on it, instead of turning toward the camera.
     var inferredFromTheWall = false
 
-    /// The flat cutout's corners in the keyframe, in camera pixels: an upright rectangle `widthMeters` wide and
-    /// `heightMeters` tall, the front face of `RoomFurniturePlacement` with no depth, so the cutout and a 3D model stand in
-    /// the same place. On a measured floor it faces the camera (its width runs along `up` x the level direction toward the
+    /// The piece's front corners in the keyframe, in camera pixels: an upright rectangle `widthMeters` wide and
+    /// `heightMeters` tall, the front face of `RoomFurniturePlacement` with no depth. The panel draws nothing at these
+    /// corners and uses them to check that the piece can stand on the measured floor. On a measured floor it faces the camera (its width runs along `up` x the level direction toward the
     /// camera, which is `right` when the anchor is straight ahead and turns with the anchor when it is off to the side, so a
     /// piece to the side is not seen at a slant the product photo never had), and on a floor inferred from the wall it is
-    /// square to the wall. The width direction is image-right for any floor the camera sees from the front, so the cutout is
+    /// square to the wall. The width direction is image-right for any floor the camera sees from the front, so the face is
     /// never mirrored.
     ///
     /// Nil when a corner is not in front of the camera, when the camera is straight above `center` so no level direction
@@ -122,9 +122,7 @@ nonisolated struct RoomFurniture: Equatable, @unchecked Sendable {
     /// The product with a transparent background, trimmed to its own pixels, so its lowest pixel stands on the floor.
     let cutoutImage: CGImage
 
-    /// How wide the cutout is drawn: its real height times the photo's own shape. A product photo is often a three quarter
-    /// view, which shows the front and a side, so stretching it to the page's width would squash it; at its own shape the
-    /// piece looks as the photo shows it, at its true height.
+    /// The width of the piece's front face at its real height, from the photo's own shape, which the placement check uses.
     var drawnWidthMeters: Double {
         heightMeters * Double(cutoutImage.width) / Double(max(cutoutImage.height, 1))
     }
