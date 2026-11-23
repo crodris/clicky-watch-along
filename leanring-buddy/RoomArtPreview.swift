@@ -3198,6 +3198,12 @@ extension RoomArtPreviewController {
 
     #if DEBUG
     private func writeThePaintingForVerification(_ painted: CGImage, keyframeJPEG: Data, maskPNG: Data, projectedBox: [CGPoint]) {
+        // Only the running Debug app keeps its paintings. A test run's stub paintings left about 21,000 files in the
+        // temporary folder on 2026-11-23, so neither `tools/swift-check.sh`'s runner nor Xcode's test host writes them.
+        guard debugAppKeepsItsPaintings(
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            environment: ProcessInfo.processInfo.environment
+        ) else { return }
         let stem = "clicky-room-furniture-painting-\(Int(Date().timeIntervalSince1970 * 1000))"
         let folder = FileManager.default.temporaryDirectory
         let fileURL = folder.appendingPathComponent("\(stem).png")

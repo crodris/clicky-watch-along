@@ -431,3 +431,11 @@ nonisolated func roomFurnitureFallbackStep(
     case .coming: return theWaitRanOut && !aPaintingRequestIsInFlight ? .sayItCouldNotBeDrawn : .keepWaiting
     }
 }
+
+/// Whether this process is the Debug app itself, which saves each furniture painting it receives for verification,
+/// and not a test run. `tools/swift-check.sh` runs the tests in a runner with another bundle ID, and Xcode's test host
+/// is Clicky.app with `XCTestConfigurationFilePath` set.
+func debugAppKeepsItsPaintings(bundleIdentifier: String?, environment: [String: String]) -> Bool {
+    guard let bundleIdentifier, bundleIdentifier.hasPrefix("com.crodris.clicky-watch-along") else { return false }
+    return environment["XCTestConfigurationFilePath"] == nil
+}
