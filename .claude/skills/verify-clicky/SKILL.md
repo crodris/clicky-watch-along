@@ -135,6 +135,9 @@ A step that starts with `^` presses push-to-talk 0.3 seconds after the app write
 The log says `Live scene rehearsal: pressing push-to-talk during the voice command`.
 The empty press asks nothing, and the next step goes out as usual.
 A step that starts with `%` stands in for the microphone's partial transcript, so a voice command can start on it at the release as a real press would: `%turn it left` hears the same words at the release and in the final transcript, and `%turn it >> turn it right` hears `turn it` at the release and `turn it right` as the final transcript, which discards the first command.
+A step that starts with `@x,y,width,height ` circles that rect with the real mouse while push-to-talk is held, in 1.2 seconds, then speaks the rest, such as `@820,90,180,60 make my theme from this picture`.
+The rect is in global points with the origin at the top left of the main display, so a point in a `$V shot` PNG of the main display is its pixel divided by the display's scale.
+The log says `Live scene rehearsal: circling ...` and then `Circle to select: the learner circled ...`, and the mouse is left where the circle ended.
 A step that starts with `+N ` waits N more seconds first, such as `+12 build me a 3D model`, so a recorded take can land a request on a chosen moment of a playing video.
 It goes before any other prefix, and N is a number of seconds up to 600.
 `app-wait` returns when the app logs `Live scene rehearsal: done`.

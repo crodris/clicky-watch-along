@@ -21,13 +21,19 @@ struct CursorLoopOnScreen: Equatable {
     /// The rectangle the line runs along, already 4 points outside the media.
     let lineRect: CGRect
     let seed: UInt64
+    /// The loop the learner drew around a region while holding push-to-talk, in overlay coordinates, which the line follows
+    /// instead of the rounded rectangle along `lineRect`. Nil for a loop around media Clicky found itself.
+    var learnersOutline: [CGPoint]? = nil
     /// `ProcessInfo.systemUptime` when the loop began, which also names the loop, and when its shimmer slows, if a build
     /// runs under it.
     let beganAt: TimeInterval
     let shimmerSlowsAt: TimeInterval?
     let isFadingOut: Bool
 
-    var outline: Path { CursorLoopOutline.path(along: lineRect, seed: seed) }
+    var outline: Path {
+        if let learnersOutline, let learnersLine = RoomArtLoopOutline.closedPath(through: learnersOutline) { return learnersLine }
+        return CursorLoopOutline.path(along: lineRect, seed: seed)
+    }
 }
 
 /// How much of a loop's line shows, which the cursor that draws it decides.

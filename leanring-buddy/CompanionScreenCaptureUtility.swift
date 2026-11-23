@@ -135,12 +135,17 @@ enum CompanionScreenCaptureUtility {
     /// a page image no matter which site serves it. Capturing only Chrome keeps another app's window
     /// that covers Chrome out of the crop, and leaves out Clicky's own windows too.
     /// Nil when Chrome has no on-screen window or no display intersects the rect.
-    static func captureScreenRectAsJPEG(_ screenRect: ScreenRectInChromeCoordinates) async throws -> VideoFrameGrab? {
+    /// `windows` is `.everythingButClicky` for a region the learner circled, which may be in any app: every window shows but
+    /// Clicky's own, so the loop's ink drawn over the region stays out of the picture.
+    static func captureScreenRectAsJPEG(
+        _ screenRect: ScreenRectInChromeCoordinates,
+        windows windowsToCapture: CapturedWindows = .chromeOnly
+    ) async throws -> VideoFrameGrab? {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let chromeWindows = content.windows.filter { window in
             window.owningApplication?.bundleIdentifier == "com.google.Chrome"
         }
-        guard !chromeWindows.isEmpty else { return nil }
+        if windowsToCapture == .chromeOnly && chromeWindows.isEmpty { return nil }
         var pixelsPerPointByDisplayID: [CGDirectDisplayID: CGFloat] = [:]
         for screen in NSScreen.screens {
             if let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
@@ -166,10 +171,15 @@ enum CompanionScreenCaptureUtility {
         configuration.width = captureRegion.outputWidthInPixels
         configuration.height = captureRegion.outputHeightInPixels
         configuration.showsCursor = false
-        let cgImage = try await SCScreenshotManager.captureImage(
-            contentFilter: SCContentFilter(display: display, including: chromeWindows),
-            configuration: configuration
-        )
+        let contentFilter: SCContentFilter
+        switch windowsToCapture {
+        case .chromeOnly:
+            contentFilter = SCContentFilter(display: display, including: chromeWindows)
+        case .everythingButClicky:
+            let clickyWindows = content.windows.filter { $0.owningApplication?.processID == ProcessInfo.processInfo.processIdentifier }
+            contentFilter = SCContentFilter(display: display, excludingWindows: clickyWindows)
+        }
+        let cgImage = try await SCScreenshotManager.captureImage(contentFilter: contentFilter, configuration: configuration)
         guard let jpegData = NSBitmapImageRep(cgImage: cgImage)
                 .representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else {
             return nil
@@ -185,6 +195,14 @@ enum CompanionScreenCaptureUtility {
             rectHeight: captureRegion.capturedScreenRect.rectHeight
         )
     }
+}
+
+/// Which windows a screen rect capture shows.
+enum CapturedWindows: Equatable {
+    /// Only Chrome's, for a page image, so another app's window over Chrome and Clicky's own windows stay out.
+    case chromeOnly
+    /// Every window but Clicky's own, for a region the learner circled anywhere on screen.
+    case everythingButClicky
 }
 
 /// One display, with its frame in global points with the origin at the top left of the main display.

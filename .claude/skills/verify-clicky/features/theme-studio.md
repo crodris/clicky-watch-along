@@ -3,7 +3,7 @@
 The learner says "change my theme" and a card opens next to the cursor with three theme ideas.
 Each idea is a whole theme: a cursor drawn as SVG shapes, or the picture the learner pointed at, with its own motion, an accent and contrast color, agent token colors, and three sounds.
 The learner picks or refines by voice or click, the real cursor previews the highlighted idea, and "save it" saves the theme under `~/Library/Application Support/Clicky/Themes/<id>/` and applies it.
-"Make my theme from this picture" draws the loop around the largest picture in Chrome's front tab and builds the ideas from it.
+"Make my theme from this picture" draws the loop around the region the learner circled with the mouse while holding push-to-talk, or else around the largest picture in Chrome's front tab, and builds the ideas from it.
 
 ## Sub-features
 
@@ -12,6 +12,7 @@ The learner picks or refines by voice or click, the real cursor previews the hig
 - `studio-preview` puts the highlighted idea on the real cursor, and on the ring, loop, bubble, chips, and agent list, through `CompanionThemeSettings.shownTheme`. Only the saved theme is in UserDefaults.
 - `studio-pick` highlights an idea by number (`pick_theme_idea`) or by a tile click.
 - `studio-refine` sends the ideas on the card and `basedOnIdea` back to the route (`design_theme`), dims the old ideas while it runs, and returns to them with "Sorry, I couldn't design that one." when it fails.
+- `studio-circle` takes the region the learner circled during the press as the picture: the loop follows the learner's own line, the capture shows every window but Clicky's, and the card opens off the region's box.
 - `studio-picture` captures the largest picture in Chrome's front tab for "make my theme from this picture", draws the loop, and lets an idea use it as the cursor (whole or round, with an outline and a tint) or as the agent tokens' faces.
 - `studio-save` writes `theme.json` and `picture.jpg`, sets `companionTheme` to `custom:<id>`, closes the card, stops the line Clicky is saying about the ideas, and plays the theme's done sound.
   The saved tile shows a check stamp, that idea's cursor flies from the tile into the real cursor on the carrier, and then the card closes into the cursor.
@@ -64,6 +65,11 @@ Preconditions:
 - **Refine.** Post `design_theme` with `{"request":"make the cursor a star that spins while it thinks","basedOnIdea":2}`.
   The old tiles dim while it runs, then three new tiles show, where the first is idea 2 changed as asked.
   The route's request, in the Worker log, has `currentIdeas` with 3 ideas and `basedOnIdea` 2.
+- **From a circled region.** Open https://www.heyclicky.com/ in Chrome's front tab on the main display, take `$V shot`, and read the ⌥^ logo's box from the PNG (pixels divided by the display's scale).
+  Launch with `$V app-launch --worker-port <port> "@<x>,<y>,<width>,<height> make my theme from this picture"`.
+  The log has `Circle to select: the learner circled ...`, then `Cursor loop: the request became a look at the region the learner circled`, and no "I don't see a picture" line.
+  Run `$V shot studio-circle` while the ideas are designed: the loop follows the mouse's ellipse around the logo, not a rounded rectangle, and the card hangs off the region's bottom right.
+  At least one tile uses the logo as its cursor or token face, and the card's "From your picture" row shows the logo with no loop ink in it.
 - **From a picture.** With a page image in Chrome's front tab, post `design_theme` with `{"request":"make my theme from this picture","fromPicture":true}`.
   The loop draws around the picture while the ideas are designed, Clicky does not say it sees no picture, and at least one tile shows the picture as its token face.
   Then `{"request":"use this whole image as my cursor and tint it blue"}` leaves `fromPicture` out, which keeps the card's picture: the first tile's cursor is the picture at 32 points, with an outline and a blue tint.
