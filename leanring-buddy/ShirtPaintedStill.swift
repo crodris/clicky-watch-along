@@ -796,21 +796,27 @@ private enum ShirtBaseColorMeasure {
     static let nearTheMedianDistanceInLevels = 48
     /// The band below the middle of the garment, where a print rarely reaches, as shares of the item box's height.
     static let bandRowShares = 0.55...0.9
-    /// The band across the item box, as shares of its width: three columns measured together, the garment's left side
-    /// (15 to 35 percent), its middle (35 to 65), and its right side (65 to 85). The middle alone, as it once was, is the
-    /// outfit underneath on an open coat or blazer worn by a model, while the two sides are the coat's own cloth, so the cloth
-    /// that dominates the three together wins.
+    /// The band across the item box, as shares of its width: the garment's left side, its middle, and its right side together.
     static let bandColumnShares = 0.15...0.85
+    /// The two side columns of the band, as shares of the item box's width. On an open coat or blazer worn by a model the middle
+    /// can be the outfit underneath (a white shirt filling half the box's width), while the two outer columns are the coat's own
+    /// cloth. They stay outside the middle half so a shirt that wide does not reach them. When the sides agree with each other
+    /// their cloth is the measure, else the whole band is.
+    static let leftSideColumnShares = 0.15...0.25
+    static let rightSideColumnShares = 0.75...0.85
+    /// The outer ring of the picture, in pixels of the scaled picture, whose median color is the backdrop.
+    static let backdropRingWidthInPixels = 2
 }
 
 /// The garment's main cloth color as "#RRGGBB" in sRGB, measured from the page picture that shows its front, inside the
 /// item's corners, so it needs no cutout and serves the ghost outline, which has none, as well as the live garment. It is the
 /// mean in linear light of a band below the middle of the garment, where a print rarely reaches (`ShirtBaseColorMeasure`),
 /// leaving out pixels that match the picture's backdrop (its outer ring) unless nearly the whole band does, as on a white
-/// shirt against white, and pixels far from the band's median color.
+/// shirt against white, and pixels far from the band's median color. When the band's left and right side columns agree with
+/// each other, only they are measured, since the middle of an open coat is the outfit under it.
 ///
 /// It never refuses a garment the page reader approved: with no pixels in the band (corners that are tiny or off the picture)
-/// it takes the median color of the whole item box, then of the whole picture. Nil only when the picture has no pixels.
+/// it takes the median color of the whole item box, then of the whole picture. Nil when the picture cannot be scaled or read.
 nonisolated func shirtBaseColorHex(picture: CGImage, itemCorners: RoomArtCorners) -> String? {
     typealias Color = [Int]
     guard let scaledPicture = ShirtGarment.scaledDown(picture, toLongestSide: ShirtBaseColorMeasure.longestSideInPixels),
@@ -830,6 +836,8 @@ nonisolated func shirtBaseColorHex(picture: CGImage, itemCorners: RoomArtCorners
     let cornerXValues = corners.map(\.x), cornerYValues = corners.map(\.y)
     var itemBoxColors: [Color] = []
     var bandColors: [Color] = []
+    var leftSideColors: [Color] = []
+    var rightSideColors: [Color] = []
     if let leftEdge = cornerXValues.min(), let rightEdge = cornerXValues.max(), let topEdge = cornerYValues.min(), let bottomEdge = cornerYValues.max(),
        [leftEdge, rightEdge, topEdge, bottomEdge].allSatisfy(\.isFinite) {
         let boxWidth = rightEdge - leftEdge, boxHeight = bottomEdge - topEdge
@@ -837,6 +845,8 @@ nonisolated func shirtBaseColorHex(picture: CGImage, itemCorners: RoomArtCorners
         let firstBoxRow = max(0, Int(topEdge.rounded())), lastBoxRow = min(pictureHeight - 1, Int(bottomEdge.rounded()))
         let firstBandColumn = Int((leftEdge + ShirtBaseColorMeasure.bandColumnShares.lowerBound * boxWidth).rounded())
         let lastBandColumn = Int((leftEdge + ShirtBaseColorMeasure.bandColumnShares.upperBound * boxWidth).rounded())
+        let leftSideColumns = Int((leftEdge + ShirtBaseColorMeasure.leftSideColumnShares.lowerBound * boxWidth).rounded())...Int((leftEdge + ShirtBaseColorMeasure.leftSideColumnShares.upperBound * boxWidth).rounded())
+        let rightSideColumns = Int((leftEdge + ShirtBaseColorMeasure.rightSideColumnShares.lowerBound * boxWidth).rounded())...Int((leftEdge + ShirtBaseColorMeasure.rightSideColumnShares.upperBound * boxWidth).rounded())
         let firstBandRow = Int((topEdge + ShirtBaseColorMeasure.bandRowShares.lowerBound * boxHeight).rounded())
         let lastBandRow = Int((topEdge + ShirtBaseColorMeasure.bandRowShares.upperBound * boxHeight).rounded())
         if firstBoxColumn <= lastBoxColumn, firstBoxRow <= lastBoxRow {
@@ -844,7 +854,11 @@ nonisolated func shirtBaseColorHex(picture: CGImage, itemCorners: RoomArtCorners
                 for column in firstBoxColumn...lastBoxColumn where ShirtPaintMask.isInside(SIMD2(Double(column) + 0.5, Double(row) + 0.5), convexQuad: corners) {
                     let color = colorAt(row: row, column: column)
                     itemBoxColors.append(color)
-                    if (firstBandColumn...lastBandColumn).contains(column), (firstBandRow...lastBandRow).contains(row) { bandColors.append(color) }
+                    if (firstBandColumn...lastBandColumn).contains(column), (firstBandRow...lastBandRow).contains(row) {
+                        bandColors.append(color)
+                        if leftSideColumns.contains(column) { leftSideColors.append(color) }
+                        if rightSideColumns.contains(column) { rightSideColors.append(color) }
+                    }
                 }
             }
         }
@@ -853,7 +867,8 @@ nonisolated func shirtBaseColorHex(picture: CGImage, itemCorners: RoomArtCorners
     // The backdrop is the median color of the picture's outer ring.
     var ringColors: [Color] = []
     for row in 0..<pictureHeight {
-        for column in 0..<pictureWidth where row < 2 || column < 2 || row >= pictureHeight - 2 || column >= pictureWidth - 2 {
+        for column in 0..<pictureWidth where row < ShirtBaseColorMeasure.backdropRingWidthInPixels || column < ShirtBaseColorMeasure.backdropRingWidthInPixels
+                || row >= pictureHeight - ShirtBaseColorMeasure.backdropRingWidthInPixels || column >= pictureWidth - ShirtBaseColorMeasure.backdropRingWidthInPixels {
             ringColors.append(colorAt(row: row, column: column))
         }
     }
@@ -864,13 +879,25 @@ nonisolated func shirtBaseColorHex(picture: CGImage, itemCorners: RoomArtCorners
         if !itemBoxColors.isEmpty { return hex(ofMeanInLinearLightOf: [medianColor(of: itemBoxColors)]) }
         return hex(ofMeanInLinearLightOf: [medianColor(of: (0..<pictureHeight).flatMap { row in (0..<pictureWidth).map { colorAt(row: row, column: $0) } })])
     }
-    let awayFromTheBackdrop = bandColors.filter { color in (0..<3).contains { abs(color[$0] - backdrop[$0]) >= ShirtBaseColorMeasure.backdropDistanceInLevels } }
-    let measuredBand = Double(awayFromTheBackdrop.count) >= ShirtBaseColorMeasure.leastShareAwayFromTheBackdrop * Double(bandColors.count) ? awayFromTheBackdrop : bandColors
-    // Only the cloth that is near the band's median is averaged, so a pixel on the garment's anti-aliased edge, halfway to the
+    func isAwayFromTheBackdrop(_ color: Color) -> Bool { (0..<3).contains { abs(color[$0] - backdrop[$0]) >= ShirtBaseColorMeasure.backdropDistanceInLevels } }
+    // When enough of the band is cloth, the backdrop pixels are left out of the band and of its sides alike. Otherwise nearly the
+    // whole band matches the backdrop (a white shirt on white), and nothing is left out.
+    let bandIsMostlyCloth = Double(bandColors.filter(isAwayFromTheBackdrop).count) >= ShirtBaseColorMeasure.leastShareAwayFromTheBackdrop * Double(bandColors.count)
+    func withTheBackdropLeftOut(_ colors: [Color]) -> [Color] { bandIsMostlyCloth ? colors.filter(isAwayFromTheBackdrop) : colors }
+    func isNearTheMedian(_ color: Color, of median: Color) -> Bool { (0..<3).allSatisfy { abs(color[$0] - median[$0]) <= ShirtBaseColorMeasure.nearTheMedianDistanceInLevels } }
+    // Only the cloth that is near the median is averaged, so a pixel on the garment's anti-aliased edge, halfway to the
     // backdrop, or a button, does not lift a near-black cloth.
-    let bandMedian = medianColor(of: measuredBand)
-    let nearTheMedian = measuredBand.filter { color in (0..<3).allSatisfy { abs(color[$0] - bandMedian[$0]) <= ShirtBaseColorMeasure.nearTheMedianDistanceInLevels } }
-    return hex(ofMeanInLinearLightOf: nearTheMedian.isEmpty ? measuredBand : nearTheMedian)
+    func clothColor(of colors: [Color]) -> String {
+        let median = medianColor(of: colors)
+        let nearTheMedian = colors.filter { isNearTheMedian($0, of: median) }
+        return hex(ofMeanInLinearLightOf: nearTheMedian.isEmpty ? colors : nearTheMedian)
+    }
+
+    let leftSide = withTheBackdropLeftOut(leftSideColors), rightSide = withTheBackdropLeftOut(rightSideColors)
+    if !leftSide.isEmpty, !rightSide.isEmpty, isNearTheMedian(medianColor(of: leftSide), of: medianColor(of: rightSide)) {
+        return clothColor(of: leftSide + rightSide)
+    }
+    return clothColor(of: withTheBackdropLeftOut(bandColors))
 }
 
 /// The product photo the Worker is sent: the page picture that shows the garment's front, cropped to its corners with a 5 percent margin, at

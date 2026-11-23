@@ -341,9 +341,14 @@ extension RoomArtPageReading {
         case .other:
             self = .other(title: reply.title)
         case .clothing(let clothingReply):
-            let frontPictureIndex = clothingReply.frontPictureIndex ?? 0
-            guard frontPictureIndex >= 0, frontPictureIndex <= otherPictureSizes.count else {
-                throw RoomArtReplyError(reason: "clothing.frontPictureIndex names a picture that was not sent")
+            var frontPictureIndex = clothingReply.frontPictureIndex ?? 0
+            if frontPictureIndex < 0 || frontPictureIndex > otherPictureSizes.count {
+                // A garment that cannot be drawn on the learner never uses its front picture, so a bad index there is read as the
+                // main picture and the verdict still reaches the learner. A drawable garment needs a picture that was sent.
+                guard !clothingReply.canBeDrawnOnTheLearner else {
+                    throw RoomArtReplyError(reason: "clothing.frontPictureIndex names a picture that was not sent")
+                }
+                frontPictureIndex = 0
             }
             let frontPictureSize = frontPictureIndex == 0 ? (width: pictureWidth, height: pictureHeight) : otherPictureSizes[frontPictureIndex - 1]
             self = .clothing(RoomArtClothingReading(

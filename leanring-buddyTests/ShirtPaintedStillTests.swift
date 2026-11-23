@@ -591,6 +591,46 @@ struct ShirtPaintingRequestTests {
         #expect(color.allSatisfy { $0 < 60 }, "the open coat measured \(color)")
     }
 
+    @Test func anOpenDarkCoatWithAWhiteShirtFillingHalfItsBoxMeasuresDark() throws {
+        // The white shirt under the coat is 50 percent of the box's width, so it is most of the band and the band's median reads
+        // white. The two side columns are the coat's own cloth and agree with each other, so they are the measure.
+        let width = 200, height = 260
+        let garmentBox = CGRect(x: 40, y: 40, width: 120, height: 190)
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for row in 0..<height {
+            for column in 0..<width {
+                let color: (UInt8, UInt8, UInt8)
+                if !garmentBox.contains(CGPoint(x: column, y: row)) { color = (232, 232, 235) }
+                else if (70..<130).contains(column) { color = (255, 255, 255) }
+                else { color = (30, 30, 32) }
+                bytes[(row * width + column) * 4] = color.0; bytes[(row * width + column) * 4 + 1] = color.1; bytes[(row * width + column) * 4 + 2] = color.2
+            }
+        }
+        let picture = rgbImage(bytes: bytes, width: width, height: height)!
+        let color = channels(ofHex: try #require(shirtBaseColorHex(picture: picture, itemCorners: RoomArtCorners(rect: garmentBox))))
+        #expect(color.allSatisfy { $0 < 60 }, "the open coat measured \(color)")
+    }
+
+    @Test func aGarmentWhoseTwoSidesDisagreeKeepsTheWholeBandMeasure() throws {
+        // Dark on the left, white on the right: the sides do not agree, so the whole band's median decides, here the white that is
+        // most of the band.
+        let width = 200, height = 260
+        let garmentBox = CGRect(x: 40, y: 40, width: 120, height: 190)
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for row in 0..<height {
+            for column in 0..<width {
+                let color: (UInt8, UInt8, UInt8)
+                if !garmentBox.contains(CGPoint(x: column, y: row)) { color = (232, 232, 235) }
+                else if column < 80 { color = (30, 30, 32) }
+                else { color = (255, 255, 255) }
+                bytes[(row * width + column) * 4] = color.0; bytes[(row * width + column) * 4 + 1] = color.1; bytes[(row * width + column) * 4 + 2] = color.2
+            }
+        }
+        let picture = rgbImage(bytes: bytes, width: width, height: height)!
+        let color = channels(ofHex: try #require(shirtBaseColorHex(picture: picture, itemCorners: RoomArtCorners(rect: garmentBox))))
+        #expect(color.allSatisfy { $0 > 200 }, "the half dark, half white garment measured \(color)")
+    }
+
     @Test func aColorIsEncodedOnce() throws {
         let garmentBox = CGRect(x: 40, y: 40, width: 120, height: 190)
         let picture = pictureWithAGarment(garmentColor: (200, 40, 40), garmentBox: garmentBox)

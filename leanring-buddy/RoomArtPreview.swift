@@ -1907,8 +1907,8 @@ final class RoomArtPreviewController: ObservableObject {
             let frontPicture = clothingReading.frontPictureIndex == 0 ? pictureImage : pageRequest.picture.picture(numbered: clothingReading.frontPictureIndex).flatMap { picture in
                 CGImageSourceCreateWithData(picture.jpegData as CFData, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
             }
-            // The color measure falls back from the cloth band to the item box to the whole picture, so it is nil only for a
-            // picture with no pixels, which is a front picture that could not be read at all.
+            // The color measure falls back from the cloth band to the item box to the whole picture, so it is nil only when the
+            // picture cannot be scaled or read. The panel fails with `pageNotRead` when the front picture cannot be decoded too.
             guard let frontPicture, let baseColorHex = shirtBaseColorHex(picture: frontPicture, itemCorners: clothingReading.itemCorners) else {
                 apply(phase.afterTheShirtsPictureCouldNotBeRead())
                 return

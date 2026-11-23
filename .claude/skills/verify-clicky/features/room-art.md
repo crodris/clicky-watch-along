@@ -100,6 +100,8 @@ Preconditions:
   With a page whose photo shows a long-sleeved jacket or a coat (a Uniqlo down jacket or the Uniqlo x Theory blazer), the log says `the shirt shows as ghostOutline` and Clicky says "This outline is where it will go. Say right there to put it on you.".
   The ghost outline covers the old top and the arms down to the wrists, "right there" counts 3, 2, 1 and paints, and the painted still keeps the sleeves long and the hands as filmed. A black blazer paints black, not purple.
   With a page for trousers, Clicky says "I can't draw that item on you." and the cursor shakes once.
+  A hat or a bag whose reply names a `frontPictureIndex` that was not sent (the Worker's unit test and `RoomArtGalleryTests` pin this) still ends in that line, not "I couldn't read that page.", since the index only matters for a garment that can be drawn.
+  A painted still's base color comes from the two side columns of the cloth band when they agree, so an open coat over a white shirt paints dark, not white.
   With a page for a rug, Clicky says "That isn't something I can place in your room or try on." instead.
 - **Checks before the camera.** With no `clickyAppSecret` default, Clicky says "Clicky needs its app secret for this. See the README's Worker setup." and no panel opens. `app-launch` always copies the secret, so this is driven by the unit test: run `tools/swift-check.sh --filter noAppSecretSaysSoBeforeTheCameraOpens`.
   With an `http://` page in Chrome's front tab, it says "I can only read store pages served over https.".

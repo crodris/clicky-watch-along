@@ -386,16 +386,19 @@ export function checkTryItItem(
   pictureHeight: number,
   otherPictureSizes: PictureSize[] = [],
 ): CheckedTryItItem {
-  // A garment's corners are in the picture its front is in, which must be one of the pictures sent.
+  // A garment's corners are in the picture its front is in, which must be one of the pictures sent. A garment that cannot be
+  // drawn on the learner is only reported, so its front picture is never used and an index that names no picture counts as 0.
   if (modelReply.item.kind === "clothing") {
     const frontPictureIndex = modelReply.item.clothing.frontPictureIndex;
     if (frontPictureIndex < 0 || frontPictureIndex > otherPictureSizes.length) {
-      return {
-        accepted: false,
-        reason: `clothing.frontPictureIndex must be a picture's number, from 0 to ${otherPictureSizes.length}.`,
-      };
-    }
-    if (frontPictureIndex > 0) {
+      if (modelReply.item.clothing.canBeDrawnOnTheLearner) {
+        return {
+          accepted: false,
+          reason: `clothing.frontPictureIndex must be a picture's number, from 0 to ${otherPictureSizes.length}.`,
+        };
+      }
+      modelReply = { ...modelReply, item: { ...modelReply.item, clothing: { ...modelReply.item.clothing, frontPictureIndex: 0 } } };
+    } else if (frontPictureIndex > 0) {
       const frontPictureSize = otherPictureSizes[frontPictureIndex - 1];
       pictureWidth = frontPictureSize.width;
       pictureHeight = frontPictureSize.height;

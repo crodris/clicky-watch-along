@@ -317,6 +317,14 @@ describe("checkTryItItem for clothing", () => {
     expect(checkTryItItem(asModelReply(frontPicture(2)), pictureWidth, pictureHeight, otherPictureSizes).accepted).toBe(false);
   });
 
+  it("accepts a garment that cannot be drawn on the learner even when its front picture was not sent, reading the index as 0", () => {
+    const hat = goodClothing({ clothing: { ...goodClothing().clothing, garment: "other", canBeDrawnOnTheLearner: false, frontPictureIndex: 3 } });
+
+    const checkedReply = checkTryItItem(asModelReply(hat), pictureWidth, pictureHeight, [{ width: 1000, height: 800 }]);
+
+    expect(checkedReply).toMatchObject({ accepted: true, reply: { item: { kind: "clothing", clothing: { canBeDrawnOnTheLearner: false, frontPictureIndex: 0 } } } });
+  });
+
   it("clamps a garment's corners into its front picture, not the main one", () => {
     const item = goodClothing({
       itemCorners: { topLeft: { x: 50, y: 50 }, topRight: { x: 900, y: 50 }, bottomRight: { x: 900, y: 700 }, bottomLeft: { x: 50, y: 700 } },
