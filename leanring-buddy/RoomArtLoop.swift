@@ -58,7 +58,7 @@ enum RoomArtLoopState: Equatable {
             case .waitingForAClick(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)
             case .hidden, .fadingOut: return self
             }
-        case .showing, .waitingForAFloorClick, .showingTheShirt, .showingThePaintedShirt, .failed:
+        case .showing, .waitingForAFloorClick, .showingTheShirt, .waitingForTheLearnerToStepBack, .showingThePaintedShirt, .failed:
             switch self {
             case .drawing(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: true)
             case .waitingForAClick(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)

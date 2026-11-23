@@ -3,8 +3,8 @@
 //  leanring-buddy
 //
 //  The shirt try-on's final look. The live overlay (`ShirtTryOnRenderer`) is the quick preview, and when the learner says
-//  "right there" or clicks Paint it, the panel freezes the camera frame and OpenAI's image edit paints the store's top onto
-//  them in that frame (`POST /room-furniture-composite` with kind "shirt"), which follows their pose, folds, and light the
+//  "right there" or clicks Paint it, the panel arms a capture (`ShirtStepBackCapture`) that freezes the camera frame once they
+//  have stepped back and held still, and OpenAI's image edit paints the store's top onto them in that frame (`POST /room-furniture-composite` with kind "shirt"), which follows their pose, folds, and light the
 //  way a 2D overlay cannot. The painted still crossfades in, and "go back" or Back to live returns to the overlay.
 //
 //  This file holds the pure parts and the Worker client: the phrases, the frozen frame, the mask the painting may draw in,
@@ -30,7 +30,7 @@ import simd
 
 /// What the learner asks of the shirt by voice while the panel shows it.
 nonisolated enum ShirtStillVoiceRequest: Equatable, Sendable {
-    /// "Right there": freeze this frame and paint the shirt into it.
+    /// "Right there": arm the capture, which freezes a frame once the learner has stepped back and held still, and paints the shirt into it.
     case paintIt
     /// "Go back": leave the painted still for the live preview.
     case backToLive
@@ -90,6 +90,7 @@ extension RoomArtPhase {
     nonisolated var shirtStillVoiceTargets: ShirtStillVoiceTargets {
         switch self {
         case .showingTheShirt: return .livePreview
+        case .waitingForTheLearnerToStepBack: return .stepBack
         case .paintingTheShirt, .showingThePaintedShirt: return .paintedStill
         default: return .none
         }
@@ -102,6 +103,8 @@ nonisolated enum ShirtStillVoiceTargets: Equatable, Sendable {
     case none
     /// The live preview shows, so "right there" paints it.
     case livePreview
+    /// The capture waits for the learner to step back, so "right there" restarts it and "go back" cancels it.
+    case stepBack
     /// A painting is on its way or the painted still shows, so "go back" returns to the preview.
     case paintedStill
 }
@@ -116,7 +119,7 @@ nonisolated func shirtStillPhraseRunsAheadOfTheRouter(
 ) -> Bool {
     guard let request, !quizQuestionIsOpen, !themeStudioIsOpen else { return false }
     switch (request, targets) {
-    case (.paintIt, .livePreview), (.backToLive, .paintedStill): return true
+    case (.paintIt, .livePreview), (.paintIt, .stepBack), (.backToLive, .stepBack), (.backToLive, .paintedStill): return true
     default: return false
     }
 }
@@ -136,8 +139,6 @@ nonisolated let shirtPaintedStillCrossfadeSeconds = 0.5
 
 /// Why the shirt could not be painted, each with its line. Every one goes back to the live preview.
 nonisolated enum ShirtPaintingFailure: Error, Equatable, Sendable {
-    /// No torso, garment, or person mask was in hand when the frame froze, so there is nothing to paint on.
-    case nobodyToPaintOn
     /// The mask could not be made from the frozen frame, such as an old shirt that could not be found.
     case maskNotMade
     /// The Worker has no OpenAI key.
@@ -149,16 +150,8 @@ nonisolated enum ShirtPaintingFailure: Error, Equatable, Sendable {
     /// Any other failed call: a refused edit, a timeout, or a reply that could not be pasted.
     case paintingFailed
 
-    /// The line, with the framing's own advice in place of "Step in front of the camera" when the learner is in view but not
-    /// where the shirt can be drawn, such as too close.
-    func spokenLine(withCoaching coachingLine: String?) -> String {
-        guard self == .nobodyToPaintOn, let coachingLine else { return spokenLine }
-        return "\(coachingLine) Then say right there."
-    }
-
     var spokenLine: String {
         switch self {
-        case .nobodyToPaintOn: return "Step in front of the camera, then say right there."
         case .maskNotMade: return "I couldn't find your shirt in that frame. Try again with your shirt in view."
         case .serviceIsNotSetUp: return "Painting a shirt on you needs Clicky's OpenAI key."
         case .appSecretRefused: return RoomArtFailure.appSecretMissing.spokenLine

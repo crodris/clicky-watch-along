@@ -1350,6 +1350,8 @@ final class CompanionManager: ObservableObject {
             guard !showOnboardingVideo else { return }
 
             pushToTalkPressCount += 1
+            // A press while the shirt capture waits for the learner to step back cancels it, so "right there" again arms a new one.
+            roomArtPreviewController.theLearnerPressedPushToTalk()
             approvalAtThePress = agentHarness.approvalDesk.approvalAtPress(at: Date())
             pushToTalkPressAcceptance.pressWasAccepted()
             // A screen read from an earlier press is out of date the moment a new press begins.
@@ -1577,6 +1579,8 @@ final class CompanionManager: ObservableObject {
             LiveSceneStatusLabel.shared.hide()
             VoiceToolCallChip.shared.recall()
             pushToTalkPressCount += 1
+            // A press while the shirt capture waits for the learner to step back cancels it, so "right there" again arms a new one.
+            roomArtPreviewController.theLearnerPressedPushToTalk()
             approvalAtThePress = agentHarness.approvalDesk.approvalAtPress(at: Date())
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
             cursorLoopController.pushToTalkWasPressed()
@@ -1760,7 +1764,7 @@ final class CompanionManager: ObservableObject {
         case .shirtPaintedStill(let shirtStillRequest):
             switch shirtStillRequest {
             case .paintIt:
-                print("Shirt painting: painting on request")
+                print("Shirt painting: arming the capture on request")
                 roomArtPreviewController.paintTheShirt()
             case .backToLive:
                 print("Shirt painting: back to the live preview on request")
@@ -1962,7 +1966,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused,
             replayStopsAreRecorded: replayStopsAreRecordedForTheSceneOnScreen,
             furnitureGhostShows: roomArtPreviewController.phase.furnitureGhostShows,
-            shirtStillVoiceTargets: roomArtPreviewController.shirtStillVoiceTargets
+            shirtStillVoiceTargets: roomArtPreviewController.shirtStillVoiceTargetsForTheRoute
         )
     }
 
