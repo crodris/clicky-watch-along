@@ -343,7 +343,7 @@ describe("checkTryItItem for clothing", () => {
 
 describe("checkTryItItem for other", () => {
   it("passes title and corners through with the corners clamped and no corner rules", () => {
-    const lamp = goodOther({
+    const rug = goodOther({
       itemCorners: {
         topLeft: { x: -5, y: 0 },
         topRight: { x: 0, y: 0 },
@@ -352,9 +352,9 @@ describe("checkTryItItem for other", () => {
       },
     });
 
-    expect(checked(lamp)).toEqual({
+    expect(checked(rug)).toEqual({
       accepted: true,
-      reply: asModelReply({ ...lamp, itemCorners: { topLeft: { x: 0, y: 0 }, topRight: { x: 0, y: 0 }, bottomRight: { x: 0, y: 0 }, bottomLeft: { x: 0, y: 0 } } }),
+      reply: asModelReply({ ...rug, itemCorners: { topLeft: { x: 0, y: 0 }, topRight: { x: 0, y: 0 }, bottomRight: { x: 0, y: 0 }, bottomLeft: { x: 0, y: 0 } } }),
     });
   });
 });
