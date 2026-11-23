@@ -193,183 +193,186 @@ private struct MadeUpPerson {
     }
 }
 
-struct ShirtPaintMaskTests {
-    private let masks = ShirtPaintMask.make(frame: MadeUpPerson.frame(), bodyParts: MadeUpPerson.bodyParts)
+// The mask and the paste spend seconds of CPU per test, so they run in the CPU-heavy lane.
+extension CPUHeavyTests {
+    struct ShirtPaintMaskTests {
+        private let masks = ShirtPaintMask.make(frame: MadeUpPerson.frame(), bodyParts: MadeUpPerson.bodyParts)
 
-    private func paintable(_ column: Int, _ row: Int) -> Bool { (masks?.paintable[row * MadeUpPerson.width + column] ?? 0) > 127 }
-    private func protectedWeight(_ column: Int, _ row: Int) -> UInt8 { masks?.protected[row * MadeUpPerson.width + column] ?? 0 }
+        private func paintable(_ column: Int, _ row: Int) -> Bool { (masks?.paintable[row * MadeUpPerson.width + column] ?? 0) > 127 }
+        private func protectedWeight(_ column: Int, _ row: Int) -> UInt8 { masks?.protected[row * MadeUpPerson.width + column] ?? 0 }
 
-    @Test func theMaskCoversTheWholeOldTopPastTheNewOne() throws {
-        let masks = try #require(masks)
-        #expect(masks.width == MadeUpPerson.width && masks.height == MadeUpPerson.height)
-        // Where the new top lands.
-        #expect(paintable(160, 150))
-        // The old top's hem below where the new one ends, and its sides past the new one's.
-        #expect(paintable(160, 208))
-        #expect(paintable(96, 150) && paintable(224, 150))
-        // Its sleeve stubs, past the torso.
-        #expect(paintable(74, 100) && paintable(246, 100))
-        // The old top's print, whose colors are not the old top's, is a hole the mask fills.
-        #expect(paintable(160, 115))
-        // Every pixel of the old top is in it.
-        var oldTopPixels = 0, oldTopPixelsLeftOut = 0
-        for row in 0..<MadeUpPerson.height {
-            for column in 0..<MadeUpPerson.width where MadeUpPerson.region(column: column, row: row) == .oldTop || MadeUpPerson.region(column: column, row: row) == .print {
-                oldTopPixels += 1
-                if !paintable(column, row) { oldTopPixelsLeftOut += 1 }
+        @Test func theMaskCoversTheWholeOldTopPastTheNewOne() throws {
+            let masks = try #require(masks)
+            #expect(masks.width == MadeUpPerson.width && masks.height == MadeUpPerson.height)
+            // Where the new top lands.
+            #expect(paintable(160, 150))
+            // The old top's hem below where the new one ends, and its sides past the new one's.
+            #expect(paintable(160, 208))
+            #expect(paintable(96, 150) && paintable(224, 150))
+            // Its sleeve stubs, past the torso.
+            #expect(paintable(74, 100) && paintable(246, 100))
+            // The old top's print, whose colors are not the old top's, is a hole the mask fills.
+            #expect(paintable(160, 115))
+            // Every pixel of the old top is in it.
+            var oldTopPixels = 0, oldTopPixelsLeftOut = 0
+            for row in 0..<MadeUpPerson.height {
+                for column in 0..<MadeUpPerson.width where MadeUpPerson.region(column: column, row: row) == .oldTop || MadeUpPerson.region(column: column, row: row) == .print {
+                    oldTopPixels += 1
+                    if !paintable(column, row) { oldTopPixelsLeftOut += 1 }
+                }
             }
+            // The collar band next to the neck is left to the neck cut, so a few pixels at the top stay out.
+            #expect(Double(oldTopPixelsLeftOut) / Double(oldTopPixels) < 0.01, "\(oldTopPixelsLeftOut) of \(oldTopPixels) old top pixels left out")
         }
-        // The collar band next to the neck is left to the neck cut, so a few pixels at the top stay out.
-        #expect(Double(oldTopPixelsLeftOut) / Double(oldTopPixels) < 0.01, "\(oldTopPixelsLeftOut) of \(oldTopPixels) old top pixels left out")
+
+        @Test func theMaskNeverTouchesTheFaceNeckHandsBareArmsOrTheRoom() throws {
+            _ = try #require(masks)
+            #expect(!paintable(160, 35))
+            #expect(!paintable(160, 62))
+            #expect(!paintable(82, 208) && !paintable(238, 208))
+            #expect(!paintable(82, 170) && !paintable(238, 170))
+            #expect(!paintable(20, 20) && !paintable(300, 150) && !paintable(160, 232))
+        }
+
+        @Test func theHandsTheFaceAndTheNeckAreProtectedFromThePaste() throws {
+            _ = try #require(masks)
+            #expect(protectedWeight(82, 208) == 255 && protectedWeight(238, 208) == 255)
+            #expect(protectedWeight(160, 35) == 255)
+            #expect(protectedWeight(160, 62) == 255)
+            #expect(protectedWeight(160, 150) == 0)
+        }
+
+        @Test func theNecksSkinIsFoundAtTheFramesOwnSizeAndNeverPainted() throws {
+            let neckSkin = ShirtPaintMask.neckSkinRegion(frame: MadeUpPerson.frame())
+            // The neck's skin down to the collar, and nothing of the old top, the face beside it, or the room.
+            #expect(neckSkin[70 * MadeUpPerson.width + 160] && neckSkin[60 * MadeUpPerson.width + 152])
+            #expect(!neckSkin[80 * MadeUpPerson.width + 160] && !neckSkin[150 * MadeUpPerson.width + 160] && !neckSkin[20 * MadeUpPerson.width + 20])
+            _ = try #require(masks)
+            #expect(!paintable(160, 70) && protectedWeight(160, 70) == 255)
+        }
+
+        @Test func aHandRestingOnTheOldTopIsNeverPainted() throws {
+            var bodyParts = MadeUpPerson.bodyParts
+            let handOnTheShirt = [CGPoint(x: 124, y: 168), CGPoint(x: 136, y: 168), CGPoint(x: 130, y: 180)]
+            bodyParts.hands.append(handOnTheShirt)
+            let masks = try #require(ShirtPaintMask.make(frame: MadeUpPerson.frame(), bodyParts: bodyParts))
+            // The old top under the hand would be painted, so the hand is what keeps it out, and the paste keeps it as filmed.
+            #expect(masks.paintable[174 * MadeUpPerson.width + 130] == 0)
+            #expect(masks.protected[174 * MadeUpPerson.width + 130] == 255)
+            #expect(masks.paintable[174 * MadeUpPerson.width + 160] == 255)
+        }
+
+        @Test func aBeardJustAboveTheCollarIsKeptFromThePaste() throws {
+            // A beard is not skin, so the neck cut is what makes the paste put it back, inside the 24 pixels it grows the mask by.
+            let masks = try #require(ShirtPaintMask.make(frame: MadeUpPerson.frame(hasABeard: true), bodyParts: MadeUpPerson.bodyParts))
+            #expect(masks.protected[69 * MadeUpPerson.width + 160] == 255)
+            #expect(masks.paintable[69 * MadeUpPerson.width + 160] == 0)
+        }
+
+        @Test func anOldTopTheColorOfSkinIsStillPainted() throws {
+            // A beige old top passes the skin rule, so only being the old top keeps its sleeve stubs in the mask.
+            #expect(ShirtPaintMask.looksLikeSkin(red: 205, green: 165, blue: 130))
+            let masks = try #require(ShirtPaintMask.make(frame: MadeUpPerson.frame(oldTopColor: (205, 165, 130)), bodyParts: MadeUpPerson.bodyParts))
+            #expect(masks.paintable[100 * MadeUpPerson.width + 74] == 255 && masks.paintable[100 * MadeUpPerson.width + 246] == 255)
+        }
+
+        @Test func noMaskWhenTheOldTopCannotBeRead() {
+            let frame = MadeUpPerson.frame()
+            let nobody = ShirtFrozenFrame(
+                cameraImage: frame.cameraImage, previewImage: frame.previewImage,
+                personMask: [UInt8](repeating: 0, count: frame.personMask.count), previewGarmentCoverage: [UInt8](repeating: 0, count: frame.personMask.count),
+                torso: BodyTorso(imageLeftShoulder: CGPoint(x: 400, y: 400), imageRightShoulder: CGPoint(x: 401, y: 400), imageLeftHip: CGPoint(x: 400, y: 401), imageRightHip: CGPoint(x: 401, y: 401), hipsWereEstimated: true, shouldersAreSeen: false)
+            )
+            #expect(ShirtPaintMask.make(frame: nobody, bodyParts: ShirtPaintBodyParts()) == nil)
+        }
+
+        @Test func theSkinRuleKeepsSkinAndLeavesShirtsAndWalls() {
+            #expect(ShirtPaintMask.looksLikeSkin(red: 200, green: 150, blue: 120))
+            #expect(ShirtPaintMask.looksLikeSkin(red: 120, green: 80, blue: 60))
+            #expect(!ShirtPaintMask.looksLikeSkin(red: 30, green: 40, blue: 80))
+            #expect(!ShirtPaintMask.looksLikeSkin(red: 150, green: 150, blue: 150))
+            #expect(!ShirtPaintMask.looksLikeSkin(red: 250, green: 250, blue: 250))
+        }
+
+        @Test func theMorphologyFillsHolesAndDropsSpecks() {
+            let width = 9, height = 9
+            var ring = [Bool](repeating: false, count: width * height)
+            for row in 2...6 { for column in 2...6 where row == 2 || row == 6 || column == 2 || column == 6 { ring[row * width + column] = true } }
+            let filled = ShirtPaintMask.withTheHolesFilled(ring, width: width, height: height)
+            #expect(filled[4 * width + 4] && !filled[0])
+            var speck = [Bool](repeating: false, count: width * height)
+            speck[0] = true
+            #expect(!ShirtPaintMask.withoutSmallPieces(speck, width: width, height: height, smallestPieceSize: 2).contains(true))
+            #expect(ShirtPaintMask.withoutSmallPieces(filled, width: width, height: height, smallestPieceSize: 2)[4 * width + 4])
+            let grown = ShirtPaintMask.dilated(speck, width: width, height: height, radius: 1)
+            #expect(grown[1] && grown[width] && grown[width + 1] && !grown[2])
+            #expect(ShirtPaintMask.eroded(grown, width: width, height: height, radius: 1)[0])
+            #expect(!ShirtPaintMask.eroded(grown, width: width, height: height, radius: 1)[width + 1])
+            let feathered = ShirtPaintMask.feathered(speck, width: width, height: height, featherPixels: 3)
+            #expect(feathered[0] == 255 && feathered[1] < 255 && feathered[1] > feathered[2] && feathered[4] == 0)
+        }
     }
 
-    @Test func theMaskNeverTouchesTheFaceNeckHandsBareArmsOrTheRoom() throws {
-        _ = try #require(masks)
-        #expect(!paintable(160, 35))
-        #expect(!paintable(160, 62))
-        #expect(!paintable(82, 208) && !paintable(238, 208))
-        #expect(!paintable(82, 170) && !paintable(238, 170))
-        #expect(!paintable(20, 20) && !paintable(300, 150) && !paintable(160, 232))
-    }
+    // MARK: - The paste
 
-    @Test func theHandsTheFaceAndTheNeckAreProtectedFromThePaste() throws {
-        _ = try #require(masks)
-        #expect(protectedWeight(82, 208) == 255 && protectedWeight(238, 208) == 255)
-        #expect(protectedWeight(160, 35) == 255)
-        #expect(protectedWeight(160, 62) == 255)
-        #expect(protectedWeight(160, 150) == 0)
-    }
+    struct ShirtPaintedStillPasteTests {
+        private func solid(_ red: UInt8, _ green: UInt8, _ blue: UInt8, width: Int, height: Int) -> CGImage {
+            var bytes = [UInt8](repeating: 255, count: width * height * 4)
+            for index in 0..<(width * height) { bytes[index * 4] = red; bytes[index * 4 + 1] = green; bytes[index * 4 + 2] = blue }
+            return rgbImage(bytes: bytes, width: width, height: height)!
+        }
 
-    @Test func theNecksSkinIsFoundAtTheFramesOwnSizeAndNeverPainted() throws {
-        let neckSkin = ShirtPaintMask.neckSkinRegion(frame: MadeUpPerson.frame())
-        // The neck's skin down to the collar, and nothing of the old top, the face beside it, or the room.
-        #expect(neckSkin[70 * MadeUpPerson.width + 160] && neckSkin[60 * MadeUpPerson.width + 152])
-        #expect(!neckSkin[80 * MadeUpPerson.width + 160] && !neckSkin[150 * MadeUpPerson.width + 160] && !neckSkin[20 * MadeUpPerson.width + 20])
-        _ = try #require(masks)
-        #expect(!paintable(160, 70) && protectedWeight(160, 70) == 255)
-    }
+        @Test func theProtectedRegionsStayExactlyAsFilmedInsideThePastesGrowth() throws {
+            let width = 160, height = 100
+            let keyframe = solid(128, 128, 128, width: width, height: height)
+            let painted = solid(220, 30, 30, width: width, height: height)
+            var paintable = [UInt8](repeating: 0, count: width * height)
+            var protectedRegion = [Bool](repeating: false, count: width * height)
+            for row in 20..<70 { for column in 30..<90 { paintable[row * width + column] = 255 } }
+            // A hand right beside the mask, inside the 24 pixels the paste grows it by.
+            for row in 35..<50 { for column in 94..<104 { protectedRegion[row * width + column] = true } }
+            let masks = ShirtPaintMasks(
+                width: width, height: height, paintable: paintable,
+                protected: ShirtPaintMask.feathered(protectedRegion, width: width, height: height, featherPixels: 3),
+                oldShirt: paintable
+            )
 
-    @Test func aHandRestingOnTheOldTopIsNeverPainted() throws {
-        var bodyParts = MadeUpPerson.bodyParts
-        let handOnTheShirt = [CGPoint(x: 124, y: 168), CGPoint(x: 136, y: 168), CGPoint(x: 130, y: 180)]
-        bodyParts.hands.append(handOnTheShirt)
-        let masks = try #require(ShirtPaintMask.make(frame: MadeUpPerson.frame(), bodyParts: bodyParts))
-        // The old top under the hand would be painted, so the hand is what keeps it out, and the paste keeps it as filmed.
-        #expect(masks.paintable[174 * MadeUpPerson.width + 130] == 0)
-        #expect(masks.protected[174 * MadeUpPerson.width + 130] == 255)
-        #expect(masks.paintable[174 * MadeUpPerson.width + 160] == 255)
-    }
+            let pasted = try #require(shirtPaintedStillPasted(keyframe: keyframe, painted: painted, masks: masks, context: CIContext()))
+            let pixels = try #require(rgbaBytes(of: pasted, width: width, height: height))
+            func color(_ column: Int, _ row: Int) -> [UInt8] { Array(pixels[(row * width + column) * 4..<(row * width + column) * 4 + 3]) }
 
-    @Test func aBeardJustAboveTheCollarIsKeptFromThePaste() throws {
-        // A beard is not skin, so the neck cut is what makes the paste put it back, inside the 24 pixels it grows the mask by.
-        let masks = try #require(ShirtPaintMask.make(frame: MadeUpPerson.frame(hasABeard: true), bodyParts: MadeUpPerson.bodyParts))
-        #expect(masks.protected[69 * MadeUpPerson.width + 160] == 255)
-        #expect(masks.paintable[69 * MadeUpPerson.width + 160] == 0)
-    }
+            #expect(color(60, 45) == [220, 30, 30])
+            // Every pixel of the hand is the frame's own.
+            for row in 35..<50 { for column in 94..<104 { #expect(color(column, row) == [128, 128, 128]) } }
+            // Without the protection, the paste's growth would have painted it.
+            let maskImage = try #require(grayImage(bytes: paintable, width: width, height: height))
+            let unprotected = try #require(furnitureCompositePasted(keyframe: keyframe, generated: painted, mask: maskImage, keepsOnlyThePieceTheReplyChanged: false, context: CIContext()))
+            let unprotectedPixels = try #require(rgbaBytes(of: unprotected, width: width, height: height))
+            #expect(unprotectedPixels[(40 * width + 96) * 4] != 128)
+            // Past the growth, the frame is untouched.
+            #expect(color(150, 90) == [128, 128, 128])
+        }
 
-    @Test func anOldTopTheColorOfSkinIsStillPainted() throws {
-        // A beige old top passes the skin rule, so only being the old top keeps its sleeve stubs in the mask.
-        #expect(ShirtPaintMask.looksLikeSkin(red: 205, green: 165, blue: 130))
-        let masks = try #require(ShirtPaintMask.make(frame: MadeUpPerson.frame(oldTopColor: (205, 165, 130)), bodyParts: MadeUpPerson.bodyParts))
-        #expect(masks.paintable[100 * MadeUpPerson.width + 74] == 255 && masks.paintable[100 * MadeUpPerson.width + 246] == 255)
-    }
+        @Test func aPaintingCloseToTheOldTopsColorStillReplacesIt() throws {
+            // The furniture's paste keeps the filmed pixels where its reply changed less than 14 levels. The shirt's must not,
+            // or an old top close to the new one's color would show through.
+            let width = 160, height = 100
+            let keyframe = solid(128, 128, 128, width: width, height: height)
+            let painted = solid(134, 134, 134, width: width, height: height)
+            var paintable = [UInt8](repeating: 0, count: width * height)
+            for row in 20..<70 { for column in 30..<90 { paintable[row * width + column] = 255 } }
+            let masks = ShirtPaintMasks(width: width, height: height, paintable: paintable, protected: [UInt8](repeating: 0, count: width * height), oldShirt: paintable)
 
-    @Test func noMaskWhenTheOldTopCannotBeRead() {
-        let frame = MadeUpPerson.frame()
-        let nobody = ShirtFrozenFrame(
-            cameraImage: frame.cameraImage, previewImage: frame.previewImage,
-            personMask: [UInt8](repeating: 0, count: frame.personMask.count), previewGarmentCoverage: [UInt8](repeating: 0, count: frame.personMask.count),
-            torso: BodyTorso(imageLeftShoulder: CGPoint(x: 400, y: 400), imageRightShoulder: CGPoint(x: 401, y: 400), imageLeftHip: CGPoint(x: 400, y: 401), imageRightHip: CGPoint(x: 401, y: 401), hipsWereEstimated: true, shouldersAreSeen: false)
-        )
-        #expect(ShirtPaintMask.make(frame: nobody, bodyParts: ShirtPaintBodyParts()) == nil)
-    }
+            let pasted = try #require(shirtPaintedStillPasted(keyframe: keyframe, painted: painted, masks: masks, context: CIContext()))
+            let pixels = try #require(rgbaBytes(of: pasted, width: width, height: height))
+            #expect(Array(pixels[(45 * width + 60) * 4..<(45 * width + 60) * 4 + 3]) == [134, 134, 134])
+        }
 
-    @Test func theSkinRuleKeepsSkinAndLeavesShirtsAndWalls() {
-        #expect(ShirtPaintMask.looksLikeSkin(red: 200, green: 150, blue: 120))
-        #expect(ShirtPaintMask.looksLikeSkin(red: 120, green: 80, blue: 60))
-        #expect(!ShirtPaintMask.looksLikeSkin(red: 30, green: 40, blue: 80))
-        #expect(!ShirtPaintMask.looksLikeSkin(red: 150, green: 150, blue: 150))
-        #expect(!ShirtPaintMask.looksLikeSkin(red: 250, green: 250, blue: 250))
-    }
-
-    @Test func theMorphologyFillsHolesAndDropsSpecks() {
-        let width = 9, height = 9
-        var ring = [Bool](repeating: false, count: width * height)
-        for row in 2...6 { for column in 2...6 where row == 2 || row == 6 || column == 2 || column == 6 { ring[row * width + column] = true } }
-        let filled = ShirtPaintMask.withTheHolesFilled(ring, width: width, height: height)
-        #expect(filled[4 * width + 4] && !filled[0])
-        var speck = [Bool](repeating: false, count: width * height)
-        speck[0] = true
-        #expect(!ShirtPaintMask.withoutSmallPieces(speck, width: width, height: height, smallestPieceSize: 2).contains(true))
-        #expect(ShirtPaintMask.withoutSmallPieces(filled, width: width, height: height, smallestPieceSize: 2)[4 * width + 4])
-        let grown = ShirtPaintMask.dilated(speck, width: width, height: height, radius: 1)
-        #expect(grown[1] && grown[width] && grown[width + 1] && !grown[2])
-        #expect(ShirtPaintMask.eroded(grown, width: width, height: height, radius: 1)[0])
-        #expect(!ShirtPaintMask.eroded(grown, width: width, height: height, radius: 1)[width + 1])
-        let feathered = ShirtPaintMask.feathered(speck, width: width, height: height, featherPixels: 3)
-        #expect(feathered[0] == 255 && feathered[1] < 255 && feathered[1] > feathered[2] && feathered[4] == 0)
-    }
-}
-
-// MARK: - The paste
-
-struct ShirtPaintedStillPasteTests {
-    private func solid(_ red: UInt8, _ green: UInt8, _ blue: UInt8, width: Int, height: Int) -> CGImage {
-        var bytes = [UInt8](repeating: 255, count: width * height * 4)
-        for index in 0..<(width * height) { bytes[index * 4] = red; bytes[index * 4 + 1] = green; bytes[index * 4 + 2] = blue }
-        return rgbImage(bytes: bytes, width: width, height: height)!
-    }
-
-    @Test func theProtectedRegionsStayExactlyAsFilmedInsideThePastesGrowth() throws {
-        let width = 160, height = 100
-        let keyframe = solid(128, 128, 128, width: width, height: height)
-        let painted = solid(220, 30, 30, width: width, height: height)
-        var paintable = [UInt8](repeating: 0, count: width * height)
-        var protectedRegion = [Bool](repeating: false, count: width * height)
-        for row in 20..<70 { for column in 30..<90 { paintable[row * width + column] = 255 } }
-        // A hand right beside the mask, inside the 24 pixels the paste grows it by.
-        for row in 35..<50 { for column in 94..<104 { protectedRegion[row * width + column] = true } }
-        let masks = ShirtPaintMasks(
-            width: width, height: height, paintable: paintable,
-            protected: ShirtPaintMask.feathered(protectedRegion, width: width, height: height, featherPixels: 3),
-            oldShirt: paintable
-        )
-
-        let pasted = try #require(shirtPaintedStillPasted(keyframe: keyframe, painted: painted, masks: masks, context: CIContext()))
-        let pixels = try #require(rgbaBytes(of: pasted, width: width, height: height))
-        func color(_ column: Int, _ row: Int) -> [UInt8] { Array(pixels[(row * width + column) * 4..<(row * width + column) * 4 + 3]) }
-
-        #expect(color(60, 45) == [220, 30, 30])
-        // Every pixel of the hand is the frame's own.
-        for row in 35..<50 { for column in 94..<104 { #expect(color(column, row) == [128, 128, 128]) } }
-        // Without the protection, the paste's growth would have painted it.
-        let maskImage = try #require(grayImage(bytes: paintable, width: width, height: height))
-        let unprotected = try #require(furnitureCompositePasted(keyframe: keyframe, generated: painted, mask: maskImage, keepsOnlyThePieceTheReplyChanged: false, context: CIContext()))
-        let unprotectedPixels = try #require(rgbaBytes(of: unprotected, width: width, height: height))
-        #expect(unprotectedPixels[(40 * width + 96) * 4] != 128)
-        // Past the growth, the frame is untouched.
-        #expect(color(150, 90) == [128, 128, 128])
-    }
-
-    @Test func aPaintingCloseToTheOldTopsColorStillReplacesIt() throws {
-        // The furniture's paste keeps the filmed pixels where its reply changed less than 14 levels. The shirt's must not,
-        // or an old top close to the new one's color would show through.
-        let width = 160, height = 100
-        let keyframe = solid(128, 128, 128, width: width, height: height)
-        let painted = solid(134, 134, 134, width: width, height: height)
-        var paintable = [UInt8](repeating: 0, count: width * height)
-        for row in 20..<70 { for column in 30..<90 { paintable[row * width + column] = 255 } }
-        let masks = ShirtPaintMasks(width: width, height: height, paintable: paintable, protected: [UInt8](repeating: 0, count: width * height), oldShirt: paintable)
-
-        let pasted = try #require(shirtPaintedStillPasted(keyframe: keyframe, painted: painted, masks: masks, context: CIContext()))
-        let pixels = try #require(rgbaBytes(of: pasted, width: width, height: height))
-        #expect(Array(pixels[(45 * width + 60) * 4..<(45 * width + 60) * 4 + 3]) == [134, 134, 134])
-    }
-
-    @Test func masksOfAnotherSizeAreRefused() {
-        let keyframe = solid(1, 2, 3, width: 10, height: 10)
-        let masks = ShirtPaintMasks(width: 9, height: 10, paintable: [], protected: [], oldShirt: [])
-        #expect(shirtPaintedStillPasted(keyframe: keyframe, painted: keyframe, masks: masks, context: CIContext()) == nil)
+        @Test func masksOfAnotherSizeAreRefused() {
+            let keyframe = solid(1, 2, 3, width: 10, height: 10)
+            let masks = ShirtPaintMasks(width: 9, height: 10, paintable: [], protected: [], oldShirt: [])
+            #expect(shirtPaintedStillPasted(keyframe: keyframe, painted: keyframe, masks: masks, context: CIContext()) == nil)
+        }
     }
 }
 
