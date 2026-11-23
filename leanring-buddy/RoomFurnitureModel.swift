@@ -555,10 +555,3 @@ nonisolated func roomFurnitureSpotWhereTheWholePieceFits(
     return RoomFurnitureSpot(floor: mostShown?.floor ?? measuredFloor, wholePieceFits: false)
 }
 
-/// The middle of the piece's floor footprint in keyframe pixels: the mean of its box's four bottom corners, which the loop
-/// outlines while the piece is placed. Nil when the box does not project.
-nonisolated func roomFurnitureFootprintCenterInTheKeyframe(floor: FloorPlane, widthMeters: Double, heightMeters: Double, depthMeters: Double) -> CGPoint? {
-    guard let boxCorners = floor.keyframeBoxCorners(widthMeters: widthMeters, heightMeters: heightMeters, depthMeters: depthMeters) else { return nil }
-    let bottomCorners = [boxCorners[2], boxCorners[3], boxCorners[6], boxCorners[7]]
-    return CGPoint(x: bottomCorners.map(\.x).reduce(0, +) / 4, y: bottomCorners.map(\.y).reduce(0, +) / 4)
-}

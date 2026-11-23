@@ -6,7 +6,7 @@
 //  reads the page's picture, opens the panel, starts the camera, and asks the Worker what the page shows
 //  (`POST /try-it-item`) at once. The item's kind picks the rest: wall art is measured on the wall (`POST /room-wall`) and
 //  furniture on the floor (`POST /room-floor`), each from a keyframe taken on the first frame with a person mask, with
-//  Clicky's loop around the spot while it waits, and a top laid flat or worn by a model is cut out of its photo and drawn over the learner's
+//  only the status line while it waits, and a top laid flat or worn by a model is cut out of its photo and drawn over the learner's
 //  own shirt with no measurement. `RoomArtFrameProcessor` handles every camera frame on its own queue: it finds the person,
 //  tracks the room against the keyframe, and draws the frame with the item on its surface and the learner in front of it,
 //  or, for a shirt, finds the learner's torso and draws the shirt on them.
@@ -102,9 +102,6 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     /// layer, cut out by its difference from that image, lands on them pixel for pixel with no turn to undo. The learner
     /// cannot step out of a keyframe, so its share is 0 and the painting never waits.
     func aFrameForThePainting(boxInTheKeyframe: [CGPoint]) async -> RoomArtPaintingFrame?
-    /// Moves the loop to the window around `point` in the keyframe numbered `keyframeNumber`, such as the spot the furniture
-    /// moved to after its floor was measured. The loop glides there, and a newer keyframe's loop is left alone.
-    func outlineTheLoop(around point: CGPoint, on surfaceKind: RoomArtSurfaceKind, inKeyframeNumber keyframeNumber: Int)
     func putBackTheItemFromBeforeTheMove()
     /// Starts drawing a shirt instead of tracking a surface: each frame finds the torso, and `onTheFramingSettled` runs on
     /// the main actor each time the framing settles on a new kind (`ShirtFramingDebouncer`). The loop traces the torso.
@@ -126,8 +123,9 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     func resumeTheLiveShirt()
     /// While the frame is frozen, the loop traces `outline` (camera pixels), the area being painted.
     func outlineTheAreaBeingPainted(_ outline: [CGPoint])
-    /// The loop's window in the newest keyframe and where it is in the newest frame, or nil before the first keyframe of a
-    /// session. Safe to call from any thread, since the panel reads it every frame on the main thread.
+    /// The loop's window in the newest keyframe and where it is in the newest frame, or nil when no loop has a shape to
+    /// follow: a footprint or a shirt's outline. Safe to call from any thread, since the panel reads it every frame on the
+    /// main thread.
     func currentLoop() -> RoomArtLoopSnapshot?
 }
 
@@ -219,10 +217,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     private let shirtOutlineQueue = DispatchQueue(label: "com.crodris.clicky.room-art.shirt-outline", qos: .utility)
     private static let secondsBetweenShirtOutlines = 0.5
     private var smoothedArtCorners: [CGPoint]?
-    /// The window Clicky's loop outlines in the newest keyframe, tracked with the keyframe's own warp each frame.
+    /// The bounding box of the ghost's footprint in the newest keyframe, which Clicky's loop is drawn around and tracked
+    /// with the keyframe's own warp each frame. Nil with no footprint loop.
     private var loopKeyframeCorners: RoomArtCorners?
-    /// Where the loop's window lands in the keyframe, when that is not the window itself: the ghost's footprint, a
-    /// quadrilateral the loop's line is bent onto. Nil for a loop around its own window.
+    /// The ghost's footprint in the keyframe, a quadrilateral the loop's line is bent onto.
     private var loopKeyframeTargetCorners: RoomArtCorners?
     private var smoothedLoopCorners: [CGPoint]?
     /// The newest loop snapshot, written on `processingQueue` and read from the main thread.
@@ -997,12 +995,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         crossfadeFrom = nil
         smoothedArtCorners = nil
         reportWhetherTheSurfaceIsLost(false)
-        // The loop outlines the window around the spot until the item shows, and starts on the keyframe where it was drawn.
-        let keyframeLoopCorners = RoomArtLoopGeometry.keyframeCorners(around: anchor, frameSize: CGSize(width: frameWidth, height: frameHeight), on: surfaceKind ?? .floor)
-        loopKeyframeCorners = keyframeLoopCorners
-        loopKeyframeTargetCorners = nil
-        smoothedLoopCorners = nil
-        latestLoop.withLock { $0 = RoomArtLoopSnapshot(keyframeCorners: keyframeLoopCorners, currentCorners: keyframeLoopCorners) }
+        // No loop is drawn while the surface is measured, so a footprint loop from an earlier look is forgotten.
+        forgetTheLoopOnTheQueue()
 
         let frameImage = CIImage(cvPixelBuffer: latestFrame)
         guard let keyframeJPEGData = ciContext.jpegRepresentation(
@@ -1051,12 +1045,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         crossfadeFrom = nil
         smoothedArtCorners = nil
         let frameSize = CGSize(width: background.keyframeImage.width, height: background.keyframeImage.height)
-        let keyframeLoopCorners = RoomArtLoopGeometry.keyframeCorners(around: anchor, frameSize: frameSize, on: surfaceKind ?? .floor)
-        loopKeyframeCorners = keyframeLoopCorners
-        loopKeyframeTargetCorners = nil
-        smoothedLoopCorners = nil
-        let currentLoopCorners = latestCameraWarp.map { RoomArtLoopGeometry.corners(of: keyframeLoopCorners, after: $0) } ?? keyframeLoopCorners
-        latestLoop.withLock { $0 = RoomArtLoopSnapshot(keyframeCorners: keyframeLoopCorners, currentCorners: currentLoopCorners) }
+        forgetTheLoopOnTheQueue()
         let wallSpot = background.keyframe.wallSpotAnchor ?? anchor
         keyframeWallLight = wallLight(
             around: surfaceKind == nil ? wallSpot : anchor, in: CIImage(cgImage: background.keyframeImage),
@@ -1236,28 +1225,23 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         return RoomArtPaintingFrame(jpegData: jpegData, image: cgImage, keyframeToFrame: latestCameraWarp, shareOfTheBoxThePersonCovers: shareCovered)
     }
 
-    func outlineTheLoop(around point: CGPoint, on surfaceKind: RoomArtSurfaceKind, inKeyframeNumber keyframeNumber: Int) {
-        processingQueue.async {
-            guard keyframeNumber == self.keyframeNumber, self.loopKeyframeCorners != nil, let latestFrame = self.latestFrame else { return }
-            let frameSize = CGSize(width: CVPixelBufferGetWidth(latestFrame), height: CVPixelBufferGetHeight(latestFrame))
-            // The smoothed corners keep where the loop was, so it glides to the new window over the next frames.
-            self.loopKeyframeCorners = RoomArtLoopGeometry.keyframeCorners(around: point, frameSize: frameSize, on: surfaceKind)
-            self.loopKeyframeTargetCorners = nil
-        }
+    /// Forgets the footprint loop, which a new keyframe's measurement draws no loop to replace.
+    private func forgetTheLoopOnTheQueue() {
+        loopKeyframeCorners = nil
+        loopKeyframeTargetCorners = nil
+        smoothedLoopCorners = nil
+        latestLoop.withLock { $0 = nil }
     }
 
-    /// The loop where the surface or the torso last was, for the panel to draw or fade out.
+    /// The loop where the footprint or the torso last was, for the panel to draw or fade out.
     func currentLoop() -> RoomArtLoopSnapshot? {
         latestLoop.withLock { $0 }
     }
 
     /// A click's measurement failed, so the item goes back where it stood, tracked against the keyframe it stood on. That
-    /// tracker aligns each frame to its own keyframe, so it finds the room again after the frames it missed. The loop
-    /// outlined the failed keyframe, so it stops following the room and fades out where it was.
+    /// tracker aligns each frame to its own keyframe, so it finds the room again after the frames it missed.
     func putBackTheItemFromBeforeTheMove() {
         processingQueue.async {
-            self.loopKeyframeCorners = nil
-            self.loopKeyframeTargetCorners = nil
             guard let placedArtBeforeTheMove = self.placedArtBeforeTheMove else { return }
             self.tracker = self.trackerBeforeTheMove
             self.placedArt = placedArtBeforeTheMove
@@ -1483,7 +1467,7 @@ final class RoomArtPreviewController: ObservableObject {
     }
     /// When the shirt button last changed role, which a click right after it does not count against.
     private var shirtStillVoiceTargetsChangedAt: TimeInterval = 0
-    /// Clicky's loop around the measured spot or the learner's torso: drawn until the item or the shirt shows, or a failure.
+    /// Clicky's loop around the placed furniture's footprint or the learner's torso: drawn until the item or the shirt shows, or a failure.
     @Published private(set) var loopState = RoomArtLoopState.hidden
     /// The tracker lost the room long enough to hide the item, so the status line says so.
     @Published private(set) var theSurfaceIsLost = false
@@ -1605,7 +1589,7 @@ final class RoomArtPreviewController: ObservableObject {
     /// The furniture's ghost while the learner places it, and the pose it was placed in afterward, which a pick-up starts
     /// from. Nil until the floor is measured, and after a new measurement starts.
     @Published private(set) var furnitureGhost: RoomFurnitureGhost?
-    /// When the ghost began drawing itself, and where the loop's tracer was then (`RoomFurnitureGhostDrawTimeline`).
+    /// When the ghost began drawing itself (`RoomFurnitureGhostDrawTimeline`).
     @Published private(set) var furnitureGhostDraw: RoomFurnitureGhostDraw?
     /// Whether the furniture's width was measured from its cutout, so the ghost's size pill says "about". Set each time a
     /// piece of furniture is ready, which is before its ghost can show.
@@ -1973,7 +1957,7 @@ final class RoomArtPreviewController: ObservableObject {
         stopTheFurnituresLooks()
         frameProcessor.hideTheItem()
         furnitureGhost = RoomFurnitureGhost(pickedUpFrom: placedGhost)
-        furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, tracerStartInThePanel: nil)
+        furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime)
         print("Room furniture: picked the piece back up as its ghost")
         apply(pickedUpPhase)
     }
@@ -1989,17 +1973,6 @@ final class RoomArtPreviewController: ObservableObject {
     func currentGhostLines(cameraSize: CGSize, panelSize: CGSize) -> RoomFurnitureGhostLines? {
         guard let boxCorners = furnitureGhost?.keyframeBoxCorners, let trackedWarp = trackedWarpForTheGhost() else { return nil }
         return RoomFurnitureGhostLines(keyframeBoxCorners: boxCorners, keyframeToCurrent: trackedWarp.keyframeToCurrent, fit: RoomArtVideoFit(cameraSize: cameraSize, viewSize: panelSize), cameraSize: cameraSize)
-    }
-
-    /// Where the loop's tracer is in the panel now, which the ghost's tracer leaves from, so the theme's glyph moves on from
-    /// one line to the other.
-    private func loopTracerInThePanel() -> CGPoint? {
-        guard let beganAt = loopState.beganAt,
-              let outline = currentLoopOutline(cameraSize: frameProcessor.metalLayer.drawableSize, panelSize: RoomArtPanelController.panelSize) else { return nil }
-        // The loop has just stopped lapping for the ghost, so its glyph's place is read as it was while it lapped.
-        let plan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: ProcessInfo.processInfo.systemUptime - beganAt, reduceMotionIsOn: false, tracesTheLine: true)
-        let line = CursorLoopLine(outline: outline)
-        return line.point(atShare: RoomArtLoopCanvas.shareOfTheLine(for: plan.frame.tracer, on: line))
     }
 
     /// Forgets the ghost and everything asked for it, for a close or a new measurement.
@@ -2376,10 +2349,7 @@ final class RoomArtPreviewController: ObservableObject {
                     switch surfaceKind {
                     case .wall:
                         let wall: WallPlane
-                        if earlyKeyframe != nil, let earlyWall = earlyMeasurement?.wall, let wallSpot = keyframe.wallSpotAnchor {
-                            // The early keyframe's loop went around the floor spot, so it moves to the wall spot it measures,
-                            // now and not when the depth service's run is back, since "Measuring your wall…" shows for all of it.
-                            frameProcessor.outlineTheLoop(around: wallSpot, on: .wall, inKeyframeNumber: keyframe.keyframeNumber)
+                        if earlyKeyframe != nil, let earlyWall = earlyMeasurement?.wall {
                             guard let earlyWallResult = await earlyWall.value else { throw CancellationError() }
                             wall = try earlyWallResult.get()
                         } else {
@@ -2450,7 +2420,7 @@ final class RoomArtPreviewController: ObservableObject {
         case .placingTheFurniture(_, let item, let surface):
             stopTheFurnituresLooks()
             // A pick-up made its ghost already. The first time, the ghost stands where the spot search put the piece, and its
-            // tracer leaves the measuring loop's line.
+            // tracer starts on the footprint, since no loop showed while the floor was measured.
             guard furnitureGhost == nil else { return }
             guard case .furniture(let furniture) = item, case .floor(let floor) = surface,
                   let ghost = RoomFurnitureGhost(standingOn: floor, wall: wallOfTheLatestMeasurement, widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters) else {
@@ -2458,7 +2428,7 @@ final class RoomArtPreviewController: ObservableObject {
                 apply(phase.afterTheGhostCouldNotStand())
                 return
             }
-            furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, tracerStartInThePanel: loopTracerInThePanel())
+            furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime)
             furnitureGhost = ghost
             print("Room furniture: the ghost shows\(ghost.shownPose.isSnappedToTheWall ? ", square to the wall" : "")")
             // Said here and never after a pick-up, which returned above with its ghost already made, so it is once per panel.
@@ -2571,7 +2541,7 @@ extension RoomArtPreviewController {
             floorError = error
         }
         guard !Task.isCancelled else { throw CancellationError() }
-        // The spot is chosen before the wall is measured, so the loop outlines it while the wall request runs.
+        // The spot is chosen before the wall is measured.
         let floorForThePiece = measuredFloor.map { floorWhereTheWholePieceShows($0, on: keyframe, for: item, anchorWasClicked: anchorWasClicked) }
         let wallRequest = RoomWallRequest(
             keyframeJPEGData: keyframe.measurementRequest.keyframeJPEGData,
@@ -2633,12 +2603,6 @@ extension RoomArtPreviewController {
             texture: keyframe.floorTexture
         )
         print("Room furniture: \(spot.wholePieceFits ? "moved the piece to where all of it shows" : "no spot shows the whole piece, so it stands where most of it shows")")
-        // The loop outlined the bare spot the floor was measured at, so it moves to where the piece will stand.
-        if let footprintCenter = roomFurnitureFootprintCenterInTheKeyframe(
-            floor: spot.floor, widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters
-        ) {
-            frameProcessor.outlineTheLoop(around: footprintCenter, on: .floor, inKeyframeNumber: keyframe.keyframeNumber)
-        }
         return spot.floor
     }
 

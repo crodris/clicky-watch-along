@@ -570,12 +570,11 @@ struct RoomArtGeometryTests {
         }
         let spot = bareFloorSpot(grayscale: RoomGrayscaleImage(width: width, height: height, pixels: pixels), roomMask: [Float](repeating: 1, count: width * height))
 
-        // The piece stands where the whole of it shows, near the middle, so the loop outlines the middle while the floor
-        // is measured.
+        // The piece stands where the whole of it shows, near the middle of the frame.
         #expect(abs(spot.x - 160) <= 40, "the spot is at \(spot)")
     }
 
-    @Test func theFloorWindowStaysAboveTheStatusLine() {
+    @Test func theFloorSpotIsInTheLowRowsWhereTheFloorShows() {
         let width = 320, height = 180
         // Grain everywhere but a plain band along the bottom, so the lowest window the search allows wins.
         var pixels = [Float](repeating: 100, count: width * height)
@@ -584,9 +583,7 @@ struct RoomArtGeometryTests {
         }
         let spot = bareFloorSpot(grayscale: RoomGrayscaleImage(width: width, height: height, pixels: pixels), roomMask: [Float](repeating: 1, count: width * height))
 
-        let windowBottom = spot.y + Double(height) * RoomArtBareFloorWindow.heightShareOfTheFrame / 2
         #expect(spot.y >= Double(height) * 0.75, "the plainest rows are low in the frame: \(spot)")
-        #expect(windowBottom <= Double(height) * RoomArtBareFloorWindow.statusLineTopShareOfThePanel, "the window reaches \(windowBottom)")
     }
 
     @Test func flatteningCutsTheArtOutOfItsPhotoAtTheSizesShape() throws {

@@ -11,8 +11,8 @@
 //  where the item goes and whether it can be shown, `POST /room-wall` measures the wall and `POST /room-floor` the floor or a
 //  table top with Depth Pro), the art's corners projected from the wall plane and a standing item's from the floor plane, the bare wall or floor spot the item
 //  goes to first, the wall's light, the phase state machine behind the panel, the clients, and the phrase that asks for it.
-//  `RoomTracker` keeps the item in place, `RoomCamera` supplies the frames, `RoomArtLoop` draws Clicky's loop around the spot
-//  while it is measured, `RoomArtPreview` runs and draws the panel, `RoomFloor` and the `RoomFurniture` files place and
+//  `RoomTracker` keeps the item in place, `RoomCamera` supplies the frames, `RoomArtLoop` draws Clicky's loop around the placed
+//  furniture's footprint and the shirt (none while a surface is measured), `RoomArtPreview` runs and draws the panel, `RoomFloor` and the `RoomFurniture` files place and
 //  draw the furniture, and `ShirtTryOn` overlays the shirt.
 //
 
@@ -634,8 +634,7 @@ nonisolated struct RoomWallRequest: Equatable, Sendable {
 
 // MARK: - Where the item goes first
 
-/// The window `bareWallSpot` scores around each candidate spot, as shares of the frame. The loop drawn while the wall is
-/// measured is sized to the same window, so it outlines the wall the spot was chosen for.
+/// The window `bareWallSpot` scores around each candidate spot, as shares of the frame.
 nonisolated enum RoomArtBareWallWindow {
     static let widthShareOfTheFrame = 0.24
     static let heightShareOfTheFrame = 0.3
@@ -643,21 +642,16 @@ nonisolated enum RoomArtBareWallWindow {
     static let centerRowShares = 0.25...0.55
 }
 
-/// The window `bareFloorSpot` scores, as shares of the frame: wide and low, the shape of floor seen at a slant. The loop
-/// drawn while the floor is measured is sized to it.
+/// The window `bareFloorSpot` scores, as shares of the frame: wide and low, the shape of floor seen at a slant.
 nonisolated enum RoomArtBareFloorWindow {
     static let widthShareOfTheFrame = 0.3
     static let heightShareOfTheFrame = 0.18
     /// The lower part of the frame, where the floor shows when the screen is tilted down. The depth service fits the floor
-    /// in a window around and below the anchor, so the lowest rows are left for it. The window's bottom edge stays above
-    /// 0.9 of the height, where the panel's status line starts (`statusLineTopShareOfThePanel`), so the line Clicky's loop
-    /// draws around the window never runs behind "Measuring your floor…".
+    /// in a window around and below the anchor, so the lowest rows are left for it.
     static let centerRowShares = 0.62...0.80
-    /// The share of the panel's height above its status line: 16 points of padding and a 33 point line on a 540 point panel.
-    static let statusLineTopShareOfThePanel = 0.9
     /// How much more a spot at the frame's side edge costs than one in the middle, as a share of its texture: furniture
     /// standing at the edge is cut off by the frame, and the darkest, plainest floor is often a far corner. At 1.0 the
-    /// plain dark corner of room-floor.mp4's wood floor still won, so the loop outlined that corner while the piece then
+    /// plain dark corner of room-floor.mp4's wood floor still won, while the piece then
     /// stood in the middle (`roomFurnitureSpotWhereTheWholePieceFits`); at 2.0 the spot is the lower middle there.
     static let costOfTheSideEdges = 2.0
 }

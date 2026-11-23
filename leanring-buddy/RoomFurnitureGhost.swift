@@ -453,11 +453,10 @@ nonisolated func voiceCommandFurnitureGhostState(_ ghost: RoomFurnitureGhost) ->
 // MARK: - Drawing it line by line
 
 /// The ghost draws itself the first time it appears and each time a placed piece is picked back up, the way the theme's
-/// cursor glyph draws the loop: the glyph leaves the measuring loop's line (`handoff`), traces the footprint, rides up
-/// each dashed corner post in turn, then draws the top outline, and the fill, the shadow, and the size pill come in last.
+/// cursor glyph draws the loop: the glyph starts on the footprint and traces it, rides up each dashed corner post in
+/// turn, then draws the top outline, and the fill, the shadow, and the size pill come in last.
 /// Every part is a pure function of the time since the draw began, so a test reads any moment.
 nonisolated enum RoomFurnitureGhostDrawTimeline {
-    static let handoffSeconds = 0.2
     static let footprintSeconds = 0.45
     static let secondsPerPost = 0.08
     static let topSeconds = 0.3
@@ -466,8 +465,6 @@ nonisolated enum RoomFurnitureGhostDrawTimeline {
 
     /// Where the tracer, the theme's cursor glyph, is.
     enum Tracer: Equatable {
-        /// Flying from the loop's line to the footprint's first corner, 0 at the line and 1 at the corner.
-        case leavingTheLoop(share: Double)
         case onTheFootprint(share: Double)
         case onAPost(index: Int, share: Double)
         case onTheTop(share: Double)
@@ -488,24 +485,18 @@ nonisolated enum RoomFurnitureGhostDrawTimeline {
         static let whole = Frame(footprintShare: 1, postShares: Array(repeating: 1, count: postCount), topShare: 1, fillShare: 1, pillIsShown: true, tracer: .gone)
     }
 
-    /// The whole draw's length: about 1.3 seconds, or 1.5 with the handoff from the loop.
-    static func totalSeconds(startsFromTheLoop: Bool) -> Double {
-        (startsFromTheLoop ? handoffSeconds : 0) + footprintSeconds + secondsPerPost * Double(postCount) + topSeconds + fillSeconds
+    /// The whole draw's length: about 1.3 seconds.
+    static var totalSeconds: Double {
+        footprintSeconds + secondsPerPost * Double(postCount) + topSeconds + fillSeconds
     }
 
-    /// The draw `secondsSinceBegan` in. `startsFromTheLoop` says the tracer leaves the measuring loop's line first, which a
-    /// pick-up, with no loop, skips.
-    static func frame(secondsSinceBegan: Double, startsFromTheLoop: Bool) -> Frame {
+    /// The draw `secondsSinceBegan` in. The tracer starts on the footprint, the first time and after a pick-up alike, since no
+    /// loop shows while the floor is measured.
+    static func frame(secondsSinceBegan: Double) -> Frame {
         var seconds = max(0, secondsSinceBegan)
         func share(of length: Double) -> Double { min(1, max(0, seconds / length)) }
         let noPosts = Array(repeating: 0.0, count: postCount)
 
-        if startsFromTheLoop {
-            if seconds < handoffSeconds {
-                return Frame(footprintShare: 0, postShares: noPosts, topShare: 0, fillShare: 0, pillIsShown: false, tracer: .leavingTheLoop(share: share(of: handoffSeconds)))
-            }
-            seconds -= handoffSeconds
-        }
         if seconds < footprintSeconds {
             let footprintShare = share(of: footprintSeconds)
             return Frame(footprintShare: footprintShare, postShares: noPosts, topShare: 0, fillShare: 0, pillIsShown: false, tracer: .onTheFootprint(share: footprintShare))
@@ -688,11 +679,9 @@ nonisolated func shareOfTheOutlineThePersonCovers(personMask: CVPixelBuffer, out
 
 // MARK: - What the controller keeps
 
-/// When the ghost began drawing itself, and where its tracer leaves from in the panel: the measuring loop's tracer the first
-/// time, or nowhere for a pick-up, which starts on the footprint.
+/// When the ghost began drawing itself. Its tracer starts on the footprint, the first time and after a pick-up alike.
 nonisolated struct RoomFurnitureGhostDraw: Equatable, Sendable {
     let beganAt: TimeInterval
-    let tracerStartInThePanel: CGPoint?
 }
 
 /// A painting that stood at the measured size and on its footprint, ready to show, in the keyframe's space.

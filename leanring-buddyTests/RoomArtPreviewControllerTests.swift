@@ -73,7 +73,6 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     private var recordedGarmentWorn = false
     private var latestLoop: RoomArtLoopSnapshot?
     private var recordedFurnitureLayersShown: [(look: RoomFurnitureLook, keyframeNumber: Int)] = []
-    private var recordedLoopOutlines: [(point: CGPoint, keyframeNumber: Int)] = []
     private var keyframesTaken = 0
     private var recordedSessionsStarted = 0
     /// The newest furniture look shown and not hidden since, which a fix draws into the keyframe.
@@ -108,7 +107,6 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
 
     /// Each furniture look the controller handed over, with the keyframe it was made for.
     var furnitureLayersShown: [(look: RoomFurnitureLook, keyframeNumber: Int)] { lock.withLock { recordedFurnitureLayersShown } }
-    var loopOutlines: [(point: CGPoint, keyframeNumber: Int)] { lock.withLock { recordedLoopOutlines } }
 
     var artHungCount: Int { lock.withLock { recordedSurfacesShownOn.count } }
     var surfacesShownOn: [RoomArtSurfaceKind] { lock.withLock { recordedSurfacesShownOn } }
@@ -245,10 +243,6 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
             guard !theRoomIsLost else { return nil }
             return RoomArtPaintingFrame(jpegData: Self.keyframeJPEG, image: Self.keyframeImage, keyframeToFrame: trackedWarp, shareOfTheBoxThePersonCovers: personShareOfTheBox)
         }
-    }
-
-    func outlineTheLoop(around point: CGPoint, on surfaceKind: RoomArtSurfaceKind, inKeyframeNumber keyframeNumber: Int) {
-        lock.withLock { recordedLoopOutlines.append((point, keyframeNumber)) }
     }
 
     func putBackTheItemFromBeforeTheMove() {
@@ -539,6 +533,8 @@ private final class WorkerStub {
     var queuedPageReplies: [(gate: TestGate, reply: Result<RoomArtPageReading, Error>)] = []
     /// While set, a wall measurement waits here until the test opens it or the measurement's task is cancelled.
     var wallReplyGate: TestGate?
+    /// While set, a floor measurement waits here until the test opens it or the measurement's task is cancelled.
+    var floorReplyGate: TestGate?
     /// A page read's wait ended early because its task was cancelled, which a close does.
     private(set) var aPageReadWasCancelled = false
     private(set) var pageRequests: [RoomArtPageRequest] = []
@@ -577,6 +573,7 @@ private final class WorkerStub {
 
     func measureTheFloor(_ floorRequest: RoomWallRequest) async throws -> FloorPlane {
         floorRequests.append(floorRequest)
+        try await floorReplyGate?.waitUnlessCancelled()
         return try floorReply.get()
     }
 }
@@ -1733,6 +1730,58 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
+    @Test func aFloorItemsMeasurementShowsNoLoopAndItsGhostIsTheFirstThingDrawn() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        // The floor's reply waits at a gate, so the measurement is still running while the test looks.
+        let floorReplyGate = TestGate()
+        worker.floorReplyGate = floorReplyGate
+        let harness = RoomArtHarness(worker: worker, placesTheGhostAtOnce: false)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the floor to be asked for") { worker.floorRequests.count == 1 }
+        await letTheQueuedMainActorWorkRun()
+        // Only the status line shows: no loop around a bare window, and nothing of the ghost yet.
+        #expect(harness.statusLine() == "Measuring your floor…")
+        #expect(harness.controller.loopState == .hidden)
+        #expect(harness.frameProcessor.loopQuadrilaterals.isEmpty)
+        #expect(harness.controller.furnitureGhost == nil && harness.controller.furnitureGhostDraw == nil)
+
+        floorReplyGate.open()
+        try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
+        // The ghost is the first thing drawn: no loop is there to leave, and its tracer starts on the footprint.
+        #expect(harness.controller.loopState == .hidden)
+        #expect(harness.controller.furnitureGhostDraw != nil)
+        #expect(RoomFurnitureGhostDrawTimeline.frame(secondsSinceBegan: 0).tracer == .onTheFootprint(share: 0))
+        harness.controller.close()
+    }
+
+    @Test func aTableOrShelfClicksMeasurementShowsNoLoopEither() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(mugReading)
+        let harness = RoomArtHarness(worker: worker, placesTheGhostAtOnce: false)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this mug look on my shelf in my room")
+        try await waitFor("the panel to wait for a click on the table or shelf") { harness.controller.phase.waitingForAFloorClickItem != nil }
+        #expect(harness.controller.loopState == .hidden)
+
+        let floorReplyGate = TestGate()
+        worker.floorReplyGate = floorReplyGate
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 320, y: 300))
+        try await waitFor("the click's surface to be asked for") { worker.floorRequests.count == 1 }
+        await letTheQueuedMainActorWorkRun()
+        #expect(harness.statusLine() == "Measuring the surface…")
+        #expect(harness.controller.loopState == .hidden)
+        #expect(harness.frameProcessor.loopQuadrilaterals.isEmpty)
+
+        floorReplyGate.open()
+        try await waitFor("the ghost to stand on the table") { harness.controller.phase.furnitureGhostShows }
+        #expect(harness.controller.loopState == .hidden)
+        #expect(harness.controller.furnitureGhostDraw != nil)
+        harness.controller.close()
+    }
+
     @Test func aClickThatFindsNoFlatSurfaceAsksForTheTopOfATableAndNeverInfersAFloorFromTheWall() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(mugReading)
@@ -2379,8 +2428,8 @@ struct RoomArtPreviewControllerTests {
         harness.controller.pointerPressed(atCameraPixel: ghostCenter)
         #expect(harness.controller.phase.furnitureGhostShows)
         #expect(harness.frameProcessor.timesTheItemWasHidden == 1)
-        // A pick-up draws the ghost again, from its footprint, with no loop to leave.
-        #expect(harness.controller.furnitureGhostDraw?.tracerStartInThePanel == nil)
+        // A pick-up draws the ghost again from its footprint.
+        #expect(harness.controller.furnitureGhostDraw != nil)
         harness.controller.pointerDragged(toCameraPixel: CGPoint(x: ghostCenter.x + 40, y: ghostCenter.y))
         harness.controller.pointerReleased()
         #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
@@ -2754,12 +2803,9 @@ struct RoomArtPreviewControllerTests {
         // shows, and no step back line was said.
         #expect(firstFloor.center != worker.floorRequestsReply)
         #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
-        // The loop moved from the measured spot to the middle of the table's footprint, on the first keyframe.
-        let expectedLoopCenter = try #require(roomFurnitureFootprintCenterInTheKeyframe(floor: firstFloor, widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55))
-        let loopOutline = try #require(harness.frameProcessor.loopOutlines.first)
-        #expect(harness.frameProcessor.loopOutlines.count == 1)
-        #expect(hypot(loopOutline.point.x - expectedLoopCenter.x, loopOutline.point.y - expectedLoopCenter.y) < 1)
-        #expect(loopOutline.keyframeNumber == 1)
+        // No loop went around the measured spot or the table's footprint while its floor was measured: the first loop is the
+        // one around the placed ghost's footprint, which the piece's own placement draws.
+        #expect(harness.frameProcessor.loopQuadrilaterals.count == 1)
 
         // A press on the placed piece picks it up, and a press off its ghost then moves the ghost to the floor under the
         // press, with no measurement.
@@ -2776,7 +2822,7 @@ struct RoomArtPreviewControllerTests {
         let ghost = try #require(harness.controller.furnitureGhost)
         #expect(simd_length(ghost.footprintCenter - pressedFloorPoint) < 1e-9)
         #expect(worker.floorRequests.count == 1)
-        // While the new placement's look came, the loop went around the ghost's footprint.
+        // While each placement's look came, the loop went around the ghost's footprint.
         #expect(harness.frameProcessor.loopQuadrilaterals.count == 2)
         // It traced the footprint itself, back left first, clockwise on screen.
         let boxCorners = try #require(ghost.keyframeBoxCorners)
@@ -3047,7 +3093,7 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
-    @Test func wallArtOutlinesTheWallSpotAtOnceWhileTheEarlyWallIsStillBeingMeasured() async throws {
+    @Test func wallArtShowsNoLoopWhileTheEarlyWallIsStillBeingMeasured() async throws {
         let worker = WorkerStub()
         // The page's reply waits until the early wall request went out, so the keyframe is taken during the page read, and
         // the wall's reply waits at a gate, so the depth service's 14 seconds are still running when the test looks.
@@ -3060,16 +3106,16 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
         try await waitFor("the wall measured during the page read") { worker.wallRequests.count == 1 }
         #expect(harness.frameProcessor.keyframeSurfaces == [nil])
-        #expect(harness.frameProcessor.loopOutlines.isEmpty)
+        // The keyframe is taken before the kind is known, and no loop shows then: the panel is still reading the page.
+        #expect(harness.controller.loopState == .hidden)
 
         pageReplyGate.open()
-        // The page reads as wall art, and "Measuring your wall…" shows while the wall's run is still going. The loop that the
-        // keyframe drew around the floor spot has moved to the wall spot, and it did not wait for the wall's reply.
-        try await waitFor("the loop to move to the wall spot") { !harness.frameProcessor.loopOutlines.isEmpty }
+        // The page reads as wall art, and only "Measuring your wall…" shows while the wall's run is still going.
+        try await waitFor("the wall to be measured") { harness.controller.phase.itemBeingMeasured != nil }
+        await letTheQueuedMainActorWorkRun()
         #expect(harness.statusLine() == "Measuring your wall…")
         #expect(wallReplyGate.timesPassed == 0 && !harness.artIsShowing())
-        #expect(harness.frameProcessor.loopOutlines.map(\.point) == [StandInFrameProcessor.bareWallSpot])
-        #expect(harness.frameProcessor.loopOutlines.map(\.keyframeNumber) == [1])
+        #expect(harness.controller.loopState == .hidden)
 
         wallReplyGate.open()
         try await waitFor("the art to show on the wall") { harness.artIsShowing() }
@@ -3095,7 +3141,7 @@ struct RoomArtPreviewControllerTests {
         // Asked for while the wall's run is in flight, the floor would start a second run of the same frame on the depth
         // service, which answers it from the cache only once the first run is done.
         #expect(worker.floorRequests.isEmpty)
-        #expect(harness.frameProcessor.loopOutlines.isEmpty)
+        #expect(harness.controller.loopState == .hidden)
 
         wallReplyGate.open()
         try await waitFor("the table") { harness.artIsShowing() }
@@ -3851,34 +3897,34 @@ struct RoomArtPreviewControllerTests {
         successHarness.controller.close()
     }
 
-    @Test func theLoopDrawsFromTheKeyframeUntilTheArtShowsAndThenFadesAndClearsOnClose() async throws {
+    @Test func aWallItemsMeasurementShowsNoLoopNowOrForAClickAndTheArtShowingStartsNone() async throws {
         let worker = WorkerStub()
-        // The wall reply waits at a gate, so the loop is on screen until the test has looked at it, even on a loaded machine.
+        // The wall reply waits at a gate, so the measurement is still running while the test looks, even on a loaded machine.
         let wallReplyGate = TestGate()
         worker.wallReplyGate = wallReplyGate
         let harness = RoomArtHarness(worker: worker)
         #expect(harness.controller.loopState == .hidden)
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
-        try await waitFor("the measurement to start the loop") { !harness.controller.loopState.isHidden }
-        #expect(harness.controller.loopState.beganAt != nil && !harness.controller.loopState.isFadingOut)
-        let beganAt = harness.controller.loopState.beganAt
+        try await waitFor("the wall to be measured") { harness.controller.phase.itemBeingMeasured != nil }
+        await letTheQueuedMainActorWorkRun()
+        #expect(harness.statusLine() == "Measuring your wall…")
+        #expect(harness.controller.loopState == .hidden)
 
         wallReplyGate.open()
         try await waitFor("the art to show on the wall") { harness.artIsShowing() }
-        #expect(harness.controller.loopState == .fadingOut(beganAt: try #require(beganAt), tracesTheLine: true))
-
-        harness.controller.theLoopFadeFinished()
         #expect(harness.controller.loopState == .hidden)
 
-        // A click's measurement draws it again, and closing the panel removes it at once.
+        // A click's measurement draws no loop either, and neither does closing the panel.
+        worker.wallReplyGate = TestGate()
         harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 100, y: 100))
-        #expect(harness.controller.loopState.beganAt != beganAt && !harness.controller.loopState.isFadingOut)
+        #expect(harness.controller.phase.itemBeingMeasured != nil)
+        #expect(harness.controller.loopState == .hidden)
         harness.controller.close()
         #expect(harness.controller.loopState == .hidden)
     }
 
-    @Test func theLoopFadesWhenTheMeasurementFails() async throws {
+    @Test func aFailedWallMeasurementHasNoLoopToFade() async throws {
         let worker = WorkerStub()
         worker.wallReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 422, body: ""))
         let harness = RoomArtHarness(worker: worker)
@@ -3886,7 +3932,7 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         try await waitFor("the panel to fail on the wall") { harness.controller.phase == .failed(.wallNotMeasured) }
-        #expect(harness.controller.loopState.isFadingOut)
+        #expect(harness.controller.loopState == .hidden)
         harness.controller.close()
     }
 
@@ -3895,7 +3941,7 @@ struct RoomArtPreviewControllerTests {
         let panelSize = CGSize(width: 960, height: 540)
         #expect(harness.controller.currentLoopOutline(cameraSize: CGSize(width: 1280, height: 720), panelSize: panelSize) == nil)
 
-        let keyframeCorners = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 640, y: 250), frameSize: CGSize(width: 1280, height: 720), on: .wall)
+        let keyframeCorners = RoomArtCorners(rect: CGRect(x: 486.4, y: 142, width: 307.2, height: 216))
         harness.frameProcessor.setTheLoop(RoomArtLoopSnapshot(keyframeCorners: keyframeCorners, currentCorners: keyframeCorners))
 
         let outline = harness.controller.currentLoopOutline(cameraSize: CGSize(width: 1280, height: 720), panelSize: panelSize)
