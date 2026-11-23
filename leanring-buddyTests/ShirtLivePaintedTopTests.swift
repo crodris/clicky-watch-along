@@ -237,6 +237,27 @@ struct ShirtLivePaintedTopFollowerTests {
         // Standing as in the painting with seen hips brings it back.
         _ = follower.advance(currentTorso: frozenTorso(), at: 1.3)
         #expect(follower.reach == .follows)
+        // Bent again, a frame between that finds another problem (an arm swung past its limit, or no torso at all) does not
+        // make the hips' verdict forget the bend.
+        _ = follower.advance(currentTorso: bent, at: 1.31)
+        #expect(follower.reach == .outOfReach(.torsoShortened))
+        let armSwungWhileBent = replacingTheLeftElbow(of: bentWithEstimatedHips, with: turned(CGPoint(x: 185, y: 350), about: CGPoint(x: 200, y: 200), degrees: 40))
+        _ = follower.advance(currentTorso: armSwungWhileBent, at: 1.32)
+        #expect(follower.reach == .outOfReach(.upperArmMoved))
+        _ = follower.advance(currentTorso: nil, at: 1.33)
+        _ = follower.advance(currentTorso: bentWithEstimatedHips, at: 1.34)
+        #expect(follower.reach == .outOfReach(.torsoShortened))
+        _ = follower.advance(currentTorso: frozenTorso(), at: 1.35)
+        #expect(follower.reach == .follows)
+        // Bent again, then a frame with real hips standing straight clears the hips' verdict even when it finds an arm
+        // problem, since the hips were checked and passed before the arms, so estimated hips after it follow.
+        _ = follower.advance(currentTorso: bent, at: 1.36)
+        #expect(follower.reach == .outOfReach(.torsoShortened))
+        let standingWithTheArmSwung = replacingTheLeftElbow(of: frozenTorso(), with: turned(CGPoint(x: 185, y: 350), about: CGPoint(x: 200, y: 200), degrees: 40))
+        _ = follower.advance(currentTorso: standingWithTheArmSwung, at: 1.37)
+        #expect(follower.reach == .outOfReach(.upperArmMoved))
+        _ = follower.advance(currentTorso: replacingTheHips(of: frozenTorso(), leftHip: CGPoint(x: 230, y: 500), rightHip: CGPoint(x: 370, y: 500), hipsWereEstimated: true), at: 1.38)
+        #expect(follower.reach == .follows)
         // A problem estimated hips can see, such as a raised arm, is cleared by them as usual.
         let armRaised = replacingTheLeftElbow(of: frozenTorso(), with: turned(CGPoint(x: 185, y: 350), about: CGPoint(x: 200, y: 200), degrees: 40))
         _ = follower.advance(currentTorso: armRaised, at: 1.4)

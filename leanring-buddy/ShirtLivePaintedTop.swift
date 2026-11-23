@@ -351,7 +351,8 @@ nonisolated enum ShirtLivePaintedTopReachProblem: Equatable, Sendable {
     /// A forearm moved from where it hung in the painting, which matters only under a long sleeve.
     case forearmMoved
 
-    /// The problem is one only real hips can show, so estimated hips can neither find it nor clear it.
+    /// The problem is one only real hips can show, so estimated hips can neither find it nor clear it
+    /// (`ShirtLivePaintedTopFollower` holds it until a frame with real hips clears it).
     var isAboutTheHips: Bool {
         switch self {
         case .turnedSideways, .torsoShortened, .hipsSwayed: true
@@ -494,6 +495,11 @@ nonisolated struct ShirtLivePaintedTopFollower: Sendable {
     /// The motion from the last frame that was in reach, which a fade back to the still keeps drawing the live top with
     /// instead of a motion from a pose it cannot follow.
     private var followingTransform: CGAffineTransform?
+    /// What the hip checks found on the last frame where they ran, nil when the hips were fine. A hip's confidence near the
+    /// floor flips the hips between seen and estimated from one pose run to the next, and estimated hips say nothing about a
+    /// turn, a bend, or a sway, so the hips' verdict changes only on a frame with real hips and holds through the frames
+    /// between, whatever else those frames find.
+    private var lastHipProblemSeenOnRealHips: ShirtLivePaintedTopReachProblem?
 
     init(top: ShirtLivePaintedTop) {
         self.top = top
@@ -510,11 +516,17 @@ nonisolated struct ShirtLivePaintedTopFollower: Sendable {
         let decided = ShirtLivePaintedTopReach.decide(
             frozenTorso: top.frozenTorso, currentTorso: currentTorso, followsTheForearms: top.followsTheForearms, wasFollowing: reach == .follows
         )
-        // The hip checks run only on real hips, and a hip's confidence near the floor flips the hips between seen and
-        // estimated from one pose run to the next, so a torso out of reach for its hips stays out while they are estimated,
-        // instead of dissolving back and forth between the live top and the still.
-        if decided == .follows, currentTorso?.hipsWereEstimated == true, case .outOfReach(let problem) = reach, problem.isAboutTheHips {
-            reach = .outOfReach(problem)
+        if let currentTorso, !currentTorso.hipsWereEstimated, !top.frozenTorso.hipsWereEstimated {
+            // `decide` checks the hips after the shoulders and before the arms, so a frame that passed the shoulders
+            // checked its hips: a hip problem is the new verdict, and following or an arm problem means the hips were fine.
+            switch decided {
+            case .outOfReach(let problem) where problem.isAboutTheHips: lastHipProblemSeenOnRealHips = problem
+            case .follows, .outOfReach(.upperArmMoved), .outOfReach(.forearmMoved): lastHipProblemSeenOnRealHips = nil
+            case .outOfReach: break
+            }
+        }
+        if decided == .follows, let lastHipProblemSeenOnRealHips {
+            reach = .outOfReach(lastHipProblemSeenOnRealHips)
         } else {
             reach = decided
         }
