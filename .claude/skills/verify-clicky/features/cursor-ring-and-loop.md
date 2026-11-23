@@ -1,7 +1,8 @@
 # Cursor ring and loop
 
 Clicky's voice states share a ring around the cursor: ticks that follow the voice while the learner talks, and three orbiting dots while Clicky thinks.
-When a request becomes a look at the video or image in Chrome's front tab, a hand-drawn loop goes around that media, and a spark draws it and keeps lapping until the answer, a scene, or a clear event ends it.
+When a request becomes a look at the video or image in Chrome's front tab, Clicky's own cursor draws a hand-drawn loop around that media: it flies from the mouse to the line's start, traces the line in about a second with the ink behind it, and flies back.
+The finished line carries a quiet shimmer until the answer, a scene, or a clear event ends it.
 A turn that only runs tools, such as "turn it left", never draws a loop.
 A background agent that works on the video in front laps its own spark around the same line, in its token's color, and speeds up as its progress grows.
 
@@ -10,6 +11,10 @@ A background agent that works on the video in front laps its own spark around th
 - `ring-listening` shows 24 ticks around the cursor while push-to-talk is held, with lengths that follow the microphone.
 - `ring-thinking` shows three dots orbiting the cursor once every 1.2 seconds while a request runs and no loop shows.
 - `loop-draws` draws the loop around the front tab's video when the router hands off to `answer_with_screen`, `build_new_scene`, or `pop_out`, or the keyword path starts a scene or pop-out.
+- `loop-cursor-draws` is the buddy itself tracing the line in the shown theme's glyph: the triangle with the ink at its tip under Clicky blue, the volleyball facing along the line under a school theme. No white spark shows.
+- `loop-lands-at-once` shows the whole line and sends the buddy back when a push-to-talk press, a pointing, a scrub, an instant replay's freeze, or the loop ending comes during the draw.
+  A pointing or a scrub on another display, and a newer loop on any display, bring back a buddy still flying back at once.
+  The triangle traces with its tip on the ink and no stretch.
 - `loop-clears` fades the loop on idle, a new press, a scroll, a front tab or media rect change, an app switch, the answer's speech, or a scene starting to show.
 - `loop-popout` fades the loop when a pop-out lifts, so the pop-out rises from the line.
 - `loop-agent-spark` laps one spark for each agent working on the video in front, in the agent's color, over a quiet track when no request loop shows.
@@ -40,6 +45,9 @@ Preconditions:
   The log shows `Media rect:` lines from the read, and `Cursor loop: ended because speechStarted` when the answer's speech starts.
 - **Pop-out rise.** Run `$V app-launch "pop this out"`.
   The loop shows while the status label "Popping it out" shows, and `Cursor loop: ended because aSceneStartedToShow` appears when the lift starts.
+- **The cursor draws the loop.** Record the video's display with `screencapture -x -V 22 -D <display> "$RUN/loop.mov"` while `$V app-launch "pop this out"` runs, with the mouse on the same display, then tile frames from the seconds after `Cursor loop: drawing around the media in the front tab` with `ffmpeg -vf "fps=5,tile=..."`.
+  The buddy flies from the mouse to the top left of the video, traces the line clockwise in about a second with the line growing behind it, and flies back, and a soft band of light then laps the line.
+  Run it once under the theme the app is set to and once with `defaults write com.crodris.clicky-watch-along companionTheme bundled:clicky-blue`, then write the old value back: the tracer is the theme's own cursor each time.
 - **No loop for a tool-only turn.** Run `$V app-launch "pause the video"`.
   No `Cursor loop:` line appears and no loop shows in a screenshot.
 - **Clear on a tab change.** Start `$V app-launch "what is this?"`, and switch Chrome's tab while the answer is thinking.

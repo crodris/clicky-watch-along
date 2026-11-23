@@ -391,6 +391,9 @@ final class CompanionManager: ObservableObject {
         // shirt's coaching do not.
         speak: { [weak self] line, isAFailure in self?.speakARoomArtLine(line, isAFailure: isAFailure) },
         loopAccentColor: { [weak self] in self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue },
+        loopTracerLook: { [weak self] in
+            self.map { CursorLoopTracerLook(theme: $0.themeSettings.shownTheme, picture: $0.themeSettings.shownThemePicture) }
+        },
         endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() },
         // A painting or a return to the preview, by voice or by a click, is this request's own, so its line is not dropped.
         theLearnerAskedThePanel: { [weak self] in

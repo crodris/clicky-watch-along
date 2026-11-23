@@ -4,7 +4,7 @@
 //
 //  The pure part of the loop Clicky draws around the video or image it is looking at: what decides
 //  whether a request draws a loop and when it clears, the line that background agents lap their sparks around,
-//  the outline of the loop, and the timing of the spark that draws it. Nothing here reads Chrome, the clock, or
+//  the outline of the loop, and the timing of Clicky's cursor as it draws it. Nothing here reads Chrome, the clock, or
 //  the screen, so tests drive it with made-up times and rects.
 //  `CursorLoopController` does the reading, and `CursorLoopView` the drawing.
 //
@@ -16,7 +16,7 @@ import SwiftUI
 // MARK: - The media the loop goes around
 
 /// What the poll reads from Chrome's front tab once a second: which tab it is, and where the window and the largest
-/// media sit in it. It needs two Apple Events, with no accessibility read, since the main actor also draws the spark.
+/// media sit in it. It needs two Apple Events, with no accessibility read, since the main actor also moves the cursor and draws the line.
 struct FrontTabSample: Equatable {
     let windowID: Int
     let tabID: Int
@@ -129,10 +129,10 @@ struct CursorLoopState: Equatable {
 
     enum Loop: Equatable {
         case hidden
-        /// `sparkSlowsAt` is set once a scene build runs under the loop.
-        case showing(MediaOnTheFrontTab, since: TimeInterval, sparkSlowsAt: TimeInterval?)
-        /// Keeps the timing the loop had, so its spark carries on while the line fades.
-        case fadingOut(MediaOnTheFrontTab, since: TimeInterval, sparkSlowsAt: TimeInterval?)
+        /// `shimmerSlowsAt` is set once a scene build runs under the loop.
+        case showing(MediaOnTheFrontTab, since: TimeInterval, shimmerSlowsAt: TimeInterval?)
+        /// Keeps the timing the loop had, so its shimmer carries on while the line fades.
+        case fadingOut(MediaOnTheFrontTab, since: TimeInterval, shimmerSlowsAt: TimeInterval?)
     }
 
     enum AgentLine: Equatable {
@@ -162,14 +162,14 @@ struct CursorLoopState: Equatable {
     }
 
     /// The loop to draw, whether it is showing or fading out.
-    var loopOnTheMedia: (media: MediaOnTheFrontTab, since: TimeInterval, sparkSlowsAt: TimeInterval?, isFadingOut: Bool)? {
+    var loopOnTheMedia: (media: MediaOnTheFrontTab, since: TimeInterval, shimmerSlowsAt: TimeInterval?, isFadingOut: Bool)? {
         switch loop {
         case .hidden:
             return nil
-        case .showing(let media, let since, let sparkSlowsAt):
-            return (media, since, sparkSlowsAt, false)
-        case .fadingOut(let media, let since, let sparkSlowsAt):
-            return (media, since, sparkSlowsAt, true)
+        case .showing(let media, let since, let shimmerSlowsAt):
+            return (media, since, shimmerSlowsAt, false)
+        case .fadingOut(let media, let since, let shimmerSlowsAt):
+            return (media, since, shimmerSlowsAt, true)
         }
     }
 
@@ -295,7 +295,7 @@ struct CursorLoopState: Equatable {
         // The request already became a look at the media, so this is the last chance to draw the loop for it.
         turn = .notWaitingForALoop
         if now - handedOffAt <= Self.secondsTheRectMayArriveAfterTheHandOff {
-            loop = .showing(media, since: now, sparkSlowsAt: nil)
+            loop = .showing(media, since: now, shimmerSlowsAt: nil)
             if agentsMayJoinTheLine { runningAgentsRejoinTheLine() }
         }
     }
@@ -311,22 +311,22 @@ struct CursorLoopState: Equatable {
             turn = .readingTheRect(handedOffAt: now)
         case .rectIsInHand(let media):
             turn = .notWaitingForALoop
-            loop = .showing(media, since: now, sparkSlowsAt: nil)
+            loop = .showing(media, since: now, shimmerSlowsAt: nil)
         }
     }
 
     /// A status line such as "Building your 3D scene" started under a loop. After the first 3 seconds of the loop
-    /// the spark slows, since a build takes a while and a fast spark would look like a hang.
+    /// the line's shimmer slows, since a build takes a while and a fast shimmer would look like a hang.
     mutating func aStatusLabelStartedShowing(at now: TimeInterval) {
-        guard case .showing(let media, let since, let sparkSlowsAt) = loop, sparkSlowsAt == nil else { return }
-        loop = .showing(media, since: since, sparkSlowsAt: max(now, since + CursorLoopTimeline.secondsBeforeTheSparkSlowsDuringABuild))
+        guard case .showing(let media, let since, let shimmerSlowsAt) = loop, shimmerSlowsAt == nil else { return }
+        loop = .showing(media, since: since, shimmerSlowsAt: max(now, since + CursorLoopTimeline.secondsBeforeTheShimmerSlowsDuringABuild))
     }
 
     /// Any of these ends the turn too, so a rect read for it can no longer draw a loop.
     mutating func end(because reason: CursorLoopEndReason) {
         turn = .notWaitingForALoop
-        if case .showing(let media, let since, let sparkSlowsAt) = loop {
-            loop = .fadingOut(media, since: since, sparkSlowsAt: sparkSlowsAt)
+        if case .showing(let media, let since, let shimmerSlowsAt) = loop {
+            loop = .fadingOut(media, since: since, shimmerSlowsAt: shimmerSlowsAt)
         }
         if reason.endsTheAgentSparks, case .showing(let line) = agentLine {
             agentLine = .fadingOut(line)
@@ -466,47 +466,85 @@ enum CursorLoopOutline {
     }
 }
 
-// MARK: - The spark's timing
+// MARK: - The cursor's timing
 
-/// What the loop shows at one moment: how much of the line is drawn, and where the spark is. A pure function of
-/// the time since the loop began, so a frame never depends on the one before it.
+/// When Clicky's cursor draws a loop, as pure functions of time, so a frame never depends on the one before it.
+/// The cursor traces the whole line once in `traceSeconds`, easing in and out like a hand, and the ink is the line behind
+/// it. In the overlay the real cursor flies to the line's start first, on the Point move, and back to the mouse after, and
+/// the finished line then carries a slow shimmer while Clicky thinks, since the loop is the thinking light. The room art
+/// panel has no cursor to fly in, so its glyph starts on the line and keeps lapping it while the measurement runs.
+/// Both laps go at `secondsPerLap`, and the overlay's shimmer slows during a build.
 enum CursorLoopTimeline {
-    static let sparkFlightFromTheCursorSeconds: TimeInterval = 0.3
-    static let drawSeconds: TimeInterval = 1.0
+    static let traceSeconds: TimeInterval = 1.0
     static let secondsPerLap: TimeInterval = 2.2
     /// While a scene builds under the loop, after its first 3 seconds, a lap takes this long.
     static let secondsPerLapDuringABuild: TimeInterval = 4.0
-    static let secondsBeforeTheSparkSlowsDuringABuild: TimeInterval = 3.0
+    static let secondsBeforeTheShimmerSlowsDuringABuild: TimeInterval = 3.0
 
-    enum SparkPlace: Equatable {
-        /// On its way from the cursor to the line's start. `share` runs from 0 at the cursor to 1 at the start.
-        case flyingFromTheCursor(share: Double)
-        /// On the line. `share` runs from 0 at the start to 1 at the end of the overshoot.
-        case onTheLoop(share: Double)
+    /// The share of the line traced `seconds` after the cursor reached the line's start: 0 before, 1 from `traceSeconds`
+    /// on, and smoothstep between, so the cursor sets off and arrives gently.
+    static func tracedShare(secondsSinceTheTraceBegan seconds: TimeInterval) -> Double {
+        let linearShare = min(max(seconds / traceSeconds, 0), 1)
+        return linearShare * linearShare * (3 - 2 * linearShare)
+    }
+
+    static func traceIsDone(secondsSinceTheTraceBegan seconds: TimeInterval) -> Bool {
+        seconds >= traceSeconds
+    }
+
+    /// How fast the cursor traces at this moment, from 0 at the ends of the trace to 1 at its middle: the slope of the
+    /// smoothstep over its peak. Its streaks show by it, and it stretches along the line by it, as in a Point flight.
+    static func traceSpeedShare(secondsSinceTheTraceBegan seconds: TimeInterval) -> Double {
+        let linearShare = min(max(seconds / traceSeconds, 0), 1)
+        return 4 * linearShare * (1 - linearShare)
+    }
+
+    /// The flight to the line's start leaves the cursor turned along the flight's arc, so at the start of the trace it turns
+    /// to its tracing angle over `secondsToTurnTowardTheLine`, the shortest way round, instead of snapping.
+    static let secondsToTurnTowardTheLine: TimeInterval = 0.15
+
+    static func turnTowardTheLine(fromDegrees: Double, toDegrees: Double, secondsSinceTheTraceBegan seconds: TimeInterval) -> Double {
+        let turnedShare = min(max(seconds / secondsToTurnTowardTheLine, 0), 1)
+        var difference = (toDegrees - fromDegrees).truncatingRemainder(dividingBy: 360)
+        if difference > 180 { difference -= 360 }
+        if difference < -180 { difference += 360 }
+        return fromDegrees + difference * turnedShare
+    }
+
+    /// Where a lap is, from 0 to 1, `seconds` after the laps began. `secondsWhenTheLapsSlow` counts from the same moment, and a
+    /// negative one slows them from the start. Nil keeps a lap at `secondsPerLap`.
+    static func lapShare(secondsSinceTheLapsBegan seconds: TimeInterval, secondsWhenTheLapsSlow: TimeInterval?) -> Double {
+        let secondsSinceBegan = max(0, seconds)
+        let slowedFromSeconds = max(0, secondsWhenTheLapsSlow ?? .infinity)
+        let secondsAtTheNormalPace = min(secondsSinceBegan, slowedFromSeconds)
+        let secondsAtTheSlowPace = max(0, secondsSinceBegan - slowedFromSeconds)
+        let lapsDone = secondsAtTheNormalPace / secondsPerLap + secondsAtTheSlowPace / secondsPerLapDuringABuild
+        return lapsDone.truncatingRemainder(dividingBy: 1)
+    }
+
+    /// Where the glyph is on a loop it keeps lapping.
+    enum TracerPlace: Equatable {
+        /// Drawing the line. `share` runs from 0 at the start to 1 at the end of the overshoot.
+        case tracing(share: Double)
+        /// Lapping the finished line. `lapShare` runs from 0 to 1 around the closed part of it (`CursorLoopLine.shareOfTheLine(atLapShare:)`).
+        case lapping(lapShare: Double)
     }
 
     struct Frame: Equatable {
-        /// How much of the line is drawn, from 0 to 1. The spark draws it, so it is also the spark's share while drawing.
+        /// How much of the line is drawn, from 0 to 1.
         let drawnShare: Double
-        let spark: SparkPlace
+        let tracer: TracerPlace
     }
 
-    /// `secondsWhenTheSparkSlows` counts from the loop's first moment, like the time does. Nil keeps a lap at 2.2 seconds.
-    static func frame(secondsSinceTheLoopBegan secondsSinceBegan: TimeInterval, secondsWhenTheSparkSlows: TimeInterval?) -> Frame {
-        let secondsBeforeDrawing = sparkFlightFromTheCursorSeconds
-        let secondsBeforeLapping = secondsBeforeDrawing + drawSeconds
-        if secondsSinceBegan < secondsBeforeDrawing {
-            return Frame(drawnShare: 0, spark: .flyingFromTheCursor(share: max(0, secondsSinceBegan) / secondsBeforeDrawing))
+    /// The room art panel's loop: the glyph traces the line from the loop's first moment, then laps it.
+    static func lappingFrame(secondsSinceTheLoopBegan seconds: TimeInterval) -> Frame {
+        guard traceIsDone(secondsSinceTheTraceBegan: seconds) else {
+            let share = tracedShare(secondsSinceTheTraceBegan: seconds)
+            return Frame(drawnShare: share, tracer: .tracing(share: share))
         }
-        if secondsSinceBegan < secondsBeforeLapping {
-            let drawnShare = (secondsSinceBegan - secondsBeforeDrawing) / drawSeconds
-            return Frame(drawnShare: drawnShare, spark: .onTheLoop(share: drawnShare))
-        }
-        // The spark keeps going from the end of the line, so it never jumps back at the end of the draw.
-        let slowedFromSeconds = max(secondsWhenTheSparkSlows ?? .infinity, secondsBeforeLapping)
-        let secondsAtTheNormalPace = min(secondsSinceBegan, slowedFromSeconds) - secondsBeforeLapping
-        let secondsAtTheSlowPace = max(0, secondsSinceBegan - slowedFromSeconds)
-        let lapsDone = 1 + secondsAtTheNormalPace / secondsPerLap + secondsAtTheSlowPace / secondsPerLapDuringABuild
-        return Frame(drawnShare: 1, spark: .onTheLoop(share: lapsDone.truncatingRemainder(dividingBy: 1)))
+        return Frame(
+            drawnShare: 1,
+            tracer: .lapping(lapShare: lapShare(secondsSinceTheLapsBegan: seconds - traceSeconds, secondsWhenTheLapsSlow: nil))
+        )
     }
 }

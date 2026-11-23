@@ -3,7 +3,7 @@
 //  leanring-buddyTests
 //
 //  The ring around the cursor and the loop around the media Clicky is looking at: when a request draws a loop and
-//  when it clears, the loop's outline, the spark's timing, and the ring's ticks and dots.
+//  when it clears, the loop's outline, the lap's pace and the shimmer's slowdown, and the ring's ticks and dots.
 //
 
 import CoreGraphics
@@ -43,7 +43,7 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
 
 @Test func aRequestThatBecomesALookDrawsTheLoopWhenTheRectIsAlreadyInHand() {
     let state = stateShowingALoop(since: 10)
-    #expect(state.loop == .showing(exampleMedia, since: 10, sparkSlowsAt: nil))
+    #expect(state.loop == .showing(exampleMedia, since: 10, shimmerSlowsAt: nil))
     #expect(state.turn == .notWaitingForALoop)
 }
 
@@ -54,7 +54,7 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
     #expect(!state.loopIsShowing)
     // A quarter second after the hand-off is inside the 300 ms window.
     state.mediaRectArrived(exampleMedia, at: 10.25, agentsMayJoinTheLine: true)
-    #expect(state.loop == .showing(exampleMedia, since: 10.25, sparkSlowsAt: nil))
+    #expect(state.loop == .showing(exampleMedia, since: 10.25, shimmerSlowsAt: nil))
 }
 
 @Test func aRectThatArrivesAfterTheHandOffWindowDrawsNothing() {
@@ -115,7 +115,7 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
 func eachEndEventFadesAShowingLoop(reason: CursorLoopEndReason) {
     var state = stateShowingALoop(since: 10)
     state.end(because: reason)
-    #expect(state.loop == .fadingOut(exampleMedia, since: 10, sparkSlowsAt: nil))
+    #expect(state.loop == .fadingOut(exampleMedia, since: 10, shimmerSlowsAt: nil))
     #expect(!state.loopIsShowing)
     state.fadeOutFinished()
     #expect(state.loop == .hidden)
@@ -244,44 +244,31 @@ private func controllerWithATurnWaitingForALoop(
     #expect(!requestMayDrawALoop(aSceneIsOnScreen: true, aQuizQuestionIsOpen: true))
 }
 
-// MARK: - The spark under a build
+// MARK: - The shimmer under a build
 
-@Test func theSparkSlowsThreeSecondsIntoTheLoopWhenABuildStarts() {
+@Test func theShimmerSlowsThreeSecondsIntoTheLoopWhenABuildStarts() {
     var buildStartedEarly = stateShowingALoop(since: 10)
     buildStartedEarly.aStatusLabelStartedShowing(at: 10.5)
-    #expect(buildStartedEarly.loop == .showing(exampleMedia, since: 10, sparkSlowsAt: 13))
+    #expect(buildStartedEarly.loop == .showing(exampleMedia, since: 10, shimmerSlowsAt: 13))
 
     var buildStartedLate = stateShowingALoop(since: 10)
     buildStartedLate.aStatusLabelStartedShowing(at: 15)
-    #expect(buildStartedLate.loop == .showing(exampleMedia, since: 10, sparkSlowsAt: 15))
+    #expect(buildStartedLate.loop == .showing(exampleMedia, since: 10, shimmerSlowsAt: 15))
 }
 
-@Test func theSparkLapsEvery2Point2SecondsAndEvery4SecondsDuringABuild() {
-    let secondsBeforeLapping = CursorLoopTimeline.sparkFlightFromTheCursorSeconds + CursorLoopTimeline.drawSeconds
-    func shareOnTheLoop(_ frame: CursorLoopTimeline.Frame) -> Double {
-        guard case .onTheLoop(let share) = frame.spark else { return -1 }
-        return share
-    }
-    let atTheEndOfTheDraw = CursorLoopTimeline.frame(secondsSinceTheLoopBegan: secondsBeforeLapping, secondsWhenTheSparkSlows: nil)
-    let aLapLater = CursorLoopTimeline.frame(secondsSinceTheLoopBegan: secondsBeforeLapping + 2.2, secondsWhenTheSparkSlows: nil)
-    #expect(atTheEndOfTheDraw.drawnShare == 1)
-    #expect(abs(shareOnTheLoop(atTheEndOfTheDraw) - shareOnTheLoop(aLapLater)) < 0.0001)
+@Test func aLapTakes2Point2SecondsAnd4SecondsOnceItSlows() {
+    #expect(CursorLoopTimeline.lapShare(secondsSinceTheLapsBegan: 0, secondsWhenTheLapsSlow: nil) == 0)
+    #expect(abs(CursorLoopTimeline.lapShare(secondsSinceTheLapsBegan: 1.1, secondsWhenTheLapsSlow: nil) - 0.5) < 1e-9)
+    #expect(abs(CursorLoopTimeline.lapShare(secondsSinceTheLapsBegan: 2.2 + 0.55, secondsWhenTheLapsSlow: nil) - 0.25) < 1e-9)
 
-    // Slowing at 3 seconds changes the pace from then on and never moves the spark at that moment.
-    let justBeforeTheSlowdown = CursorLoopTimeline.frame(secondsSinceTheLoopBegan: 3, secondsWhenTheSparkSlows: 3)
-    let justAfterTheSlowdown = CursorLoopTimeline.frame(secondsSinceTheLoopBegan: 3.0001, secondsWhenTheSparkSlows: 3)
-    #expect(abs(shareOnTheLoop(justBeforeTheSlowdown) - shareOnTheLoop(justAfterTheSlowdown)) < 0.001)
-    let aSlowLapLater = CursorLoopTimeline.frame(secondsSinceTheLoopBegan: 3 + 4, secondsWhenTheSparkSlows: 3)
-    #expect(abs(shareOnTheLoop(justBeforeTheSlowdown) - shareOnTheLoop(aSlowLapLater)) < 0.0001)
-}
-
-@Test func theSparkLeavesTheCursorThenDrawsTheWholeLoop() {
-    let flying = CursorLoopTimeline.frame(secondsSinceTheLoopBegan: 0.15, secondsWhenTheSparkSlows: nil)
-    #expect(flying.drawnShare == 0)
-    #expect(flying.spark == .flyingFromTheCursor(share: 0.5))
-    let drawing = CursorLoopTimeline.frame(secondsSinceTheLoopBegan: 0.3 + 0.5, secondsWhenTheSparkSlows: nil)
-    #expect(drawing.drawnShare == 0.5)
-    #expect(drawing.spark == .onTheLoop(share: 0.5))
+    // Slowing at 3 seconds changes the pace from then on and never moves the lap at that moment.
+    let justBeforeTheSlowdown = CursorLoopTimeline.lapShare(secondsSinceTheLapsBegan: 3, secondsWhenTheLapsSlow: 3)
+    let justAfterTheSlowdown = CursorLoopTimeline.lapShare(secondsSinceTheLapsBegan: 3.0001, secondsWhenTheLapsSlow: 3)
+    #expect(abs(justBeforeTheSlowdown - justAfterTheSlowdown) < 0.001)
+    let aSlowLapLater = CursorLoopTimeline.lapShare(secondsSinceTheLapsBegan: 3 + 4, secondsWhenTheLapsSlow: 3)
+    #expect(abs(justBeforeTheSlowdown - aSlowLapLater) < 1e-9)
+    // A slowdown that came before the laps began runs them slow from their start.
+    #expect(abs(CursorLoopTimeline.lapShare(secondsSinceTheLapsBegan: 1, secondsWhenTheLapsSlow: -2) - 0.25) < 1e-9)
 }
 
 // MARK: - The outline
@@ -409,7 +396,7 @@ func theLoopClosesWithAnOvershootThatPassesItsStartAndStaysInsideTheLine(mediaRe
     #expect(cursorCue(voiceState: .listening, loopIsShowing: false) == .listening)
     #expect(cursorCue(voiceState: .processing, loopIsShowing: false) == .thinkingWithDots)
     #expect(cursorCue(voiceState: .responding, loopIsShowing: false) == .speaking)
-    // The loop's spark is the thinking light, so the dots stay away while it shows.
+    // The loop's shimmer is the thinking light, so the dots stay away while it shows.
     #expect(cursorCue(voiceState: .processing, loopIsShowing: true) == .thinkingWithLoop)
 }
 

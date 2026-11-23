@@ -62,9 +62,9 @@ struct ShirtPaintedStillPhaseTests {
     @Test func theLoopTracesTheTorsoWhilePaintingAndFadesWhenTheStillShows() {
         let drawing = RoomArtLoopState.hidden.after(phaseChangedTo: .paintingTheShirt(title: "Tee", id: paintingID), at: 10)
         #expect(drawing == .drawing(beganAt: 10))
-        #expect(drawing.after(phaseChangedTo: .showingThePaintedShirt(title: "Tee"), at: 20) == .fadingOut(beganAt: 10))
+        #expect(drawing.after(phaseChangedTo: .showingThePaintedShirt(title: "Tee"), at: 20) == .fadingOut(beganAt: 10, tracesTheLine: true))
         // A failed or abandoned painting fades it too, as the live preview showing does.
-        #expect(drawing.after(phaseChangedTo: live, at: 20) == .fadingOut(beganAt: 10))
+        #expect(drawing.after(phaseChangedTo: live, at: 20) == .fadingOut(beganAt: 10, tracesTheLine: true))
     }
 
     @Test func aLineAfterTheLearnersRightThereIsStillTheirs() {

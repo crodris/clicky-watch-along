@@ -1293,7 +1293,8 @@ struct RoomArtPreviewControllerTests {
         try await waitFor("the line that the piece could not be drawn") { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
         #expect(harness.recorder.spokenLineFailureFlags == [true])
         #expect(harness.statusLine() == "I couldn't draw it this time. Click the floor to try again")
-        #expect(harness.controller.loopState.isDrawing)
+        // The line stays to show where to click, with no glyph lapping it while nothing runs.
+        #expect(!harness.controller.loopState.isHidden && !harness.controller.loopState.tracesTheLine)
         #expect(harness.frameProcessor.surfacesShownOn.isEmpty && harness.frameProcessor.furnitureLayersShown.isEmpty)
 
         paintingGate.open()
@@ -2217,7 +2218,7 @@ struct RoomArtPreviewControllerTests {
 
         wallReplyGate.open()
         try await waitFor("the art to show on the wall") { harness.artIsShowing() }
-        #expect(harness.controller.loopState == .fadingOut(beganAt: try #require(beganAt)))
+        #expect(harness.controller.loopState == .fadingOut(beganAt: try #require(beganAt), tracesTheLine: true))
 
         harness.controller.theLoopFadeFinished()
         #expect(harness.controller.loopState == .hidden)
