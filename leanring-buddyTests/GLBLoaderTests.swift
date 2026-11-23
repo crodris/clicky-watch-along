@@ -918,82 +918,84 @@ struct GLBLoaderRealFileTests {
     }
 }
 
-/// A store's file can point many materials at one large texture, or embed several large ones, so what the loader decodes
-/// and derives from images is cached and counted against a budget.
-struct GLBLoaderImageBudgetTests {
-    /// A 4096 by 4096 PNG of one color, which compresses to a few kilobytes but decodes to 16.7 million pixels.
-    private static let largePNG: Data = {
-        let side = 4096
-        let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
-                                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        context?.setFillColor(CGColor(srgbRed: 0.2, green: 0.6, blue: 0.9, alpha: 1))
-        context?.fill(CGRect(x: 0, y: 0, width: side, height: side))
-        let output = NSMutableData()
-        if let image = context?.makeImage(), let destination = CGImageDestinationCreateWithData(output, "public.png" as CFString, 1, nil) {
-            CGImageDestinationAddImage(destination, image, nil)
-            CGImageDestinationFinalize(destination)
-        }
-        return output as Data
-    }()
-
-    /// A quad whose mesh repeats its primitive `primitiveCount` times, each with its own material built by `material`.
-    /// With `sharingOneMaterial`, every primitive uses the first material instead.
-    private func quadWithPrimitives(_ primitiveCount: Int, imageCount: Int, sharingOneMaterial: Bool = false, material: (Int) -> [String: Any]) -> SyntheticGLB {
-        var glb = quadGLB(material: material(0), imageFiles: Array(repeating: (bytes: Self.largePNG, mimeType: "image/png"), count: imageCount))
-        var addedMaterialIndices: [Int] = []
-        for primitiveIndex in 1..<max(primitiveCount, 1) {
-            addedMaterialIndices.append(sharingOneMaterial ? 0 : glb.appendEntry(material(primitiveIndex), to: "materials"))
-        }
-        glb.changeEntry(of: "meshes", at: 0) { mesh in
-            var primitives = mesh["primitives"] as? [[String: Any]] ?? []
-            let firstPrimitive = primitives[0]
-            for materialIndex in addedMaterialIndices {
-                var primitive = firstPrimitive
-                primitive["material"] = materialIndex
-                primitives.append(primitive)
+extension CPUHeavyTests {
+    /// A store's file can point many materials at one large texture, or embed several large ones, so what the loader decodes
+    /// and derives from images is cached and counted against a budget.
+    struct GLBLoaderImageBudgetTests {
+        /// A 4096 by 4096 PNG of one color, which compresses to a few kilobytes but decodes to 16.7 million pixels.
+        private static let largePNG: Data = {
+            let side = 4096
+            let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
+                                    space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            context?.setFillColor(CGColor(srgbRed: 0.2, green: 0.6, blue: 0.9, alpha: 1))
+            context?.fill(CGRect(x: 0, y: 0, width: side, height: side))
+            let output = NSMutableData()
+            if let image = context?.makeImage(), let destination = CGImageDestinationCreateWithData(output, "public.png" as CFString, 1, nil) {
+                CGImageDestinationAddImage(destination, image, nil)
+                CGImageDestinationFinalize(destination)
             }
-            mesh["primitives"] = primitives
+            return output as Data
+        }()
+
+        /// A quad whose mesh repeats its primitive `primitiveCount` times, each with its own material built by `material`.
+        /// With `sharingOneMaterial`, every primitive uses the first material instead.
+        private func quadWithPrimitives(_ primitiveCount: Int, imageCount: Int, sharingOneMaterial: Bool = false, material: (Int) -> [String: Any]) -> SyntheticGLB {
+            var glb = quadGLB(material: material(0), imageFiles: Array(repeating: (bytes: Self.largePNG, mimeType: "image/png"), count: imageCount))
+            var addedMaterialIndices: [Int] = []
+            for primitiveIndex in 1..<max(primitiveCount, 1) {
+                addedMaterialIndices.append(sharingOneMaterial ? 0 : glb.appendEntry(material(primitiveIndex), to: "materials"))
+            }
+            glb.changeEntry(of: "meshes", at: 0) { mesh in
+                var primitives = mesh["primitives"] as? [[String: Any]] ?? []
+                let firstPrimitive = primitives[0]
+                for materialIndex in addedMaterialIndices {
+                    var primitive = firstPrimitive
+                    primitive["material"] = materialIndex
+                    primitives.append(primitive)
+                }
+                mesh["primitives"] = primitives
+            }
+            return glb
         }
-        return glb
-    }
 
-    @Test func manyMaterialsSharingOneLargePackedTextureDeriveItsChannelsOnce() throws {
-        // Ten materials each splitting the same packed texture would derive 20 channel images, 334 million pixels, past the
-        // budget, so this loads only because each channel is derived once and shared.
-        let glb = quadWithPrimitives(10, imageCount: 1) { _ in
-            ["pbrMetallicRoughness": ["metallicRoughnessTexture": ["index": 0]]]
+        @Test func manyMaterialsSharingOneLargePackedTextureDeriveItsChannelsOnce() throws {
+            // Ten materials each splitting the same packed texture would derive 20 channel images, 334 million pixels, past the
+            // budget, so this loads only because each channel is derived once and shared.
+            let glb = quadWithPrimitives(10, imageCount: 1) { _ in
+                ["pbrMetallicRoughness": ["metallicRoughnessTexture": ["index": 0]]]
+            }
+            let rootNode = try GLBLoader.rootNode(fromGLBData: glb.data())
+            var materials: [SCNMaterial] = []
+            rootNode.enumerateHierarchy { node, _ in materials += node.geometry?.materials ?? [] }
+            #expect(materials.count == 10)
+            let roughnessImages = materials.compactMap { $0.roughness.contents as AnyObject? }
+            #expect(roughnessImages.count == 10)
+            #expect(roughnessImages.allSatisfy { $0 === roughnessImages[0] })
         }
-        let rootNode = try GLBLoader.rootNode(fromGLBData: glb.data())
-        var materials: [SCNMaterial] = []
-        rootNode.enumerateHierarchy { node, _ in materials += node.geometry?.materials ?? [] }
-        #expect(materials.count == 10)
-        let roughnessImages = materials.compactMap { $0.roughness.contents as AnyObject? }
-        #expect(roughnessImages.count == 10)
-        #expect(roughnessImages.allSatisfy { $0 === roughnessImages[0] })
-    }
 
-    @Test func imagesPastThePixelBudgetAreRefused() throws {
-        // Four different 4096 by 4096 base colors decode to 67 million pixels, past the 64 million budget.
-        let glb = quadWithPrimitives(4, imageCount: 4) { primitiveIndex in
-            ["pbrMetallicRoughness": ["baseColorTexture": ["index": primitiveIndex]], "alphaMode": "BLEND"]
+        @Test func imagesPastThePixelBudgetAreRefused() throws {
+            // Four different 4096 by 4096 base colors decode to 67 million pixels, past the 64 million budget.
+            let glb = quadWithPrimitives(4, imageCount: 4) { primitiveIndex in
+                ["pbrMetallicRoughness": ["baseColorTexture": ["index": primitiveIndex]], "alphaMode": "BLEND"]
+            }
+            #expect(throws: GLBLoadError.self) { try GLBLoader.rootNode(fromGLBData: glb.data()) }
         }
-        #expect(throws: GLBLoadError.self) { try GLBLoader.rootNode(fromGLBData: glb.data()) }
-    }
 
-    @Test func aFileWithTooManyMaterialsIsRefused() throws {
-        var glb = quadGLB(material: [:])
-        for _ in 0..<GLBLoader.mostMaterialsInAFile { glb.appendEntry([:], to: "materials") }
-        #expect(throws: GLBLoadError.self) { try GLBLoader.rootNode(fromGLBData: glb.data()) }
-    }
+        @Test func aFileWithTooManyMaterialsIsRefused() throws {
+            var glb = quadGLB(material: [:])
+            for _ in 0..<GLBLoader.mostMaterialsInAFile { glb.appendEntry([:], to: "materials") }
+            #expect(throws: GLBLoadError.self) { try GLBLoader.rootNode(fromGLBData: glb.data()) }
+        }
 
-    @Test func aFileWithTooManyPrimitivesIsRefused() throws {
-        // One shared material, so only the primitive cap can refuse it.
-        let glb = quadWithPrimitives(GLBLoader.mostPrimitivesInAFile + 1, imageCount: 0, sharingOneMaterial: true) { _ in [:] }
-        #expect(throws: GLBLoadError.self) { try GLBLoader.rootNode(fromGLBData: glb.data()) }
-    }
+        @Test func aFileWithTooManyPrimitivesIsRefused() throws {
+            // One shared material, so only the primitive cap can refuse it.
+            let glb = quadWithPrimitives(GLBLoader.mostPrimitivesInAFile + 1, imageCount: 0, sharingOneMaterial: true) { _ in [:] }
+            #expect(throws: GLBLoadError.self) { try GLBLoader.rootNode(fromGLBData: glb.data()) }
+        }
 
-    @Test func aFileAtTheMaterialAndPrimitiveCapsLoads() throws {
-        let glb = quadWithPrimitives(GLBLoader.mostMaterialsInAFile, imageCount: 0) { _ in [:] }
-        _ = try GLBLoader.rootNode(fromGLBData: glb.data())
+        @Test func aFileAtTheMaterialAndPrimitiveCapsLoads() throws {
+            let glb = quadWithPrimitives(GLBLoader.mostMaterialsInAFile, imageCount: 0) { _ in [:] }
+            _ = try GLBLoader.rootNode(fromGLBData: glb.data())
+        }
     }
 }
