@@ -9,7 +9,8 @@
 //  SHIRT_TRYON_PHOTOS_DIR=/path/photos tools/swift-check.sh --filter ShirtStepBackProcessorCheck
 //  The camera is the photo scaled about the shoulders: first too close for the framing, then eased back to the photo's own
 //  framing over 2 seconds, then held still. The processor takes its time from the clock, so this check runs in real time, about
-//  15 seconds, which is why the capture's own rules are tested by hand in ShirtStepBackTests.
+//  15 seconds (about 25 for the time out check, which waits out the 18 second limit), which is why the capture's own
+//  rules are tested by hand in ShirtStepBackTests.
 //
 
 import CoreGraphics
@@ -86,7 +87,7 @@ struct ShirtStepBackProcessorCheckTests {
         source.resume()
         defer { source.cancel() }
 
-        // The hold is 1 s after the framing settles (0.5 s) in the held frames, which start at 4 s.
+        // The hold is 1.5 s after the framing settles (0.5 s) in the held frames, which start at 4 s.
         try await untilTheCaptureEnds(capture, within: 15)
         let frozen = try #require(capture.frozen, "the capture never froze: \(capture.entries.map { "\($0.seconds) \($0.event)" })")
         print("Shirt step back check: froze \(String(format: "%.2f", frozen.seconds)) s after arming, numbers \(capture.numbers)")
@@ -120,7 +121,7 @@ struct ShirtStepBackProcessorCheckTests {
         source.resume()
         defer { source.cancel() }
 
-        try await untilTheCaptureEnds(capture, within: 15)
+        try await untilTheCaptureEnds(capture, within: 30)
         print("Shirt step back check: timed out \(String(describing: capture.timedOutAt)) s after arming")
         let timedOutAt = try #require(capture.timedOutAt, "no time out: \(capture.entries.map { "\($0.seconds) \($0.event)" })")
         #expect(timedOutAt >= ShirtStepBackCapture.secondsBeforeGivingUp && timedOutAt < ShirtStepBackCapture.secondsBeforeGivingUp + 1.5)

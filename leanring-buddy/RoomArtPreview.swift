@@ -1184,6 +1184,9 @@ final class RoomArtPreviewController: ObservableObject {
         /// they made before, so it must not be dropped as one they moved on from. A drag, click, or scroll that moves the ghost
         /// does not call it, since no line answers one.
         var theLearnerAskedThePanel: () -> Void = {}
+        /// Plays a countdown sound of the shirt's step-back capture: a tick for each number and a different sound when the
+        /// frame freezes. A test counts them instead of playing them.
+        var playTheShirtCountdownSound: (ShirtCountdownSound) -> Void = { $0.play() }
 
         /// Chrome, the Worker at `workerBaseURL`, the app's defaults for the secret, Vision, and the camera (or a Debug
         /// build's `--room-camera-file`).
@@ -1916,6 +1919,9 @@ final class RoomArtPreviewController: ObservableObject {
     /// restarted, cancelled, or left changes nothing.
     private func theShirtCaptureReported(_ event: ShirtCaptureEvent, id paintingID: ShirtPaintingID) {
         guard case .waitingForTheLearnerToStepBack(_, let armedID) = phase, armedID == paintingID else { return }
+        if let countdownSound = shirtCountdownSound(for: event) {
+            environment.playTheShirtCountdownSound(countdownSound)
+        }
         switch event {
         case .countdown(let number):
             shirtCaptureCountdownNumber = number
