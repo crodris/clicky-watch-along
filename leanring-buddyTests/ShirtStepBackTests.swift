@@ -194,7 +194,7 @@ struct ShirtStepBackPhaseTests {
         #expect(!armed(firstID).statusLineIsAFailure(theSurfaceIsLost: false))
         #expect(!armed(firstID).theItemIsPlacedByClicking)
         #expect(roomArtShirtStepBackLine == "Step back and hold still.")
-        #expect(roomArtShirtStepBackTimeoutLine == "I can't see your shoulders yet. Say right there when you're ready.")
+        #expect(roomArtShirtStepBackTimeoutLine == "I can't see your shoulders yet. Say paint it when you're ready.")
     }
 
     @Test func theVoiceAndTheButtonSeeAWaitingCapture() {

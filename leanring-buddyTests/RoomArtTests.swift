@@ -1460,7 +1460,7 @@ struct RoomArtPhaseTests {
         #expect(waiting == .waitingToSeeTheLearner(title: "Coat", preview: .ghostOutline))
         let showing = waiting.afterTheLearnerStoodInFrame()
         #expect(showing == .showingTheShirt(title: "Coat", preview: .ghostOutline))
-        #expect(showing.statusLine == "Where it will go · say right there")
+        #expect(showing.statusLine == "Where it will go · say paint it")
         // The preview is carried through the capture, the painting, and the painted still, and comes back after each.
         let id = ShirtPaintingID(number: 1)
         let armed = showing.armingTheShirtCapture(id: id)

@@ -2,14 +2,15 @@
 //  ShirtStepBack.swift
 //  leanring-buddy
 //
-//  The step-back countdown of the shirt try-on's painted still. Push-to-talk keeps the learner leaning in at the keyboard
-//  when they say "right there", too close for the framing (`ShirtFraming.assess` would say stand back), so the panel no
-//  longer freezes at once. "Right there" and Paint it arm a capture, Clicky says to step back and hold still, and the
-//  capture freezes the first frame where the debounced framing has settled on ready and the torso has held still for
-//  `secondsToHoldStill`, with a 3-2-1 countdown on the panel (one number per half second of the hold, and a soft tick as
-//  each number appears). No hold starts in the first `secondsBeforeAHoldMayStart` after arming, so a learner already in
-//  frame at the keyboard does not freeze while Clicky still says to step back. Moving, or leaving the ready framing,
-//  restarts the hold. A capture that has not frozen within `secondsBeforeGivingUp` disarms.
+//  The step-back countdown of the shirt try-on's painted still. Push-to-talk keeps the learner leaning in at the
+//  keyboard when they say "paint it", too close for the framing (`ShirtFraming.assess` would say stand back), so the
+//  panel no longer freezes at once. "Paint it" (or its alias "right there") and the Paint it button arm a capture,
+//  Clicky says to step back and hold still, and the capture freezes the first frame where the debounced framing has
+//  settled on ready and the torso has held still for `secondsToHoldStill`, with a 3-2-1 countdown on the panel (one
+//  number per half second of the hold, and a soft tick as each number appears). No hold starts in the first
+//  `secondsBeforeAHoldMayStart` after arming, so a learner already in frame at the keyboard does not freeze while
+//  Clicky still says to step back. Moving, or leaving the ready framing, restarts the hold. A capture that has not
+//  frozen within `secondsBeforeGivingUp` disarms.
 //
 //  Everything here is pure: the caller passes each frame's time, so a test steps the capture by hand and never sleeps.
 //
@@ -20,10 +21,10 @@ import Foundation
 
 // MARK: - The lines
 
-/// What Clicky says, and the status line shows, when "right there" arms the capture. Not a failure.
+/// What Clicky says, and the status line shows, when "paint it" arms the capture. Not a failure.
 nonisolated let roomArtShirtStepBackLine = "Step back and hold still."
 /// What Clicky says when the capture gave up. Not a failure, so the cursor does not shake.
-nonisolated let roomArtShirtStepBackTimeoutLine = "I can't see your shoulders yet. Say right there when you're ready."
+nonisolated let roomArtShirtStepBackTimeoutLine = "I can't see your shoulders yet. Say paint it when you're ready."
 
 // MARK: - The sounds
 

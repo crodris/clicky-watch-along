@@ -126,6 +126,8 @@ struct ShirtPaintedStillVoiceTests {
     }
 
     @Test func theRouteTakesThePhrasesAheadOfTheRouterWhileTheShirtShows() {
+        // "Paint it" is the phrase every shirt prompt offers, and "right there" stays a quiet alias.
+        #expect(transcriptRoute(for: "Paint it.", in: context(.livePreview), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
         #expect(transcriptRoute(for: "right there", in: context(.livePreview), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
         #expect(transcriptRoute(for: "go back", in: context(.paintedStill), videoIsInFront: { true }) == .shirtPaintedStill(.backToLive))
         #expect(transcriptRoute(for: "right there", in: context(.stepBack), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
@@ -210,6 +212,112 @@ private struct MadeUpPerson {
 
     static var bodyParts: ShirtPaintBodyParts {
         ShirtPaintBodyParts(faceBoxes: [faceBox], hands: [leftHand, rightHand])
+    }
+}
+
+/// A made-up 320 by 240 frame of a learner in a fitted navy tank top, with bare arms from the shoulders down, gray shorts,
+/// and a gray wall. The joints lie on the drawn arms, so a new tee's short sleeve lands on bare skin.
+private struct TankTopLearner {
+    static let width = 320, height = 240
+    static let torso = BodyTorso(
+        imageLeftShoulder: CGPoint(x: 110, y: 80), imageRightShoulder: CGPoint(x: 210, y: 80),
+        imageLeftHip: CGPoint(x: 115, y: 190), imageRightHip: CGPoint(x: 205, y: 190),
+        hipsWereEstimated: false, shouldersAreSeen: true,
+        imageLeftElbow: CGPoint(x: 92, y: 145), imageRightElbow: CGPoint(x: 228, y: 145),
+        imageLeftWrist: CGPoint(x: 88, y: 203), imageRightWrist: CGPoint(x: 232, y: 203)
+    )
+    static let bodyParts = ShirtPaintBodyParts(
+        faceBoxes: [CGRect(x: 140, y: 12, width: 40, height: 44)],
+        hands: [[CGPoint(x: 82, y: 204), CGPoint(x: 94, y: 204), CGPoint(x: 88, y: 213)], [CGPoint(x: 226, y: 204), CGPoint(x: 238, y: 204), CGPoint(x: 232, y: 213)]]
+    )
+
+    static func frame() -> ShirtFrozenFrame {
+        var rgba = [UInt8](repeating: 255, count: width * height * 4)
+        var person = [UInt8](repeating: 0, count: width * height)
+        for row in 0..<height {
+            for column in 0..<width {
+                let index = row * width + column
+                let color: (UInt8, UInt8, UInt8)?
+                if pow((Double(column) - 160) / 22, 2) + pow((Double(row) - 35) / 25, 2) < 1 || ((148..<172).contains(column) && (55..<74).contains(row)) {
+                    color = (200, 150, 120)
+                } else if (105..<215).contains(column), (72..<200).contains(row) {
+                    color = (30, 40, 80)
+                } else if (80..<105).contains(column) || (215..<240).contains(column), (75..<216).contains(row) {
+                    color = (200, 150, 120)
+                } else if (105..<215).contains(column), (200..<240).contains(row) {
+                    color = (70, 70, 70)
+                } else {
+                    color = nil
+                }
+                let colorHere = color ?? (150, 150, 150)
+                rgba[index * 4] = colorHere.0; rgba[index * 4 + 1] = colorHere.1; rgba[index * 4 + 2] = colorHere.2
+                if color != nil { person[index] = 255 }
+            }
+        }
+        let image = rgbImage(bytes: rgba, width: width, height: height)!
+        // A ghost outline preview, so no garment coverage: only the new tee's own area says where its sleeves land.
+        return ShirtFrozenFrame(
+            cameraImage: image, previewImage: image, personMask: person, previewGarmentCoverage: [UInt8](repeating: 0, count: width * height), torso: torso
+        )
+    }
+}
+
+/// The neck's and the arms' put-back rules on small made-up masks.
+struct ShirtPutBackTests {
+    private let width = 60, height = 40
+    private func region(_ isInside: (Int, Int) -> Bool) -> [Bool] {
+        (0..<(width * height)).map { isInside($0 % width, $0 / width) }
+    }
+
+    @Test func theNeckCutIsPutBackOnlyWhereThePaintingMayNotDraw() {
+        // The cut reaches down over the old collar (rows 20 to 29), which the painting may draw on.
+        let neckSkin = region { column, row in (20..<40).contains(column) && row < 12 }
+        let cut = region { column, row in (10..<50).contains(column) && row < 30 }
+        let paintable = region { _, row in row >= 20 }
+        let weights = ShirtPaintMask.neckPutBack(
+            neckSkin: neckSkin, cut: cut, personMask: [UInt8](repeating: 255, count: width * height), paintable: paintable, width: width, height: height
+        )
+        // The skin, and hair or a beard above the collar, come back as filmed.
+        #expect(weights[5 * width + 30] == 255)
+        #expect(weights[12 * width + 30] == 255)
+        // The old collar under the cut is the painting's.
+        #expect(weights[22 * width + 30] == 0)
+        #expect(weights[26 * width + 15] == 0)
+    }
+
+    @Test func theNeckFadesInInsideItsEdgeAndDropsSpecks() {
+        let neckSkin = region { column, row in ((20..<40).contains(column) && row < 15) || (column == 50 && row == 30) }
+        let weights = ShirtPaintMask.neckPutBack(
+            neckSkin: neckSkin, cut: [Bool](repeating: false, count: width * height), personMask: [UInt8](repeating: 255, count: width * height),
+            paintable: [Bool](repeating: false, count: width * height), width: width, height: height
+        )
+        // Down the middle of the neck: whole inside, rising across its last pixels, nothing past its edge.
+        #expect(weights[5 * width + 30] == 255)
+        #expect(weights[14 * width + 30] > 0 && weights[14 * width + 30] < 255)
+        #expect(weights[15 * width + 30] == 0)
+        // A lone pixel the skin rule kept is a speck, not neck.
+        #expect(weights[30 * width + 50] == 0)
+    }
+
+    @Test func theArmsArePutBackAwayFromThePaintingAndTheNewGarment() {
+        let armZone = region { column, _ in (10..<50).contains(column) }
+        let paintable = region { _, row in row < 10 }
+        let newGarmentCovers = region { column, _ in column >= 40 }
+        // A shoulder width of 100 makes the gap 3 pixels.
+        let weights = ShirtPaintMask.bareArmsPutBack(
+            armZone: armZone, paintable: paintable, newGarmentCovers: newGarmentCovers, shoulderWidth: 100, width: width, height: height
+        )
+        // Well inside the zone, the arm and the room beside it are as filmed.
+        #expect(weights[30 * width + 25] == 255)
+        // Within the gap beside the painting, the new sleeve's edge stays the painting's.
+        #expect(weights[11 * width + 25] == 0)
+        // Where the new garment reaches, and outside the zone, nothing is put back.
+        #expect(weights[30 * width + 45] == 0)
+        #expect(weights[30 * width + 5] == 0)
+        // Between the gap and the whole put-back it rises, with no hard edge.
+        let edgeWeights = (11..<25).map { weights[$0 * width + 25] }
+        #expect(edgeWeights.contains { $0 > 0 && $0 < 255 })
+        #expect(zip(edgeWeights, edgeWeights.dropFirst()).allSatisfy { $0 <= $1 })
     }
 }
 
@@ -338,6 +446,41 @@ extension CPUHeavyTests {
             let masks = try #require(ShirtPaintMask.make(frame: MadeUpPerson.frame(hasABeard: true), bodyParts: MadeUpPerson.bodyParts, coverage: shortTopToTheHip))
             #expect(masks.protected[69 * MadeUpPerson.width + 160] == 255)
             #expect(masks.paintable[69 * MadeUpPerson.width + 160] == 0)
+        }
+
+        @Test func theBareArmsAreProtectedFromThePasteUnlessALongSleeveCoversThem() throws {
+            let frame = MadeUpPerson.frame(torso: MadeUpPerson.torsoWithWrists)
+            let shortSleeves = try #require(ShirtPaintMask.make(frame: frame, bodyParts: MadeUpPerson.bodyParts, coverage: shortTopToTheHip))
+            func protectedWeight(_ column: Int, _ row: Int) -> UInt8 { shortSleeves.protected[row * MadeUpPerson.width + column] }
+            // A short sleeve leaves the forearm bare, so the paste puts it back as filmed, and the room beside it too.
+            #expect(shortSleeves.paintable[170 * MadeUpPerson.width + 82] == 0 && protectedWeight(82, 170) == 255)
+            #expect(protectedWeight(70, 170) == 255)
+            // Right below the old sleeve stub the painting may draw the new sleeve's edge, so nothing is put back there.
+            #expect(protectedWeight(82, 126) == 0)
+            let longSleeves = try #require(ShirtPaintMask.make(
+                frame: MadeUpPerson.frame(torso: MadeUpPerson.torsoWithWrists), bodyParts: MadeUpPerson.bodyParts, coverage: ShirtCoverage(sleeves: .long, length: .hip)
+            ))
+            #expect(longSleeves.protected[170 * MadeUpPerson.width + 82] == 0)
+        }
+
+        @Test func aNewTeesShortSleevesArePaintedOverATankTopLearnersBareUpperArms() throws {
+            let masks = try #require(ShirtPaintMask.make(frame: TankTopLearner.frame(), bodyParts: TankTopLearner.bodyParts, coverage: shortTopToTheHip))
+            func paints(_ column: Int, _ row: Int) -> Bool { masks.paintable[row * TankTopLearner.width + column] > 127 }
+            func protectedWeight(_ column: Int, _ row: Int) -> UInt8 { masks.protected[row * TankTopLearner.width + column] }
+            // The bare upper arm under the new sleeve is painted, and the paste does not put it back, so the sleeve is not
+            // cut off just past the tank top's edge.
+            for (column, row) in [(95, 100), (99, 95), (225, 100), (221, 95)] {
+                #expect(paints(column, row) && protectedWeight(column, row) == 0, "(\(column), \(row))")
+            }
+            // Past the sleeve's end the bare arm, and the forearm, go back as filmed.
+            for (column, row) in [(93, 135), (90, 175), (227, 135), (230, 175)] {
+                #expect(!paints(column, row) && protectedWeight(column, row) == 255, "(\(column), \(row))")
+            }
+            // With no sleeves (a new tank top), the upper arm stays as filmed.
+            let noSleeves = try #require(ShirtPaintMask.make(
+                frame: TankTopLearner.frame(), bodyParts: TankTopLearner.bodyParts, coverage: ShirtCoverage(sleeves: .none, length: .hip)
+            ))
+            #expect(noSleeves.paintable[100 * TankTopLearner.width + 95] == 0 && noSleeves.protected[100 * TankTopLearner.width + 95] == 255)
         }
 
         @Test func anOldTopTheColorOfSkinIsStillPainted() throws {

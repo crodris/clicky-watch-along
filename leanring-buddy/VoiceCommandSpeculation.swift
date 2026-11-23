@@ -23,8 +23,10 @@ nonisolated enum TranscriptRoute: Equatable {
     case replayTheExplanation
     /// "Right there" places the furniture's ghost with no model call (`RoomArtConfirmPhrase`).
     case confirmTheRoomArt
-    /// "Right there" paints the shirt the room art panel previews, and "go back" returns to the preview.
+    /// "Paint it" paints the shirt the room art panel previews, and "go back" returns to the preview.
     case shirtPaintedStill(ShirtStillVoiceRequest)
+    /// "Save this photo" saves what the room art panel shows (`asksToSaveTheRoomArtPhoto`).
+    case saveTheRoomArtPhoto
     /// "Animate this", "let me try it", and "change my theme" run with no model call.
     case keywordBranch(KeywordBranchAheadOfTheRouter)
     /// The voice command router, which runs on the harness brain.
@@ -55,8 +57,10 @@ nonisolated struct TranscriptRouteContext: Equatable, Sendable {
     /// The room art panel shows a placed item that keeps the room (`RoomArtPhase.keepsTheRoomForANewItem`), so "put this lamp
     /// on the table" names a table Clicky painted there.
     var aRoomArtItemKeepsTheRoom: Bool = false
-    /// What the room art panel's shirt can do by voice, so "right there" and "go back" reach it.
+    /// What the room art panel's shirt can do by voice, so "paint it" and "go back" reach it.
     var shirtStillVoiceTargets: ShirtStillVoiceTargets = .none
+    /// The room art panel shows a result Save photo can keep (`RoomArtPhase.photoTitleToSave`), so "save this photo" saves it.
+    var aRoomArtPhotoCanBeSaved: Bool = false
 }
 
 /// The route of a transcript, checked in the order the app has always checked it. `videoIsInFront` is asked only for a
@@ -100,6 +104,14 @@ nonisolated func transcriptRoute(
         themeStudioIsOpen: context.themeStudioIsOpen
     ) {
         return .shirtPaintedStill(shirtStillRequest)
+    }
+    if roomArtSavePhraseRunsAheadOfTheRouter(
+        asksToSave: asksToSaveTheRoomArtPhoto(transcript),
+        aPhotoCanBeSaved: context.aRoomArtPhotoCanBeSaved,
+        quizQuestionIsOpen: context.phaseIsWaitingForAQuizAnswer,
+        themeStudioIsOpen: context.themeStudioIsOpen
+    ) {
+        return .saveTheRoomArtPhoto
     }
     if let keywordBranch = keywordBranchAheadOfTheRouter(
         for: transcript,
