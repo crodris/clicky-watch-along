@@ -38,6 +38,26 @@ struct MediaOnTheFrontTab: Equatable {
     }
 }
 
+/// What a request's loop goes around: the largest media in Chrome's front tab, which the poll watches, or a region the learner
+/// circled with the mouse while holding push-to-talk, which may be in any app, so no tab is watched and no agent's spark joins it.
+enum CursorLoopTarget: Equatable {
+    case media(MediaOnTheFrontTab)
+    case circledRegion(CircledRegion)
+
+    var screenRect: ScreenRectInChromeCoordinates {
+        switch self {
+        case .media(let media): return media.screenRect
+        case .circledRegion(let circledRegion): return circledRegion.boundingRect
+        }
+    }
+
+    /// The Chrome media, or nil for a circled region.
+    var media: MediaOnTheFrontTab? {
+        if case .media(let media) = self { return media }
+        return nil
+    }
+}
+
 /// A request that became a look at the media draws a loop only when nothing else owns the screen: a scene on screen
 /// covers the media, and a quiz question waiting on its answer belongs to the question.
 func requestMayDrawALoop(aSceneIsOnScreen: Bool, aQuizQuestionIsOpen: Bool) -> Bool {
@@ -89,6 +109,15 @@ enum CursorLoopEndReason: CaseIterable, Equatable {
         case .thinkingStopped, .newPushToTalk, .speechStarted: return false
         }
     }
+
+    /// Whether this ends a loop around a region the learner circled. The region may be in any app, so another front app or
+    /// tab leaves its loop: macOS's own prompts, such as the one a screen capture brings up, take the front for a moment.
+    var endsALoopAroundACircledRegion: Bool {
+        switch self {
+        case .appSwitched, .tabOrMediaChanged: return false
+        case .thinkingStopped, .newPushToTalk, .scrolled, .speechStarted, .aSceneStartedToShow: return true
+        }
+    }
 }
 
 /// The line background agents lap their sparks around: the media they work on, and the agents in the order they joined.
@@ -130,9 +159,9 @@ struct CursorLoopState: Equatable {
     enum Loop: Equatable {
         case hidden
         /// `shimmerSlowsAt` is set once a scene build runs under the loop.
-        case showing(MediaOnTheFrontTab, since: TimeInterval, shimmerSlowsAt: TimeInterval?)
+        case showing(CursorLoopTarget, since: TimeInterval, shimmerSlowsAt: TimeInterval?)
         /// Keeps the timing the loop had, so its shimmer carries on while the line fades.
-        case fadingOut(MediaOnTheFrontTab, since: TimeInterval, shimmerSlowsAt: TimeInterval?)
+        case fadingOut(CursorLoopTarget, since: TimeInterval, shimmerSlowsAt: TimeInterval?)
     }
 
     enum AgentLine: Equatable {
@@ -162,22 +191,26 @@ struct CursorLoopState: Equatable {
     }
 
     /// The loop to draw, whether it is showing or fading out.
-    var loopOnTheMedia: (media: MediaOnTheFrontTab, since: TimeInterval, shimmerSlowsAt: TimeInterval?, isFadingOut: Bool)? {
+    var loopOnTheMedia: (target: CursorLoopTarget, since: TimeInterval, shimmerSlowsAt: TimeInterval?, isFadingOut: Bool)? {
         switch loop {
         case .hidden:
             return nil
-        case .showing(let media, let since, let shimmerSlowsAt):
-            return (media, since, shimmerSlowsAt, false)
-        case .fadingOut(let media, let since, let shimmerSlowsAt):
-            return (media, since, shimmerSlowsAt, true)
+        case .showing(let target, let since, let shimmerSlowsAt):
+            return (target, since, shimmerSlowsAt, false)
+        case .fadingOut(let target, let since, let shimmerSlowsAt):
+            return (target, since, shimmerSlowsAt, true)
         }
     }
 
-    /// The media of a loop that is showing, which the poll compares each front tab read to.
+    /// The Chrome media of a loop that is showing, which the poll compares each front tab read to. A circled region has none.
     var mediaTheLoopIsAround: MediaOnTheFrontTab? {
-        if case .showing(let media, _, _) = loop { return media }
+        if case .showing(let target, _, _) = loop { return target.media }
         return nil
     }
+
+    /// A request's loop around the media draws the whole line the agents' sparks ride, so their own track shows only when
+    /// none does. A loop around a region the learner circled is somewhere else, so the track stays.
+    var agentLineDrawsItsOwnTrack: Bool { mediaTheLoopIsAround == nil }
 
     var agentLineIsShowing: Bool {
         if case .showing = agentLine { return true }
@@ -209,8 +242,8 @@ struct CursorLoopState: Equatable {
     /// An agent started. Its spark joins the line when its work is on the video in front, and it is remembered so that it
     /// can rejoin when a later turn has that video's media in hand again. The line goes around the media it already has,
     /// or a loop's, or else the rect the push-to-talk release read for this turn, which a turn that handed off to nothing
-    /// keeps. With no request loop, that rect in hand is what gives an agent a line of its own, and dropping it would
-    /// limit sparks to a loop a request already drew. `mayJoinTheLine` is false while a scene covers the media, a quiz question
+    /// keeps. With no request loop around the media, that rect in hand is what gives an agent a line of its own, and
+    /// dropping it would limit sparks to a loop a request already drew. `mayJoinTheLine` is false while a scene covers the media, a quiz question
     /// is open, or Show Clicky is off, and the agent is then only remembered.
     mutating func agentStarted(id agentID: UUID, sourceTab: AgentSourceTab, mayJoinTheLine: Bool) {
         guard !runningAgents.contains(where: { $0.id == agentID }) else { return }
@@ -295,7 +328,7 @@ struct CursorLoopState: Equatable {
         // The request already became a look at the media, so this is the last chance to draw the loop for it.
         turn = .notWaitingForALoop
         if now - handedOffAt <= Self.secondsTheRectMayArriveAfterTheHandOff {
-            loop = .showing(media, since: now, shimmerSlowsAt: nil)
+            loop = .showing(.media(media), since: now, shimmerSlowsAt: nil)
             if agentsMayJoinTheLine { runningAgentsRejoinTheLine() }
         }
     }
@@ -311,22 +344,30 @@ struct CursorLoopState: Equatable {
             turn = .readingTheRect(handedOffAt: now)
         case .rectIsInHand(let media):
             turn = .notWaitingForALoop
-            loop = .showing(media, since: now, shimmerSlowsAt: nil)
+            loop = .showing(.media(media), since: now, shimmerSlowsAt: nil)
         }
+    }
+
+    /// The request became a look at a region the learner circled while holding push-to-talk. The region was in hand at the
+    /// release, so its loop shows at once, and the turn ends, so the front tab's media read for this release draws nothing.
+    mutating func requestBecameALookAtTheCircledRegion(_ circledRegion: CircledRegion, at now: TimeInterval) {
+        turn = .notWaitingForALoop
+        loop = .showing(.circledRegion(circledRegion), since: now, shimmerSlowsAt: nil)
     }
 
     /// A status line such as "Building your 3D scene" started under a loop. After the first 3 seconds of the loop
     /// the line's shimmer slows, since a build takes a while and a fast shimmer would look like a hang.
     mutating func aStatusLabelStartedShowing(at now: TimeInterval) {
-        guard case .showing(let media, let since, let shimmerSlowsAt) = loop, shimmerSlowsAt == nil else { return }
-        loop = .showing(media, since: since, shimmerSlowsAt: max(now, since + CursorLoopTimeline.secondsBeforeTheShimmerSlowsDuringABuild))
+        guard case .showing(let target, let since, let shimmerSlowsAt) = loop, shimmerSlowsAt == nil else { return }
+        loop = .showing(target, since: since, shimmerSlowsAt: max(now, since + CursorLoopTimeline.secondsBeforeTheShimmerSlowsDuringABuild))
     }
 
     /// Any of these ends the turn too, so a rect read for it can no longer draw a loop.
     mutating func end(because reason: CursorLoopEndReason) {
         turn = .notWaitingForALoop
-        if case .showing(let media, let since, let shimmerSlowsAt) = loop {
-            loop = .fadingOut(media, since: since, shimmerSlowsAt: shimmerSlowsAt)
+        if case .showing(let target, let since, let shimmerSlowsAt) = loop,
+           target.media != nil || reason.endsALoopAroundACircledRegion {
+            loop = .fadingOut(target, since: since, shimmerSlowsAt: shimmerSlowsAt)
         }
         if reason.endsTheAgentSparks, case .showing(let line) = agentLine {
             agentLine = .fadingOut(line)

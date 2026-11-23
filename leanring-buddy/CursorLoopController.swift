@@ -6,7 +6,7 @@
 //  push-to-talk is released, feeds `CursorLoopState` the events that draw and clear the loop, and while a
 //  loop shows it samples the front tab as the loop starts and once a second after, and clears the loop when anything differs.
 //  It also hears when background agents start and end, so the agents that work on the video in front lap sparks around the
-//  same media, and the same poll watches the agents' line when no request's loop shows.
+//  same media, and the same poll watches the agents' line when no request's loop around the media shows.
 //
 
 import AppKit
@@ -165,6 +165,14 @@ final class CursorLoopController: ObservableObject {
         change { $0.requestBecameALookAtTheMedia(at: Self.now) }
     }
 
+    /// The request became a look at a region the learner circled while holding push-to-talk, which the Theme Studio reads
+    /// as its picture. The loop goes around the learner's own line, at once, since the region was in hand at the release.
+    func requestBecameALookAtTheCircledRegion(_ circledRegion: CircledRegion) {
+        mediaRectReadTask?.cancel()
+        print("Cursor loop: the request became a look at the region the learner circled")
+        change { $0.requestBecameALookAtTheCircledRegion(circledRegion, at: Self.now) }
+    }
+
     func aStatusLabelStartedShowing() {
         change { $0.aStatusLabelStartedShowing(at: Self.now) }
     }
@@ -245,14 +253,15 @@ final class CursorLoopController: ObservableObject {
     func end(because reason: CursorLoopEndReason) {
         guard state.loopIsShowing || state.turn != .notWaitingForALoop || (reason.endsTheAgentSparks && state.agentLineIsShowing) else { return }
         let whatWasShowing = state.loopIsShowing ? "with the loop showing" : (state.agentLineIsShowing ? "with only the agent line showing" : "before any loop drew")
-        print("Cursor loop: ended because \(reason), \(whatWasShowing)")
         change { $0.end(because: reason) }
+        let theLoopStays = state.loopIsShowing ? ", and the loop around the circled region stays" : ""
+        print("Cursor loop: ended because \(reason), \(whatWasShowing)\(theLoopStays)")
     }
 
     /// The media a request's own loop is around now, in AppKit screen coordinates, or nil. An agent's spark line does not
     /// count, so a Theme Studio card opens on the picture the learner asked about and never on a video an agent works on.
     var mediaTheRequestLoopIsAroundInAppKitCoordinates: CGRect? {
-        state.loopOnTheMedia.map { appKitRect(of: $0.media.screenRect, mainDisplayHeight: NSScreen.screens.first?.frame.height ?? 0) }
+        state.loopOnTheMedia.map { appKitRect(of: $0.target.screenRect, mainDisplayHeight: NSScreen.screens.first?.frame.height ?? 0) }
     }
 
     /// The media a loop or an agent line is around now, in AppKit screen coordinates, or nil when none is. Bring back's drop
@@ -266,20 +275,28 @@ final class CursorLoopController: ObservableObject {
     /// The loop to draw on the screen with this frame, or nil when the media is on another screen or no loop shows.
     func loopToDraw(onScreenWithFrame screenFrame: CGRect) -> CursorLoopOnScreen? {
         guard let loopOnTheMedia = state.loopOnTheMedia else { return nil }
-        let media = loopOnTheMedia.media
+        let target = loopOnTheMedia.target
         let screens = NSScreen.screens
-        guard let screenIndex = indexOfTheScreenFrameHolding(media.screenRect, screenFramesInAppKitCoordinates: screens.map(\.frame)),
+        guard let screenIndex = indexOfTheScreenFrameHolding(target.screenRect, screenFramesInAppKitCoordinates: screens.map(\.frame)),
               screens[screenIndex].frame == screenFrame else {
             return nil
         }
-        let mediaRect = rectInOverlayCoordinates(of: media.screenRect, overlayScreen: screens[screenIndex])
+        let mediaRect = rectInOverlayCoordinates(of: target.screenRect, overlayScreen: screens[screenIndex])
         let lineRect = CursorLoopOutline.rectTheLineRunsAlong(
             around: mediaRect,
             insideScreenBounds: CGRect(origin: .zero, size: screenFrame.size)
         )
+        var learnersOutline: [CGPoint]?
+        if case .circledRegion(let circledRegion) = target {
+            learnersOutline = circledRegion.outlineInOverlayCoordinates(
+                overlayScreenFrame: screens[screenIndex].frame,
+                mainDisplayHeight: screens.first?.frame.height ?? screenFrame.height
+            )
+        }
         return CursorLoopOnScreen(
             lineRect: lineRect,
             seed: CursorLoopOutline.seed(for: mediaRect),
+            learnersOutline: learnersOutline,
             beganAt: loopOnTheMedia.since,
             shimmerSlowsAt: loopOnTheMedia.shimmerSlowsAt,
             isFadingOut: loopOnTheMedia.isFadingOut
@@ -304,8 +321,7 @@ final class CursorLoopController: ObservableObject {
             lineRect: CursorLoopOutline.rectTheLineRunsAlong(around: mediaRect, insideScreenBounds: CGRect(origin: .zero, size: screenFrame.size)),
             seed: CursorLoopOutline.seed(for: mediaRect),
             agentIDs: agentLineOnTheMedia.line.agentIDs,
-            // A request's loop draws the whole line itself, so the agents' track shows only when none does.
-            drawsItsOwnTrack: !state.loopIsShowing,
+            drawsItsOwnTrack: state.agentLineDrawsItsOwnTrack,
             isFadingOut: agentLineOnTheMedia.isFadingOut
         )
     }
@@ -320,7 +336,9 @@ final class CursorLoopController: ObservableObject {
         let agentLineWasShowing = state.agentLineIsShowing
         stateChange(&state)
         if state.loopIsShowing || state.agentLineIsShowing {
-            if !loopWasShowing && state.loopIsShowing { print("Cursor loop: drawing around the media in the front tab") }
+            if !loopWasShowing && state.loopIsShowing {
+                print(state.mediaTheLoopIsAround == nil ? "Cursor loop: drawing along the learner's circle" : "Cursor loop: drawing around the media in the front tab")
+            }
             if !agentLineWasShowing && state.agentLineIsShowing { print("Cursor loop: agent sparks lap the media in the front tab") }
             if pollTask == nil { startPollingTheFrontTab() }
         } else {

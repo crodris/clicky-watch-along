@@ -43,7 +43,7 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
 
 @Test func aRequestThatBecomesALookDrawsTheLoopWhenTheRectIsAlreadyInHand() {
     let state = stateShowingALoop(since: 10)
-    #expect(state.loop == .showing(exampleMedia, since: 10, shimmerSlowsAt: nil))
+    #expect(state.loop == .showing(.media(exampleMedia), since: 10, shimmerSlowsAt: nil))
     #expect(state.turn == .notWaitingForALoop)
 }
 
@@ -54,7 +54,7 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
     #expect(!state.loopIsShowing)
     // A quarter second after the hand-off is inside the 300 ms window.
     state.mediaRectArrived(exampleMedia, at: 10.25, agentsMayJoinTheLine: true)
-    #expect(state.loop == .showing(exampleMedia, since: 10.25, shimmerSlowsAt: nil))
+    #expect(state.loop == .showing(.media(exampleMedia), since: 10.25, shimmerSlowsAt: nil))
 }
 
 @Test func aRectThatArrivesAfterTheHandOffWindowDrawsNothing() {
@@ -115,7 +115,7 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
 func eachEndEventFadesAShowingLoop(reason: CursorLoopEndReason) {
     var state = stateShowingALoop(since: 10)
     state.end(because: reason)
-    #expect(state.loop == .fadingOut(exampleMedia, since: 10, shimmerSlowsAt: nil))
+    #expect(state.loop == .fadingOut(.media(exampleMedia), since: 10, shimmerSlowsAt: nil))
     #expect(!state.loopIsShowing)
     state.fadeOutFinished()
     #expect(state.loop == .hidden)
@@ -249,11 +249,11 @@ private func controllerWithATurnWaitingForALoop(
 @Test func theShimmerSlowsThreeSecondsIntoTheLoopWhenABuildStarts() {
     var buildStartedEarly = stateShowingALoop(since: 10)
     buildStartedEarly.aStatusLabelStartedShowing(at: 10.5)
-    #expect(buildStartedEarly.loop == .showing(exampleMedia, since: 10, shimmerSlowsAt: 13))
+    #expect(buildStartedEarly.loop == .showing(.media(exampleMedia), since: 10, shimmerSlowsAt: 13))
 
     var buildStartedLate = stateShowingALoop(since: 10)
     buildStartedLate.aStatusLabelStartedShowing(at: 15)
-    #expect(buildStartedLate.loop == .showing(exampleMedia, since: 10, shimmerSlowsAt: 15))
+    #expect(buildStartedLate.loop == .showing(.media(exampleMedia), since: 10, shimmerSlowsAt: 15))
 }
 
 @Test func aLapTakes2Point2SecondsAnd4SecondsOnceItSlows() {

@@ -17,7 +17,7 @@ A background agent that works on the video in front laps its own spark around th
   The triangle traces with its tip on the ink and no stretch.
 - `loop-clears` fades the loop on idle, a new press, a scroll, a front tab or media rect change, an app switch, the answer's speech, or a scene starting to show.
 - `loop-popout` fades the loop when a pop-out lifts, so the pop-out rises from the line.
-- `loop-agent-spark` laps one spark for each agent working on the video in front, in the agent's color, over a quiet track when no request loop shows.
+- `loop-agent-spark` laps one spark for each agent working on the video in front, in the agent's color, over a quiet track when no request loop around the media shows.
   The log says `Cursor loop: agent sparks lap the media in the front tab`.
 - `loop-agent-pace` laps a spark in 4 seconds at no progress and 1.2 seconds at full progress.
 - `loop-agent-finish` runs a finished agent's spark to the end of its lap in 1.2 seconds, then fades the line with its last agent.

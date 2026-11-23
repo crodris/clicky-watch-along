@@ -12,7 +12,7 @@ import Foundation
 
 // MARK: - The picture
 
-/// The picture the learner pointed at, a JPEG of the largest picture in Chrome's front tab. The studio keeps it, so a
+/// The picture the learner pointed at, a JPEG of the region they circled, or else of the largest picture in Chrome's front tab. The studio keeps it, so a
 /// refinement keeps designing from it and a save keeps it beside the theme.
 nonisolated struct ThemeStudioPicture: Equatable, Sendable {
     let jpegData: Data
@@ -153,7 +153,8 @@ nonisolated enum ThemeStudioPictureChoice: Equatable, Sendable {
     case none
     /// The picture the card already has, so a refinement keeps designing from it.
     case keepTheCardsPicture
-    /// The largest picture in Chrome's front tab now, or the card's own picture when there is none to capture.
+    /// The region the learner circled while asking, or else the largest picture in Chrome's front tab now, or the card's own
+    /// picture when there is none to capture.
     case captureAgain
 
     /// What `design_theme`'s `fromPicture` input means: true when the learner points at a picture, false when they drop the
@@ -171,7 +172,8 @@ nonisolated enum ThemeStudioPictureChoice: Equatable, Sendable {
 nonisolated enum ThemeStudioRequest: Equatable, Sendable {
     /// From the learner's words alone.
     case fromWords
-    /// From the largest picture in Chrome's front tab, which the loop is drawn around.
+    /// From the picture the learner points at: the region they circled, or else the largest picture in Chrome's front tab,
+    /// which the loop is drawn around.
     case fromThePicture
 }
 

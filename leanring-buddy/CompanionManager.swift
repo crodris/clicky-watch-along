@@ -80,6 +80,9 @@ enum RehearsalStepPrefix: Character, Equatable {
     /// "%": a partial transcript stands in for the words heard at the release, as a microphone would give, so the voice
     /// command can start on it before the final transcript ("%partial >> final", or "%words" when both are the same).
     case hearsAPartialTranscriptFirst = "%"
+    /// "@x,y,width,height words": while push-to-talk is held, the real mouse circles that rect (global points, origin at the
+    /// top left of the main display) in about 1.2 seconds, as a learner circling a picture would, then the words are spoken.
+    case circlesARegionFirst = "@"
 }
 
 /// The partial and final transcripts of a "%" step: the words before " >> " are heard at the release and the words after
@@ -303,6 +306,10 @@ final class CompanionManager: ObservableObject {
     let themeSettings = CompanionThemeSettings()
     /// The loop around the video or image a request looks at, which the cursor overlay draws.
     let cursorLoopController = CursorLoopController()
+    /// Records the mouse while push-to-talk is held, so a loop drawn around something names the picture for that request.
+    private let mousePathRecorder = MousePathRecorder()
+    /// The loop the learner drew while holding push-to-talk, with the press it belongs to, so only that press's request reads it.
+    private var circledRegionOfThePress: (pressCount: Int, circledRegion: CircledRegion)?
     /// What Clicky works on in the background, shown as tokens beside the notch and in the agent list.
     private(set) lazy var backgroundAgentStore = BackgroundAgentStore(themeSettings: themeSettings)
     private lazy var agentListPanelController = AgentListPanelController(
@@ -1101,6 +1108,8 @@ final class CompanionManager: ObservableObject {
     /// The "Design one" card: the panel closes and the Theme Studio opens next to the mouse with three new ideas.
     func designAThemeFromThePanel() {
         NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+        // A click starts no press, so a loop the last press drew is not this design's picture.
+        circledRegionOfThePress = nil
         startDesigningATheme(request: "a new theme", basedOnIdea: nil, pictureChoice: .none)
     }
 
@@ -1348,6 +1357,7 @@ final class CompanionManager: ObservableObject {
             guard !showOnboardingVideo else { return }
 
             pushToTalkPressCount += 1
+            startRecordingTheMousePath()
             // A press while the shirt capture waits for the learner to step back cancels it, so "right there" again arms a new one.
             roomArtPreviewController.theLearnerPressedPushToTalk()
             approvalAtThePress = agentHarness.approvalDesk.approvalAtPress(at: Date())
@@ -1427,6 +1437,7 @@ final class CompanionManager: ObservableObject {
             // Without this, a quick press-and-release drops the release event and
             // leaves the listening ring stuck on screen indefinitely.
             let releaseEndsAnAcceptedPress = pushToTalkPressAcceptance.releaseEndsAnAcceptedPress()
+            stopRecordingTheMousePath()
             if releaseEndsAnAcceptedPress {
                 lastPushToTalkRelease = PushToTalkRelease(pressCount: pushToTalkPressCount, releasedAt: Date())
             }
@@ -1445,6 +1456,28 @@ final class CompanionManager: ObservableObject {
         case .none:
             break
         }
+    }
+
+    // MARK: - Circle to select
+
+    /// A new press forgets the last press's loop and records this one's mouse path.
+    private func startRecordingTheMousePath() {
+        circledRegionOfThePress = nil
+        mousePathRecorder.start()
+    }
+
+    /// The release keeps the loop the path closed, if any, for this press's request.
+    private func stopRecordingTheMousePath() {
+        guard let circledRegion = mousePathRecorder.stop() else { return }
+        circledRegionOfThePress = (pushToTalkPressCount, circledRegion)
+        let rect = circledRegion.boundingRect
+        print("Circle to select: the learner circled a \(Int(rect.rectWidth))x\(Int(rect.rectHeight)) point region at (\(Int(rect.rectX)), \(Int(rect.rectY)))")
+    }
+
+    /// The loop the learner drew during the current press, or nil.
+    private var circledRegionOfTheCurrentPress: CircledRegion? {
+        guard let circledRegionOfThePress, circledRegionOfThePress.pressCount == pushToTalkPressCount else { return nil }
+        return circledRegionOfThePress.circledRegion
     }
 
     // MARK: - Companion Prompt
@@ -1540,6 +1573,15 @@ final class CompanionManager: ObservableObject {
             }
             // Every exit from this step, a "continue" included, stops standing in for the microphone.
             defer { rehearsalPartialTranscript = nil }
+            var rectToCircle: CGRect?
+            if stepPrefix == .circlesARegionFirst {
+                guard let (rect, words) = rehearsalCircledRect(transcriptWithoutPrefix) else {
+                    print("Live scene rehearsal: the @ step \"\(transcriptWithoutPrefix)\" has no x,y,width,height rect, so it was skipped")
+                    continue
+                }
+                rectToCircle = rect
+                transcript = words
+            }
             if stepWaitsForTheBackgroundAgents {
                 // A guide takes about 15 seconds and a task agent about 25.
                 // An experiment built on Sonnet can take the whole background build wait, so the loop waits that long plus a minute.
@@ -1582,6 +1624,11 @@ final class CompanionManager: ObservableObject {
             approvalAtThePress = agentHarness.approvalDesk.approvalAtPress(at: Date())
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
             cursorLoopController.pushToTalkWasPressed()
+            startRecordingTheMousePath()
+            if let rectToCircle {
+                await moveTheMouseAroundForARehearsal(rectToCircle)
+            }
+            stopRecordingTheMousePath()
             let frontTabRead = FrontTabReadAtRelease()
             cursorLoopController.pushToTalkWasReleased(frontTabRead: frontTabRead)
             lastPushToTalkRelease = PushToTalkRelease(pressCount: pushToTalkPressCount, releasedAt: Date())
@@ -1617,6 +1664,18 @@ final class CompanionManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
         print("Live scene rehearsal: done, phase \(liveScenePhase)")
+    }
+
+    /// An "@" step's circle: the real mouse moves around `rect` in about 1.2 seconds with posted mouse moves, so the recorder
+    /// samples it as it would a learner's hand, and a recorded take shows the pointer drawing the circle.
+    private func moveTheMouseAroundForARehearsal(_ rect: CGRect) async {
+        let circleSeconds = 1.2
+        let pointCount = Int(circleSeconds * 60)
+        print("Live scene rehearsal: circling \(rect) with the mouse")
+        for point in rehearsalCirclePath(around: rect, pointCount: pointCount) {
+            CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+            try? await Task.sleep(nanoseconds: UInt64(circleSeconds / Double(pointCount) * 1_000_000_000))
+        }
     }
 
     /// A "^" step's press. runVoiceCommand reads the page before its first request, so the press is timed from the
@@ -2033,6 +2092,17 @@ final class CompanionManager: ObservableObject {
             return
         }
         cursorLoopController.requestBecameALookAtTheMedia()
+    }
+
+    /// The Theme Studio reads a region the learner circled, so the loop goes around the learner's own line.
+    private func theRequestBecameALookAtTheCircledRegion(_ circledRegion: CircledRegion) {
+        guard requestMayDrawALoop(
+            aSceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            aQuizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer || videoQuizQuestionIsActive
+        ) else {
+            return
+        }
+        cursorLoopController.requestBecameALookAtTheCircledRegion(circledRegion)
     }
 
     private var liveScenePhaseIsWaitingForAQuizAnswer: Bool {
@@ -4101,11 +4171,17 @@ final class CompanionManager: ObservableObject {
     /// Whether the theme design starting now reads the picture in Chrome's front tab, which the studio card opens on and
     /// rises above the cursor overlay for while it designs.
     private var themeDesignReadsAPicture = false
+    /// The region the learner circled for the theme design starting now, which its picture is captured from, or nil.
+    private var themeDesignCircledRegion: CircledRegion?
 
     /// Opens the studio or asks for new ideas, and returns at once, so the card and its spoken line say the result. The
     /// thinking state stays up while a picture is captured and designed from, so the loop around the picture shows what
     /// Clicky is looking at. Like any hand-off, it takes over the reply, so a router turn that called it ends here.
-    private func startDesigningATheme(request: String, basedOnIdea: Int?, pictureChoice: ThemeStudioPictureChoice) {
+    private func startDesigningATheme(request: String, basedOnIdea: Int?, pictureChoice requestedPictureChoice: ThemeStudioPictureChoice) {
+        let circledRegion = circledRegionOfTheCurrentPress
+        // One press's loop names the picture of one design, so a later design, such as a Debug tool call, never reads it again.
+        circledRegionOfThePress = nil
+        let pictureChoice = themePictureChoice(requested: requestedPictureChoice, aRegionWasCircled: circledRegion != nil)
         // The request that started this design already pressed push-to-talk, so only a later press is the learner's next request.
         pushToTalkPressCountWhenTheThemeDesignStarted = pushToTalkPressCount
         currentResponseTask?.cancel()
@@ -4113,8 +4189,13 @@ final class CompanionManager: ObservableObject {
         // The panel's Design one card starts a design with no press, so a replay still playing ends here, before the card opens.
         instantReplay.endForAnotherAnswer()
         cancelTheSceneStillBuilding()
+        themeDesignCircledRegion = circledRegion
         if pictureChoice == .captureAgain {
-            theRequestBecameALookAtTheMedia()
+            if let themeDesignCircledRegion {
+                theRequestBecameALookAtTheCircledRegion(themeDesignCircledRegion)
+            } else {
+                theRequestBecameALookAtTheMedia()
+            }
         }
         // The card opens inside `design` when the studio was closed, and reads this to know whether to open on the picture,
         // and its level reads it on every design, so a refine that keeps the card's picture does not raise it.
@@ -4275,11 +4356,21 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// A JPEG of the largest picture in Chrome's front tab, captured the way the image pop-out captures it, for a theme
-    /// built from it. Nil when Chrome has no picture on screen, or Screen Recording is off.
+    /// A JPEG of the region the learner circled, with every window but Clicky's, or else of the largest picture in Chrome's
+    /// front tab, captured the way the image pop-out captures it, for a theme built from it. Nil when there is no picture on
+    /// screen, or Screen Recording is off.
     private func captureThePictureForTheThemeStudio() async -> ThemeStudioPicture? {
-        guard let pictureRect = VideoQuizSession.screenRectOfTheMediaToRiseFrom(),
-              let pictureGrab = try? await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(pictureRect),
+        let pictureRect: ScreenRectInChromeCoordinates?
+        let windowsToCapture: CapturedWindows
+        if let themeDesignCircledRegion {
+            pictureRect = themeDesignCircledRegion.boundingRect
+            windowsToCapture = .everythingButClicky
+        } else {
+            pictureRect = VideoQuizSession.screenRectOfTheMediaToRiseFrom()
+            windowsToCapture = .chromeOnly
+        }
+        guard let pictureRect,
+              let pictureGrab = try? await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(pictureRect, windows: windowsToCapture),
               let jpegData = Data(base64Encoded: pictureGrab.jpeg) else {
             return nil
         }

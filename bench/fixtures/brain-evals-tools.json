@@ -551,7 +551,7 @@
           },
           "fromPicture": {
             "type": "boolean",
-            "description": "true to design from the largest picture in Chrome's front tab, false to drop the picture the card has. Leave it out otherwise."
+            "description": "true to design from the picture the learner points at (a region they circled with the mouse, or else the largest picture in Chrome's front tab), false to drop the picture the card has. Leave it out otherwise."
           }
         },
         "required": [

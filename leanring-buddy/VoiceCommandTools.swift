@@ -410,7 +410,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 [
                     "request": .object(["type": .string("string"), "description": .string("What the learner wants, in their words, such as something cozy for night.")]),
                     "basedOnIdea": numberProperty("The idea on the card the change applies to, from 1 to 3. Leave it out when no one idea is named."),
-                    "fromPicture": .object(["type": .string("boolean"), "description": .string("true to design from the largest picture in Chrome's front tab, false to drop the picture the card has. Leave it out otherwise.")]),
+                    "fromPicture": .object(["type": .string("boolean"), "description": .string("true to design from the picture the learner points at (a region they circled with the mouse, or else the largest picture in Chrome's front tab), false to drop the picture the card has. Leave it out otherwise.")]),
                 ],
                 required: ["request"]
             )
