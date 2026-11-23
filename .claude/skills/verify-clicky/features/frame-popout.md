@@ -26,8 +26,8 @@ A frame without one clear subject, such as a chart or a person talking, returns 
   For an image on a web page, the prompt calls it a picture, never a video.
 - `popout-label-tap` explains a part when its label is clicked after the tour of a pop-out with no quiz.
   A press that moves more than 4 px is a drag that turns the model, not a click.
-- `popout-replay` plays a narration's pointing stops again, silently, when the learner says "show me again" or clicks Replay on the control under the video: the camera turns back to each recorded pose, each stop's number shows on its label with a dotted path between them, and the cursor flies to each label with its sentence. Next, Back, and End step through it by voice (`replay_step`) or click, Escape ends it with the camera and the cursor stopped where they are and the pop-out still up, and Reduce Motion shows every stop at once with a list of the sentences.
-- `popout-cursor-points` flies the blue triangle to each part's label as the narration names it, with the sentence Clicky is speaking typed in its bubble, and back to the mouse when the narration ends or the scene clears, Escape mid-sentence included.
+- `popout-replay` plays a narration's pointing stops again, silently, when the learner says "show me again" or clicks Replay on the control under the video: the camera turns back to each recorded pose, each stop's number shows on its label with a dotted path between them, and the cursor flies to each part, the dot where its label's leader line ends, with its sentence. Next, Back, and End step through it by voice (`replay_step`) or click, Escape ends it with the camera and the cursor stopped where they are and the pop-out still up, and Reduce Motion shows every stop at once with a list of the sentences.
+- `popout-cursor-points` flies the blue triangle to each part as the narration names it, onto the dot where the part's label leader line ends and not onto the label's words, with the sentence Clicky is speaking typed in its bubble, and back to the mouse when the narration ends or the scene clears, Escape mid-sentence included.
 
 ## How to get to it (user POV)
 
@@ -51,7 +51,7 @@ Preconditions:
   Then click one label without moving the mouse.
   The log shows `Frame pop-out: explaining the tapped <label> label` and `Frame pop-out narration: N sentences for partTapped(label: "<label>")`.
   Drag across a label instead, and the model turns with no tap line in the log.
-  While Clicky names each part, run `$V shot popout-pointing` and check that the blue triangle sits just under that label, drawn over the model, with the sentence Clicky is speaking in its bubble, wrapped onto more lines when it is long.
+  While Clicky names each part, run `$V shot popout-pointing` and check that the blue triangle sits just below and right of that part's accent dot at the end of the label's leader line, not on the label's words, drawn over the model, with the sentence Clicky is speaking in its bubble, wrapped onto more lines when it is long.
 - **Instant replay.** Run `$V app-launch --harness-brain "pop this out|show me again|+3 next|+3 back|+3 stop"`.
   A play-through ends after its last stop, about 4 seconds a stop, so "next" goes in a few seconds after "show me again", while the replay is still open.
   After the narration, the log shows `Instant replay: recorded N stops`, and the control with Replay and "N stops" shows under the video.

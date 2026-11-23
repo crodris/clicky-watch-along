@@ -340,7 +340,8 @@ window.liveScene = {
       tourFinished: tourDone,
     };
   },
-  // Clicky's blue cursor points at a label, so the boxes are read only once the camera stops gliding.
+  // Clicky's blue cursor points at where a label's leader line ends on the model, so the boxes and anchors are read only once
+  // the camera stops gliding. The box rides along as the fallback for a label that has no anchor yet.
   // A subject sinking back has nothing to point at, and its window may hide, which stops animation frames, so this waits on timers.
   async labelRectsOnceTheCameraSettles() {
     const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -351,7 +352,9 @@ window.liveScene = {
     if (returnStartedAt !== null) return [];
     return labelEntries.map((entry) => {
       const rect = entry.element.getBoundingClientRect();
-      return { label: entry.part.label, left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+      // The same projected point the leader's accent dot is drawn at, clamped into the window, so the cursor lands on the part.
+      const anchor = entry.anchorX === undefined ? null : { x: entry.anchorX, y: entry.anchorY };
+      return { label: entry.part.label, left: rect.left, top: rect.top, width: rect.width, height: rect.height, anchor };
     });
   },
 };
