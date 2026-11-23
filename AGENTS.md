@@ -1443,7 +1443,7 @@ It also runs `tools/swift-check/prune-build-folders.test.sh`, which pins which l
 It also runs `verify-clicky.test.sh`, which checks how `verify-clicky.sh build` tells that the app is older than a Swift file, how `app-launch` tells that a Clicky is already running, how `app-launch` moves an earlier launch's files aside, how `app-launch` reads its brain flags and keeps `--every-permission`, `--no-app-secret`, and `--wrong-app-secret` out of the app's own arguments, that the two secret flags pass the app's `--app-secret-mode none|wrong` argument and never write or delete the defaults the everyday Clicky shares, that `doctor` reports a missing, refused, or matching app secret without printing it, that `doctor` and `app-launch` warn and name any headless Chrome, since it answers the Apple Events meant for Chris's Chrome, that `lock-take` and `lock-release` keep the app check lock to one owner and refuse to release another owner's lock, that `app-launch` warns and names `grant` when the app starts without Accessibility, which start lines open the app's permissions panel that `app-launch --every-permission` stops on, that `worker-down` given a port stops only that Worker, and that `scroll` lists its usage and refuses a value that is not a whole number of at most 6 digits.
 The `app` job installs Go with `actions/setup-go`, which the app's "Build Agent Harness" phase finds on PATH, so the Mac runner needs no Go of its own.
 On the Mac runners its Actions cache is off, since Go's build and module caches stay in the runner user's home between jobs, and saving the cache took 2 to 9 minutes a job before it failed.
-The `app` job then builds the `leanring-buddy` scheme with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`, then runs `leanring-buddyTests` hosted in the built `Clicky.app`.
+The `app` job then builds the `leanring-buddy` scheme with Xcode 27.2 on the Mac runners, or 26.5 on `macos-latest`, and `CODE_SIGNING_ALLOWED=NO`, then runs `leanring-buddyTests` hosted in the built `Clicky.app`.
 A `changes` job lists the files a pull request or a push to main changes with `git diff --no-renames`, against the merge commit's first parent for a pull request and against the commit before the push for main, and runs `tools/app-job-needed.sh` on them after `tools/app-job-needed.test.sh`.
 The `app` job is skipped when every file is outside the app build and its tests: `bench/`, `worker/`, `demo/`, `docs/`, `.claude/`, `.ship/`, `tools/three-tiles/`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `LICENSE`, `.gitignore`, and `clicky-demo.gif`.
 Any other path runs it, and so does a push whose earlier commit the remote no longer has.
@@ -1472,9 +1472,10 @@ Before that, on 2026-11-20, each CI test run on the Mac runner could turn off th
 The developer's home folder must stay mode 700, so CI jobs cannot read their files or tokens.
 The hosted tests need a desktop session to reach `testmanagerd`, so after a restart, log in to the runner's user once through fast user switching, then switch back, and the runner keeps running in that background session.
 While the Mac sleeps or the runner's user is logged out, these jobs wait, and GitHub cancels a job that waits over 24 hours.
-On the Mac runner, a step fails the job when `xcodebuild -version` is not Xcode 26.5.
-After updating Xcode, update every `26.5` in `ci.yml`, this file, and `README.md`.
-Fork pull requests run on GitHub's `macos-latest`, and the repo requires approval before an outside contributor's workflow runs.
+On the Mac runner, a step fails the job when `xcodebuild -version` is not Xcode 27.2.
+After updating Xcode, update every `27.2` in `ci.yml`, this file, and `README.md`.
+Once the `macos-latest` image lists the Mac's Xcode, move every hosted `26.5` in `ci.yml` and this file to that version too.
+Fork pull requests run on GitHub's `macos-latest` with Xcode 26.5, since that image has no Xcode 27 yet, and the repo requires approval before an outside contributor's workflow runs.
 A fork can change `runs-on` or add a workflow, so never approve a fork run whose diff touches `.github/`.
 
 ## Verification
