@@ -189,9 +189,19 @@ struct RoomFurnitureFrameShareTests {
 
 struct RoomFurnitureOcclusionTests {
     @Test func theLearnerStaysInFrontUnlessThePiecesBaseIsBelowTheirFeet() {
-        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 500, personLowestRow: 719))
-        #expect(roomFurnitureDrawsOverThePerson(itemBaseRow: 650, personLowestRow: 600))
-        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 650, personLowestRow: nil))
+        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 500, personLowestRow: 719, frameHeight: 720))
+        #expect(roomFurnitureDrawsOverThePerson(itemBaseRow: 650, personLowestRow: 600, frameHeight: 720))
+        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 650, personLowestRow: nil, frameHeight: 720))
+    }
+
+    /// A seated learner reaches the frame's bottom row, and on a floor inferred from the wall the piece's base projects
+    /// below the frame. Neither says which is nearer, so the learner stays on top.
+    @Test func aBaseBelowTheFrameNeverDrawsOverALearnerCutOffByTheFrameBottom() {
+        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 880, personLowestRow: 720, frameHeight: 720))
+        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 720, personLowestRow: 700, frameHeight: 720))
+        // Feet in view at row 600 and a base below the frame is still no proof, only a base inside the frame is.
+        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 900, personLowestRow: 600, frameHeight: 720))
+        #expect(roomFurnitureDrawsOverThePerson(itemBaseRow: 719, personLowestRow: 600, frameHeight: 720))
     }
 }
 

@@ -782,7 +782,11 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
         if let keyframeBasePoint = placedArt.keyframeBasePoint,
            let currentBasePoint = currentPoint(of: keyframeBasePoint, keyframeCorners: placedArt.keyframeCorners, currentCorners: artCorners),
-           roomFurnitureDrawsOverThePerson(itemBaseRow: currentBasePoint.y, personLowestRow: latestPersonLowestRowShare.map { $0 * frameImage.extent.height }) {
+           roomFurnitureDrawsOverThePerson(
+               itemBaseRow: currentBasePoint.y,
+               personLowestRow: latestPersonLowestRowShare.map { $0 * frameImage.extent.height },
+               frameHeight: frameImage.extent.height
+           ) {
             return itemOverTheFrame
         }
         return withThePersonOnTop(of: itemOverTheFrame, frameImage: frameImage, personMask: personMask)

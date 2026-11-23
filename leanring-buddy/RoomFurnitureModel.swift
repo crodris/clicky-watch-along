@@ -351,8 +351,12 @@ nonisolated struct RoomFurnitureModelFit: Equatable, Sendable {
 /// on top, but when the piece's base is lower in the frame than the learner's lowest masked row (their feet, or the bottom
 /// of the frame for a learner cut off by it), the piece stands nearer the camera than they do. `personLowestRow` is nil
 /// when no person is in the mask.
-nonisolated func roomFurnitureDrawsOverThePerson(itemBaseRow: Double, personLowestRow: Double?) -> Bool {
-    guard let personLowestRow else { return false }
+///
+/// A base at or below the frame's bottom row proves nothing about depth: a seated learner reaches the bottom row, and on a
+/// floor inferred from the wall the piece's front-bottom edge projects below the frame, so comparing the two would draw the
+/// piece over the learner's chest. The learner stays on top then.
+nonisolated func roomFurnitureDrawsOverThePerson(itemBaseRow: Double, personLowestRow: Double?, frameHeight: Double) -> Bool {
+    guard let personLowestRow, itemBaseRow < frameHeight else { return false }
     return itemBaseRow > personLowestRow
 }
 
