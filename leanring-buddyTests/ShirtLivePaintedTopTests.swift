@@ -183,7 +183,7 @@ struct ShirtLivePaintedTopFollowerTests {
     private func follower(followsTheForearms: Bool = false) -> ShirtLivePaintedTopFollower {
         let frame = CGRect(x: 0, y: 0, width: 640, height: 640)
         let clearImage = CIImage(color: .clear).cropped(to: frame)
-        return ShirtLivePaintedTopFollower(top: ShirtLivePaintedTop(layer: clearImage, still: clearImage, frozenTorso: frozenTorso(), followsTheForearms: followsTheForearms))
+        return ShirtLivePaintedTopFollower(top: ShirtLivePaintedTop(layer: clearImage, still: clearImage, paintedArea: clearImage, frozenTorso: frozenTorso(), followsTheForearms: followsTheForearms))
     }
 
     @Test func itStartsOnThePaintedStillWithNoHintAndNoStepTaken() {
@@ -270,7 +270,7 @@ struct ShirtLivePaintedTopFollowerTests {
         let stillCanvas = ShirtTestCanvas(width: 64, height: 64, color: (40, 200, 40))
         let layerCanvas = ShirtTestCanvas(width: 64, height: 64, color: (200, 40, 40))
         var follower = ShirtLivePaintedTopFollower(top: ShirtLivePaintedTop(
-            layer: CIImage(cgImage: layerCanvas.cgImage), still: CIImage(cgImage: stillCanvas.cgImage), frozenTorso: frozenTorso(), followsTheForearms: false
+            layer: CIImage(cgImage: layerCanvas.cgImage), still: CIImage(cgImage: stillCanvas.cgImage), paintedArea: CIImage(color: .clear), frozenTorso: frozenTorso(), followsTheForearms: false
         ))
         for step in 0...4 { _ = follower.advance(currentTorso: frozenTorso(), at: Double(step) * 0.1) }
         #expect(follower.visibility == 1)
@@ -290,7 +290,8 @@ struct ShirtLivePaintedTopLayerTests {
     /// The masks of a top painted on a person whose shoulders are at (40, 30) and (120, 30), 80 pixels apart, so a hand rests
     /// on the top from 12 pixels (0.15 of a shoulder width) below the shoulder line: rows from 42. The top covers columns 30 to
     /// 129 and rows 28 to 109, less these protected places: a collar hole just below the shoulder line, a hand on the belly,
-    /// and a hand at the left edge that is outside the top's outline. The neck above the top is not paintable.
+    /// and a hand at the left edge that is outside the top's outline. The neck above the top is not paintable, and the mask
+    /// protects it, as the real mask does.
     private func masks() -> ShirtPaintMasks {
         var paintable = [UInt8](repeating: 0, count: Self.width * Self.height)
         var protected = paintable
@@ -304,6 +305,9 @@ struct ShirtLivePaintedTopLayerTests {
                     protected[row * Self.width + column] = 255
                 }
             }
+        }
+        for row in 8..<28 {
+            for column in 70..<90 { protected[row * Self.width + column] = 255 }
         }
         protect(centerColumn: 80, centerRow: 33, radius: 4)
         protect(centerColumn: 80, centerRow: 70, radius: 8)
@@ -333,7 +337,8 @@ struct ShirtLivePaintedTopLayerTests {
 
     private func layerBytes() throws -> [UInt8] {
         let masks = masks()
-        return try #require(ShirtLivePaintedTop.premultipliedLayerBytes(stillRGBA: paintedStill(of: masks).bytes, masks: masks, frozenTorso: torsoAtTheShoulders))
+        let pasteWeights = try #require(ShirtLivePaintedTop.pasteWeights(of: masks))
+        return try #require(ShirtLivePaintedTop.premultipliedLayerBytes(stillRGBA: paintedStill(of: masks).bytes, masks: masks, pasteWeights: pasteWeights, frozenTorso: torsoAtTheShoulders))
     }
 
     private func pixel(_ bytes: [UInt8], column: Int, row: Int) -> (red: Int, green: Int, blue: Int, alpha: Int) {
@@ -347,13 +352,14 @@ struct ShirtLivePaintedTopLayerTests {
         #expect(middleOfTheTop.alpha == 255 && middleOfTheTop.red == 200 && middleOfTheTop.green == 40 && middleOfTheTop.blue == 40)
     }
 
-    @Test func theEdgeFadesOverAFewPixelsAndNothingLiesFarOutsideIt() throws {
+    @Test func theLayerReachesAsFarPastTheMaskAsThePasteDidSoTheOldTopsEdgeIsCovered() throws {
         let bytes = try layerBytes()
-        // The top starts at column 30. A box of radius 2 gives 0.4 of the coverage at 29, 0.6 at 30, and none past 27.
-        #expect(pixel(bytes, column: 29, row: 60).alpha > 0 && pixel(bytes, column: 29, row: 60).alpha < 255)
-        #expect(pixel(bytes, column: 30, row: 60).alpha > pixel(bytes, column: 29, row: 60).alpha)
-        #expect(pixel(bytes, column: 26, row: 60).alpha == 0)
-        #expect(pixel(bytes, column: 10, row: 10).alpha == 0)
+        // The top starts at column 30, and the paste grows it by 24 pixels and feathers that over 4.
+        #expect(pixel(bytes, column: 16, row: 60).alpha == 255)
+        #expect(pixel(bytes, column: 6, row: 60).alpha > 0 && pixel(bytes, column: 6, row: 60).alpha < 255)
+        #expect(pixel(bytes, column: 1, row: 60).alpha < pixel(bytes, column: 6, row: 60).alpha)
+        // The painted still's own pixels there, which the paste took from the painting.
+        #expect(pixel(bytes, column: 16, row: 60).red == 90)
     }
 
     @Test func theNeckAndAHoleAtTheCollarStayClearSoTheLiveOnesShow() throws {
@@ -392,7 +398,8 @@ struct ShirtLivePaintedTopLayerTests {
             hipsWereEstimated: false, shouldersAreSeen: true
         )
         let still = ShirtTestCanvas(width: 60, height: 60, color: (200, 40, 40))
-        let bytes = try #require(ShirtLivePaintedTop.premultipliedLayerBytes(stillRGBA: still.bytes, masks: masks, frozenTorso: torso))
+        let pasteWeights = try #require(ShirtLivePaintedTop.pasteWeights(of: masks))
+        let bytes = try #require(ShirtLivePaintedTop.premultipliedLayerBytes(stillRGBA: still.bytes, masks: masks, pasteWeights: pasteWeights, frozenTorso: torso))
         // Next to the top, the hole takes the top's color, softened at the edge of the band the blur reached. At its middle
         // there is no top within reach, so it stays clear.
         let nextToTheTop = (alpha: Float(bytes[(30 * 60 + 20) * 4 + 3]), red: Float(bytes[(30 * 60 + 20) * 4]))
@@ -439,7 +446,8 @@ struct ShirtLivePaintedTopCompositeTests {
 
     /// A top made of a red rectangle, columns 20 to 59 and rows 10 to 49, clear elsewhere, over a green still, with the frozen
     /// torso of `frozenTorso()`.
-    private func top() -> ShirtLivePaintedTop {
+    /// With no painted area, the whole layer is the band past the mask and is clipped to the person.
+    private func top(paintedArea: CIImage = CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: Self.width, height: Self.height))) -> ShirtLivePaintedTop {
         var layer = ShirtTestCanvas(width: Self.width, height: Self.height, color: (0, 0, 0))
         for row in 0..<Self.height {
             for column in 0..<Self.width {
@@ -452,7 +460,9 @@ struct ShirtLivePaintedTopCompositeTests {
             }
         }
         let still = ShirtTestCanvas(width: Self.width, height: Self.height, color: (40, 200, 40))
-        return ShirtLivePaintedTop(layer: CIImage(cgImage: layer.cgImage), still: CIImage(cgImage: still.cgImage), frozenTorso: frozenTorso(), followsTheForearms: false)
+        return ShirtLivePaintedTop(
+            layer: CIImage(cgImage: layer.cgImage), still: CIImage(cgImage: still.cgImage), paintedArea: paintedArea, frozenTorso: frozenTorso(), followsTheForearms: false
+        )
     }
 
     private func frame() -> ShirtTestCanvas { ShirtTestCanvas(width: Self.width, height: Self.height, color: (120, 120, 120)) }
@@ -494,6 +504,18 @@ struct ShirtLivePaintedTopCompositeTests {
         #expect(isClose(composite.pixel(column: 90, row: 55), to: (120, 120, 120)))
     }
 
+    @Test func thePaintedAreaDrawsEvenWhereTheLivePersonMaskIsNotSoABulkySleeveKeepsItsShape() {
+        // The painted area is columns 50 to 59 of the top, past the person's edge at 50: the sleeve's bulk.
+        var area = ShirtTestCanvas(width: Self.width, height: Self.height, color: (0, 0, 0))
+        area.fill(columns: 50..<60, rows: 10..<50, color: (255, 255, 255))
+        let composite = render(top(paintedArea: CIImage(cgImage: area.cgImage, options: [.colorSpace: NSNull()])).composite(
+            frame: frame().ciImage, personMask: personMask(), transform: .identity, visibility: 1
+        ))
+        #expect(isClose(composite.pixel(column: 55, row: 30), to: (200, 40, 40)))
+        // Outside the painted area and the person, the live frame still shows.
+        #expect(isClose(composite.pixel(column: 90, row: 55), to: (120, 120, 120)))
+    }
+
     @Test func theTopMovesWithTheYDownTransformItIsGiven() {
         // 10 right and 8 down: the top's rectangle is columns 30 to 69 and rows 18 to 57.
         let composite = render(top().composite(frame: frame().ciImage, personMask: personMask(), transform: CGAffineTransform(translationX: 10, y: 8), visibility: 1))
@@ -511,7 +533,7 @@ struct ShirtLivePaintedTopCompositeTests {
     }
 
     @Test func theMotionCarriesTheFrozenShouldersAndHipsOntoTheCurrentOnes() {
-        let top = ShirtLivePaintedTop(layer: CIImage(color: .clear), still: CIImage(color: .clear), frozenTorso: frozenTorso(), followsTheForearms: false)
+        let top = ShirtLivePaintedTop(layer: CIImage(color: .clear), still: CIImage(color: .clear), paintedArea: CIImage(color: .clear), frozenTorso: frozenTorso(), followsTheForearms: false)
         // A shift, a turn of 8 degrees, and a scale of 0.9, about the shoulders' middle.
         let motion = turnAndScale(about: CGPoint(x: 300, y: 200), degrees: 8, scale: 0.9).concatenating(CGAffineTransform(translationX: 30, y: -12))
         let current = moved(frozenTorso(), by: motion)
@@ -533,7 +555,7 @@ struct ShirtLivePaintedTopCompositeTests {
             )
         }
         func top(frozen: BodyTorso) -> ShirtLivePaintedTop {
-            ShirtLivePaintedTop(layer: CIImage(color: .clear), still: CIImage(color: .clear), frozenTorso: frozen, followsTheForearms: false)
+            ShirtLivePaintedTop(layer: CIImage(color: .clear), still: CIImage(color: .clear), paintedArea: CIImage(color: .clear), frozenTorso: frozen, followsTheForearms: false)
         }
         // The shoulders have not moved, and the hips are somewhere else, as estimated hips are.
         for (frozen, current) in [

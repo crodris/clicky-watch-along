@@ -39,14 +39,17 @@ nonisolated struct ShirtLivePaintedTop: @unchecked Sendable {
     let layer: CIImage
     /// The whole painted still, which shows while the learner is out of reach.
     let still: CIImage
+    /// The paint mask, white where the painting drew the new top, gray in the frame's pixels. The layer draws there whatever
+    /// the live person mask says, since a puffy sleeve or a coat stands off the learner's own outline, and clipping it to
+    /// that outline cut the painted bulk away (the wall showed between a jacket's sleeve and its side). Only the band the
+    /// paste grew past the mask, which holds the frozen room, is clipped to the live person.
+    let paintedArea: CIImage
     /// The torso the frame was frozen on, which the layer's pixels belong to.
     let frozenTorso: BodyTorso
     /// A long sleeve is painted down each arm, so the arms must hold their angles for the layer to look right. A short sleeve
     /// stands off the arm, so only the upper arm counts.
     let followsTheForearms: Bool
 
-    /// The layer's edge fades over a box of this radius in pixels, so it blends into the live frame.
-    static let edgeFeatherRadiusPixels = 2
     /// A protected region (a hand) rests on the top only below the frozen shoulder line moved down this many shoulder
     /// widths. Above it are the neck and the face, which stay transparent so the live ones show.
     static let holesBelowTheShoulderLineInShoulderWidths = 0.15
@@ -60,6 +63,11 @@ nonisolated struct ShirtLivePaintedTop: @unchecked Sendable {
     /// shoulders and arms. The painting's own colors reach the silhouette, so no bright garment is laid over the wall.
     static let personMaskRamp = (from: 0.08, to: 0.4)
 
+    /// The paint mask is worked out on a copy about a third of the frame's size and scaled up, so its edge steps in blocks
+    /// of about 3 pixels. Where the painted area meets the room the live person mask does not hide that edge, so it is
+    /// softened twice over this radius, about the size of one step.
+    static let paintedAreaSofteningRadiusPixels = 2
+
     // MARK: Cutting the layer out
 
     /// The live top for a painted still, or nil when the sizes disagree or no shoulders can anchor it. `painted` is the still
@@ -71,22 +79,47 @@ nonisolated struct ShirtLivePaintedTop: @unchecked Sendable {
               masks.paintable.count == width * height, masks.protected.count == width * height,
               frozenTorso.shoulderWidth > 2,
               let stillBytes = rgbaBytes(of: painted, width: width, height: height),
-              let layerBytes = premultipliedLayerBytes(stillRGBA: stillBytes, masks: masks, frozenTorso: frozenTorso),
-              let layerImage = premultipliedImage(bytes: layerBytes, width: width, height: height) else { return nil }
+              let pasteWeights = pasteWeights(of: masks),
+              let layerBytes = premultipliedLayerBytes(stillRGBA: stillBytes, masks: masks, pasteWeights: pasteWeights, frozenTorso: frozenTorso),
+              let layerImage = premultipliedImage(bytes: layerBytes, width: width, height: height),
+              let paintedAreaImage = grayImage(bytes: softenedPaintedArea(masks), width: width, height: height) else { return nil }
         return ShirtLivePaintedTop(
-            layer: CIImage(cgImage: layerImage), still: CIImage(cgImage: painted), frozenTorso: frozenTorso, followsTheForearms: coverage.sleeves == .long
+            layer: CIImage(cgImage: layerImage), still: CIImage(cgImage: painted), paintedArea: CIImage(cgImage: paintedAreaImage, options: [.colorSpace: NSNull()]),
+            frozenTorso: frozenTorso, followsTheForearms: coverage.sleeves == .long
         )
     }
 
-    /// The layer's bytes, premultiplied, first row at the top: the still where the paint mask covers, softened at its edge,
-    /// and clear where the mask protects the neck, the face, and the hands.
+    /// The paint mask with its blocky edge softened (`paintedAreaSofteningRadiusPixels`), first row at the top.
+    static func softenedPaintedArea(_ masks: ShirtPaintMasks) -> [UInt8] {
+        let paintable = masks.paintable.map { Float($0) / 255 }
+        let onceSoftened = boxMeanFiltered(paintable, width: masks.width, height: masks.height, radius: paintedAreaSofteningRadiusPixels)
+        let twiceSoftened = boxMeanFiltered(onceSoftened, width: masks.width, height: masks.height, radius: paintedAreaSofteningRadiusPixels)
+        return twiceSoftened.map { UInt8(min(255, max(0, $0 * 255 + 0.5))) }
+    }
+
+    /// How much of the painting the paste took at each pixel, 0 to 255: the paint mask grown and feathered exactly as
+    /// `shirtPaintedStillPasted` grows it (`furnitureCompositePasted`'s slack and feather). The band past the mask covers the
+    /// old top's dark blend with the room, so a layer cut to the mask alone left that line showing along the shoulders.
+    static func pasteWeights(of masks: ShirtPaintMasks) -> [UInt8]? {
+        let frameExtent = CGRect(x: 0, y: 0, width: masks.width, height: masks.height)
+        guard let paintableImage = grayImage(bytes: masks.paintable, width: masks.width, height: masks.height),
+              let pasteMask = grownMaskImage(
+                  paintableImage, frameExtent: frameExtent, radiusPixels: furnitureCompositePasteSlackPixels,
+                  blurPixels: furnitureCompositePasteFeatherPixels, context: CIContext()
+              ) else { return nil }
+        return grayBytes(of: pasteMask, width: masks.width, height: masks.height)
+    }
+
+    /// The layer's bytes, premultiplied, first row at the top: the still where the paste took the painting (`pasteWeights`),
+    /// and clear where the mask protects the neck, the face, and the hands, so the layer over the frozen frame is the still.
     ///
     /// A hand resting on the top is a hole in the mask, and a hand that moves away must not reveal the old shirt, so a hole
     /// the top encloses below the shoulder line is filled: opaque, with colors from a normalized blur of the painted top
     /// around it. Everything protected above that line stays clear.
-    static func premultipliedLayerBytes(stillRGBA: [UInt8], masks: ShirtPaintMasks, frozenTorso: BodyTorso) -> [UInt8]? {
+    static func premultipliedLayerBytes(stillRGBA: [UInt8], masks: ShirtPaintMasks, pasteWeights: [UInt8], frozenTorso: BodyTorso) -> [UInt8]? {
         let width = masks.width, height = masks.height, pixelCount = width * height
-        guard stillRGBA.count == pixelCount * 4, masks.paintable.count == pixelCount, masks.protected.count == pixelCount else { return nil }
+        guard stillRGBA.count == pixelCount * 4, masks.paintable.count == pixelCount, masks.protected.count == pixelCount,
+              pasteWeights.count == pixelCount else { return nil }
         let shoulderWidth = frozenTorso.shoulderWidth
         let shoulderSpan = SIMD2(
             Double(frozenTorso.imageRightShoulder.x - frozenTorso.imageLeftShoulder.x), Double(frozenTorso.imageRightShoulder.y - frozenTorso.imageLeftShoulder.y)
@@ -121,23 +154,20 @@ nonisolated struct ShirtLivePaintedTop: @unchecked Sendable {
             let topPixels = (0..<pixelCount).map { paintableIsSet[$0] && !isHolePixel[$0] }
             holeFill = inpaintedColors(stillRGBA: stillRGBA, topPixels: topPixels, isHolePixel: isHolePixel, holeBounds: holeBounds, width: width, height: height, shoulderWidth: shoulderWidth)
         }
-        // A filled hole is part of the top before the edge is softened, so no dip rings it.
-        var isPartOfTheTop = [Float](repeating: 0, count: pixelCount)
-        for index in 0..<pixelCount where paintableIsSet[index] || (isHolePixel[index] && holeFill?.isFilled[index] == true) { isPartOfTheTop[index] = 1 }
-        let topAlpha = boxMeanFiltered(isPartOfTheTop, width: width, height: height, radius: edgeFeatherRadiusPixels)
 
         var layerBytes = [UInt8](repeating: 0, count: pixelCount * 4)
         for index in 0..<pixelCount {
+            let pasteShare = Float(pasteWeights[index]) / 255
             var red = stillRGBA[index * 4], green = stillRGBA[index * 4 + 1], blue = stillRGBA[index * 4 + 2]
             let alpha: Float
             if isHolePixel[index], let holeFill, holeFill.isFilled[index] {
-                alpha = topAlpha[index]
+                alpha = pasteShare
                 // The ring around a hand is still the painted top, and only the hand's own pixels take the blurred colors.
                 if !paintableIsSet[index] {
                     red = holeFill.colors[index * 3]; green = holeFill.colors[index * 3 + 1]; blue = holeFill.colors[index * 3 + 2]
                 }
             } else {
-                alpha = topAlpha[index] * (1 - Float(masks.protected[index]) / 255)
+                alpha = pasteShare * (1 - Float(masks.protected[index]) / 255)
             }
             guard alpha > 0.002 else { continue }
             layerBytes[index * 4] = UInt8(min(255, Float(red) * alpha + 0.5))
@@ -233,7 +263,8 @@ nonisolated struct ShirtLivePaintedTop: @unchecked Sendable {
         [torso.imageLeftShoulder, torso.imageRightShoulder, torso.hipMidpoint]
     }
 
-    /// The frame with the layer moved by `transform` (y down) drawn over it, clipped to the live person mask, dissolved with
+    /// The frame with the layer moved by `transform` (y down) drawn over it, its band past the paint mask clipped to the live
+    /// person mask, dissolved with
     /// the painted still by `visibility`: 0 is the still, 1 is the live top. `personMask` is white where the person is, at any
     /// size, read as its values are (made with no color space), as the renderer reads it. The still is returned as it is at
     /// 0, and the live image alone at 1, so neither pays for the other.
@@ -249,13 +280,16 @@ nonisolated struct ShirtLivePaintedTop: @unchecked Sendable {
         let frameExtent = frame.extent
         let clearFrame = CIImage(color: .clear).cropped(to: frameExtent)
         // Over a clear frame, so the layer's coverage is defined over the whole frame, which the masks below multiply.
-        let movedLayer = layer
-            .transformed(by: ShirtTryOnRenderer.coreImageTransform(of: transform, frameExtent: frameExtent))
-            .composited(over: clearFrame).cropped(to: frameExtent)
+        let coreImageTransform = ShirtTryOnRenderer.coreImageTransform(of: transform, frameExtent: frameExtent)
+        let movedLayer = layer.transformed(by: coreImageTransform).composited(over: clearFrame).cropped(to: frameExtent)
         let layerCoverage = ShirtTryOnRenderer.channel(movedLayer, 3)
+        let movedPaintedArea = ShirtTryOnRenderer.channel(
+            paintedArea.transformed(by: coreImageTransform).composited(over: CIImage(color: .black).cropped(to: frameExtent)).cropped(to: frameExtent), 0
+        )
         let scaledPersonMask = ShirtTryOnRenderer.channel(ShirtTryOnRenderer.scaled(personMask, toFill: frameExtent), 0)
         let personOpacity = ShirtTryOnRenderer.ramp(scaledPersonMask, from: Self.personMaskRamp.from, to: Self.personMaskRamp.to)
-        let drawnAlpha = ShirtTryOnRenderer.multiplied(layerCoverage, personOpacity)
+        let drawnArea = movedPaintedArea.applyingFilter("CIMaximumCompositing", parameters: [kCIInputBackgroundImageKey: personOpacity]).cropped(to: frameExtent)
+        let drawnAlpha = ShirtTryOnRenderer.multiplied(layerCoverage, drawnArea)
         // The blend takes straight colors and an opaque top, so the frame keeps its own alpha.
         return movedLayer.unpremultiplyingAlpha().settingAlphaOne(in: frameExtent)
             .applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: frame, kCIInputMaskImageKey: drawnAlpha])

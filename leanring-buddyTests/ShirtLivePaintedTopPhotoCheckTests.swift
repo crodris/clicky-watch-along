@@ -150,7 +150,14 @@ struct ShirtLivePaintedTopPhotoCheckTests {
             print(String(format: "Live painted top check: %@ top cut out in %.2f s, the mask covers %.1f%% of the frame", shirtName, Date().timeIntervalSince(madeAt), masks.paintableShare * 100))
             try savePNG(try #require(context.createCGImage(top.layer.composited(over: CIImage(color: CIColor(red: 0.2, green: 0.9, blue: 0.2)).cropped(to: frameExtent)), from: frameExtent, format: .RGBA8, colorSpace: sRGB)), to: outputFolder.appendingPathComponent("\(shirtName)-layer-over-green.png"))
 
-            let paintableImage = CIImage(cgImage: try #require(grayImage(bytes: masks.paintable, width: width, height: height)))
+            // The top is everywhere the painted still differs from the photo, read from the two images and not from the masks,
+            // so a painting pasted with other masks (an older put-back of the neck) shows up as a difference instead of being
+            // left out of the measure.
+            let paintedPixels = try #require(rgbaBytes(of: painted, width: width, height: height))
+            let stillChangedBytes = (0..<(width * height)).map { index -> UInt8 in
+                (0..<3).contains { abs(Int(paintedPixels[index * 4 + $0]) - Int(originalPixels[index * 4 + $0])) > 6 } ? 255 : 0
+            }
+            let stillChangedImage = CIImage(cgImage: try #require(grayImage(bytes: stillChangedBytes, width: width, height: height)))
             let oldShirtImage = CIImage(cgImage: try #require(grayImage(bytes: masks.oldShirt, width: width, height: height)))
             var metricsForThisShirt: [ShirtLivePaintedTopMetrics] = []
             for pose in followedPoses {
@@ -163,7 +170,7 @@ struct ShirtLivePaintedTopPhotoCheckTests {
                 let reference = movedImage(top.still, by: pose.transform, clampingToTheEdge: true)
                 let compositePixels = renderedPixels(of: composite), referencePixels = renderedPixels(of: reference), photoPixels = renderedPixels(of: liveFrame)
                 let personNow = redChannel(of: livePersonMask)
-                let topNow = redChannel(of: movedImage(paintableImage, by: pose.transform, clampingToTheEdge: false))
+                let topNow = redChannel(of: movedImage(stillChangedImage, by: pose.transform, clampingToTheEdge: false))
                 let oldShirtNow = redChannel(of: movedImage(oldShirtImage, by: pose.transform, clampingToTheEdge: false))
 
                 func difference(of pixels: [UInt8], from other: [UInt8], at index: Int) -> (mean: Double, largest: Int) {
