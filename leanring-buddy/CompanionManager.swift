@@ -395,8 +395,8 @@ final class CompanionManager: ObservableObject {
             self.map { CursorLoopTracerLook(theme: $0.themeSettings.shownTheme, picture: $0.themeSettings.shownThemePicture) }
         },
         endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() },
-        // A painting, a return to the preview, or the furniture placed or moved, by voice or by a click, is this request's
-        // own, so its line is not dropped.
+        // A painting or a return to the preview, by voice or by its button, or the furniture placed by voice or the Place
+        // button or moved by voice, is this request's own, so its line is not dropped.
         theLearnerAskedThePanel: { [weak self] in
             guard let self else { return }
             self.roomArtRequest.continued(atPushToTalkPressCount: self.pushToTalkPressCount)

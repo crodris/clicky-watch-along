@@ -1131,9 +1131,10 @@ final class RoomArtPreviewController: ObservableObject {
         var makeTheShirtPaintMasks: (ShirtFrozenFrame) async -> ShirtPaintMasks? = { _ in nil }
         /// Paints the shirt into the frozen frame through the Worker and pastes it back (`ShirtPaintingClient`).
         var paintTheShirt: (ShirtPaintingRequest) async throws -> CGImage = { _ in throw ShirtPaintingFailure.serviceIsNotSetUp }
-        /// The learner asked the open panel for something, by voice or by a click: a painting or a return to the preview, or
-        /// the furniture placed or moved. The line that answers it lands after any press they made before, so it must not be
-        /// dropped as one they moved on from.
+        /// The learner asked the open panel for something: a painting or a return to the preview, by voice or by its button,
+        /// the furniture placed by voice or the Place button, or moved by voice. The line that answers it lands after any press
+        /// they made before, so it must not be dropped as one they moved on from. A drag, click, or scroll that moves the ghost
+        /// does not call it, since no line answers one.
         var theLearnerAskedThePanel: () -> Void = {}
 
         /// Chrome, the Worker at `workerBaseURL`, the app's defaults for the secret, Vision, and the camera (or a Debug
