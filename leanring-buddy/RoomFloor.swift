@@ -196,6 +196,38 @@ nonisolated func roomFurnitureSizeInWords(widthCentimeters: Double, heightCentim
 /// when the center is on the background, such as the hole of a ring-shaped stool, the largest instance is. Nil when the
 /// corners leave under 8 pixels of the photo (`furnitureCropRectangle`), when Vision finds no subject, or when it fails.
 nonisolated func furnitureCutout(picture: CGImage, itemCorners: RoomArtCorners, context: CIContext) -> CGImage? {
+    guard let foreground = foregroundOfTheItem(picture: picture, itemCorners: itemCorners, context: context) else { return nil }
+    // The corners are the model's guess, so the box around them can leave a margin of background under the legs. The
+    // cutout is trimmed to its own pixels, so its lowest pixel is the one that stands on the floor.
+    return opaqueBoundingBox(of: foreground.cutout).flatMap { foreground.cutout.cropping(to: $0) }
+}
+
+/// The item's own shape cut out of the whole product photo: the photo at its own size, with every pixel outside the item
+/// transparent. A wall item that does not fill its four corners, such as a round clock, is flattened from this picture, so the
+/// flattened art keeps transparent pixels where the photo's background was. The mask is Vision's, as in `furnitureCutout`.
+/// Nil when the corners leave under 8 pixels of the photo, when Vision finds no subject, or when it fails.
+nonisolated func pictureWithOnlyTheItemOpaque(picture: CGImage, itemCorners: RoomArtCorners, context: CIContext) -> CGImage? {
+    guard let foreground = foregroundOfTheItem(picture: picture, itemCorners: itemCorners, context: context) else { return nil }
+    return pictureWithTheCutoutPlaced(foreground.cutout, at: foreground.cropRectangle, pictureWidth: picture.width, pictureHeight: picture.height)
+}
+
+/// `cutout` drawn into a clear picture of `pictureWidth` by `pictureHeight` at `cropRectangle` (top left origin), so each
+/// cutout pixel keeps the place it had in the photo. Nil when Core Graphics cannot make the picture.
+nonisolated func pictureWithTheCutoutPlaced(_ cutout: CGImage, at cropRectangle: CGRect, pictureWidth: Int, pictureHeight: Int) -> CGImage? {
+    guard let drawingContext = CGContext(
+        data: nil, width: pictureWidth, height: pictureHeight, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return nil }
+    // Core Graphics' y grows up from the bottom, and the crop rectangle's y grows down from the top.
+    drawingContext.draw(cutout, in: CGRect(
+        x: cropRectangle.minX, y: Double(pictureHeight) - cropRectangle.maxY, width: cropRectangle.width, height: cropRectangle.height
+    ))
+    return drawingContext.makeImage()
+}
+
+/// Vision's foreground instance mask applied to the crop of `itemCorners`: the crop with everything but the kept instance
+/// transparent, and where the crop sits in the photo. Not trimmed. Nil as `furnitureCutout` is.
+nonisolated private func foregroundOfTheItem(picture: CGImage, itemCorners: RoomArtCorners, context: CIContext) -> (cutout: CGImage, cropRectangle: CGRect)? {
     guard let cropRectangle = furnitureCropRectangle(for: itemCorners, inPictureOfWidth: picture.width, height: picture.height),
           let croppedPicture = picture.cropping(to: cropRectangle) else { return nil }
 
@@ -212,9 +244,7 @@ nonisolated func furnitureCutout(picture: CGImage, itemCorners: RoomArtCorners, 
         )
         let maskedImage = CIImage(cvPixelBuffer: maskedPixelBuffer)
         guard let cutout = context.createCGImage(maskedImage, from: maskedImage.extent) else { return nil }
-        // The corners are the model's guess, so the box around them can leave a margin of background under the legs. The
-        // cutout is trimmed to its own pixels, so its lowest pixel is the one that stands on the floor.
-        return opaqueBoundingBox(of: cutout).flatMap { cutout.cropping(to: $0) }
+        return (cutout, cropRectangle)
     } catch {
         print("Room floor: the furniture cutout failed: \(error)")
         return nil

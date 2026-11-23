@@ -7,7 +7,7 @@
  * Sonnet reads them and says where the item goes and whether the app can show it there. It returns the item's real size or
  * the garment's details, and the item's four outer corners in a photo, so the app can cut the item out of the photo and
  * show it in the learner's live camera view. The kind is a placement, decided by what each app path can draw, and never a
- * category of product: `wall` is a flat rectangle that fills its corners, `standing` is anything with a real size that
+ * category of product: `wall` is an item that hangs flat on a wall, of any outline, `standing` is anything with a real size that
  * stands on the floor or on a table or shelf (the app draws it in 3D), `clothing` is a top worn on the body, and
  * `cannotBeShown` says why the app cannot show the item, so the app can say so before it measures anything.
  * For clothing, Sonnet also picks the photo that shows the garment's front (`frontPictureIndex`), since a gallery can show
@@ -97,6 +97,7 @@ const wallItemSchema = z
   .object({
     kind: z.literal("wall"),
     wall: z.object({
+      fillsItsCorners: z.boolean(),
       sizeFoundOnPage: z.boolean(),
       size: otherSizeSchema.extend({ includesFrame: z.boolean() }),
       otherSizes: z.array(otherSizeSchema),
@@ -197,6 +198,7 @@ const tryItItemJSONSchema = objectJSONSchema({
     anyOf: [
       itemVariantJSONSchema("wall", {
         wall: objectJSONSchema({
+          fillsItsCorners: { type: "boolean" },
           sizeFoundOnPage: { type: "boolean" },
           size: objectJSONSchema({ ...sizeJSONSchemaProperties, includesFrame: { type: "boolean" } }),
           otherSizes: { type: "array", items: objectJSONSchema(sizeJSONSchemaProperties) },
@@ -232,10 +234,10 @@ const tryItItemSystemPrompt = [
   "Picture 0 is the page's largest product photo. Pictures 1 and up, when there are any, are the page's other large product photos, in the page's order.",
   "Reply with JSON only.",
   "item.kind says where the item goes and what the app can draw there. Choose it by what the app can draw, never by a category of product.",
-  "wall is for an item that hangs on a wall and is a flat rectangle that fills its four corners in the photo, such as a print, a poster, a canvas, a framed photo, a flat rectangular mirror, a rectangular tapestry, or a flat TV on a wall mount. The app flattens the quadrilateral between the corners onto the wall, so an item that is round, or not flat, cannot be wall.",
+  "wall is for an item that hangs flat on a wall, sticking out of it at most about 5 centimeters, of any outline: a print, a poster, a canvas, a framed photo, a mirror of any shape, a round clock, a wreath, a tapestry, a decal, a neon sign, or a flat TV on a wall mount. fillsItsCorners is true when the item's outline is a rectangle that fills its four corners in the photo, such as a print, a canvas, a framed photo, or a rectangular mirror, and false for any other outline, such as a round clock, a round or arched mirror, a wreath, a decal, or a neon sign. The app hangs a rectangle by flattening the quadrilateral between the corners, and cuts any other outline out of its photo by its own shape.",
   "standing is for an item that stands or lies on the floor, such as a sofa, a chair, a lamp, a plant, a toy, a plush animal, a figurine, a rug lying flat, a floor mirror leaning on a wall, or a TV stand, or on a table, desk, counter, or shelf, such as a mug, a table lamp, a vase, a small plant, a speaker, or a TV on its own stand. standsOn says which: floor, or tableOrShelf. The app draws the whole item in 3D at its real size, so any shape works, but it needs the real size.",
   "clothing is for a top worn on the body, and its lines are below.",
-  "cannotBeShown is for an item the app cannot show, and item.cannotBeShown.reason says why: notAPhysicalItem for a gift card, a download, a subscription, or a service; tooSmallToSee for an item under about 3 centimeters on its longest side, such as a ring or a screw; noClearPhoto for a page where no photo shows the item by itself; notFlatForTheWall for an item that hangs on a wall but is not a flat rectangle filling its corners, such as a round clock, a wall shelf, or a sconce; noPlaceClickyCanShow for an item that goes somewhere the app cannot measure, such as a ceiling light, curtains, or a car, or that is larger than 6 meters.",
+  "cannotBeShown is for an item the app cannot show, and item.cannotBeShown.reason says why: notAPhysicalItem for a gift card, a download, a subscription, or a service; tooSmallToSee for an item under about 3 centimeters on its longest side, such as a ring or a screw; noClearPhoto for a page where no photo shows the item by itself; notFlatForTheWall for an item that hangs on a wall but sticks out of it more than about 5 centimeters, such as a wall shelf, a sconce, or a coat rack; noPlaceClickyCanShow for an item that goes somewhere the app cannot measure, such as a ceiling light, curtains, or a car, or that is larger than 6 meters.",
   "For cannotBeShown, item holds only the kind and the reason, and the reply still needs title, whyThisSize, and itemCorners, which may be a rough box around the item.",
   "When the page shows several items, use the item the learner means in learner_request, else the item the photo shows most.",
   "When the page offers several sizes, choose the one the page shows as selected or default, else the smallest, and list the rest in otherSizes.",

@@ -26,6 +26,7 @@ function goodWall(overrides: Partial<WallItem> = {}): WallItem {
     whyThisSize: "The page shows 50 x 70 cm as the selected size.",
     itemCorners: goodCorners,
     wall: {
+      fillsItsCorners: true,
       sizeFoundOnPage: true,
       size: { label: "50 x 70 cm", widthCentimeters: 50, heightCentimeters: 70, includesFrame: true },
       otherSizes: [{ label: "70 x 100 cm", widthCentimeters: 70, heightCentimeters: 100 }],
@@ -70,9 +71,9 @@ function goodClothing(overrides: Partial<ClothingItem> = {}): ClothingItem {
 
 function goodCannotBeShown(overrides: Partial<CannotBeShownItem> = {}): CannotBeShownItem {
   return {
-    title: "Round wall clock",
+    title: "Floating wall shelf",
     kind: "cannotBeShown",
-    whyThisSize: "A round clock does not fill its corners, so it cannot hang flat.",
+    whyThisSize: "The shelf sticks out of the wall by 20 cm, so it does not hang flat.",
     itemCorners: goodCorners,
     cannotBeShown: { reason: "notFlatForTheWall" },
     ...overrides,
@@ -166,11 +167,41 @@ describe("checkTryItItem for every kind that is placed", () => {
 });
 
 describe("checkTryItItem for a wall item", () => {
+  it("keeps fillsItsCorners false for a round wall item and still checks its size", () => {
+    const roundClock = goodWall({ wall: { ...goodWall().wall, fillsItsCorners: false, size: { label: "30 cm", widthCentimeters: 30, heightCentimeters: 30, includesFrame: true } } });
+    const checkedReply = checked(roundClock);
+
+    expect(checkedReply.accepted && checkedReply.reply.item.kind === "wall" && checkedReply.reply.item.wall.fillsItsCorners).toBe(false);
+    expectRejectedFor(goodWall({ wall: { ...roundClock.wall, size: { ...roundClock.wall.size, widthCentimeters: 4 } } }), "wall.size must be from 5 to 1000");
+  });
+
+  it("asks the model for fillsItsCorners on every wall item", async () => {
+    const fetchMock = stubFetch(modelReplyResponse(asModelReply(goodWall())));
+
+    await handleTryItItem(requestWithBody(validRequest), "key");
+
+    const [wallVariant] = sentBodies(fetchMock)[0].output_config.format.schema.properties?.item?.anyOf ?? [];
+    expect(wallVariant.properties?.wall.required).toContain("fillsItsCorners");
+    expect(wallVariant.properties?.wall.properties?.fillsItsCorners).toEqual({ type: "boolean" });
+  });
+
+  it("refuses a wall reply that leaves fillsItsCorners out, then answers the second reply", async () => {
+    const { fillsItsCorners: _omitted, ...wallWithoutTheFlag } = goodWall().wall;
+    const missingTheFlag = asModelReply(goodWall()) as { item: object };
+    missingTheFlag.item = { kind: "wall", wall: wallWithoutTheFlag };
+    const fetchMock = stubFetch(modelReplyResponse(missingTheFlag), modelReplyResponse(asModelReply(goodWall())));
+
+    const response = await handleTryItItem(requestWithBody(validRequest), "key");
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects a size under 5 or over 1000 centimeters", () => {
-    expectRejectedFor(goodWall({ wall: { sizeFoundOnPage: true, size: { ...wallSize, widthCentimeters: 4.9 }, otherSizes: [] } }), "wall.size must be from 5 to 1000");
-    expectRejectedFor(goodWall({ wall: { sizeFoundOnPage: true, size: { ...wallSize, heightCentimeters: 1000.5 }, otherSizes: [] } }), "wall.size must be from 5 to 1000");
+    expectRejectedFor(goodWall({ wall: { fillsItsCorners: true, sizeFoundOnPage: true, size: { ...wallSize, widthCentimeters: 4.9 }, otherSizes: [] } }), "wall.size must be from 5 to 1000");
+    expectRejectedFor(goodWall({ wall: { fillsItsCorners: true, sizeFoundOnPage: true, size: { ...wallSize, heightCentimeters: 1000.5 }, otherSizes: [] } }), "wall.size must be from 5 to 1000");
     expectRejectedFor(
-      goodWall({ wall: { sizeFoundOnPage: true, size: wallSize, otherSizes: [{ label: "huge", widthCentimeters: 2000, heightCentimeters: 50 }] } }),
+      goodWall({ wall: { fillsItsCorners: true, sizeFoundOnPage: true, size: wallSize, otherSizes: [{ label: "huge", widthCentimeters: 2000, heightCentimeters: 50 }] } }),
       "The wall.otherSizes entry 1 must be from 5 to 1000",
     );
   });
@@ -180,6 +211,7 @@ describe("checkTryItItem for a wall item", () => {
     const checkedReply = checked(
       goodWall({
         wall: {
+          fillsItsCorners: true,
           sizeFoundOnPage: true,
           size: wallSize,
           otherSizes: [
@@ -201,30 +233,30 @@ describe("checkTryItItem for a wall item", () => {
   });
 
   it("accepts a size at exactly 5 and 1000 centimeters", () => {
-    const edgeReply = goodWall({ wall: { sizeFoundOnPage: true, size: { ...wallSize, widthCentimeters: 5, heightCentimeters: 1000 }, otherSizes: [] } });
+    const edgeReply = goodWall({ wall: { fillsItsCorners: true, sizeFoundOnPage: true, size: { ...wallSize, widthCentimeters: 5, heightCentimeters: 1000 }, otherSizes: [] } });
 
     expect(checked(edgeReply).accepted).toBe(true);
   });
 
   it("holds a wall item to 5 to 1000, not the standing range", () => {
     // 700 centimeters is a plausible mural and too wide for anything standing.
-    expect(checked(goodWall({ wall: { sizeFoundOnPage: true, size: { ...wallSize, widthCentimeters: 700 }, otherSizes: [] } })).accepted).toBe(true);
+    expect(checked(goodWall({ wall: { fillsItsCorners: true, sizeFoundOnPage: true, size: { ...wallSize, widthCentimeters: 700 }, otherSizes: [] } })).accepted).toBe(true);
     // 3 centimeters is fine for a standing mug and too small for a print.
-    expectRejectedFor(goodWall({ wall: { sizeFoundOnPage: true, size: { ...wallSize, widthCentimeters: 3 }, otherSizes: [] } }), "wall.size must be from 5 to 1000");
+    expectRejectedFor(goodWall({ wall: { fillsItsCorners: true, sizeFoundOnPage: true, size: { ...wallSize, widthCentimeters: 3 }, otherSizes: [] } }), "wall.size must be from 5 to 1000");
   });
 
   it("rejects a label over 60 characters", () => {
-    expectRejectedFor(goodWall({ wall: { sizeFoundOnPage: true, size: { ...wallSize, label: "x".repeat(61) }, otherSizes: [] } }), "at most 60 characters");
+    expectRejectedFor(goodWall({ wall: { fillsItsCorners: true, sizeFoundOnPage: true, size: { ...wallSize, label: "x".repeat(61) }, otherSizes: [] } }), "at most 60 characters");
     expectRejectedFor(
-      goodWall({ wall: { sizeFoundOnPage: true, size: wallSize, otherSizes: [{ label: "y".repeat(61), widthCentimeters: 70, heightCentimeters: 100 }] } }),
+      goodWall({ wall: { fillsItsCorners: true, sizeFoundOnPage: true, size: wallSize, otherSizes: [{ label: "y".repeat(61), widthCentimeters: 70, heightCentimeters: 100 }] } }),
       "at most 60 characters",
     );
-    expect(checked(goodWall({ wall: { sizeFoundOnPage: true, size: { ...wallSize, label: "x".repeat(60) }, otherSizes: [] } })).accepted).toBe(true);
+    expect(checked(goodWall({ wall: { fillsItsCorners: true, sizeFoundOnPage: true, size: { ...wallSize, label: "x".repeat(60) }, otherSizes: [] } })).accepted).toBe(true);
   });
 
   it("keeps at most 8 other sizes", () => {
     const manySizes = Array.from({ length: 12 }, (_, sizeIndex) => ({ label: `Size ${sizeIndex}`, widthCentimeters: 30, heightCentimeters: 40 }));
-    const checkedReply = checked(goodWall({ wall: { sizeFoundOnPage: true, size: wallSize, otherSizes: manySizes } }));
+    const checkedReply = checked(goodWall({ wall: { fillsItsCorners: true, sizeFoundOnPage: true, size: wallSize, otherSizes: manySizes } }));
 
     expect(checkedReply.accepted && checkedReply.reply.item.kind === "wall" && checkedReply.reply.item.wall.otherSizes).toHaveLength(8);
   });
@@ -296,7 +328,7 @@ describe("checkTryItItem when the page states no size", () => {
   it("passes a wall item through with its corners clamped and no size or corner rules, so the app can say it found no size", () => {
     const noSizeOnThePage = goodWall({
       itemCorners: { ...goodCorners, bottomRight: { x: 500, y: 300 } },
-      wall: { sizeFoundOnPage: false, size: noWallSize, otherSizes: [] },
+      wall: { fillsItsCorners: true, sizeFoundOnPage: false, size: noWallSize, otherSizes: [] },
     });
 
     expect(checked(noSizeOnThePage)).toEqual({ accepted: true, reply: asModelReply(noSizeOnThePage) });
@@ -311,7 +343,7 @@ describe("checkTryItItem when the page states no size", () => {
   });
 
   it("rejects an empty or blank size label when the page does state the size, which the app also refuses", () => {
-    expectRejectedFor(goodWall({ wall: { sizeFoundOnPage: true, size: { ...wallSize, label: "  " }, otherSizes: [] } }), "wall.size needs a label");
+    expectRejectedFor(goodWall({ wall: { fillsItsCorners: true, sizeFoundOnPage: true, size: { ...wallSize, label: "  " }, otherSizes: [] } }), "wall.size needs a label");
     expectRejectedFor(goodStanding({ standing: { standsOn: "floor", sizeFoundOnPage: true, size: { ...standingSize, label: "" }, otherSizes: [] } }), "standing.size needs a label");
   });
 });
@@ -602,7 +634,9 @@ describe("handleTryItItem", () => {
 
     const systemPrompt = sentBodies(fetchMock)[0].system[0].text;
     expect(systemPrompt).toContain("Choose it by what the app can draw, never by a category of product.");
-    expect(systemPrompt).toContain("flat rectangle that fills its four corners");
+    expect(systemPrompt).toContain("hangs flat on a wall, sticking out of it at most about 5 centimeters, of any outline");
+    expect(systemPrompt).toContain("cuts any other outline out of its photo by its own shape");
+    expect(systemPrompt).toContain("sticks out of it more than about 5 centimeters, such as a wall shelf, a sconce, or a coat rack");
     expect(systemPrompt).toContain("standsOn says which: floor, or tableOrShelf.");
     expect(systemPrompt).toContain("Each side is from 1 to 600 centimeters.");
     expect(systemPrompt).toContain("Each side is from 5 to 1000 centimeters.");
@@ -697,7 +731,7 @@ describe("handleTryItItem", () => {
   });
 
   it("asks again once with the broken rule named, then answers the second reply", async () => {
-    const tooSmall = goodWall({ wall: { sizeFoundOnPage: true, size: { ...wallSize, widthCentimeters: 2 }, otherSizes: [] } });
+    const tooSmall = goodWall({ wall: { fillsItsCorners: true, sizeFoundOnPage: true, size: { ...wallSize, widthCentimeters: 2 }, otherSizes: [] } });
     const fetchMock = stubFetch(modelReplyResponse(asModelReply(tooSmall)), modelReplyResponse(asModelReply(goodWall())));
 
     const response = await handleTryItItem(requestWithBody(validRequest), "key");

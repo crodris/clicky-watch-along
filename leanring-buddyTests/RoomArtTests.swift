@@ -44,7 +44,7 @@ private func tryItReply(item itemJSON: String, title: String = "Water Lilies pri
 }
 
 private let goodWallArtItem = """
-{"kind": "wall", "wall": {"sizeFoundOnPage": true,
+{"kind": "wall", "wall": {"fillsItsCorners": true, "sizeFoundOnPage": true,
  "size": {"label": "16x20 in", "widthCentimeters": 40.6, "heightCentimeters": 50.8, "includesFrame": true},
  "otherSizes": [{"label": "8x10 in", "widthCentimeters": 20.3, "heightCentimeters": 25.4}, {"label": "Huge", "widthCentimeters": 5000, "heightCentimeters": 25}]}}
 """
@@ -70,12 +70,12 @@ private let sliverCorners = #"{"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 40
 private let fullCorners = #"{"topLeft": {"x": 0, "y": 0}, "topRight": {"x": 400, "y": 0}, "bottomRight": {"x": 400, "y": 500}, "bottomLeft": {"x": 0, "y": 500}}"#
 
 private func wallArtItem(sizeFound: String = "true", size: String = #"{"label": "S", "widthCentimeters": 20, "heightCentimeters": 30, "includesFrame": false}"#) -> String {
-    #"{"kind": "wall", "wall": {"sizeFoundOnPage": \#(sizeFound), "size": \#(size), "otherSizes": []}}"#
+    #"{"kind": "wall", "wall": {"fillsItsCorners": true, "sizeFoundOnPage": \#(sizeFound), "size": \#(size), "otherSizes": []}}"#
 }
 
 /// The fixture the Worker's tests read too: `POST /try-it-item` responses shaped as the Worker returns them, one for each
 /// kind plus a wall item and a standing item whose page states no size, a standing item for the floor and one for a table or
-/// shelf, an item that cannot be shown, and a garment whose front is the second picture.
+/// shelf, a round wall item that does not fill its corners, a wall shelf that cannot be shown, and a garment whose front is the second picture.
 private struct TryItItemRepliesFixture: Decodable {
     struct PictureSize: Decodable {
         let width: Int
@@ -110,6 +110,7 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             title: "Water Lilies print, framed",
             chosenSize: RoomArtSize(label: "16 x 20 in", widthCentimeters: 40.6, heightCentimeters: 50.8),
             chosenSizeIncludesFrame: true,
+            fillsItsCorners: true,
             whyThisSize: "The page's size menu shows 16 x 20 in selected.",
             otherSizes: [RoomArtSize(label: "8 x 10 in", widthCentimeters: 20.3, heightCentimeters: 25.4)],
             artworkCorners: pictureCorners(40, 50, 360, 450)
@@ -178,8 +179,18 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             itemCorners: pictureCorners(20, 80, 280, 560),
             frontPictureIndex: 1
         ))
-    case "a wall clock that cannot be shown":
-        return .cannotBeShown(title: "Round wall clock", reason: .notFlatForTheWall)
+    case "a round wall clock that does not fill its corners":
+        return .wallArt(RoomArtWallArtReading(
+            title: "Round wall clock",
+            chosenSize: RoomArtSize(label: "30 cm", widthCentimeters: 30, heightCentimeters: 30),
+            chosenSizeIncludesFrame: true,
+            fillsItsCorners: false,
+            whyThisSize: "The page states a 30 cm diameter.",
+            otherSizes: [],
+            artworkCorners: pictureCorners(60, 110, 340, 390)
+        ))
+    case "a wall shelf that cannot be shown":
+        return .cannotBeShown(title: "Floating wall shelf", reason: .notFlatForTheWall)
     default:
         return nil
     }
@@ -217,6 +228,20 @@ struct RoomArtReplyTests {
         #expect(wallArt.artworkCorners.bottomRight == CGPoint(x: 392, y: 500))
         // A size of 50 meters is a misread and is dropped.
         #expect(wallArt.otherSizes.map(\.label) == ["8x10 in"])
+    }
+
+    @Test func aWallItemKeepsWhetherItFillsItsCorners() throws {
+        let round = goodRoomArtReply.replacingOccurrences(of: #""fillsItsCorners": true"#, with: #""fillsItsCorners": false"#)
+
+        let roundReading = try RoomArtPageReading(responseData: jsonData(round), pictureWidth: 400, pictureHeight: 500)
+        let rectangleReading = try RoomArtPageReading(responseData: jsonData(goodRoomArtReply), pictureWidth: 400, pictureHeight: 500)
+
+        guard case .wallArt(let roundWallItem) = roundReading, case .wallArt(let rectangularWallItem) = rectangleReading else {
+            Issue.record("Expected wall items, got \(roundReading) and \(rectangleReading)")
+            return
+        }
+        #expect(!roundWallItem.fillsItsCorners)
+        #expect(rectangularWallItem.fillsItsCorners)
     }
 
     @Test func aFurnitureReplyBecomesItsSizeWithDepthAndCornersClampedIntoThePicture() throws {
@@ -293,6 +318,8 @@ struct RoomArtReplyTests {
     }
 
     @Test(arguments: [
+        // No fillsItsCorners, so the reply cannot say whether the photo needs cutting out by its shape.
+        goodRoomArtReply.replacingOccurrences(of: #""fillsItsCorners": true,"#, with: ""),
         // No sizeFoundOnPage, so the reply cannot say whether the size came from the page.
         goodRoomArtReply.replacingOccurrences(of: #""sizeFoundOnPage": true,"#, with: ""),
         // No item.
@@ -587,6 +614,91 @@ struct RoomArtGeometryTests {
             #expect(bytes[pixelStart] > 200 && bytes[pixelStart + 1] < 60, "pixel (\(column), \(row)) should be red")
         }
     }
+
+    /// A square photo that holds only a disc of an item (red, opaque) with everything else clear, as the cutout by the item's
+    /// own shape gives, so the corners of the box around the disc are clear.
+    private func photoOfARoundItemOnClear(side: Int = 200) throws -> CGImage {
+        let context = try #require(CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fillEllipse(in: CGRect(x: 40, y: 40, width: side - 80, height: side - 80))
+        return try #require(context.makeImage())
+    }
+
+    /// The alpha byte (0 to 255) of the pixel at `column`, `row` from the top left of `image`.
+    private func alphaByte(of image: CGImage, column: Int, row: Int) throws -> UInt8 {
+        let bitmap = try #require(CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        bitmap.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let bytes = try #require(bitmap.data).assumingMemoryBound(to: UInt8.self)
+        return bytes[(row * image.width + column) * 4 + 3]
+    }
+
+    @Test func flatteningARoundItemOnAClearPhotoKeepsItsCornersTransparent() throws {
+        let photo = try photoOfARoundItemOnClear()
+        // The corners of the box around the disc, as the page reader gives them for a round item.
+        let corners = RoomArtCorners(topLeft: CGPoint(x: 40, y: 40), topRight: CGPoint(x: 160, y: 40), bottomRight: CGPoint(x: 160, y: 160), bottomLeft: CGPoint(x: 40, y: 160))
+
+        let flattened = try #require(flattenedArtwork(picture: photo, corners: corners, size: RoomArtSize(label: "30 cm", widthCentimeters: 30, heightCentimeters: 30), context: CIContext()))
+
+        #expect(flattened.width == 1200 && flattened.height == 1200)
+        for (column, row) in [(10, 10), (flattened.width - 11, 10), (10, flattened.height - 11), (flattened.width - 11, flattened.height - 11)] {
+            #expect(try alphaByte(of: flattened, column: column, row: row) < 10, "pixel (\(column), \(row)) is the photo's background and should be clear")
+        }
+        #expect(try alphaByte(of: flattened, column: 600, row: 600) > 245, "the middle is the item")
+    }
+
+    /// The shadow image rendered over its own extent, with the extent so a test can find a pixel from art coordinates.
+    private func renderedShadow(of art: CGImage) throws -> (image: CGImage, extent: CGRect) {
+        let shadow = wallArtShadow(of: art)
+        let image = try #require(CIContext().createCGImage(shadow, from: shadow.extent))
+        return (image, shadow.extent)
+    }
+
+    @Test func aRoundItemCastsARoundShadowWhereARectangleCastsADarkCorner() throws {
+        let round = try photoOfARoundItemOnClear(side: 400)
+        let squareContext = try #require(CGContext(data: nil, width: 400, height: 400, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        squareContext.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        squareContext.fill(CGRect(x: 0, y: 0, width: 400, height: 400))
+        let square = try #require(squareContext.makeImage())
+        let roundShadow = try renderedShadow(of: round)
+        let squareShadow = try renderedShadow(of: square)
+
+        // A point 12 pixels inside the art's top left corner, in Core Image's y-up art coordinates.
+        func alphaInsideTheTopLeftCorner(of shadow: (image: CGImage, extent: CGRect)) throws -> UInt8 {
+            try alphaByte(of: shadow.image, column: Int(12 - shadow.extent.minX), row: Int(shadow.extent.maxY - (400 - 12)))
+        }
+        func alphaAtTheMiddle(of shadow: (image: CGImage, extent: CGRect)) throws -> UInt8 {
+            try alphaByte(of: shadow.image, column: Int(200 - shadow.extent.minX), row: Int(shadow.extent.maxY - 190))
+        }
+        // 35 percent of 255 is 89. A rectangle's corner is mostly inside its shadow, and a disc's corner is clear of it.
+        #expect(try alphaAtTheMiddle(of: roundShadow) > 80 && alphaAtTheMiddle(of: roundShadow) <= 92)
+        #expect(try alphaInsideTheTopLeftCorner(of: roundShadow) < 6, "the round item's shadow leaves the corner of its box clear")
+        #expect(try alphaInsideTheTopLeftCorner(of: squareShadow) > 40, "a rectangle's shadow is dark at its corner")
+    }
+
+    @Test func theShadowOfARectangleThatFillsItsPictureIsTheSameAsBefore() throws {
+        let squareContext = try #require(CGContext(data: nil, width: 400, height: 500, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        squareContext.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.9, alpha: 1))
+        squareContext.fill(CGRect(x: 0, y: 0, width: 400, height: 500))
+        let art = try #require(squareContext.makeImage())
+
+        // The shadow as it was drawn before it followed the art's alpha: a solid 35 percent black box, offset and blurred.
+        let artExtent = CGRect(x: 0, y: 0, width: 400, height: 500)
+        let spread = 500 * 0.015, offset = -500 * 0.02
+        let oldShadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.35))
+            .cropped(to: artExtent.offsetBy(dx: 0, dy: offset))
+            .applyingGaussianBlur(sigma: spread)
+            .cropped(to: artExtent.offsetBy(dx: 0, dy: offset).insetBy(dx: -3 * spread, dy: -3 * spread))
+        let newShadow = wallArtShadow(of: art)
+
+        #expect(newShadow.extent == oldShadow.extent)
+        let context = CIContext()
+        let oldImage = try #require(context.createCGImage(oldShadow, from: oldShadow.extent))
+        let newImage = try #require(context.createCGImage(newShadow, from: newShadow.extent))
+        for (column, row) in [(5, 5), (60, 300), (200, 250), (330, 480), (20, 520), (200, 40)] {
+            let oldAlpha = Int(try alphaByte(of: oldImage, column: column, row: row)), newAlpha = Int(try alphaByte(of: newImage, column: column, row: row))
+            #expect(abs(oldAlpha - newAlpha) <= 2, "pixel (\(column), \(row)) was \(oldAlpha) and is \(newAlpha)")
+        }
+    }
 }
 
 struct RoomArtPhraseTests {
@@ -739,7 +851,7 @@ struct RoomArtReadingPlanTests {
     @Test func aWallItemHangsAndAStandingItemWithASizeStandsOnItsSurface() {
         let wallArtReading = RoomArtWallArtReading(
             title: "Print", chosenSize: RoomArtSize(label: "S", widthCentimeters: 20, heightCentimeters: 30), chosenSizeIncludesFrame: false,
-            whyThisSize: "Selected.", otherSizes: [], artworkCorners: pictureCorners
+            fillsItsCorners: true, whyThisSize: "Selected.", otherSizes: [], artworkCorners: pictureCorners
         )
         #expect(roomArtReadingPlan(for: .wallArt(wallArtReading)) == .hangOnTheWall(wallArtReading))
         let tableSize = RoomArtFurnitureSize(label: "55x45 cm", widthCentimeters: 55, heightCentimeters: 45, depthCentimeters: 55)
@@ -781,7 +893,7 @@ struct RoomArtReadingPlanTests {
         (RoomArtCannotBeShownReason.notAPhysicalItem, RoomArtFailure.notAPhysicalItem, "That isn't something I can show in your room.", "Not something I can show in your room"),
         (RoomArtCannotBeShownReason.tooSmallToSee, RoomArtFailure.tooSmallToSee, "That's too small to see in your room.", "Too small to see in your room"),
         (RoomArtCannotBeShownReason.noClearPhoto, RoomArtFailure.noClearPhoto, "I couldn't find a clear photo of it on that page.", "No clear photo of it on the page"),
-        (RoomArtCannotBeShownReason.notFlatForTheWall, RoomArtFailure.notFlatForTheWall, "I can only hang flat, rectangular things on your wall so far.", "Only flat, rectangular things hang on the wall so far"),
+        (RoomArtCannotBeShownReason.notFlatForTheWall, RoomArtFailure.notFlatForTheWall, "I can only hang flat things on your wall so far.", "Only flat things hang on the wall so far"),
         (RoomArtCannotBeShownReason.noPlaceClickyCanShow, RoomArtFailure.noPlaceClickyCanShow, "I can show things on your wall, your floor, or a table so far.", "Only walls, floors, and tables so far"),
     ])
     func anItemThatCannotBeShownFailsWithItsReasonsOwnLines(reason: RoomArtCannotBeShownReason, failure: RoomArtFailure, spokenLine: String, statusLine: String) {

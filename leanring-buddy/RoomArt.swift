@@ -135,12 +135,12 @@ nonisolated struct RoomArtSize: Equatable, Sendable {
     let heightCentimeters: Double
 }
 
-/// What `POST /try-it-item` read from the page and its picture, by where the item goes. A flat rectangular item hangs on the
+/// What `POST /try-it-item` read from the page and its picture, by where the item goes. A flat item of any outline hangs on the
 /// wall, a standing item stands on the floor or on a table or shelf, and a top is drawn over the learner
 /// (`roomArtReadingPlan`). An item that cannot be shown carries the reason Clicky says right after the page read.
 nonisolated enum RoomArtPageReading: Equatable, Sendable {
-    /// A flat, rectangular item that hangs on the wall and fills its four corners in the photo: a print, a poster, a framed
-    /// photo, a flat mirror. The wire kind is `wall`.
+    /// An item that hangs flat on the wall, of any outline: a print, a poster, a framed photo, a mirror, a round clock, a
+    /// wreath. `fillsItsCorners` says whether its outline is a rectangle that fills its four corners. The wire kind is `wall`.
     case wallArt(RoomArtWallArtReading)
     /// A wall item whose page text states no size, so Clicky says so instead of hanging a size the model guessed.
     case sizeNotOnThePage(title: String)
@@ -171,7 +171,7 @@ nonisolated enum RoomArtCannotBeShownReason: String, Decodable, Equatable, Senda
     case tooSmallToSee
     /// No photo on the page shows the item by itself.
     case noClearPhoto
-    /// It hangs on a wall but is not a flat rectangle filling its corners, such as a round clock, a wall shelf, or a sconce.
+    /// It hangs on a wall but sticks out of it more than about 5 cm, such as a wall shelf, a sconce, or a coat rack.
     case notFlatForTheWall
     /// It goes somewhere Clicky cannot measure, such as a ceiling light, curtains, a car, or anything larger than 6 m.
     case noPlaceClickyCanShow
@@ -191,6 +191,10 @@ nonisolated struct RoomArtWallArtReading: Equatable, Sendable {
     let title: String
     let chosenSize: RoomArtSize
     let chosenSizeIncludesFrame: Bool
+    /// True when the item's outline is a rectangle that fills its four corners, so flattening the quadrilateral between the
+    /// corners gives exactly the item. False for any other outline, such as a round clock: the item is then cut out of its
+    /// photo by its own shape before it is flattened, so the flattened art keeps transparent pixels outside the item.
+    let fillsItsCorners: Bool
     let whyThisSize: String
     let otherSizes: [RoomArtSize]
     /// Where the art itself sits in the picture, so a photo of it in a room can be flattened to the art alone.
@@ -292,6 +296,9 @@ nonisolated private struct RoomArtCornersReply: Decodable {
 }
 
 nonisolated private struct RoomArtWallArtReply: Decodable {
+    /// True when the item's outline is a rectangle that fills its four corners in the photo. A round clock, a round or arched
+    /// mirror, a wreath, a decal, or a neon sign is false, and the app cuts it out of its photo by its own shape.
+    let fillsItsCorners: Bool
     let sizeFoundOnPage: Bool
     let size: RoomArtChosenSizeReply
     let otherSizes: [RoomArtSizeReply]
@@ -437,6 +444,7 @@ extension RoomArtPageReading {
                 title: reply.title,
                 chosenSize: RoomArtSize(label: chosenSize.label, widthCentimeters: chosenSize.widthCentimeters, heightCentimeters: chosenSize.heightCentimeters),
                 chosenSizeIncludesFrame: chosenSize.includesFrame,
+                fillsItsCorners: wallArtReply.fillsItsCorners,
                 whyThisSize: reply.whyThisSize,
                 otherSizes: wallArtReply.otherSizes
                     .filter { sensibleArtCentimeters.contains($0.widthCentimeters) && sensibleArtCentimeters.contains($0.heightCentimeters) }
@@ -501,6 +509,27 @@ nonisolated func flattenedArtwork(picture: CGImage, corners: RoomArtCorners, siz
         .transformed(by: CGAffineTransform(translationX: -straightened.extent.minX, y: -straightened.extent.minY))
         .transformed(by: CGAffineTransform(scaleX: targetWidth / straightened.extent.width, y: targetHeight / straightened.extent.height))
     return context.createCGImage(scaled, from: CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight))
+}
+
+/// The wall art's shadow in the flattened art's pixels: the art's own alpha as 35 percent black, 2 percent of the art's height
+/// below it and spread 1.5 percent of the height, so a round item casts a round shadow and a rectangle that fills its picture
+/// casts the rectangular one. The image's extent holds the shadow with 3 spreads of margin around it.
+nonisolated func wallArtShadow(of flattenedArt: CGImage) -> CIImage {
+    let artHeight = Double(flattenedArt.height)
+    let artExtent = CGRect(x: 0, y: 0, width: Double(flattenedArt.width), height: artHeight)
+    let shadowSpread = artHeight * 0.015
+    let shadowOffset = -artHeight * 0.02
+    let shadowExtent = artExtent.offsetBy(dx: 0, dy: shadowOffset)
+    return CIImage(cgImage: flattenedArt)
+        .applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+            "inputGVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+            "inputBVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0.35),
+        ])
+        .transformed(by: CGAffineTransform(translationX: 0, y: shadowOffset))
+        .applyingGaussianBlur(sigma: shadowSpread)
+        .cropped(to: shadowExtent.insetBy(dx: -3 * shadowSpread, dy: -3 * shadowSpread))
 }
 
 // MARK: - The wall
@@ -894,7 +923,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .notAPhysicalItem: return "That isn't something I can show in your room."
         case .tooSmallToSee: return "That's too small to see in your room."
         case .noClearPhoto: return "I couldn't find a clear photo of it on that page."
-        case .notFlatForTheWall: return "I can only hang flat, rectangular things on your wall so far."
+        case .notFlatForTheWall: return "I can only hang flat things on your wall so far."
         case .noPlaceClickyCanShow: return "I can show things on your wall, your floor, or a table so far."
         case .pageNotRead: return "I couldn't read that page."
         case .sizeNotOnThePage: return "I couldn't find the size on that page."
@@ -920,7 +949,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .notAPhysicalItem: return "Not something I can show in your room"
         case .tooSmallToSee: return "Too small to see in your room"
         case .noClearPhoto: return "No clear photo of it on the page"
-        case .notFlatForTheWall: return "Only flat, rectangular things hang on the wall so far"
+        case .notFlatForTheWall: return "Only flat things hang on the wall so far"
         case .noPlaceClickyCanShow: return "Only walls, floors, and tables so far"
         case .pageNotRead: return "Couldn't read the page"
         case .sizeNotOnThePage: return "Couldn't find the size on the page"

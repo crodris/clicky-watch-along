@@ -56,6 +56,7 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     private var onFirstSegmentedFrame: (@Sendable () -> Void)?
     private var onTheSurfaceLostOrFound: (@Sendable (Bool) -> Void)?
     private var onTheShirtFramingSettled: (@Sendable (ShirtFramingKind) -> Void)?
+    private var recordedWallArtImagesShown: [CGImage] = []
     private var recordedSurfacesShownOn: [RoomArtSurfaceKind] = []
     private var recordedItemPutBackCount = 0
     private var recordedKeyframeAnchors: [CGPoint?] = []
@@ -98,6 +99,8 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
 
     var artHungCount: Int { lock.withLock { recordedSurfacesShownOn.count } }
     var surfacesShownOn: [RoomArtSurfaceKind] { lock.withLock { recordedSurfacesShownOn } }
+    /// The flattened art of each wall item shown, so a test can read its pixels.
+    var wallArtImagesShown: [CGImage] { lock.withLock { recordedWallArtImagesShown } }
     var artPutBackCount: Int { lock.withLock { recordedItemPutBackCount } }
     var keyframeAnchors: [CGPoint?] { lock.withLock { recordedKeyframeAnchors } }
     var keyframeSurfaces: [RoomArtSurfaceKind?] { lock.withLock { recordedKeyframeSurfaces } }
@@ -159,7 +162,10 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     }
 
     func showTheWallArt(_ flattenedArtImage: CGImage, keyframeCorners: RoomArtCorners) {
-        lock.withLock { recordedSurfacesShownOn.append(.wall) }
+        lock.withLock {
+            recordedSurfacesShownOn.append(.wall)
+            recordedWallArtImagesShown.append(flattenedArtImage)
+        }
     }
 
     func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int, layerToKeyframe: EuclideanWarp) {
@@ -393,6 +399,22 @@ private func furnitureCutoutImage() -> CGImage {
     return context.makeImage()!
 }
 
+/// A photo of a round item as the cutout by the item's own shape gives it: a red disc over clear pixels, the size of the test
+/// product picture (400 by 500) so the page's corners fit it.
+private func roundItemOnClearPhotoImage() -> CGImage {
+    let context = CGContext(data: nil, width: 400, height: 500, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+    context.fillEllipse(in: CGRect(x: 20, y: 25, width: 360, height: 450))
+    return context.makeImage()!
+}
+
+/// The alpha byte of the pixel at `column`, `row` from the top left of `image`.
+private func alphaByteOfThePixel(in image: CGImage, column: Int, row: Int) -> UInt8 {
+    let bitmap = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    bitmap.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    return bitmap.data!.assumingMemoryBound(to: UInt8.self)[(row * image.width + column) * 4 + 3]
+}
+
 /// The test garment, made once for the whole run. `ShirtGarment.make` takes a quarter of a second or more on a loaded Mac, and
 /// the stubs are made on the main actor. One garment per harness held the main actor for most of a minute, so other main actor
 /// tests hit their time limits. A garment is a value, so every stub can share one.
@@ -415,6 +437,7 @@ private final class WorkerStub {
         title: "Water Lilies print",
         chosenSize: RoomArtSize(label: "16x20 in", widthCentimeters: 40.6, heightCentimeters: 50.8),
         chosenSizeIncludesFrame: false,
+        fillsItsCorners: true,
         whyThisSize: "It is the size selected on the page.",
         otherSizes: [],
         artworkCorners: pictureCorners
@@ -484,6 +507,9 @@ private final class CutoutStub {
     var garment: ShirtGarment? = sharedTestGarment
     /// While set, the garment is not ready until the test opens this gate or the garment's task is cancelled.
     var garmentGate: TestGate?
+    /// What the cutout by a wall item's own shape gives: a round item on a clear photo of the picture's size.
+    var wallItemByItsShape: CGImage? = roundItemOnClearPhotoImage()
+    private(set) var wallItemCutoutsAsked = 0
     private(set) var furnitureCutoutsAsked = 0
     private(set) var garmentsAsked = 0
     /// How the product photo showed the garment, for each garment asked.
@@ -494,6 +520,11 @@ private final class CutoutStub {
     func cutOutTheFurniture() -> CGImage? {
         furnitureCutoutsAsked += 1
         return furnitureCutout
+    }
+
+    func cutOutTheWallItemByItsShape() -> CGImage? {
+        wallItemCutoutsAsked += 1
+        return wallItemByItsShape
     }
 
     func makeTheGarment(photoShows: RoomArtGarmentPhoto, pictureWidth: Int) async -> ShirtGarment? {
@@ -807,6 +838,7 @@ private struct RoomArtHarness {
                 measureTheWall: { wallRequest in try await worker.measureTheWall(wallRequest) },
                 measureTheFloor: { floorRequest in try await worker.measureTheFloor(floorRequest) },
                 cutOutTheFurniture: { _, _ in cutouts.cutOutTheFurniture() },
+                cutOutTheWallItemByItsShape: { _, _ in cutouts.cutOutTheWallItemByItsShape() },
                 makeTheShirtGarment: { picture, _, photoShows in await cutouts.makeTheGarment(photoShows: photoShows, pictureWidth: picture.width) },
                 makeFrameSource: { camera },
                 clearTheLiveScene: { recorder.timesTheSceneWasClearedBeforeThePanel.append(panel.timesShown) },
@@ -885,6 +917,8 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.spokenLines() == ["Here it is at 16 by 20 inches."])
         #expect(harness.controller.phase.statusLine == "On your wall at 16 by 20 inches")
         #expect(harness.frameProcessor.surfacesShownOn == [.wall])
+        // An item that fills its corners is flattened from the photo as it is, with no cutout by its shape.
+        #expect(harness.cutouts.wallItemCutoutsAsked == 0)
         // A scene or pop-out on screen is cleared once, before the panel shows over it.
         #expect(harness.recorder.timesTheSceneWasClearedBeforeThePanel == [0])
         let pageRequest = try #require(harness.worker.pageRequests.first)
@@ -1197,7 +1231,7 @@ struct RoomArtPreviewControllerTests {
         (RoomArtCannotBeShownReason.notAPhysicalItem, "That isn't something I can show in your room."),
         (RoomArtCannotBeShownReason.tooSmallToSee, "That's too small to see in your room."),
         (RoomArtCannotBeShownReason.noClearPhoto, "I couldn't find a clear photo of it on that page."),
-        (RoomArtCannotBeShownReason.notFlatForTheWall, "I can only hang flat, rectangular things on your wall so far."),
+        (RoomArtCannotBeShownReason.notFlatForTheWall, "I can only hang flat things on your wall so far."),
         (RoomArtCannotBeShownReason.noPlaceClickyCanShow, "I can show things on your wall, your floor, or a table so far."),
     ])
     func anItemThatCannotBeShownSaysWhyRightAfterThePageReadBeforeAnyCameraMeasurement(reason: RoomArtCannotBeShownReason, expectedLine: String) async throws {
@@ -1221,6 +1255,58 @@ struct RoomArtPreviewControllerTests {
         await openingTask.value
         // The failed panel stopped its camera before it started, so the test stops the one that started late.
         camera.stop()
+        harness.controller.close()
+    }
+
+    // MARK: A wall item that does not fill its corners
+
+    private func roundClockReading() -> RoomArtPageReading {
+        .wallArt(RoomArtWallArtReading(
+            title: "Round wall clock",
+            chosenSize: RoomArtSize(label: "30 cm", widthCentimeters: 30, heightCentimeters: 30),
+            chosenSizeIncludesFrame: true,
+            fillsItsCorners: false,
+            whyThisSize: "The page states a 30 cm diameter.",
+            otherSizes: [],
+            artworkCorners: pictureCorners
+        ))
+    }
+
+    @Test func aWallItemThatDoesNotFillItsCornersIsCutOutByItsShapeAndHungWithTransparentCorners() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(roundClockReading())
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this clock look on my wall")
+
+        try await waitFor("the clock to hang on the wall") { harness.artIsShowing() }
+        #expect(harness.cutouts.wallItemCutoutsAsked == 1)
+        #expect(harness.cutouts.furnitureCutoutsAsked == 0)
+        #expect(harness.frameProcessor.surfacesShownOn == [.wall])
+        #expect(harness.spokenLines() == ["Here it is at 12 by 12 inches."])
+        // The art that reached the wall was flattened from the cutout, so the photo's corners outside the clock are clear.
+        let hungImage = try #require(harness.frameProcessor.wallArtImagesShown.first)
+        #expect(alphaByteOfThePixel(in: hungImage, column: 4, row: 4) < 10)
+        #expect(alphaByteOfThePixel(in: hungImage, column: hungImage.width - 5, row: hungImage.height - 5) < 10)
+        #expect(alphaByteOfThePixel(in: hungImage, column: hungImage.width / 2, row: hungImage.height / 2) > 245)
+        harness.controller.close()
+    }
+
+    @Test func aWallItemWhoseCutoutFailsSaysItCouldNotCutItOutAndHangsNothing() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(roundClockReading())
+        let cutouts = CutoutStub()
+        cutouts.wallItemByItsShape = nil
+        let harness = RoomArtHarness(worker: worker, cutouts: cutouts)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this clock look on my wall")
+
+        try await waitFor("the panel to fail on the cutout") { harness.controller.phase == .failed(.furnitureNotCutOut) }
+        #expect(harness.spokenLines() == ["I couldn't cut it out of its photo."])
+        #expect(harness.recorder.spokenLineFailureFlags == [true])
+        #expect(harness.statusLine() == "Couldn't cut it out of its photo")
+        #expect(harness.frameProcessor.surfacesShownOn.isEmpty)
+        #expect(worker.floorRequests.isEmpty)
         harness.controller.close()
     }
 

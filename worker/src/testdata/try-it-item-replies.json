@@ -1,5 +1,5 @@
 {
-  "description": "POST /try-it-item responses shaped exactly as the Worker returns them: one for each kind, plus a wall item and a standing item whose page states no size, a standing item for the floor and one for a table or shelf, a figure whose page states only its height, and an item that cannot be shown, and a garment whose front is the second picture. worker/src/tryItItem.test.ts feeds each one to handleTryItItem as the model's reply and expects it back unchanged, and leanring-buddyTests/RoomArtTests.swift parses each one with RoomArtPageReading and checks its whole reading by case name, failing on a case it has no expectation for, so the Worker's response and the app's reader cannot drift apart. Each request carries the picture and one other picture of the sizes below, and the corners fit the picture they are in.",
+  "description": "POST /try-it-item responses shaped exactly as the Worker returns them: one for each kind, plus a wall item, a round wall item that does not fill its corners, and a standing item whose page states no size, a standing item for the floor and one for a table or shelf, a figure whose page states only its height, a wall shelf that cannot be shown, and a garment whose front is the second picture. worker/src/tryItItem.test.ts feeds each one to handleTryItItem as the model's reply and expects it back unchanged, and leanring-buddyTests/RoomArtTests.swift parses each one with RoomArtPageReading and checks its whole reading by case name, failing on a case it has no expectation for, so the Worker's response and the app's reader cannot drift apart. Each request carries the picture and one other picture of the sizes below, and the corners fit the picture they are in.",
   "picture": {
     "width": 400,
     "height": 500
@@ -36,6 +36,7 @@
         "item": {
           "kind": "wall",
           "wall": {
+            "fillsItsCorners": true,
             "sizeFoundOnPage": true,
             "size": {
               "label": "16 x 20 in",
@@ -81,6 +82,7 @@
         "item": {
           "kind": "wall",
           "wall": {
+            "fillsItsCorners": true,
             "sizeFoundOnPage": false,
             "size": {
               "label": "",
@@ -375,11 +377,51 @@
       }
     },
     {
-      "name": "a wall clock that cannot be shown",
-      "kind": "cannotBeShown",
+      "name": "a round wall clock that does not fill its corners",
+      "kind": "wall",
       "response": {
         "title": "Round wall clock",
-        "whyThisSize": "The clock hangs on a wall but is round, not a flat rectangle.",
+        "whyThisSize": "The page states a 30 cm diameter.",
+        "itemCorners": {
+          "topLeft": {
+            "x": 60,
+            "y": 110
+          },
+          "topRight": {
+            "x": 340,
+            "y": 110
+          },
+          "bottomRight": {
+            "x": 340,
+            "y": 390
+          },
+          "bottomLeft": {
+            "x": 60,
+            "y": 390
+          }
+        },
+        "item": {
+          "kind": "wall",
+          "wall": {
+            "fillsItsCorners": false,
+            "sizeFoundOnPage": true,
+            "size": {
+              "label": "30 cm",
+              "widthCentimeters": 30,
+              "heightCentimeters": 30,
+              "includesFrame": true
+            },
+            "otherSizes": []
+          }
+        }
+      }
+    },
+    {
+      "name": "a wall shelf that cannot be shown",
+      "kind": "cannotBeShown",
+      "response": {
+        "title": "Floating wall shelf",
+        "whyThisSize": "The shelf hangs on a wall but sticks out of it by 20 cm.",
         "itemCorners": {
           "topLeft": {
             "x": 60,

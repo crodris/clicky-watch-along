@@ -957,13 +957,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 .clampedToExtent()
                 .applyingGaussianBlur(sigma: 0.7 * artPixelsPerCameraPixel)
                 .cropped(to: artExtent)
-            // The shadow sits 2 percent of the art's height below it and spreads 1.5 percent, at 35 percent black.
-            let shadowSpread = artHeight * 0.015
-            let shadowOffset = -artHeight * 0.02
-            let shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.35))
-                .cropped(to: artExtent.offsetBy(dx: 0, dy: shadowOffset))
-                .applyingGaussianBlur(sigma: shadowSpread)
-                .cropped(to: artExtent.offsetBy(dx: 0, dy: shadowOffset).insetBy(dx: -3 * shadowSpread, dy: -3 * shadowSpread))
+            let shadow = wallArtShadow(of: flattenedArt)
             self.placedArt = PlacedArt(drawing: .warpedOntoItsCorners(litArt: litArt, shadow: shadow), keyframeCorners: corners, keyframeBasePoint: nil)
             self.crossfadeFrom = nil
             self.smoothedArtCorners = nil
@@ -1146,6 +1140,9 @@ final class RoomArtPreviewController: ObservableObject {
         /// The furniture cut out of its product photo, nil when Vision finds none. Vision takes a while, so it runs off the
         /// main actor.
         var cutOutTheFurniture: (_ picture: CGImage, _ itemCorners: RoomArtCorners) async -> CGImage?
+        /// The whole product photo with only the wall item's own shape opaque, nil when Vision finds none: for a wall item whose
+        /// outline does not fill its four corners, such as a round clock. It runs off the main actor.
+        var cutOutTheWallItemByItsShape: (_ picture: CGImage, _ itemCorners: RoomArtCorners) async -> CGImage?
         /// The top cut out of its product photo, nil when no garment is found: `ShirtGarment.make` for a flat lay and
         /// `make(onModelPhoto:itemCorners:)` for a photo of it worn by a model. It runs off the main actor.
         var makeTheShirtGarment: (_ picture: CGImage, _ itemCorners: RoomArtCorners, _ photoShows: RoomArtGarmentPhoto) async -> ShirtGarment?
@@ -1221,6 +1218,12 @@ final class RoomArtPreviewController: ObservableObject {
                     nonisolated(unsafe) let pictureToCut = picture
                     return await Task.detached(priority: .userInitiated) { () -> CGImage? in
                         furnitureCutout(picture: pictureToCut, itemCorners: itemCorners, context: CIContext())
+                    }.value
+                },
+                cutOutTheWallItemByItsShape: { picture, itemCorners in
+                    nonisolated(unsafe) let pictureToCut = picture
+                    return await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                        pictureWithOnlyTheItemOpaque(picture: pictureToCut, itemCorners: itemCorners, context: CIContext())
                     }.value
                 },
                 makeTheShirtGarment: { picture, itemCorners, photoShows in
@@ -1813,8 +1816,23 @@ final class RoomArtPreviewController: ObservableObject {
             apply(phase.afterThePageFailed(failure))
 
         case .hangOnTheWall(let wallArtReading):
+            // An item that fills its four corners is flattened from the photo as it is. Any other outline, such as a round
+            // clock, would hang the photo's background corners with it, so it is cut out by its own shape first and the
+            // flattened art keeps transparent pixels outside the item.
+            var pictureToFlatten = pictureImage
+            if !wallArtReading.fillsItsCorners {
+                let itemOnItsOwn = await environment.cutOutTheWallItemByItsShape(pictureImage, wallArtReading.artworkCorners)
+                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                guard let itemOnItsOwn else {
+                    print("Room art: Vision found no shape to cut the wall item out by")
+                    apply(phase.afterThePageFailed(.furnitureNotCutOut))
+                    return
+                }
+                print("Room art: cut the wall item out of its photo by its own shape")
+                pictureToFlatten = itemOnItsOwn
+            }
             guard let flattenedImage = flattenedArtwork(
-                picture: pictureImage,
+                picture: pictureToFlatten,
                 corners: wallArtReading.artworkCorners,
                 size: wallArtReading.chosenSize,
                 context: flatteningContext
