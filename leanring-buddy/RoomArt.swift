@@ -1278,7 +1278,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// The preview shows over the learner every frame they stand in view: the live 2D garment, or the ghost outline of the
     /// area that will be painted.
     case showingTheShirt(title: String, preview: ShirtPreviewKind)
-    /// The learner said "right there" or clicked Paint it, and the capture waits for them to step back and hold still
+    /// The learner said "paint it" (or its alias "right there") or clicked Paint it, and the capture waits for them to step back and hold still
     /// (`ShirtStepBackCapture`), with a 3-2-1 countdown while they do. `id` names this capture, so an event from one the
     /// learner restarted or left changes nothing.
     case waitingForTheLearnerToStepBack(title: String, id: ShirtPaintingID, preview: ShirtPreviewKind)

@@ -43,12 +43,13 @@ nonisolated let roomArtPhotoTitleLongestUTF8Bytes = 150
 /// a colon, a control character, or a bidirectional control in the title becomes a hyphen and a leading dot is dropped, so
 /// a store's title can never name a folder, a hidden file, or a file that reads backward. The time is in `timeZone`, the learner's own by default.
 nonisolated func roomArtPhotoFileName(itemTitle: String, savedAt date: Date, timeZone: TimeZone = .current) -> String {
-    // Only true control characters (the Cc category) and the bidirectional controls. `CharacterSet.controlCharacters` also
-    // holds every format character, such as the zero-width joiner inside a family emoji or the tags of a flag emoji, which
-    // are safe in a file name and would split the emoji into hyphens.
-    let unsafeScalars = CharacterSet(charactersIn: "/:\u{200E}\u{200F}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}")
+    // Only true control characters (the Cc category) and the bidirectional controls, which Unicode lists as Bidi_Control
+    // (the Arabic letter mark included). `CharacterSet.controlCharacters` also holds every format character, such as the
+    // zero-width joiner inside a family emoji or the tags of a flag emoji, which are safe in a file name and would split
+    // the emoji into hyphens.
+    let pathSeparators = CharacterSet(charactersIn: "/:")
     var safeTitle = String(String.UnicodeScalarView(itemTitle.unicodeScalars.map {
-        unsafeScalars.contains($0) || $0.properties.generalCategory == .control ? "-" : $0
+        pathSeparators.contains($0) || $0.properties.isBidiControl || $0.properties.generalCategory == .control ? "-" : $0
     }))
         .trimmingCharacters(in: .whitespacesAndNewlines)
     while safeTitle.hasPrefix(".") { safeTitle.removeFirst() }

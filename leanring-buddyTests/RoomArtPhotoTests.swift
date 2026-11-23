@@ -34,6 +34,8 @@ struct RoomArtPhotoTests {
         #expect(roomArtPhotoFileName(itemTitle: "Tee 1/2: Navy", savedAt: savedAt, timeZone: utc) == "Clicky try-on Tee 1-2- Navy 2026-11-18 11.06.40.jpg")
         // A leading dot would hide the file, and a right-to-left override would make its name read backward.
         #expect(roomArtPhotoFileName(itemTitle: "..hidden\u{202E}gpj", savedAt: savedAt, timeZone: utc) == "Clicky try-on hidden-gpj 2026-11-18 11.06.40.jpg")
+        // The Arabic letter mark is a bidirectional control too, though no hand-written list held it.
+        #expect(roomArtPhotoFileName(itemTitle: "lamp\u{061C}gpj", savedAt: savedAt, timeZone: utc) == "Clicky try-on lamp-gpj 2026-11-18 11.06.40.jpg")
         #expect(roomArtPhotoFileName(itemTitle: "  ", savedAt: savedAt, timeZone: utc) == "Clicky try-on 2026-11-18 11.06.40.jpg")
         // A tab or a line break is a control character, while the zero-width joiner inside an emoji is kept.
         #expect(roomArtPhotoFileName(itemTitle: "Tee\tNavy\nSoft 👩‍💻", savedAt: savedAt, timeZone: utc) == "Clicky try-on Tee-Navy-Soft 👩‍💻 2026-11-18 11.06.40.jpg")
