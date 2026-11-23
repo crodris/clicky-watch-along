@@ -104,7 +104,8 @@ Start a Worker on a free port instead, such as `$V worker-up 8796`, and pass `--
 `app-launch` refuses to run without a Worker this script started on 8787, or on its `--worker-port`, so the run always serves this checkout's Worker code and captures its usage lines.
 
 Then launch the app with rehearsal steps.
-It refuses when any Clicky is already running, because two instances fight over the event tap and the overlay.
+It refuses when a Clicky run by this macOS user is already running, because two instances fight over the event tap and the overlay.
+A Clicky run by another user does not count, such as the CI test hosts under `clicky-ci`, since they run in that user's own session and cannot touch this user's event tap or overlay.
 It also quits the app and stops when the app's `Clicky start` log line shows `screen: false`.
 macOS keys privacy grants to the bundle ID that doctor prints, so a build with a new ID has none.
 Only Chris can grant them, in System Settings > Privacy & Security > Screen & System Audio Recording, and Accessibility for the video features.
