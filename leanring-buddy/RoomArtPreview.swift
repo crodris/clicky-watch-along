@@ -1387,8 +1387,10 @@ final class RoomArtPreviewController: ObservableObject {
     /// The model's render for the newest placement, held back while the painting is on its way, since an early look makes
     /// the painting that follows it read as a small change. It shows only as the fallback.
     private var furnitureRenderHeldBack: (measurementID: RoomArtMeasurementID, layers: RoomFurnitureKeyframeLayers)?
-    /// What the newest placement's fallback waits on (`roomFurnitureFallbackStep`): the painting said it cannot come, the
-    /// wait ran out, and a render is still being made.
+    /// What the newest placement's fallback waits on, the inputs of `roomFurnitureFallbackStep`: the painting said it cannot
+    /// come, the wait counted from the painting request ran out (`furnitureWaitRanOut`), the wait counted from the placement
+    /// ran out (`furniturePlacementWaitRanOut`), a painting request is out (`furniturePaintingRequestIsOut`), and where the
+    /// model's render stands (`furnitureRenderState`: held back and ready, still being made or searched for, or none).
     private var furniturePaintingCannotCome = false
     private var furnitureWaitRanOut = false
     private var furniturePlacementWaitRanOut = false
@@ -1565,6 +1567,7 @@ final class RoomArtPreviewController: ObservableObject {
         furnitureLookDeadlineTask = nil
         furniturePlacementDeadlineTask?.cancel()
         furniturePlacementDeadlineTask = nil
+        furniturePaintingRequestIsOut = false
         shirtPaintingTask?.cancel()
         shirtPaintingTask = nil
         aPressCancelledTheCapture = false
@@ -2321,11 +2324,15 @@ extension RoomArtPreviewController {
             wall = nil
         }
         wallOfTheLatestMeasurement = wall
+        // Why no floor could stand the piece, for the error and the log, which differ for each way a measured floor is refused.
+        var whyNoFloorStoodThePiece = "No floor was in view and the wall gave none to stand the piece on"
         if let measuredFloor, let floorForThePiece {
             if !anchorWasClicked, measuredFloor.heightBelowTheCameraMeters < roomFurnitureLeastFloorHeightBelowTheCameraMeters {
                 // Level with the wall, so the angle check below passes it, but nearer the camera than any floor is.
+                whyNoFloorStoodThePiece = "The measured floor is less than \(roomFurnitureLeastFloorHeightBelowTheCameraMeters) m below the camera"
                 print(String(format: "Room furniture: the measured floor is only %.2f m below the camera, so it is a desk, a bed, or a table, not the floor", measuredFloor.heightBelowTheCameraMeters))
             } else if let wall, !measuredFloor.agrees(withTheWall: wall) {
+                whyNoFloorStoodThePiece = "The floor is not level with the wall"
                 print("Room furniture: the measured floor is not level with the wall, so it is a desk or a bed, not the floor")
             } else {
                 return floorForThePiece
@@ -2339,13 +2346,13 @@ extension RoomArtPreviewController {
             print(String(format: "Room furniture: no floor in view, so the floor is inferred from the wall, with %.0f%% of the piece in the frame", shareInTheFrame * 100))
             if shareInTheFrame >= roomFurnitureLeastShareOfTheBoxInTheFrame { return inferredFloor }
         }
-        throw floorError ?? RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"The floor is not level with the wall"}"#)
+        throw floorError ?? RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"\#(whyNoFloorStoodThePiece)"}"#)
     }
 
     /// The floor anchored where the whole piece shows (`roomFurnitureSpotWhereTheWholePieceFits`), since the bare spot it was
     /// measured at is often a corner where the frame cuts the piece off. A click keeps the spot the learner clicked, and a
-    /// piece no spot shows whole is placed where most of it shows. Where the learner places its ghost decides the step back
-    /// line, said once after "Here it is" when the placed piece does not all show.
+    /// piece no spot shows whole is placed where most of it shows. Where the learner places its ghost decides the advice
+    /// that is part of the "Here it is" line, when the placed piece does not all show (`roomFurnitureAdviceForAPieceTheFrameCutsOff`).
     private func floorWhereTheWholePieceShows(_ measuredFloor: FloorPlane, on keyframe: RoomArtKeyframe, for item: RoomArtPlacedItem?, anchorWasClicked: Bool) -> FloorPlane {
         guard !anchorWasClicked, case .furniture(let furniture) = item else { return measuredFloor }
         let spot = roomFurnitureSpotWhereTheWholePieceFits(
@@ -2578,9 +2585,11 @@ extension RoomArtPreviewController {
     }
 
     /// Shows the newest placement's fallback when `roomFurnitureFallbackStep` says it is due: the model's render, else no
-    /// piece and a line that says it could not be drawn, since the flat cutout reads as a sticker. A placement that already
-    /// shows a look changes nothing, a painting that arrives later still crossfades over the render or shows the piece, and
-    /// a render that finishes after the piece could not be drawn still shows it.
+    /// piece and a line that says it could not be drawn, since the flat cutout reads as a sticker. The line never comes while
+    /// a painting request is out, so a painting that arrives after it was said is one that was asked for later, once the
+    /// learner stepped out of the box. A placement that already shows a look changes nothing, a painting that arrives later
+    /// still crossfades over the render or shows the piece, and a render that finishes after the piece could not be drawn
+    /// still shows it.
     private func showTheFurnitureFallbackIfItIsDue() {
         guard let furniturePlacement else { return }
         let reason = furnitureWaitRanOut || furniturePlacementWaitRanOut ? "no painting came within \(Int(roomFurnitureSecondsToWaitForALook)) s" : "no painting can come"

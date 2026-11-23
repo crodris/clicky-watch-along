@@ -104,8 +104,13 @@ nonisolated enum RoomFurniturePaintedComposite {
 
     /// The painted item as keyframe layers, or nil when the painting is not the keyframe's size, the mask does not read, the
     /// painted item is shorter than the box's front face or taller than its outline, each by more than
-    /// `mostHeightDifference`, or the item reached past the pasted region's top, where the paste cut it off. Also returns the painted height as a share of the box's outline and the painted rows' span
-    /// (top and bottom in y-down keyframe pixels) for the log, each nil when nothing was painted.
+    /// `mostHeightDifference`, the item reached past the pasted region's top, where the paste cut it off, or its floor
+    /// contact (the middle of its lowest painted row) is off the box's footprint grown by `floorContactSlackShare`
+    /// (`floorContactLandsOnTheFootprint`). When the frame cuts the footprint off at its bottom row, the slack is taken from
+    /// the footprint's height before the cut, so the contact may lie anywhere from the top of the visible footprint down to
+    /// the bottom row, and a piece that floats above the visible footprint is refused. Also returns the painted height as a
+    /// share of the box's outline and the painted rows' span (top and bottom in y-down keyframe pixels) for the log, each nil
+    /// when nothing was painted.
     static func itemLayers(
         painted: CGImage,
         keyframe: CGImage,
