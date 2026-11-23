@@ -126,6 +126,8 @@ struct ShirtPaintedStillVoiceTests {
     }
 
     @Test func theRouteTakesThePhrasesAheadOfTheRouterWhileTheShirtShows() {
+        // "Paint it" is the phrase every shirt prompt offers, and "right there" stays a quiet alias.
+        #expect(transcriptRoute(for: "Paint it.", in: context(.livePreview), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
         #expect(transcriptRoute(for: "right there", in: context(.livePreview), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
         #expect(transcriptRoute(for: "go back", in: context(.paintedStill), videoIsInFront: { true }) == .shirtPaintedStill(.backToLive))
         #expect(transcriptRoute(for: "right there", in: context(.stepBack), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))

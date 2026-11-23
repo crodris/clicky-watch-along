@@ -407,6 +407,9 @@ final class CompanionManager: ObservableObject {
         theLearnerAskedThePanel: { [weak self] in
             guard let self else { return }
             self.roomArtRequest.continued(atPushToTalkPressCount: self.pushToTalkPressCount)
+        },
+        showTheChip: { phrase, isAFailure in
+            VoiceToolCallChip.shared.show(phrase, sender: isAFailure ? .failure : .voiceToolCall)
         }
     ))
     /// The room art line waiting for its turn or playing. A new line replaces it, and every close of the panel ends it.
@@ -1826,6 +1829,9 @@ final class CompanionManager: ObservableObject {
                 print("Shirt painting: back to the live preview on request")
                 roomArtPreviewController.goBackToTheLiveShirt()
             }
+        case .saveTheRoomArtPhoto:
+            print("Room art: saving the photo on request")
+            roomArtPreviewController.saveThePhoto()
         // "Animate this" and "let me try it" keep their keyword branches ahead of the router, so a demo never depends on
         // the model choosing them, unless the brain flag hands the utterance to the router.
         case .keywordBranch(.animatePicture):
@@ -2022,7 +2028,8 @@ final class CompanionManager: ObservableObject {
             replayStopsAreRecorded: replayStopsAreRecordedForTheSceneOnScreen,
             furnitureGhostShows: roomArtPreviewController.phase.furnitureGhostShows,
             aRoomArtItemKeepsTheRoom: roomArtPreviewController.phase.keepsTheRoomForANewItem,
-            shirtStillVoiceTargets: roomArtPreviewController.shirtStillVoiceTargetsForTheRoute
+            shirtStillVoiceTargets: roomArtPreviewController.shirtStillVoiceTargetsForTheRoute,
+            aRoomArtPhotoCanBeSaved: roomArtPreviewController.phase.photoTitleToSave != nil
         )
     }
 

@@ -156,6 +156,9 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     /// follow: a footprint or a shirt's outline. Safe to call from any thread, since the panel reads it every frame on the
     /// main thread.
     func currentLoop() -> RoomArtLoopSnapshot?
+    /// The last frame as the panel drew it, at the camera's own size, with the person, the items, and their shadows as shown:
+    /// what Save photo writes. Nil before the first frame. It renders on `processingQueue`, so call it off the main actor.
+    func renderTheLastFrame() -> CGImage?
 }
 
 /// Handles every camera frame on `processingQueue`, which owns all of its state.
@@ -272,10 +275,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     private var latestCameraWarp: EuclideanWarp?
     private var statistics = FrameStatistics()
     private var lastFrameRateReport: RoomArtFrameRateReport?
-    #if DEBUG
-    /// The last frame as drawn, kept so verification can save what the panel showed.
+    /// The last frame as drawn, kept so Save photo, and verification, can save what the panel showed.
     private var lastComposedImage: CIImage?
-    #endif
 
     /// The item as it is drawn on every frame: already lit like the room and softened like the camera, with its shadow.
     struct PlacedArt {
@@ -884,9 +885,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     /// refused the frame.
     private func present(_ image: CIImage, extent: CGRect) -> Bool {
         let composedImage = image.cropped(to: extent)
-        #if DEBUG
         lastComposedImage = composedImage
-        #endif
         guard let commandQueue, let drawable = metalLayer.nextDrawable(), let commandBuffer = commandQueue.makeCommandBuffer() else { return false }
         let renderDestination = CIRenderDestination(mtlTexture: drawable.texture, commandBuffer: commandBuffer)
         renderDestination.colorSpace = sRGBColorSpace
@@ -901,14 +900,11 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         return true
     }
 
-    #if DEBUG
-    /// The last frame as the panel drew it, for verification. Debug builds only.
     func renderTheLastFrame() -> CGImage? {
         processingQueue.sync {
             lastComposedImage.flatMap { ciContext.createCGImage($0, from: $0.extent, format: .RGBA8, colorSpace: sRGBColorSpace) }
         }
     }
-    #endif
 
     /// The item over the frame where the tracker put `artCorners` (camera pixels, y down), with the person drawn back on top
     /// through the segmentation mask, so the learner stays in front of it, unless furniture stands nearer the camera than
@@ -1469,6 +1465,10 @@ final class RoomArtPreviewController: ObservableObject {
         /// Plays a countdown sound of the shirt's step-back capture: a tick for each number and a different sound when the
         /// frame freezes. A test counts them instead of playing them.
         var playTheShirtCountdownSound: (ShirtCountdownSound) -> Void = { $0.play() }
+        /// Shows a chip above the cursor, as a failure when `isAFailure` is true: what Save photo did.
+        var showTheChip: (_ phrase: String, _ isAFailure: Bool) -> Void = { _, _ in }
+        /// Where Save photo writes, ~/Pictures/Clicky. A test passes a folder of its own.
+        var photoFolder: URL = RoomArtPhotoSaving.standardFolder
 
         /// Chrome, the Worker at `workerBaseURL`, the app's defaults for the secret, Vision, and the camera (or a Debug
         /// build's `--room-camera-file`).
@@ -1479,7 +1479,8 @@ final class RoomArtPreviewController: ObservableObject {
             loopAccentColor: @escaping () -> Color,
             loopTracerLook: @escaping () -> CursorLoopTracerLook?,
             endTheSpokenLine: @escaping () -> Void,
-            theLearnerAskedThePanel: @escaping () -> Void
+            theLearnerAskedThePanel: @escaping () -> Void,
+            showTheChip: @escaping (String, Bool) -> Void
         ) -> Environment {
             let roomArtClient = RoomArtClient(workerBaseURL: workerBaseURL)
             let shirtPaintingClient = ShirtPaintingClient(workerBaseURL: workerBaseURL)
@@ -1559,7 +1560,8 @@ final class RoomArtPreviewController: ObservableObject {
                     }.value
                 },
                 paintTheShirt: { paintingRequest in try await shirtPaintingClient.paint(paintingRequest) },
-                theLearnerAskedThePanel: theLearnerAskedThePanel
+                theLearnerAskedThePanel: theLearnerAskedThePanel,
+                showTheChip: showTheChip
             )
         }
     }
@@ -2377,6 +2379,33 @@ final class RoomArtPreviewController: ObservableObject {
 
     /// "Go back" or Back to live: the live preview comes back, from the painted still or from a painting on its way, which
     /// is cancelled.
+    /// Save photo, by its button or "save this photo": writes the frame the panel last drew, at the camera's own size, as a
+    /// JPEG in `photoFolder`, and shows a chip that says where, or that it failed. The panel stays open either way.
+    func saveThePhoto() {
+        guard let itemTitle = phase.photoTitleToSave, photoSavingTask == nil else { return }
+        let frameProcessor = frameProcessor, photoFolder = environment.photoFolder, savedAt = Date()
+        photoSavingTask = Task { [weak self] in
+            // The render waits on the processing queue and the write on the disk, so neither runs on the main actor.
+            let outcome = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
+                guard let frameImage = frameProcessor.renderTheLastFrame() else { return .failure(RoomArtPhotoSaving.SaveError.nothingDrawnYet) }
+                return Result { try RoomArtPhotoSaving.save(frameImage, itemTitle: itemTitle, savedAt: savedAt, in: photoFolder) }
+            }.value
+            guard let self else { return }
+            photoSavingTask = nil
+            switch outcome {
+            case .success(let photoURL):
+                print("Room art: saved the photo to \(photoURL.path)")
+                environment.showTheChip(roomArtPhotoSavedChip, false)
+            case .failure(let error):
+                print("Room art: could not save the photo: \(error)")
+                environment.showTheChip(roomArtPhotoNotSavedChip, true)
+            }
+        }
+    }
+
+    /// The save in progress, so a second press while it runs saves nothing more, and a test can wait for it.
+    private(set) var photoSavingTask: Task<Void, Never>?
+
     func goBackToTheLiveShirt() {
         let livePhase = phase.backToTheLiveShirt()
         guard livePhase != phase else { return }
@@ -3132,29 +3161,29 @@ extension RoomArtPageReading {
 
 @MainActor
 final class RoomArtPanelController: RoomArtPanelPresenting {
-    static let panelSize = CGSize(width: 960, height: 540)
-
     private weak var previewController: RoomArtPreviewController?
     private let metalLayer: CAMetalLayer
     private var panel: NonKeyFloatingPanel?
+    private var frameObservers: [NSObjectProtocol] = []
 
     init(previewController: RoomArtPreviewController, metalLayer: CAMetalLayer) {
         self.previewController = previewController
         self.metalLayer = metalLayer
     }
 
-    /// Shows the panel centered on the screen under the mouse.
+    /// Shows the panel where the learner last left it, or centered on the screen under the mouse the first time
+    /// (`roomArtPanelFrameToShow`).
     func show() {
         guard let previewController else { return }
         let panel = panel ?? makePanel(previewController: previewController)
         self.panel = panel
         let mouseLocation = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) } ?? NSScreen.main
-        if let visibleFrame = screen?.visibleFrame {
-            panel.setFrameOrigin(CGPoint(
-                x: visibleFrame.midX - Self.panelSize.width / 2,
-                y: visibleFrame.midY - Self.panelSize.height / 2
-            ))
+        if let visibleFrameUnderTheMouse = screen?.visibleFrame {
+            let savedFrame = UserDefaults.standard.string(forKey: roomArtPanelFrameDefaultsKey).map(NSRectFromString)
+            panel.setFrame(roomArtPanelFrameToShow(
+                savedFrame: savedFrame, visibleFrames: NSScreen.screens.map(\.visibleFrame), visibleFrameUnderTheMouse: visibleFrameUnderTheMouse
+            ), display: false)
         }
         panel.orderFrontRegardless()
     }
@@ -3165,7 +3194,7 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
 
     private func makePanel(previewController: RoomArtPreviewController) -> NonKeyFloatingPanel {
         let panel = NonKeyFloatingPanel(
-            contentRect: CGRect(origin: .zero, size: Self.panelSize),
+            contentRect: CGRect(origin: .zero, size: roomArtPanelDefaultSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -3176,13 +3205,80 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
         panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
+        // The aspect ratio holds for any resize AppKit makes, and the grip keeps it itself (`roomArtPanelResizedFrame`).
+        panel.contentAspectRatio = NSSize(width: 16, height: 9)
+        panel.minSize = roomArtPanelSmallestSize
         let hostingView = FirstMouseHostingView(rootView: RoomArtPanelView(previewController: previewController, metalLayer: metalLayer))
-        hostingView.frame = CGRect(origin: .zero, size: Self.panelSize)
+        hostingView.frame = CGRect(origin: .zero, size: roomArtPanelDefaultSize)
+        // The window's frame sets the content's size, never the other way round, so a resize is never undone by SwiftUI.
+        hostingView.sizingOptions = []
+        hostingView.autoresizingMask = [.width, .height]
         hostingView.wantsLayer = true
         hostingView.layer?.cornerRadius = 16
         hostingView.layer?.masksToBounds = true
         panel.contentView = hostingView
+        // A drag or a resize keeps the panel's new frame, so the next panel opens there.
+        for notificationName in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            frameObservers.append(NotificationCenter.default.addObserver(forName: notificationName, object: panel, queue: .main) { [weak panel] _ in
+                guard let panel, panel.isVisible else { return }
+                UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: roomArtPanelFrameDefaultsKey)
+            })
+        }
         return panel
+    }
+}
+
+/// The panel's two window controls: the handle at its top that moves it, and the grip at its bottom right corner that
+/// resizes it at 16:9. The panel never becomes key, so the handle moves it with `performDrag(with:)`, which works on a
+/// window that is not key, and the grip sets the frame itself. The video under them keeps every other press and drag for
+/// placing and moving the item.
+private struct RoomArtPanelWindowControl: NSViewRepresentable {
+    enum Kind { case moveHandle, resizeGrip }
+    let kind: Kind
+
+    func makeNSView(context: Context) -> RoomArtPanelWindowControlNSView {
+        RoomArtPanelWindowControlNSView(kind: kind)
+    }
+
+    func updateNSView(_ nsView: RoomArtPanelWindowControlNSView, context: Context) {}
+}
+
+private final class RoomArtPanelWindowControlNSView: NSView {
+    private let kind: RoomArtPanelWindowControl.Kind
+    /// The panel's frame and the pointer's screen point when the grip was pressed, which each drag of the grip measures from.
+    private var resizeStart: (frame: CGRect, pointer: CGPoint)?
+
+    init(kind: RoomArtPanelWindowControl.Kind) {
+        self.kind = kind
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("RoomArtPanelWindowControlNSView is made in code")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        switch kind {
+        case .moveHandle: window.performDrag(with: event)
+        case .resizeGrip: resizeStart = (window.frame, NSEvent.mouseLocation)
+        }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard kind == .resizeGrip, let resizeStart, let window, let visibleFrame = window.screen?.visibleFrame else { return }
+        let pointer = NSEvent.mouseLocation
+        window.setFrame(roomArtPanelResizedFrame(
+            startFrame: resizeStart.frame,
+            pointerMovedBy: CGSize(width: pointer.x - resizeStart.pointer.x, height: pointer.y - resizeStart.pointer.y),
+            visibleFrame: visibleFrame
+        ), display: true)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        resizeStart = nil
     }
 }
 
@@ -3192,6 +3288,9 @@ private struct RoomArtPanelView: View {
     @State private var closeButtonIsHovered = false
     @State private var placeButtonIsHovered = false
     @State private var shirtButtonIsHovered = false
+    @State private var saveButtonIsHovered = false
+    @State private var moveHandleIsHovered = false
+    @State private var resizeGripIsHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var ghostOpacity: Double? {
@@ -3204,6 +3303,13 @@ private struct RoomArtPanelView: View {
     }
 
     var body: some View {
+        // The panel resizes, so the loop and the ghost map camera pixels onto the size it has now.
+        GeometryReader { geometry in
+            panelContent(panelSize: geometry.size)
+        }
+    }
+
+    private func panelContent(panelSize: CGSize) -> some View {
         ZStack {
             DS.Colors.background
             RoomArtVideoView(
@@ -3225,7 +3331,7 @@ private struct RoomArtPanelView: View {
                     color: previewController.loopAccentColor,
                     tracerLook: previewController.loopTracerLook,
                     outlineProvider: {
-                        previewController.currentLoopOutline(cameraSize: metalLayer.drawableSize, panelSize: RoomArtPanelController.panelSize)
+                        previewController.currentLoopOutline(cameraSize: metalLayer.drawableSize, panelSize: panelSize)
                     },
                     onFadeFinished: { previewController.theLoopFadeFinished() }
                 )
@@ -3241,7 +3347,7 @@ private struct RoomArtPanelView: View {
                         widthIsMeasuredFromThePhoto: previewController.furnitureWidthIsMeasuredFromThePhoto
                     ),
                     linesProvider: {
-                        previewController.currentGhostLines(cameraSize: metalLayer.drawableSize, panelSize: RoomArtPanelController.panelSize)
+                        previewController.currentGhostLines(cameraSize: metalLayer.drawableSize, panelSize: panelSize)
                     }
                 )
                 .opacity(ghostOpacity)
@@ -3259,25 +3365,88 @@ private struct RoomArtPanelView: View {
                 ShirtCountdownNumberView(number: countdownNumber, accentColor: previewController.loopAccentColor)
             }
             VStack {
-                HStack {
-                    Spacer()
-                    closeButton
-                }
-                Spacer()
-                ZStack {
-                    statusLine
+                ZStack(alignment: .top) {
+                    moveHandle
                     HStack {
                         Spacer()
-                        if previewController.phase.furnitureGhostShows {
-                            placeButton
-                        }
-                        shirtButton
+                        closeButton
                     }
+                }
+                Spacer()
+                // The status line takes the room the buttons leave and cuts its end, so at any size the buttons stay whole
+                // and the line's first words show.
+                HStack(spacing: 8) {
+                    statusLine
+                    Spacer(minLength: 0)
+                    if previewController.phase.photoTitleToSave != nil {
+                        savePhotoButton
+                    }
+                    if previewController.phase.furnitureGhostShows {
+                        placeButton
+                    }
+                    shirtButton
                 }
             }
             .padding(16)
         }
-        .frame(width: RoomArtPanelController.panelSize.width, height: RoomArtPanelController.panelSize.height)
+        .overlay(alignment: .bottomTrailing) { resizeGrip }
+        .frame(width: panelSize.width, height: panelSize.height)
+    }
+
+    /// The handle at the top that moves the panel, a pill on a dark backing so it reads over any room.
+    private var moveHandle: some View {
+        Capsule()
+            .fill(DS.Colors.textPrimary.opacity(moveHandleIsHovered ? 0.85 : 0.45))
+            .frame(width: moveHandleIsHovered ? 52 : 44, height: 5)
+            .frame(width: 96, height: 22)
+            .background(Capsule().fill(DS.Colors.background.opacity(moveHandleIsHovered ? 0.7 : 0.45)))
+            .overlay(RoomArtPanelWindowControl(kind: .moveHandle))
+            .hoverAndPointer { isHovered in moveHandleIsHovered = isHovered }
+            .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: moveHandleIsHovered)
+            .accessibilityLabel("Move the panel")
+    }
+
+    /// The grip in the bottom right corner that resizes the panel at the camera's shape.
+    private var resizeGrip: some View {
+        Canvas { context, size in
+            for lineIndex in 0..<3 {
+                let inset = CGFloat(lineIndex) * 4 + 3
+                var line = Path()
+                line.move(to: CGPoint(x: size.width - 2, y: inset))
+                line.addLine(to: CGPoint(x: inset, y: size.height - 2))
+                context.stroke(line, with: .color(DS.Colors.textPrimary.opacity(resizeGripIsHovered ? 0.9 : 0.5)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+            }
+        }
+        .frame(width: 16, height: 16)
+        .padding(4)
+        .background(RoundedRectangle(cornerRadius: 6).fill(DS.Colors.background.opacity(resizeGripIsHovered ? 0.7 : 0)))
+        .overlay(RoomArtPanelWindowControl(kind: .resizeGrip))
+        .hoverAndPointer { isHovered in resizeGripIsHovered = isHovered }
+        .padding(3)
+        .accessibilityLabel("Resize the panel")
+    }
+
+    /// Saves what the panel shows, as "save this photo" does (`RoomArtPreviewController.saveThePhoto`).
+    private var savePhotoButton: some View {
+        Button {
+            previewController.saveThePhoto()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("Save photo")
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundStyle(DS.Colors.textPrimary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(saveButtonIsHovered ? DS.Colors.surface4 : DS.Colors.surface2.opacity(0.9)))
+            .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .hoverAndPointer { isHovered in saveButtonIsHovered = isHovered }
+        .accessibilityLabel("Save photo")
     }
 
     private var closeButton: some View {
@@ -3319,6 +3488,7 @@ private struct RoomArtPanelView: View {
             .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: placeButtonIsHovered)
         }
         .buttonStyle(.plain)
+        .fixedSize()
         .hoverAndPointer { isHovered in placeButtonIsHovered = isHovered }
         .accessibilityLabel("Place it here")
     }
@@ -3351,6 +3521,7 @@ private struct RoomArtPanelView: View {
                     .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
             }
             .buttonStyle(.plain)
+            .fixedSize()
             .hoverAndPointer { isHovered in shirtButtonIsHovered = isHovered }
             .accessibilityLabel(shirtButtonTitle)
         }
@@ -3362,16 +3533,31 @@ private struct RoomArtPanelView: View {
             ? roomFurnitureStepAsideLine
             : previewController.phase.statusLine(theSurfaceIsLost: previewController.theSurfaceIsLost, shirtCoachingLine: previewController.shirtCoachingLine)
         if !statusText.isEmpty {
-            Text(statusText)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(previewController.phase.statusLineIsAFailure(theSurfaceIsLost: previewController.theSurfaceIsLost) ? DS.Colors.destructiveText : DS.Colors.textPrimary)
-                .lineLimit(1)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(Capsule().fill(DS.Colors.background.opacity(0.82)))
-                .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
-                .allowsHitTesting(false)
+            RoomArtStatusPill(text: statusText, isAFailure: previewController.phase.statusLineIsAFailure(theSurfaceIsLost: previewController.theSurfaceIsLost))
         }
+    }
+}
+
+/// The panel's status line: its words on a dark pill, starting at the pill's left padding. Narrower than its words, it cuts
+/// their end, never their start. It draws no icon, so anything drawn over its first letters, such as the overlay's cursor,
+/// which sits above every window, comes from outside it.
+struct RoomArtStatusPill: View {
+    let text: String
+    let isAFailure: Bool
+
+    static let horizontalPadding: CGFloat = 14
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(isAFailure ? DS.Colors.destructiveText : DS.Colors.textPrimary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, Self.horizontalPadding)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(DS.Colors.background.opacity(0.82)))
+            .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
+            .allowsHitTesting(false)
     }
 }
 

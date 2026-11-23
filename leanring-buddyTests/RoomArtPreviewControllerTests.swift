@@ -323,6 +323,22 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
         lock.withLock { latestLoop = loop }
     }
 
+    /// A 64 by 36 orange frame, as if the panel had drawn one, until a test says nothing was drawn yet.
+    private var lastFrameDrawn: CGImage? = {
+        let context = CGContext(data: nil, width: 64, height: 36, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        context?.setFillColor(CGColor(red: 1, green: 0.5, blue: 0, alpha: 1))
+        context?.fill(CGRect(x: 0, y: 0, width: 64, height: 36))
+        return context?.makeImage()
+    }()
+
+    func renderTheLastFrame() -> CGImage? {
+        lock.withLock { lastFrameDrawn }
+    }
+
+    func drawNothingYet() {
+        lock.withLock { lastFrameDrawn = nil }
+    }
+
     /// The tracker lost the room (true) or found it again (false), reported on the main actor as the real processor does.
     func reportTheSurface(lost surfaceIsLost: Bool) {
         guard let onTheSurfaceLostOrFound = lock.withLock({ onTheSurfaceLostOrFound }) else { return }
@@ -895,6 +911,10 @@ private final class HarnessRecorder {
     var pictureCaptureGate: TestGate?
     /// The address of the front tab each picture capture was given, in order.
     var tabsThePictureWasCapturedFrom: [String] = []
+    /// Each chip the controller showed, with whether it was a failure.
+    var chips: [(phrase: String, isAFailure: Bool)] = []
+    /// A folder of this harness's own under the temporary directory, where Save photo writes.
+    let photoFolder = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-room-art-photos-\(UUID().uuidString)", isDirectory: true)
 }
 
 @MainActor
@@ -977,6 +997,8 @@ private struct RoomArtHarness {
         shirtPainting?.apply(to: &environment)
         environment.theLearnerAskedThePanel = { recorder.timesTheLearnerAskedThePanel += 1 }
         environment.playTheShirtCountdownSound = { recorder.countdownSounds.append($0) }
+        environment.showTheChip = { phrase, isAFailure in recorder.chips.append((phrase, isAFailure)) }
+        environment.photoFolder = recorder.photoFolder
         let controller = RoomArtPreviewController(environment: environment, frameProcessor: frameProcessor, panelPresenter: panel)
         self.controller = controller
         if placesTheGhostAtOnce {
@@ -1045,6 +1067,48 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.phase == .closed)
         #expect(harness.panel.timesHidden == 1)
         #expect(!harness.camera.isDeliveringFrames)
+    }
+
+    @Test func savePhotoWritesTheFrameAsDrawnAndKeepsThePanelOpen() async throws {
+        let harness = RoomArtHarness()
+        defer { try? FileManager.default.removeItem(at: harness.recorder.photoFolder) }
+        // Nothing shows yet, so there is nothing to save and no save starts.
+        harness.controller.saveThePhoto()
+        #expect(harness.controller.photoSavingTask == nil)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the art to show on the wall") { harness.artIsShowing() }
+        harness.controller.saveThePhoto()
+        await harness.controller.photoSavingTask?.value
+
+        let savedFiles = try FileManager.default.contentsOfDirectory(atPath: harness.recorder.photoFolder.path)
+        #expect(savedFiles.count == 1)
+        let savedFile = try #require(savedFiles.first)
+        #expect(savedFile.hasPrefix("Clicky try-on Water Lilies print ") && savedFile.hasSuffix(".jpg"))
+        // The frame as the panel drew it, at its own size.
+        let savedImage = try #require(CGImageSourceCreateWithURL(harness.recorder.photoFolder.appendingPathComponent(savedFile) as CFURL, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) })
+        #expect(savedImage.width == 64 && savedImage.height == 36)
+        #expect(harness.recorder.chips.map(\.phrase) == [roomArtPhotoSavedChip])
+        #expect(harness.recorder.chips.map(\.isAFailure) == [false])
+        #expect(harness.artIsShowing())
+        harness.controller.close()
+    }
+
+    @Test func aPhotoThatCannotBeSavedShowsAFailureChipAndKeepsThePanelOpen() async throws {
+        let harness = RoomArtHarness()
+        defer { try? FileManager.default.removeItem(at: harness.recorder.photoFolder) }
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the art to show on the wall") { harness.artIsShowing() }
+        harness.frameProcessor.drawNothingYet()
+
+        harness.controller.saveThePhoto()
+        await harness.controller.photoSavingTask?.value
+
+        #expect(!FileManager.default.fileExists(atPath: harness.recorder.photoFolder.path))
+        #expect(harness.recorder.chips.map(\.phrase) == [roomArtPhotoNotSavedChip])
+        #expect(harness.recorder.chips.map(\.isAFailure) == [true])
+        #expect(harness.artIsShowing())
+        harness.controller.close()
     }
 
     @Test func thePageIsReadWhileTheCameraStartsAndTheVideoStaysCoveredUntilItsFirstFrame() async throws {
