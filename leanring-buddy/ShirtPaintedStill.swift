@@ -670,11 +670,13 @@ nonisolated func shirtPaintBodyParts(in cameraImage: CGImage) -> ShirtPaintBodyP
 
 /// The frozen frame with the painting pasted in the way the furniture's is (`furnitureCompositePasted`: the mask grown by
 /// 24 pixels and feathered, with the painting's tone matched to the frame on a ring around it), then the protected regions
-/// put back exactly as filmed, so the paste's growth never repaints a hand, the face, or the neck.
+/// put back exactly as filmed, so the paste's growth never repaints a hand, the face, or the neck. The whole grown region
+/// takes the painting, not only the cells it changed as the furniture's does, since a new top close to the old one's color
+/// would otherwise leave the old top's pocket or seams showing through.
 nonisolated func shirtPaintedStillPasted(keyframe: CGImage, painted: CGImage, masks: ShirtPaintMasks, context: CIContext) -> CGImage? {
     guard masks.width == keyframe.width, masks.height == keyframe.height,
           let maskImage = grayImage(bytes: masks.paintable, width: masks.width, height: masks.height),
-          let pasted = furnitureCompositePasted(keyframe: keyframe, generated: painted, mask: maskImage, context: context),
+          let pasted = furnitureCompositePasted(keyframe: keyframe, generated: painted, mask: maskImage, keepsOnlyThePieceTheReplyChanged: false, context: context),
           var pastedPixels = rgbaBytes(of: pasted, width: masks.width, height: masks.height),
           let keyframePixels = rgbaBytes(of: keyframe, width: masks.width, height: masks.height) else { return nil }
     for pixelIndex in 0..<(masks.width * masks.height) {

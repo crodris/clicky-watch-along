@@ -351,6 +351,21 @@ struct ShirtPaintedStillPasteTests {
         #expect(color(150, 90) == [128, 128, 128])
     }
 
+    @Test func aPaintingCloseToTheOldTopsColorStillReplacesIt() throws {
+        // The furniture's paste keeps the filmed pixels where its reply changed less than 14 levels. The shirt's must not,
+        // or an old top close to the new one's color would show through.
+        let width = 160, height = 100
+        let keyframe = solid(128, 128, 128, width: width, height: height)
+        let painted = solid(134, 134, 134, width: width, height: height)
+        var paintable = [UInt8](repeating: 0, count: width * height)
+        for row in 20..<70 { for column in 30..<90 { paintable[row * width + column] = 255 } }
+        let masks = ShirtPaintMasks(width: width, height: height, paintable: paintable, protected: [UInt8](repeating: 0, count: width * height), oldShirt: paintable)
+
+        let pasted = try #require(shirtPaintedStillPasted(keyframe: keyframe, painted: painted, masks: masks, context: CIContext()))
+        let pixels = try #require(rgbaBytes(of: pasted, width: width, height: height))
+        #expect(Array(pixels[(45 * width + 60) * 4..<(45 * width + 60) * 4 + 3]) == [134, 134, 134])
+    }
+
     @Test func masksOfAnotherSizeAreRefused() {
         let keyframe = solid(1, 2, 3, width: 10, height: 10)
         let masks = ShirtPaintMasks(width: 9, height: 10, paintable: [], protected: [], oldShirt: [])

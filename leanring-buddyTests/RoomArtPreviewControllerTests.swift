@@ -225,7 +225,8 @@ nonisolated private func standInFrozenFrame() -> ShirtFrozenFrame {
 private final class ShirtPaintingStub {
     var masksAreMade = true
     var paintingResult: Result<Void, Error> = .success(())
-    var secondsBeforeThePaintingReturns = 0.0
+    /// Holds the painting pending until the test opens it. A cancel, as go back and a close do, ends the wait.
+    var paintingGate: TestGate?
     private(set) var requests: [ShirtPaintingRequest] = []
 
     func apply(to environment: inout RoomArtPreviewController.Environment) {
@@ -240,7 +241,7 @@ private final class ShirtPaintingStub {
         }
         environment.paintTheShirt = { paintingRequest in
             self.requests.append(paintingRequest)
-            if self.secondsBeforeThePaintingReturns > 0 { try await Task.sleep(for: .seconds(self.secondsBeforeThePaintingReturns)) }
+            if let paintingGate = self.paintingGate { try await paintingGate.waitUnlessCancelled() }
             try self.paintingResult.get()
             return paintingRequest.keyframe
         }
@@ -1790,7 +1791,8 @@ struct RoomArtPreviewControllerTests {
 
     @Test func rightThereFreezesTheFramePaintsTheShirtAndGoBackReturnsToTheLivePreview() async throws {
         let shirtPainting = ShirtPaintingStub()
-        shirtPainting.secondsBeforeThePaintingReturns = 0.3
+        let paintingGate = TestGate()
+        shirtPainting.paintingGate = paintingGate
         let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
         #expect(harness.controller.shirtStillVoiceTargets == .livePreview)
 
@@ -1807,6 +1809,8 @@ struct RoomArtPreviewControllerTests {
         try await waitFor("the frame to freeze") { harness.frameProcessor.isFrozen }
         // A second request during the painting starts nothing.
         harness.controller.paintTheShirt()
+        try await waitFor("the painting to be sent") { shirtPainting.requests.count == 1 }
+        paintingGate.open()
 
         try await waitFor("the painted still to show") { harness.controller.phase == .showingThePaintedShirt(title: "Linen shirt") }
         #expect(harness.frameProcessor.freezes == 1 && harness.frameProcessor.paintedStillsShown == 1)
@@ -1843,7 +1847,8 @@ struct RoomArtPreviewControllerTests {
 
     @Test func theButtonPaintsAndGoesBackAsTheVoiceDoesAndIgnoresAClickRightAfterItChanges() async throws {
         let shirtPainting = ShirtPaintingStub()
-        shirtPainting.secondsBeforeThePaintingReturns = 0.3
+        let paintingGate = TestGate()
+        shirtPainting.paintingGate = paintingGate
         let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
         let later = ProcessInfo.processInfo.systemUptime + 60
 
@@ -1856,6 +1861,7 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.shirtStillVoiceTargets == .paintedStill)
         #expect(harness.recorder.timesTheLearnerAskedThePanel == 1)
 
+        paintingGate.open()
         try await waitFor("the painted still") { harness.controller.phase == .showingThePaintedShirt(title: "Linen shirt") }
         harness.controller.pressTheShirtButton(atUptime: later + 60)
         #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt"))
@@ -1898,15 +1904,17 @@ struct RoomArtPreviewControllerTests {
         // Both on the main actor in one turn, so the painting's task has not run when the learner goes back.
         harness.controller.paintTheShirt()
         harness.controller.goBackToTheLiveShirt()
-        try await Task.sleep(for: .seconds(0.5))
-        #expect(harness.frameProcessor.freezes == 0 && !harness.frameProcessor.isFrozen)
-        #expect(shirtPainting.requests.isEmpty)
+        // A second painting's task runs after the first one's, so once it has sent its request the first has run too.
+        harness.controller.paintTheShirt()
+        try await waitFor("the second painting to be sent") { shirtPainting.requests.count == 1 }
+        #expect(harness.frameProcessor.freezes == 1)
         harness.controller.close()
     }
 
     @Test func goingBackDuringAPaintingCancelsItAndItsReplyChangesNothing() async throws {
         let shirtPainting = ShirtPaintingStub()
-        shirtPainting.secondsBeforeThePaintingReturns = 0.5
+        let paintingGate = TestGate()
+        shirtPainting.paintingGate = paintingGate
         let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
 
         harness.controller.paintTheShirt()
@@ -1914,7 +1922,9 @@ struct RoomArtPreviewControllerTests {
         harness.controller.goBackToTheLiveShirt()
         #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt"))
 
-        try await Task.sleep(for: .seconds(0.8))
+        // The painting's wait ends when going back cancels it, and the main actor then runs what follows it.
+        await paintingGate.untilAWaitIsCancelled()
+        await Task.yield()
         #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt"))
         #expect(harness.frameProcessor.paintedStillsShown == 0)
         #expect(!harness.spokenLines().contains("Here it is on you."))
@@ -1968,13 +1978,15 @@ struct RoomArtPreviewControllerTests {
 
     @Test func closingDuringAPaintingShowsNothingAfterward() async throws {
         let shirtPainting = ShirtPaintingStub()
-        shirtPainting.secondsBeforeThePaintingReturns = 0.5
+        let paintingGate = TestGate()
+        shirtPainting.paintingGate = paintingGate
         let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
 
         harness.controller.paintTheShirt()
         try await waitFor("the painting to be sent") { shirtPainting.requests.count == 1 }
         harness.controller.close()
-        try await Task.sleep(for: .seconds(0.8))
+        await paintingGate.untilAWaitIsCancelled()
+        await Task.yield()
         #expect(harness.controller.phase == .closed)
         #expect(harness.frameProcessor.paintedStillsShown == 0)
         #expect(!harness.spokenLines().contains("Here it is on you."))

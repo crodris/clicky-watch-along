@@ -2159,8 +2159,12 @@ private struct RoomArtPanelView: View {
         case .none: nil
         }
         if let shirtButtonTitle {
-            // The click's own time, so a click queued behind a busy main actor is still measured from when it was made.
-            Button { previewController.pressTheShirtButton(atUptime: NSApp.currentEvent?.timestamp ?? ProcessInfo.processInfo.systemUptime) } label: {
+            // A mouse click's own time, so a click queued behind a busy main actor is still measured from when it was made. A
+            // VoiceOver press brings no new event, so it takes the time it is handled, never an older event's.
+            Button {
+                let clickEvent = NSApp.currentEvent.flatMap { [.leftMouseUp, .leftMouseDown].contains($0.type) ? $0 : nil }
+                previewController.pressTheShirtButton(atUptime: clickEvent?.timestamp ?? ProcessInfo.processInfo.systemUptime)
+            } label: {
                 Text(shirtButtonTitle)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(DS.Colors.inkOnAccent)
