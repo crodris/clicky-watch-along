@@ -617,8 +617,9 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
     /// The first painting whose layer is kept, counting from 1; the ones before it stand for paintings at the wrong
     /// height, and nil keeps none.
     var firstKeptPainting: Int? = 1
-    /// How many paintings fail with a 502 before the stub answers.
+    /// How many paintings fail before the stub answers, and with what error (a 502 from the Worker unless a test says so).
     var failingPaintings = 0
+    var failingPaintingError: Error = RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "")
     var renderSucceeds = true
     private(set) var storeModelSearches: [String] = []
     private(set) var modelsGenerated = 0
@@ -651,7 +652,7 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
         paintings += 1
         if let paintingGate { await paintingGate.wait() }
         guard let paintedImage else { throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "") }
-        if paintings <= failingPaintings { throw RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "") }
+        if paintings <= failingPaintings { throw failingPaintingError }
         return paintedImage
     }
 
@@ -2003,10 +2004,33 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
+    @Test func aPaintingRequestThatTimedOutIsNotAskedForAgain() async throws {
+        // With no render to show, a second request after a timeout would keep "Arranging it in your room…" up for twice the
+        // timeout. The piece is reported as not drawn after the first one instead.
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        looks.failingPaintings = 1
+        looks.failingPaintingError = URLError(.timedOut)
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the could-not-draw line after the timed out painting") { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
+        await letTheQueuedMainActorWorkRun()
+        #expect(looks.paintings == 1)
+        #expect(harness.frameProcessor.furnitureLayersShown.isEmpty)
+        harness.controller.close()
+    }
+
     @Test func onlyAPaintingFailureThatMayPassIsAskedForAgain() {
         #expect(roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "")))
         #expect(roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 504, body: "")))
-        #expect(roomFurniturePaintingIsWorthAskingForAgain(after: URLError(.timedOut)))
+        // A request that ran out its own 150 second timeout would take as long again, and the learner would watch
+        // "Arranging it in your room…" for about 5 minutes with no render to show.
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: URLError(.timedOut)))
+        #expect(roomFurniturePaintingIsWorthAskingForAgain(after: URLError(.networkConnectionLost)))
         #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")))
         #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 401, body: "")))
         #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 400, body: "")))

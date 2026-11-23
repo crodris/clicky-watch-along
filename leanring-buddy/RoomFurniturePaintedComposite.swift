@@ -303,12 +303,16 @@ nonisolated func roomFurnitureCompositeMaskPNG(projectedBox: [CGPoint], frameWid
 }
 
 /// Whether a painting request that failed may succeed when asked for again: not for a service with no key (503), a wrong
-/// app secret (401), or a request the Worker refused (400), which fail the same way every time.
+/// app secret (401), or a request the Worker refused (400), which fail the same way every time. Not after the app's own
+/// request timeout (`RoomFurnitureGenerationClient.timeoutSeconds`, 150 seconds) either: a second request would take as long,
+/// and with no render to show the learner would watch "Arranging it in your room…" for about 5 minutes. A 502 or a 504 from
+/// the Worker arrives sooner, and a request that stopped for another network reason fails fast, so those are asked again.
 nonisolated func roomFurniturePaintingIsWorthAskingForAgain(after error: Error) -> Bool {
     switch error {
     case RoomFurnitureGenerationError.serviceIsNotSetUp: return false
     case RoomFurnitureGenerationError.workerReturned(let statusCode, _): return statusCode != 400 && statusCode != 401
     case RoomFurnitureGenerationError.inputCouldNotBeRead: return false
+    case let urlError as URLError: return urlError.code != .timedOut
     default: return true
     }
 }
