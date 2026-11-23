@@ -175,8 +175,15 @@ nonisolated struct RoomArtFurnitureReading: Equatable, Sendable {
     let itemCorners: RoomArtCorners
 }
 
+/// What the page reader calls the garment. It only names the garment for the painting's prompt: no kind is refused for being
+/// that kind (`RoomArtClothingReading.canBeDrawnOnTheLearner` is the reader's verdict).
 nonisolated enum RoomArtGarment: String, Decodable, Equatable, Sendable {
-    case tshirt, shirt, sweater, hoodie, jacket, dress, other
+    case tshirt, shirt, sweater, hoodie, jacket, coat, vest, dress, jumpsuit, other
+}
+
+/// Where the garment's hem ends on a standing person.
+nonisolated enum RoomArtGarmentLength: String, Decodable, Equatable, Sendable {
+    case waist, hip, thigh, knee, ankle
 }
 
 nonisolated enum RoomArtSleeves: String, Decodable, Equatable, Sendable {
@@ -192,18 +199,34 @@ nonisolated struct RoomArtClothingReading: Equatable, Sendable {
     let title: String
     let garment: RoomArtGarment
     let sleeves: RoomArtSleeves
+    /// Where the hem ends on a standing person.
+    let length: RoomArtGarmentLength
+    /// The reader's verdict: true when the item is worn over the upper body (it covers the shoulders or chest), which a top, a
+    /// jacket, a coat, a vest, a dress, and a jumpsuit are, and false for clothing worn only below the waist, on the head,
+    /// hands, or feet, or carried. The camera shows the learner from about the thighs up, so those cannot be drawn.
+    let canBeDrawnOnTheLearner: Bool
     /// The size the page shows as selected, as the page writes it, such as "M". Page text, so it is only logged.
     let chosenSizeLabel: String
     let photoShows: RoomArtGarmentPhoto
     /// What the print on the garment looks like, empty for a plain garment. Page-derived text, so it is logged and goes
     /// into the shirt painting's prompt only inside a tag the Worker marks as untrusted data.
     let printDescription: String
+    /// The garment's main cloth color in the picture its front is in, as "#RRGGBB" in sRGB and uppercase, named by the page
+    /// reader and checked at the boundary. It goes to the shirt painting as the cloth color.
+    let mainColorHex: String
     let whyThisSize: String
     /// Where the garment sits in the picture its front is in, clamped into it.
     let itemCorners: RoomArtCorners
     /// Which picture shows the garment's front, the one the try-on cuts it out of: 0 is the main picture, and 1 and up are
     /// its `otherPictures`.
     var frontPictureIndex = 0
+
+    /// `hex` in uppercase when it is `#` and six hex digits, else nil.
+    static func uppercasedColorHex(_ hex: String) -> String? {
+        let digits = hex.dropFirst()
+        guard hex.hasPrefix("#"), digits.count == 6, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isHexDigit) else { return nil }
+        return hex.uppercased()
+    }
 }
 
 nonisolated struct RoomArtReplyError: Error, Equatable {
@@ -261,9 +284,12 @@ nonisolated private struct RoomArtFurnitureReply: Decodable {
 nonisolated private struct RoomArtClothingReply: Decodable {
     let garment: RoomArtGarment
     let sleeves: RoomArtSleeves
+    let length: RoomArtGarmentLength
+    let canBeDrawnOnTheLearner: Bool
     let chosenSizeLabel: String
     let photoShows: RoomArtGarmentPhoto
     let printDescription: String
+    let mainColorHex: String
     /// Absent from a Worker that predates it, which read the main picture only.
     let frontPictureIndex: Int?
 }
@@ -330,18 +356,29 @@ extension RoomArtPageReading {
         case .other:
             self = .other(title: reply.title)
         case .clothing(let clothingReply):
-            let frontPictureIndex = clothingReply.frontPictureIndex ?? 0
-            guard frontPictureIndex >= 0, frontPictureIndex <= otherPictureSizes.count else {
-                throw RoomArtReplyError(reason: "clothing.frontPictureIndex names a picture that was not sent")
+            var frontPictureIndex = clothingReply.frontPictureIndex ?? 0
+            if frontPictureIndex < 0 || frontPictureIndex > otherPictureSizes.count {
+                // A garment that cannot be drawn on the learner never uses its front picture, so a bad index there is read as the
+                // main picture and the verdict still reaches the learner. A drawable garment needs a picture that was sent.
+                guard !clothingReply.canBeDrawnOnTheLearner else {
+                    throw RoomArtReplyError(reason: "clothing.frontPictureIndex names a picture that was not sent")
+                }
+                frontPictureIndex = 0
+            }
+            guard let mainColorHex = RoomArtClothingReading.uppercasedColorHex(clothingReply.mainColorHex) else {
+                throw RoomArtReplyError(reason: "clothing.mainColorHex is not # and six hex digits")
             }
             let frontPictureSize = frontPictureIndex == 0 ? (width: pictureWidth, height: pictureHeight) : otherPictureSizes[frontPictureIndex - 1]
             self = .clothing(RoomArtClothingReading(
                 title: reply.title,
                 garment: clothingReply.garment,
                 sleeves: clothingReply.sleeves,
+                length: clothingReply.length,
+                canBeDrawnOnTheLearner: clothingReply.canBeDrawnOnTheLearner,
                 chosenSizeLabel: clothingReply.chosenSizeLabel,
                 photoShows: clothingReply.photoShows,
                 printDescription: clothingReply.printDescription,
+                mainColorHex: mainColorHex,
                 whyThisSize: reply.whyThisSize,
                 itemCorners: try itemCornersInThePicture(width: frontPictureSize.width, height: frontPictureSize.height),
                 frontPictureIndex: frontPictureIndex
@@ -808,15 +845,9 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
     case floorNotFound
     /// Vision found no furniture in the product photo, so nothing can stand on the floor.
     case furnitureNotCutOut
-    /// The clothing is not a top, such as a dress, which the shirt overlay cannot draw.
-    case onlyTopsSoFar
-    /// The product photo shows the shirt on a hanger or some other way, neither laid flat nor worn by a model.
-    case shirtPhotoNeitherFlatNorOnAModel
-    /// The top has long sleeves and its photo shows it on a model. The model's forearms are cut away with the arms, so each
-    /// sleeve would end at the upper arm.
-    case longSleevesOnAModel
-    /// Vision found no garment in the product photo.
-    case garmentNotCutOut
+    /// The page reader says the clothing cannot be drawn on the learner: it is worn only below the waist, on the head,
+    /// hands, or feet, or carried, such as trousers, a hat, or a bag (`RoomArtClothingReading.canBeDrawnOnTheLearner`).
+    case cannotBeDrawnOnYou
     /// A request to the Worker never got an answer: the Worker is not running, the connection failed, or it timed out.
     case workerUnreachable
 
@@ -834,10 +865,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .wallNotMeasured: return "I couldn't measure your wall. Try pointing the camera at a bare wall."
         case .floorNotFound: return "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor."
         case .furnitureNotCutOut: return "I couldn't cut the item out of its photo."
-        case .onlyTopsSoFar: return "I can try on shirts, sweaters, and jackets so far."
-        case .shirtPhotoNeitherFlatNorOnAModel: return "I can only try on a shirt from a photo of it laid flat or worn by a model."
-        case .longSleevesOnAModel: return "I can only try on long sleeves from a photo of the top laid flat."
-        case .garmentNotCutOut: return "I couldn't lift the shirt out of its photo."
+        case .cannotBeDrawnOnYou: return "I can't draw that item on you."
         case .workerUnreachable: return "I couldn't reach Clicky's Worker."
         }
     }
@@ -856,10 +884,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .wallNotMeasured: return "Couldn't measure the wall"
         case .floorNotFound: return "Tilt the screen down so the floor shows, then click the floor"
         case .furnitureNotCutOut: return "Couldn't cut the item out of its photo"
-        case .onlyTopsSoFar: return "Only shirts, sweaters, and jackets so far"
-        case .shirtPhotoNeitherFlatNorOnAModel: return "The photo shows the shirt neither laid flat nor worn"
-        case .longSleevesOnAModel: return "Long sleeves need a photo of the top laid flat"
-        case .garmentNotCutOut: return "Couldn't lift the shirt out of its photo"
+        case .cannotBeDrawnOnYou: return "Can't draw that item on you"
         case .workerUnreachable: return "Couldn't reach Clicky's Worker"
         }
     }
@@ -868,19 +893,15 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
 // MARK: - What the reading asks for
 
 /// What the panel does with the page's reading. Only wall art and furniture whose page states a size are placed, so a size
-/// the model guessed never reaches the room, and only a top photographed laid flat or worn by a model is tried on, since a
-/// photo on a hanger shows neither the shirt's flat shape nor a body to map from. A long-sleeved top on a model is refused
-/// too, since the model's forearms are cut away with the arms and each sleeve would end at the upper arm.
+/// the model guessed never reaches the room, and clothing is tried on whenever the page reader says it can be drawn on the
+/// learner (`RoomArtClothingReading.canBeDrawnOnTheLearner`), whatever its kind, length, or photo. How the try-on previews it
+/// is a separate rule (`shirtPreviewKind`).
 nonisolated enum RoomArtReadingPlan: Equatable, Sendable {
     case hangOnTheWall(RoomArtWallArtReading)
     case standOnTheFloor(RoomArtFurnitureReading, size: RoomArtFurnitureSize)
     case tryOnTheShirt(RoomArtClothingReading)
     case fail(RoomArtFailure)
 }
-
-/// The garments the shirt overlay can draw: tops, whose body is the learner's torso. A dress reaches past the hips, so its
-/// hem would land on the wrong place.
-nonisolated let roomArtGarmentsThatCanBeTriedOn: Set<RoomArtGarment> = [.tshirt, .shirt, .sweater, .hoodie, .jacket]
 
 nonisolated func roomArtReadingPlan(for pageReading: RoomArtPageReading) -> RoomArtReadingPlan {
     switch pageReading {
@@ -892,12 +913,7 @@ nonisolated func roomArtReadingPlan(for pageReading: RoomArtPageReading) -> Room
         guard let chosenSize = furnitureReading.chosenSize else { return .fail(.sizeNotOnThePage) }
         return .standOnTheFloor(furnitureReading, size: chosenSize)
     case .clothing(let clothingReading):
-        guard roomArtGarmentsThatCanBeTriedOn.contains(clothingReading.garment) else { return .fail(.onlyTopsSoFar) }
-        switch clothingReading.photoShows {
-        case .flatLay: return .tryOnTheShirt(clothingReading)
-        case .onModel: return clothingReading.sleeves == .long ? .fail(.longSleevesOnAModel) : .tryOnTheShirt(clothingReading)
-        case .onHanger, .other: return .fail(.shirtPhotoNeitherFlatNorOnAModel)
-        }
+        return clothingReading.canBeDrawnOnTheLearner ? .tryOnTheShirt(clothingReading) : .fail(.cannotBeDrawnOnYou)
     case .other:
         return .fail(.notSomethingToTry)
     }
@@ -1037,21 +1053,24 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     case moving(id: RoomArtMeasurementID, item: RoomArtPlacedItem, surfaceBeforeTheMove: RoomArtSurface)
     /// The first floor measurement found no floor, so the camera keeps running and a click on the floor measures again.
     case waitingForAFloorClick(RoomArtPlacedItem)
-    /// A top laid flat or worn by a model: the garment is being cut out of its photo while the camera looks for the learner.
+    /// Clothing the page reader says can be drawn on the learner: the picture is being prepared while the camera looks for
+    /// the learner. Which preview shows is decided once the garment's cutout was tried (`shirtPreviewKind`), and every phase
+    /// after this one records it, so going back from a painting returns to the same preview.
     case preparingTheShirt(title: String)
-    /// The garment is ready, and the learner is not yet standing where the shirt can be drawn.
-    case waitingToSeeTheLearner(title: String)
-    /// The shirt is drawn over the learner every frame they stand in view: the live preview.
-    case showingTheShirt(title: String)
+    /// The preview is ready, and the learner is not yet standing where it can be drawn.
+    case waitingToSeeTheLearner(title: String, preview: ShirtPreviewKind)
+    /// The preview shows over the learner every frame they stand in view: the live 2D garment, or the ghost outline of the
+    /// area that will be painted.
+    case showingTheShirt(title: String, preview: ShirtPreviewKind)
     /// The learner said "right there" or clicked Paint it, and the capture waits for them to step back and hold still
     /// (`ShirtStepBackCapture`), with a 3-2-1 countdown while they do. `id` names this capture, so an event from one the
     /// learner restarted or left changes nothing.
-    case waitingForTheLearnerToStepBack(title: String, id: ShirtPaintingID)
+    case waitingForTheLearnerToStepBack(title: String, id: ShirtPaintingID, preview: ShirtPreviewKind)
     /// The capture froze the frame and the shirt is painted into it. `id` names this painting, so a reply for one the
     /// learner left by going back changes nothing.
-    case paintingTheShirt(title: String, id: ShirtPaintingID)
-    /// The painted still shows until the learner goes back to the live preview.
-    case showingThePaintedShirt(title: String)
+    case paintingTheShirt(title: String, id: ShirtPaintingID, preview: ShirtPreviewKind)
+    /// The painted still shows until the learner goes back to the preview.
+    case showingThePaintedShirt(title: String, preview: ShirtPreviewKind)
     case failed(RoomArtFailure)
 
     var isOpen: Bool { self != .closed }
@@ -1069,7 +1088,8 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         return .waitingForTheCamera(item)
     }
 
-    /// A top laid flat or worn by a model was read, so the garment is cut out while the camera looks for the learner.
+    /// Clothing the reader says can be drawn on the learner was read, so its picture is prepared while the camera looks for
+    /// the learner.
     func startingTheShirt(title: String) -> RoomArtPhase {
         guard case .readingThePage = self else { return self }
         return .preparingTheShirt(title: title)
@@ -1193,61 +1213,65 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         return .failed(failure)
     }
 
-    /// The garment is cut out. `learnerIsInFrame` says the framing already settled on ready, so the shirt shows at once.
-    func withTheGarmentReady(learnerIsInFrame: Bool) -> RoomArtPhase {
+    /// The preview is chosen (`shirtPreviewKind`) and ready. `learnerIsInFrame` says the framing already settled on ready, so
+    /// the preview shows at once.
+    func withTheShirtPreviewReady(_ preview: ShirtPreviewKind, learnerIsInFrame: Bool) -> RoomArtPhase {
         guard case .preparingTheShirt(let title) = self else { return self }
-        return learnerIsInFrame ? .showingTheShirt(title: title) : .waitingToSeeTheLearner(title: title)
+        return learnerIsInFrame ? .showingTheShirt(title: title, preview: preview) : .waitingToSeeTheLearner(title: title, preview: preview)
     }
 
-    func afterTheGarmentFailed() -> RoomArtPhase {
+    /// The picture that shows the garment's front could not be read, so there is nothing to preview or paint from.
+    func afterTheShirtsPictureCouldNotBeRead() -> RoomArtPhase {
         guard case .preparingTheShirt = self else { return self }
-        return .failed(.garmentNotCutOut)
+        return .failed(.pageNotRead)
     }
 
-    /// The framing settled on ready for the first time since the garment was ready.
+    /// The framing settled on ready for the first time since the preview was ready.
     func afterTheLearnerStoodInFrame() -> RoomArtPhase {
-        guard case .waitingToSeeTheLearner(let title) = self else { return self }
-        return .showingTheShirt(title: title)
+        guard case .waitingToSeeTheLearner(let title, let preview) = self else { return self }
+        return .showingTheShirt(title: title, preview: preview)
     }
 
     /// The learner asked for the painted look while the live preview shows, or asked again while the capture waits, which
     /// restarts it. One painting runs at a time, so a request during one, or before the shirt shows, changes nothing.
     func armingTheShirtCapture(id: ShirtPaintingID) -> RoomArtPhase {
         switch self {
-        case .showingTheShirt(let title), .waitingForTheLearnerToStepBack(let title, _): return .waitingForTheLearnerToStepBack(title: title, id: id)
+        case .showingTheShirt(let title, let preview), .waitingForTheLearnerToStepBack(let title, _, let preview):
+            return .waitingForTheLearnerToStepBack(title: title, id: id, preview: preview)
         default: return self
         }
     }
 
     /// The learner held still in the ready framing, and the capture for `id` froze that frame.
     func afterTheLearnerHeldStill(id: ShirtPaintingID) -> RoomArtPhase {
-        guard case .waitingForTheLearnerToStepBack(let title, let armedID) = self, armedID == id else { return self }
-        return .paintingTheShirt(title: title, id: id)
+        guard case .waitingForTheLearnerToStepBack(let title, let armedID, let preview) = self, armedID == id else { return self }
+        return .paintingTheShirt(title: title, id: id, preview: preview)
     }
 
-    /// The capture for `id` found no still frame in time, so the live preview comes back.
+    /// The capture for `id` found no still frame in time, so the preview comes back.
     func afterTheStepBackTimedOut(id: ShirtPaintingID) -> RoomArtPhase {
-        guard case .waitingForTheLearnerToStepBack(let title, let armedID) = self, armedID == id else { return self }
-        return .showingTheShirt(title: title)
+        guard case .waitingForTheLearnerToStepBack(let title, let armedID, let preview) = self, armedID == id else { return self }
+        return .showingTheShirt(title: title, preview: preview)
     }
 
     /// The painting for `id` is pasted into the frozen frame and shows.
     func withThePaintedShirt(id: ShirtPaintingID) -> RoomArtPhase {
-        guard case .paintingTheShirt(let title, let paintingID) = self, paintingID == id else { return self }
-        return .showingThePaintedShirt(title: title)
+        guard case .paintingTheShirt(let title, let paintingID, let preview) = self, paintingID == id else { return self }
+        return .showingThePaintedShirt(title: title, preview: preview)
     }
 
-    /// The painting for `id` failed, so the live preview comes back and a line says why.
+    /// The painting for `id` failed, so the preview comes back and a line says why.
     func afterThePaintingFailed(id: ShirtPaintingID) -> RoomArtPhase {
-        guard case .paintingTheShirt(let title, let paintingID) = self, paintingID == id else { return self }
-        return .showingTheShirt(title: title)
+        guard case .paintingTheShirt(let title, let paintingID, let preview) = self, paintingID == id else { return self }
+        return .showingTheShirt(title: title, preview: preview)
     }
 
-    /// "Go back" or Back to live: the live preview comes back, from the painted still, from a painting still on its way, or
-    /// from a capture still waiting for the learner to step back.
+    /// "Go back" or Back to live: the preview comes back, the same one the shirt had, from the painted still, from a painting
+    /// still on its way, or from a capture still waiting for the learner to step back.
     func backToTheLiveShirt() -> RoomArtPhase {
         switch self {
-        case .waitingForTheLearnerToStepBack(let title, _), .paintingTheShirt(let title, _), .showingThePaintedShirt(let title): return .showingTheShirt(title: title)
+        case .waitingForTheLearnerToStepBack(let title, _, let preview), .paintingTheShirt(let title, _, let preview), .showingThePaintedShirt(let title, let preview):
+            return .showingTheShirt(title: title, preview: preview)
         default: return self
         }
     }
@@ -1285,9 +1309,9 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
             if theSurfaceIsLost { return item.surfaceKind.lostLine }
             return moveFailure?.statusLine ?? item.showingStatusLine
         case .waitingForAFloorClick: return RoomArtFailure.floorNotFound.statusLine
-        case .preparingTheShirt: return shirtCoachingLine ?? "Getting the shirt ready…"
+        case .preparingTheShirt: return shirtCoachingLine ?? "Getting it ready…"
         case .waitingToSeeTheLearner: return shirtCoachingLine ?? "Looking for you…"
-        case .showingTheShirt: return shirtCoachingLine ?? "On you"
+        case .showingTheShirt(_, let preview): return shirtCoachingLine ?? preview.statusLine
         case .waitingForTheLearnerToStepBack: return roomArtShirtStepBackLine
         // The frame is frozen, so the learner moving out of view changes nothing on screen and no coaching shows.
         case .paintingTheShirt: return roomArtShirtPaintingStatusLine

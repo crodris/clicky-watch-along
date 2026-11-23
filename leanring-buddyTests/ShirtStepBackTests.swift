@@ -162,16 +162,16 @@ struct ShirtStepBackCaptureTests {
 struct ShirtStepBackPhaseTests {
     private let firstID = ShirtPaintingID(number: 1)
     private let secondID = ShirtPaintingID(number: 2)
-    private let live = RoomArtPhase.showingTheShirt(title: "Tee")
+    private let live = RoomArtPhase.showingTheShirt(title: "Tee", preview: .liveGarment)
 
-    private func armed(_ id: ShirtPaintingID) -> RoomArtPhase { .waitingForTheLearnerToStepBack(title: "Tee", id: id) }
+    private func armed(_ id: ShirtPaintingID) -> RoomArtPhase { .waitingForTheLearnerToStepBack(title: "Tee", id: id, preview: .liveGarment) }
 
     @Test func askingAgainWhileArmedRestartsTheCaptureUnderANewID() {
         #expect(armed(firstID).armingTheShirtCapture(id: secondID) == armed(secondID))
     }
 
     @Test func onlyTheCurrentCapturesHoldStartsThePainting() {
-        #expect(armed(firstID).afterTheLearnerHeldStill(id: firstID) == .paintingTheShirt(title: "Tee", id: firstID))
+        #expect(armed(firstID).afterTheLearnerHeldStill(id: firstID) == .paintingTheShirt(title: "Tee", id: firstID, preview: .liveGarment))
         // An event from a capture the learner restarted changes nothing.
         #expect(armed(secondID).afterTheLearnerHeldStill(id: firstID) == armed(secondID))
         #expect(live.afterTheLearnerHeldStill(id: firstID) == live)
@@ -182,7 +182,7 @@ struct ShirtStepBackPhaseTests {
         #expect(armed(firstID).afterTheStepBackTimedOut(id: firstID) == live)
         #expect(armed(secondID).afterTheStepBackTimedOut(id: firstID) == armed(secondID))
         #expect(live.afterTheStepBackTimedOut(id: firstID) == live)
-        #expect(RoomArtPhase.paintingTheShirt(title: "Tee", id: firstID).afterTheStepBackTimedOut(id: firstID) == .paintingTheShirt(title: "Tee", id: firstID))
+        #expect(RoomArtPhase.paintingTheShirt(title: "Tee", id: firstID, preview: .liveGarment).afterTheStepBackTimedOut(id: firstID) == .paintingTheShirt(title: "Tee", id: firstID, preview: .liveGarment))
     }
 
     @Test func goingBackCancelsAWaitingCapture() {
@@ -206,6 +206,6 @@ struct ShirtStepBackPhaseTests {
         let fading = RoomArtLoopState.drawing(beganAt: 4).after(phaseChangedTo: armed(firstID), at: 10)
         #expect(fading == .fadingOut(beganAt: 4, tracesTheLine: true))
         #expect(RoomArtLoopState.hidden.after(phaseChangedTo: armed(firstID), at: 10) == .hidden)
-        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: .paintingTheShirt(title: "Tee", id: firstID), at: 12) == .drawing(beganAt: 12))
+        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: .paintingTheShirt(title: "Tee", id: firstID, preview: .liveGarment), at: 12) == .drawing(beganAt: 12))
     }
 }

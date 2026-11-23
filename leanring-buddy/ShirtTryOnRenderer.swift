@@ -30,7 +30,8 @@ extension BodyTorso {
             imageLeftShoulder: scaledPoint(imageLeftShoulder), imageRightShoulder: scaledPoint(imageRightShoulder),
             imageLeftHip: scaledPoint(imageLeftHip), imageRightHip: scaledPoint(imageRightHip),
             hipsWereEstimated: hipsWereEstimated, shouldersAreSeen: shouldersAreSeen,
-            imageLeftElbow: imageLeftElbow.map(scaledPoint), imageRightElbow: imageRightElbow.map(scaledPoint)
+            imageLeftElbow: imageLeftElbow.map(scaledPoint), imageRightElbow: imageRightElbow.map(scaledPoint),
+            imageLeftWrist: imageLeftWrist.map(scaledPoint), imageRightWrist: imageRightWrist.map(scaledPoint)
         )
     }
 }

@@ -8,6 +8,7 @@
  * corners in a photo, so the app can cut the item out of the photo and show it in the learner's live camera view.
  * For clothing, Sonnet also picks the photo that shows the garment's front (`frontPictureIndex`), since a gallery can show
  * the back of a shirt as large as its front, and the corners are in that photo. Wall art and furniture use the main photo.
+ * It also names the garment's main cloth color (`mainColorHex`) from that photo, which the painted shirt is told.
  *
  * The reply carries exactly one per-kind object, named for its kind. The model's JSON schema makes that a union of four
  * shapes, one per kind, so a reply cannot mix them, and the parser below refuses a reply that does anyway.
@@ -63,8 +64,10 @@ const tryItItemRequestSchema = z.object({
 
 type TryItItemRequest = z.infer<typeof tryItItemRequestSchema>;
 
-const garmentKinds = ["tshirt", "shirt", "sweater", "hoodie", "jacket", "dress", "other"] as const;
+const garmentKinds = ["tshirt", "shirt", "sweater", "hoodie", "jacket", "coat", "vest", "dress", "jumpsuit", "other"] as const;
 const sleeveKinds = ["none", "short", "long"] as const;
+// Where the hem ends on a standing person.
+const lengthKinds = ["waist", "hip", "thigh", "knee", "ankle"] as const;
 const photoShowsKinds = ["flatLay", "onModel", "onHanger", "other"] as const;
 
 const cornerSchema = z.object({ x: z.number(), y: z.number() });
@@ -109,16 +112,22 @@ const furnitureItemSchema = z
   })
   .strict();
 
+/** `#` and six hex digits in either case. The reply is cleaned to uppercase, the form `/room-furniture-composite` takes. */
+const colorHexPattern = /^#[0-9A-Fa-f]{6}$/;
+
 const clothingItemSchema = z
   .object({
     kind: z.literal("clothing"),
     clothing: z.object({
       garment: z.enum(garmentKinds),
       sleeves: z.enum(sleeveKinds),
+      length: z.enum(lengthKinds),
+      canBeDrawnOnTheLearner: z.boolean(),
       chosenSizeLabel: z.string(),
       photoShows: z.enum(photoShowsKinds),
       printDescription: z.string(),
       frontPictureIndex: z.number().int(),
+      mainColorHex: z.string().regex(colorHexPattern),
     }),
   })
   .strict();
@@ -201,10 +210,13 @@ const tryItItemJSONSchema = objectJSONSchema({
         clothing: objectJSONSchema({
           garment: { type: "string", enum: [...garmentKinds] },
           sleeves: { type: "string", enum: [...sleeveKinds] },
+          length: { type: "string", enum: [...lengthKinds] },
+          canBeDrawnOnTheLearner: { type: "boolean" },
           chosenSizeLabel: { type: "string" },
           photoShows: { type: "string", enum: [...photoShowsKinds] },
           printDescription: { type: "string" },
           frontPictureIndex: { type: "integer" },
+          mainColorHex: { type: "string", pattern: colorHexPattern.source },
         }),
       }),
       itemVariantJSONSchema("other", {}),
@@ -229,11 +241,14 @@ const tryItItemSystemPrompt = [
   "For wallArt, size is the size of the object as it hangs, including the frame when it comes framed, and includesFrame says whether the size includes the frame.",
   "Width is the horizontal side as the photo shows the object hanging, so width and height must match the photo's orientation.",
   "For furniture, size is the item as it stands: widthCentimeters is across the front, heightCentimeters is from the floor to the top, and depthCentimeters is front to back.",
-  "For clothing, garment is the type of garment and sleeves is none, short, or long.",
+  "For clothing, garment is the type of garment and sleeves is none, short, or long. Use other for a garment that is none of the listed types.",
+  "length is where the garment's hem ends on a standing person: waist for a cropped garment, hip for most tops and jackets, thigh for a long top, a short coat, or a short dress, knee, or ankle.",
+  "canBeDrawnOnTheLearner is true when the item is worn over the upper body, so that it covers the shoulders or the chest. That includes tops, jackets, coats, vests, dresses, and jumpsuits. It is false for clothing worn only below the waist, on the head, on the hands, or on the feet, and for anything that is carried, such as trousers, skirts, shoes, hats, gloves, bags, and jewelry. The camera shows the learner from about the thighs up and the painting is built around their upper body, so those cannot be drawn.",
   "chosenSizeLabel is the size the page shows as selected, else the first size it lists, written as the page writes it, such as M or 42.",
   "photoShows says whether the photo shows the garment flat, on a model, on a hanger, or in some other way.",
   `printDescription says in at most ${maximumPrintDescriptionLength} characters what the print or graphic on the front of the garment looks like and where it sits, such as "large Great Wave print across the chest", and is empty when the front is plain.`,
   "frontPictureIndex is the number of the picture that shows the garment's front, with the print or graphic the page describes when it has one. A picture of the garment's back, a close-up of the fabric, a label, or a detail is never the front, even when it is picture 0. When several pictures show the front, choose the one that shows the whole garment largest. With only picture 0, frontPictureIndex is 0.",
+  "mainColorHex is the main cloth color of the garment in the picture frontPictureIndex names, as #RRGGBB in sRGB. Ignore any print or graphic, the model's skin and hair, other clothing worn with it, and the backdrop. For a garment of several colors, give the color that covers the most of it.",
   "For clothing, photoShows, garment, sleeves, and itemCorners describe the picture frontPictureIndex names. For wallArt and furniture, itemCorners are in picture 0.",
   "itemCorners are the four outer corners of the item in the photo, in the photo's pixels, with the origin at the top left and y growing down.",
   "For wallArt, include the frame and leave out any wall, shadow, or room around it.",
@@ -368,16 +383,26 @@ function pageStatesNoSize(item: Item): boolean {
   }
 }
 
+/**
+ * True for clothing the reader says cannot be drawn on the learner, such as a hat or a bag. The app only says so and places
+ * nothing, so its label, corners, and area are not checked: a retry over a hat's corners would end in a 422 and the app would
+ * say the page could not be read instead of that the item cannot be drawn on the learner.
+ */
+function cannotBeDrawnOnTheLearner(item: Item): boolean {
+  return item.kind === "clothing" && !item.clothing.canBeDrawnOnTheLearner;
+}
+
 export type CheckedTryItItem = { accepted: true; reply: TryItItem } | { accepted: false; reason: string };
 
 /**
- * Clamps the corners into the picture they are in (a garment's front picture, else the main one) and checks the rules the
+ * Uppercases a garment's `mainColorHex`, clamps the corners into the picture they are in (a garment's front picture, else the main one) and checks the rules the
  * app relies on: a garment's front picture is one that was sent, the size range of the kind (wall art 5 to
  * 1000 centimeters, furniture 2 to 600 in width and height and 1 to 600 in depth, with an unstated furniture width or depth
  * null), short labels and print text, and corners that form a convex
  * quadrilateral covering at least 4 percent of the picture, since the app cuts that quadrilateral out of the photo.
- * An item of kind other, and wall art or furniture whose page states no size (`sizeFoundOnPage` false), pass with their
- * corners clamped and no other rule, because the app only says so and never places them. Wall art and furniture whose
+ * An item of kind other, clothing that cannot be drawn on the learner (`canBeDrawnOnTheLearner` false), and wall art or
+ * furniture whose page states no size (`sizeFoundOnPage` false), pass with their corners clamped and no other rule, because
+ * the app only says so and never places them. Wall art and furniture whose
  * page does state a size need a size label that is not empty, since the app refuses an empty one.
  */
 export function checkTryItItem(
@@ -386,20 +411,24 @@ export function checkTryItItem(
   pictureHeight: number,
   otherPictureSizes: PictureSize[] = [],
 ): CheckedTryItItem {
-  // A garment's corners are in the picture its front is in, which must be one of the pictures sent.
+  // A garment's corners are in the picture its front is in, which must be one of the pictures sent. A garment that cannot be
+  // drawn on the learner is only reported, so its front picture is never used and an index that names no picture counts as 0.
   if (modelReply.item.kind === "clothing") {
-    const frontPictureIndex = modelReply.item.clothing.frontPictureIndex;
-    if (frontPictureIndex < 0 || frontPictureIndex > otherPictureSizes.length) {
-      return {
-        accepted: false,
-        reason: `clothing.frontPictureIndex must be a picture's number, from 0 to ${otherPictureSizes.length}.`,
-      };
-    }
-    if (frontPictureIndex > 0) {
-      const frontPictureSize = otherPictureSizes[frontPictureIndex - 1];
+    let clothing = { ...modelReply.item.clothing, mainColorHex: modelReply.item.clothing.mainColorHex.toUpperCase() };
+    if (clothing.frontPictureIndex < 0 || clothing.frontPictureIndex > otherPictureSizes.length) {
+      if (clothing.canBeDrawnOnTheLearner) {
+        return {
+          accepted: false,
+          reason: `clothing.frontPictureIndex must be a picture's number, from 0 to ${otherPictureSizes.length}.`,
+        };
+      }
+      clothing = { ...clothing, frontPictureIndex: 0 };
+    } else if (clothing.frontPictureIndex > 0) {
+      const frontPictureSize = otherPictureSizes[clothing.frontPictureIndex - 1];
       pictureWidth = frontPictureSize.width;
       pictureHeight = frontPictureSize.height;
     }
+    modelReply = { ...modelReply, item: { kind: "clothing", clothing } };
   }
   const clampedCorner = (corner: Corner): Corner => ({
     x: clamp(Math.round(corner.x), 0, pictureWidth - 1),
@@ -413,7 +442,7 @@ export function checkTryItItem(
   };
   const item = withTheOtherSizesCut(modelReply.item);
   const cleanedReply: TryItItem = { title: modelReply.title, whyThisSize: modelReply.whyThisSize, itemCorners, item };
-  if (item.kind === "other" || pageStatesNoSize(item)) {
+  if (item.kind === "other" || pageStatesNoSize(item) || cannotBeDrawnOnTheLearner(item)) {
     return { accepted: true, reply: cleanedReply };
   }
 

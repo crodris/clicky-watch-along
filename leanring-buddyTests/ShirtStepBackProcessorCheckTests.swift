@@ -5,7 +5,8 @@
 //  Runs the real frame processor (real body pose, real person segmentation, real debouncer, the wall clock) on a made-up camera
 //  of a person who starts too close to the camera and steps back, and checks the step-back capture end to end. It runs only
 //  when SHIRT_TRYON_PHOTOS_DIR names a folder that holds standing.jpg (a person standing in a camera frame, a personal photo that
-//  is never committed) and one or more uE*.jpg flat lay product photos, the folder ShirtTryOnPhotoCheckTests reads:
+//  is never committed) and, for the live garment's checks, one or more uE*.jpg flat lay product photos, the folder
+//  ShirtTryOnPhotoCheckTests reads. The ghost outline's check needs standing.jpg alone:
 //  SHIRT_TRYON_PHOTOS_DIR=/path/photos tools/swift-check.sh --filter ShirtStepBackProcessorCheck
 //  The camera is the photo scaled about the shoulders: first too close for the framing, then eased back to the photo's own
 //  framing over 2 seconds, then held still. The processor takes its time from the clock, so this check runs in real time, about
@@ -110,6 +111,40 @@ struct ShirtStepBackProcessorCheckTests {
     }
 
     @Test(.enabled(if: processorCheckEnvironment["SHIRT_TRYON_PHOTOS_DIR"] != nil, "Set SHIRT_TRYON_PHOTOS_DIR"))
+    func aGhostOutlineFreezesTheCameraAsFilmedAndItsLoopTracesTheAreaTheCoatWillCover() async throws {
+        let coverage = ShirtCoverage(sleeves: .long, length: .knee)
+        let setup = try makeTheSetup(ghostCoverage: coverage)
+        let capture = CaptureLog()
+        setup.frameProcessor.armTheShirtCapture { capture.record($0) }
+        let stillFrame = try setup.frame(zoom: 1)
+        let source = DispatchSource.makeTimerSource(queue: setup.frameProcessor.processingQueue)
+        source.schedule(deadline: .now(), repeating: 1 / framesPerSecond)
+        source.setEventHandler { setup.frameProcessor.process(stillFrame) }
+        source.resume()
+        defer { source.cancel() }
+
+        try await untilTheCaptureEnds(capture, within: 15)
+        let frozen = try #require(capture.frozen, "the capture never froze: \(capture.entries.map { "\($0.seconds) \($0.event)" })")
+        // The ghost draws nothing on the camera: the frozen preview is the frame as filmed, with no garment coverage, and the
+        // mask takes the garment's area from the coverage alone.
+        #expect(frozen.frame.previewGarmentCoverage.allSatisfy { $0 == 0 })
+        let masks = try #require(ShirtPaintMask.make(frame: frozen.frame, bodyParts: shirtPaintBodyParts(in: frozen.frame.cameraImage), coverage: coverage))
+        print("Shirt ghost check: the mask covers \(String(format: "%.1f", masks.paintableShare * 100))% of the frame")
+
+        // The loop traces the learner's own top joined with the coat's area, which reaches the knee, so down to the frame's
+        // bottom row here, and out along each arm.
+        let outline = try #require(setup.frameProcessor.currentLoop()?.closedOutline, "the loop traced no outline")
+        let torso = frozen.frame.torso
+        let frameHeight = Double(frozen.frame.height)
+        let torsoLength = hypot(torso.hipMidpoint.x - torso.shoulderMidpoint.x, torso.hipMidpoint.y - torso.shoulderMidpoint.y)
+        let kneeRow = torso.shoulderMidpoint.y + ShirtCoverage.hemInTorsoLengths(for: .knee) * torsoLength
+        let lowestOutlineRow = outline.map(\.y).max() ?? 0
+        print("Shirt ghost check: the outline's lowest row is \(Int(lowestOutlineRow)) of \(Int(frameHeight)), the knee hem at \(Int(kneeRow))")
+        #expect(lowestOutlineRow >= min(kneeRow, frameHeight) * 0.93)
+        setup.frameProcessor.endTheSession()
+    }
+
+    @Test(.enabled(if: processorCheckEnvironment["SHIRT_TRYON_PHOTOS_DIR"] != nil, "Set SHIRT_TRYON_PHOTOS_DIR"))
     func aLearnerWhoStaysTooCloseGetsTheTimeOutAndNothingFreezes() async throws {
         let setup = try makeTheSetup()
         let capture = CaptureLog()
@@ -154,7 +189,8 @@ struct ShirtStepBackProcessorCheckTests {
         }
     }
 
-    private func makeTheSetup() throws -> Setup {
+    /// `ghostCoverage` runs the ghost outline's path: no flat lay product photo is needed, and no garment is worn.
+    private func makeTheSetup(ghostCoverage: ShirtCoverage? = nil) throws -> Setup {
         let photosFolder = URL(fileURLWithPath: try #require(processorCheckEnvironment["SHIRT_TRYON_PHOTOS_DIR"]))
         let context = CIContext()
         let standingPhoto = try loadImage(at: photosFolder.appendingPathComponent("standing.jpg"))
@@ -170,15 +206,18 @@ struct ShirtStepBackProcessorCheckTests {
         }
         let closeZoom = max(1.5, 0.7 * frameSize.width / torso.shoulderWidth)
 
-        let flatLayName = try #require(try FileManager.default.contentsOfDirectory(atPath: photosFolder.path).filter { $0.hasPrefix("uE") && $0.hasSuffix(".jpg") }.sorted().first)
-        let productPhoto = try loadImage(at: photosFolder.appendingPathComponent(flatLayName))
-        let garment = try #require(ShirtGarment.make(productPhoto: productPhoto, itemCorners: RoomArtCorners(
-            topLeft: .zero, topRight: CGPoint(x: productPhoto.width, y: 0), bottomRight: CGPoint(x: productPhoto.width, y: productPhoto.height), bottomLeft: CGPoint(x: 0, y: productPhoto.height))))
-
         let frameProcessor = RoomArtFrameProcessor()
         frameProcessor.startASession(onFirstSegmentedFrame: {}, onTheSurfaceLostOrFound: { _ in })
         frameProcessor.startTheShirtTryOn(onTheFramingSettled: { _ in })
-        frameProcessor.wearTheGarment(garment)
+        if let ghostCoverage {
+            frameProcessor.showTheGhostOutline(of: ghostCoverage)
+        } else {
+            let flatLayName = try #require(try FileManager.default.contentsOfDirectory(atPath: photosFolder.path).filter { $0.hasPrefix("uE") && $0.hasSuffix(".jpg") }.sorted().first)
+            let productPhoto = try loadImage(at: photosFolder.appendingPathComponent(flatLayName))
+            let garment = try #require(ShirtGarment.make(productPhoto: productPhoto, itemCorners: RoomArtCorners(
+                topLeft: .zero, topRight: CGPoint(x: productPhoto.width, y: 0), bottomRight: CGPoint(x: productPhoto.width, y: productPhoto.height), bottomLeft: CGPoint(x: 0, y: productPhoto.height))))
+            frameProcessor.wearTheGarment(garment)
+        }
         return Setup(frameProcessor: frameProcessor, standingPhoto: cropped, context: context, closeZoom: closeZoom, shoulderMidpoint: torso.shoulderMidpoint)
     }
 

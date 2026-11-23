@@ -7,9 +7,18 @@
 //  SHIRT_TRYON_PHOTOS_DIR (a folder with standing.jpg, a personal photo that is never committed), SHIRT_PAINT_PRODUCTS
 //  (product photo paths, joined with commas), SHIRT_PAINT_OUTPUT_DIR, SHIRT_PAINT_WORKER (a local Worker's base URL), and
 //  SHIRT_PAINT_APP_SECRET. Each painting costs an OpenAI image edit (about $0.06), so SHIRT_PAINT_REUSE=1 judges the
-//  paintings an earlier run saved with no new call, and SHIRT_PAINT_MASKS_ONLY=1 writes only the masks:
+//  paintings an earlier run saved with no new call, and SHIRT_PAINT_MASKS_ONLY=1 writes only the masks. The garment's cut is
+//  named by SHIRT_PAINT_KIND (tshirt, shirt, sweater, hoodie, jacket, coat, vest, dress, jumpsuit, or other), SHIRT_PAINT_SLEEVES
+//  (none, short, or long), and SHIRT_PAINT_LENGTH (waist, hip, thigh, knee, or ankle), which default to a short-sleeved T-shirt
+//  to the hip, so a long-sleeved jacket is painted and masked as one. The app is told the cloth color by the page reader, which
+//  this check has none of, so each product also needs SHIRT_PAINT_COLOR_<product file name> (the cloth's main color as #RRGGBB
+//  in sRGB, and SHIRT_PAINT_PRINT_<product file name> for its print, if any) before a painting is paid for. SHIRT_PAINT_GHOST=1 runs the ghost outline's path, as
+//  the app does for a garment the live preview cannot draw: no garment is cut out, the preview is the camera as filmed, and
+//  the mask takes its area from the coverage alone:
 //  SHIRT_TRYON_PHOTOS_DIR=/path/photos SHIRT_PAINT_PRODUCTS=/path/a.jpg,/path/b.jpg SHIRT_PAINT_OUTPUT_DIR=/path/out \
-//  SHIRT_PAINT_WORKER=http://localhost:8794 SHIRT_PAINT_APP_SECRET=... tools/swift-check.sh --filter ShirtPaintedStillPhotoCheck
+//  SHIRT_PAINT_WORKER=http://localhost:8794 SHIRT_PAINT_APP_SECRET=... SHIRT_PAINT_KIND=jacket SHIRT_PAINT_SLEEVES=long \
+//  SHIRT_PAINT_COLOR_a=#2B4C7E SHIRT_PAINT_COLOR_b=#C9B79C \
+//  tools/swift-check.sh --filter ShirtPaintedStillPhotoCheck
 //
 //  The numbers, per painting:
 //  - the old top left showing: the share of the old top's pixels that look like it and are, with their 7 by 7 neighborhood,
@@ -94,6 +103,11 @@ struct ShirtPaintedStillPhotoCheckTests {
         let outputFolder = URL(fileURLWithPath: try #require(paintCheckEnvironment["SHIRT_PAINT_OUTPUT_DIR"]))
         let productPaths = try #require(paintCheckEnvironment["SHIRT_PAINT_PRODUCTS"]).split(separator: ",").map(String.init)
         let reusesSavedPaintings = paintCheckEnvironment["SHIRT_PAINT_REUSE"] == "1"
+        let garmentKind = try #require(RoomArtGarment(rawValue: paintCheckEnvironment["SHIRT_PAINT_KIND"] ?? "tshirt"), "SHIRT_PAINT_KIND names no garment")
+        let garmentSleeves = try #require(RoomArtSleeves(rawValue: paintCheckEnvironment["SHIRT_PAINT_SLEEVES"] ?? "short"), "SHIRT_PAINT_SLEEVES is none, short, or long")
+        let garmentLength = try #require(RoomArtGarmentLength(rawValue: paintCheckEnvironment["SHIRT_PAINT_LENGTH"] ?? "hip"), "SHIRT_PAINT_LENGTH names no length")
+        let coverage = ShirtCoverage(sleeves: garmentSleeves, length: garmentLength)
+        let usesTheGhostOutline = paintCheckEnvironment["SHIRT_PAINT_GHOST"] == "1"
         try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
         // The client reads the secret from the defaults, as the app does, and the test takes it out again after.
         if let appSecret = paintCheckEnvironment["SHIRT_PAINT_APP_SECRET"] { UserDefaults.standard.set(appSecret, forKey: ClickyAppSecret.defaultsKey) }
@@ -162,17 +176,34 @@ struct ShirtPaintedStillPhotoCheckTests {
                 topLeft: .zero, topRight: CGPoint(x: productPhoto.width, y: 0),
                 bottomRight: CGPoint(x: productPhoto.width, y: productPhoto.height), bottomLeft: CGPoint(x: 0, y: productPhoto.height)
             )
-            let garment = try #require(ShirtGarment.make(productPhoto: productPhoto, itemCorners: wholePhoto), "no garment in \(shirtName)")
-            let renderer = ShirtTryOnRenderer(ciContext: context, analysisRunsInTheBackground: false)
-            for _ in 0..<8 { _ = renderer.composition(frame: frame, personMask: personMask, torso: torso, garment: garment) }
-            let composition = try #require(renderer.composition(frame: frame, personMask: personMask, torso: torso, garment: garment))
-            let previewImage = try #require(context.createCGImage(composition.image.cropped(to: frameExtent), from: frameExtent, format: .RGBA8, colorSpace: sRGB))
+            // Only a painting that is paid for needs the color, so the masks and a saved painting can be checked without one.
+            let paintsForReal = !reusesSavedPaintings && paintCheckEnvironment["SHIRT_PAINT_MASKS_ONLY"] != "1"
+            let baseColorHex = paintCheckEnvironment["SHIRT_PAINT_COLOR_\(shirtName)"] ?? ""
+            if paintsForReal, RoomArtClothingReading.uppercasedColorHex(baseColorHex) == nil {
+                Issue.record("Set SHIRT_PAINT_COLOR_\(shirtName) to the cloth's main color as #RRGGBB, as the page reader would name it. There is none, or it is not #RRGGBB, so no painting is made for \(shirtName).")
+                continue
+            }
+            print("Shirt paint check: \(shirtName) cloth \(baseColorHex.isEmpty ? "(none needed)" : baseColorHex), \(garmentKind) \(garmentSleeves) sleeves to the \(garmentLength)\(usesTheGhostOutline ? ", ghost outline" : "")")
+            // The live preview draws the garment over the learner. The ghost outline draws nothing on the camera.
+            let previewImage: CGImage
+            let previewCoverage: [UInt8]
+            if usesTheGhostOutline {
+                previewImage = standingPhoto
+                previewCoverage = [UInt8](repeating: 0, count: width * height)
+            } else {
+                let garment = try #require(ShirtGarment.make(productPhoto: productPhoto, itemCorners: wholePhoto), "no garment in \(shirtName)")
+                let renderer = ShirtTryOnRenderer(ciContext: context, analysisRunsInTheBackground: false)
+                for _ in 0..<8 { _ = renderer.composition(frame: frame, personMask: personMask, torso: torso, garment: garment) }
+                let composition = try #require(renderer.composition(frame: frame, personMask: personMask, torso: torso, garment: garment))
+                previewImage = try #require(context.createCGImage(composition.image.cropped(to: frameExtent), from: frameExtent, format: .RGBA8, colorSpace: sRGB))
+                previewCoverage = redChannel(of: composition.totalAlpha)
+            }
             let frozenFrame = ShirtFrozenFrame(
                 cameraImage: standingPhoto, previewImage: previewImage, personMask: personBytes,
-                previewGarmentCoverage: redChannel(of: composition.totalAlpha), torso: torso
+                previewGarmentCoverage: previewCoverage, torso: torso
             )
             let maskStartedAt = Date()
-            let masks = try #require(ShirtPaintMask.make(frame: frozenFrame, bodyParts: bodyParts))
+            let masks = try #require(ShirtPaintMask.make(frame: frozenFrame, bodyParts: bodyParts, coverage: coverage))
             print(String(format: "Shirt paint check: %@ mask made in %.2f s, %.1f%% of the frame", shirtName, Date().timeIntervalSince(maskStartedAt), masks.paintableShare * 100))
             let maskOverlay = originalPixels.enumerated().map { byteIndex, value -> UInt8 in
                 let pixelIndex = byteIndex / 4, channel = byteIndex % 4
@@ -215,7 +246,10 @@ struct ShirtPaintedStillPhotoCheckTests {
                 let client = ShirtPaintingClient(workerBaseURL: try #require(paintCheckEnvironment["SHIRT_PAINT_WORKER"]))
                 painted = try await client.paint(ShirtPaintingRequest(
                     keyframe: standingPhoto, productJPEG: productJPEG, masks: masks, itemTitle: shirtName,
-                    garment: ShirtPaintingGarment(kind: .tshirt, sleeves: .short, baseColorHex: sRGBHex(ofLinear: garment.baseColor), printDescription: paintCheckEnvironment["SHIRT_PAINT_PRINT_\(shirtName)"] ?? "")
+                    garment: ShirtPaintingGarment(
+                        kind: garmentKind, sleeves: garmentSleeves, length: garmentLength, baseColorHex: baseColorHex.uppercased(),
+                        printDescription: paintCheckEnvironment["SHIRT_PAINT_PRINT_\(shirtName)"] ?? ""
+                    )
                 ))
                 try savePNG(painted, to: paintedURL)
             }

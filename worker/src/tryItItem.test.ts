@@ -58,10 +58,13 @@ function goodClothing(overrides: Partial<ClothingItem> = {}): ClothingItem {
     clothing: {
       garment: "tshirt",
       sleeves: "short",
+      length: "hip",
+      canBeDrawnOnTheLearner: true,
       chosenSizeLabel: "M",
       photoShows: "flatLay",
       printDescription: "large Great Wave print across the chest",
       frontPictureIndex: 0,
+      mainColorHex: "#2B4C7E",
     },
     ...overrides,
   };
@@ -328,6 +331,14 @@ describe("checkTryItItem for clothing", () => {
     expect(checkTryItItem(asModelReply(frontPicture(2)), pictureWidth, pictureHeight, otherPictureSizes).accepted).toBe(false);
   });
 
+  it("accepts a garment that cannot be drawn on the learner even when its front picture was not sent, reading the index as 0", () => {
+    const hat = goodClothing({ clothing: { ...goodClothing().clothing, garment: "other", canBeDrawnOnTheLearner: false, frontPictureIndex: 3 } });
+
+    const checkedReply = checkTryItItem(asModelReply(hat), pictureWidth, pictureHeight, [{ width: 1000, height: 800 }]);
+
+    expect(checkedReply).toMatchObject({ accepted: true, reply: { item: { kind: "clothing", clothing: { canBeDrawnOnTheLearner: false, frontPictureIndex: 0 } } } });
+  });
+
   it("clamps a garment's corners into its front picture, not the main one", () => {
     const item = goodClothing({
       itemCorners: { topLeft: { x: 50, y: 50 }, topRight: { x: 900, y: 50 }, bottomRight: { x: 900, y: 700 }, bottomLeft: { x: 50, y: 700 } },
@@ -347,6 +358,103 @@ describe("checkTryItItem for clothing", () => {
   it("rejects a print description over 120 characters, and accepts exactly 120", () => {
     expectRejectedFor(goodClothing({ clothing: { ...goodClothing().clothing, printDescription: "p".repeat(121) } }), "clothing.printDescription must be at most 120");
     expect(checked(goodClothing({ clothing: { ...goodClothing().clothing, printDescription: "p".repeat(120) } })).accepted).toBe(true);
+  });
+
+  it.each(["coat", "vest", "dress", "jumpsuit", "other"] as const)("accepts a %s", (garment) => {
+    expect(checked(goodClothing({ clothing: { ...goodClothing().clothing, garment } })).accepted).toBe(true);
+  });
+
+  it.each(["waist", "hip", "thigh", "knee", "ankle"] as const)("accepts a garment that ends at the %s", (length) => {
+    expect(checked(goodClothing({ clothing: { ...goodClothing().clothing, length } })).accepted).toBe(true);
+  });
+
+  it("keeps a verdict that the item cannot be drawn on the learner, without refusing it", () => {
+    const checkedReply = checked(goodClothing({ clothing: { ...goodClothing().clothing, garment: "other", canBeDrawnOnTheLearner: false } }));
+    expect(checkedReply.accepted).toBe(true);
+  });
+
+  it("accepts a hat the reader says cannot be drawn on the learner even with bad corners, an over-long label, and a tiny box", () => {
+    const hat = goodClothing({
+      // Not convex, and covering far under 4 percent of the picture.
+      itemCorners: { topLeft: { x: 10, y: 10 }, topRight: { x: 12, y: 10 }, bottomRight: { x: 10, y: 12 }, bottomLeft: { x: 12, y: 12 } },
+      clothing: { ...goodClothing().clothing, garment: "other", canBeDrawnOnTheLearner: false, chosenSizeLabel: "x".repeat(61) },
+    });
+    expect(checked(hat).accepted).toBe(true);
+    // The same corners on a garment that can be drawn are still refused.
+    expectRejectedFor(goodClothing({ itemCorners: hat.itemCorners }), "itemCorners must be the four corners of a convex quadrilateral");
+  });
+
+  it.each(["length", "canBeDrawnOnTheLearner", "mainColorHex"] as const)("refuses a clothing reply with no %s", async (missingField) => {
+    const clothing: Record<string, unknown> = { ...goodClothing().clothing };
+    delete clothing[missingField];
+    const fetchMock = stubFetch(modelReplyResponse({ ...asModelReply(goodClothing()), item: { kind: "clothing", clothing } }));
+
+    const response = await handleTryItItem(requestWithBody(validRequest), "key");
+
+    expect(response.status).toBe(422);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("uppercases the main color, also on a garment that cannot be drawn", () => {
+    const lowercaseColor = { ...goodClothing().clothing, mainColorHex: "#2b4c7e" };
+    expect(checked(goodClothing({ clothing: lowercaseColor }))).toEqual({ accepted: true, reply: asModelReply(goodClothing()) });
+    const hat = checked(goodClothing({ clothing: { ...lowercaseColor, garment: "other", canBeDrawnOnTheLearner: false } }));
+    expect(hat).toMatchObject({ accepted: true, reply: { item: { clothing: { mainColorHex: "#2B4C7E" } } } });
+  });
+
+  it.each(["navy", "#2B4C7", "2B4C7E", "#2B4C7EFF", "#GG4C7E", ""])("refuses the main color %j and asks again", async (mainColorHex) => {
+    const fetchMock = stubFetch(modelReplyResponse(asModelReply(goodClothing({ clothing: { ...goodClothing().clothing, mainColorHex } }))), modelReplyResponse(asModelReply(goodClothing())));
+
+    const response = await handleTryItItem(requestWithBody(validRequest), "key");
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(promptTextOf(sentBodies(fetchMock)[1])).toContain("not a JSON object in the schema's shape");
+  });
+
+  it("answers a lowercase main color from the model in uppercase", async () => {
+    stubFetch(modelReplyResponse(asModelReply(goodClothing({ clothing: { ...goodClothing().clothing, mainColorHex: "#2b4c7e" } }))));
+
+    const response = await handleTryItItem(requestWithBody(validRequest), "key");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(asModelReply(goodClothing()));
+  });
+
+  it("asks the model for the garment's main cloth color, in the prompt and in the clothing schema", async () => {
+    const fetchMock = stubFetch(modelReplyResponse(asModelReply(goodClothing())));
+
+    await handleTryItItem(requestWithBody(validRequest), "key");
+
+    const sentBody = sentBodies(fetchMock)[0];
+    const clothingVariant = (sentBody.output_config.format.schema.properties?.item?.anyOf ?? []).find((variant) => variant.properties?.kind.enum?.[0] === "clothing");
+    const clothingSchema = clothingVariant?.properties?.clothing;
+    expect(clothingSchema?.properties?.mainColorHex).toEqual({ type: "string", pattern: "^#[0-9A-Fa-f]{6}$" });
+    expect(clothingSchema?.required).toContain("mainColorHex");
+    const system = JSON.stringify(sentBody.system);
+    expect(system).toContain("mainColorHex is the main cloth color of the garment in the picture frontPictureIndex names, as #RRGGBB in sRGB");
+    expect(system).toContain("Ignore any print or graphic, the model's skin and hair, other clothing worn with it, and the backdrop");
+  });
+
+  it("refuses a garment length the schema does not list", async () => {
+    stubFetch(modelReplyResponse(asModelReply(goodClothing({ clothing: { ...goodClothing().clothing, length: "floor" } as never }))));
+
+    expect((await handleTryItItem(requestWithBody(validRequest), "key")).status).toBe(422);
+  });
+
+  it("tells the model the two new fields and sends them in the clothing schema", async () => {
+    const fetchMock = stubFetch(modelReplyResponse(asModelReply(goodClothing())));
+
+    await handleTryItItem(requestWithBody(validRequest), "key");
+
+    const sentBody = sentBodies(fetchMock)[0];
+    const clothingVariant = (sentBody.output_config.format.schema.properties?.item?.anyOf ?? []).find((variant) => variant.properties?.kind.enum?.[0] === "clothing");
+    const clothingProperties = clothingVariant?.properties?.clothing.properties ?? {};
+    expect(Object.keys(clothingProperties)).toEqual(expect.arrayContaining(["length", "canBeDrawnOnTheLearner"]));
+    expect(clothingProperties.garment.enum).toEqual(["tshirt", "shirt", "sweater", "hoodie", "jacket", "coat", "vest", "dress", "jumpsuit", "other"]);
+    expect(clothingProperties.length.enum).toEqual(["waist", "hip", "thigh", "knee", "ankle"]);
+    expect(JSON.stringify(sentBody.system)).toContain("canBeDrawnOnTheLearner is true when the item is worn over the upper body");
+    expect(JSON.stringify(sentBody.system)).toContain("length is where the garment's hem ends");
   });
 
   it("accepts a plain garment with an empty print description", () => {
