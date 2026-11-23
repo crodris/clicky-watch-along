@@ -1,5 +1,5 @@
 {
-  "description": "POST /try-it-item responses shaped exactly as the Worker returns them: one for each kind, plus a wall item, a round wall item that does not fill its corners, and a standing item whose page states no size, a standing item for the floor and one for a table or shelf, a figure whose page states only its height, a wall shelf that cannot be shown, and a garment whose front is the second picture. worker/src/tryItItem.test.ts feeds each one to handleTryItItem as the model's reply and expects it back unchanged, and leanring-buddyTests/RoomArtTests.swift parses each one with RoomArtPageReading and checks its whole reading by case name, failing on a case it has no expectation for, so the Worker's response and the app's reader cannot drift apart. Each request carries the picture and one other picture of the sizes below, and the corners fit the picture they are in.",
+  "description": "POST /try-it-item responses shaped exactly as the Worker returns them: one for each kind, plus a wall item, a round wall item that does not fill its corners, and a standing item whose page states no size, a standing item for the floor and one for a table or shelf, a figure whose page states only its height, a wall shelf that cannot be shown, a garment whose front is the second picture, and a garment the reader says cannot be drawn on the learner. worker/src/tryItItem.test.ts feeds each one to handleTryItItem as the model's reply and expects it back unchanged, and leanring-buddyTests/RoomArtTests.swift parses each one with RoomArtPageReading and checks its whole reading by case name, failing on a case it has no expectation for, so the Worker's response and the app's reader cannot drift apart. Each request carries the picture and one other picture of the sizes below, and the corners fit the picture they are in.",
   "picture": {
     "width": 400,
     "height": 500
@@ -331,10 +331,13 @@
           "clothing": {
             "garment": "tshirt",
             "sleeves": "short",
+            "length": "hip",
+            "canBeDrawnOnTheLearner": true,
             "chosenSizeLabel": "M",
             "photoShows": "flatLay",
             "printDescription": "large wave print across the chest",
-            "frontPictureIndex": 0
+            "frontPictureIndex": 0,
+            "mainColorHex": "#2B4C7E"
           }
         }
       }
@@ -368,10 +371,41 @@
           "clothing": {
             "garment": "tshirt",
             "sleeves": "short",
+            "length": "hip",
+            "canBeDrawnOnTheLearner": true,
             "chosenSizeLabel": "M",
             "photoShows": "onModel",
             "printDescription": "large sasquatch graphic across the chest",
-            "frontPictureIndex": 1
+            "frontPictureIndex": 1,
+            "mainColorHex": "#3E5F3A"
+          }
+        }
+      }
+    },
+    {
+      "name": "clothing that cannot be drawn on the learner",
+      "kind": "clothing",
+      "response": {
+        "title": "Linen jumpsuit",
+        "whyThisSize": "The page has size M selected.",
+        "itemCorners": {
+          "topLeft": { "x": 60, "y": 20 },
+          "topRight": { "x": 340, "y": 20 },
+          "bottomRight": { "x": 340, "y": 480 },
+          "bottomLeft": { "x": 60, "y": 480 }
+        },
+        "item": {
+          "kind": "clothing",
+          "clothing": {
+            "garment": "jumpsuit",
+            "sleeves": "none",
+            "length": "ankle",
+            "canBeDrawnOnTheLearner": false,
+            "chosenSizeLabel": "M",
+            "photoShows": "onModel",
+            "printDescription": "",
+            "frontPictureIndex": 0,
+            "mainColorHex": "#E8E0D0"
           }
         }
       }
