@@ -154,12 +154,13 @@ jobs:
           go-version-file: harness/go.mod
           cache: ${{ runner.environment == 'github-hosted' }}
           cache-dependency-path: harness/go.sum
-      # Match the Xcode used for local builds, so a newer runner default cannot break the build unnoticed.
+      # Pin the hosted Xcode, so a newer runner default cannot break the build unnoticed. It stays 26.5 while the Mac has
+      # 27.2, since macos-latest has no Xcode 27 yet.
       - if: runner.environment == 'github-hosted'
         run: sudo xcode-select -s /Applications/Xcode_26.5.app
       # The Mac runner uses the Mac's only Xcode, so an App Store update fails here instead of changing the build.
       - if: runner.environment == 'self-hosted'
-        run: xcodebuild -version | grep -qx 'Xcode 26.5'
+        run: xcodebuild -version | grep -qx 'Xcode 27.2'
       # CLICKY_BUNDLE_ID_SUFFIX gives the unsigned CI app its own bundle ID. macOS keeps one Accessibility grant per bundle
       # ID for the whole Mac, so a test host under the developer's ID reset the developer's grant on 2026-11-20.
       # The suffix names the runner, so test hosts that run at the same time on the Mac's runners never share an app's defaults.
