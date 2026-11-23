@@ -3,7 +3,7 @@
  *
  * The app sends a store page's text and its main product photo, and optionally the learner's words and up to
  * `maximumOtherPictureCount` other large product photos from the page, for something the learner wants to try: wall art on
- * their wall, furniture on their floor, or a shirt on their own body.
+ * their wall, furniture or another object that stands on their floor, such as a toy, or a shirt on their own body.
  * Sonnet reads them and returns the kind of item, its real size or the garment's details, and the item's four outer
  * corners in a photo, so the app can cut the item out of the photo and show it in the learner's live camera view.
  * For clothing, Sonnet also picks the photo that shows the garment's front (`frontPictureIndex`), since a gallery can show
@@ -25,8 +25,8 @@ const maximumLabelLength = 60;
 const maximumPrintDescriptionLength = 120;
 /** Real wall art is at least a postage-card and at most a mural. */
 const wallArtSizeRangeCentimeters = { lowest: 5, highest: 1000 };
-/** Real furniture is at least a stool's width and at most a long sofa or wardrobe. */
-const furnitureSizeRangeCentimeters = { lowest: 10, highest: 600 };
+/** Anything that stands on the floor, from a small figurine to a long sofa or wardrobe. */
+const furnitureSizeRangeCentimeters = { lowest: 2, highest: 600 };
 /** A floor mirror or a picture ledge is only a few centimeters deep, so depth has its own, lower bound. */
 const lowestFurnitureDepthCentimeters = 1;
 const furnitureDepthRangeCentimeters = { lowest: lowestFurnitureDepthCentimeters, highest: furnitureSizeRangeCentimeters.highest };
@@ -199,10 +199,10 @@ const tryItItemJSONSchema = objectJSONSchema({
 });
 
 const tryItItemSystemPrompt = [
-  "You read a store page and its product photos for something the learner wants to try in their own space: art on their wall, furniture on their floor, or a shirt on their body.",
+  "You read a store page and its product photos for something the learner wants to try in their own space: art on their wall, furniture or another object on their floor, or a shirt on their body.",
   "Picture 0 is the page's largest product photo. Pictures 1 and up, when there are any, are the page's other large product photos, in the page's order.",
   "Reply with JSON only.",
-  "item.kind is wallArt for something that hangs on a wall, furniture for something that stands on the floor, clothing for something worn on the body, and other for anything else, such as a lamp, a rug, or a phone case.",
+  "item.kind is wallArt for something that hangs on a wall, furniture for any object that stands on the floor, such as a chair, a table, a lamp, a plant, a toy, a plush animal, or a figurine, clothing for something worn on the body, and other for anything else, such as a rug, a phone case, or a gift card.",
   "For kind other, item holds only the kind, and the reply still needs title, whyThisSize, and itemCorners.",
   "When the page shows several items, use the item the learner means in learner_request, else the item the photo shows most.",
   "When the page offers several sizes, choose the one the page shows as selected or default, else the smallest, and list the rest in otherSizes.",
@@ -356,7 +356,7 @@ export type CheckedTryItItem = { accepted: true; reply: TryItItem } | { accepted
 /**
  * Clamps the corners into the picture they are in (a garment's front picture, else the main one) and checks the rules the
  * app relies on: a garment's front picture is one that was sent, the size range of the kind (wall art 5 to
- * 1000 centimeters, furniture 10 to 600 in width and height and 1 to 600 in depth), short labels and print text, and corners that form a convex
+ * 1000 centimeters, furniture 2 to 600 in width and height and 1 to 600 in depth), short labels and print text, and corners that form a convex
  * quadrilateral covering at least 4 percent of the picture, since the app cuts that quadrilateral out of the photo.
  * An item of kind other, and wall art or furniture whose page states no size (`sizeFoundOnPage` false), pass with their
  * corners clamped and no other rule, because the app only says so and never places them. Wall art and furniture whose

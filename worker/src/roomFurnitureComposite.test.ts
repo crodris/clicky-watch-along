@@ -311,9 +311,18 @@ describe("handleRoomFurnitureComposite", () => {
 
     expect(response.status).toBe(200);
     const sentPrompt: string = JSON.parse(String(fetchMock.mock.calls[0][1].body)).prompt;
-    expect(sentPrompt).toContain("Its front, the side a person uses, faces the camera, turned slightly toward the left of the picture.");
+    expect(sentPrompt).toContain("Its front, the side a person uses or the side its face is on, faces the camera, turned slightly toward the left of the picture.");
     expect(sentPrompt).toContain("Its back stands against the wall behind it.");
     expect(sentPrompt).not.toContain("turned the way the area's shape shows");
+  });
+
+  it("tells the painter to keep what stands between the camera and the item in front of it, such as a play pen's mesh", async () => {
+    const fetchMock = stubFetch(async () => new Response(JSON.stringify(goodOpenAIReply), { status: 200 }));
+
+    await handleRoomFurnitureComposite(requestWithBody(goodBody()), openAIAPIKey);
+
+    const sentPrompt: string = JSON.parse(String(fetchMock.mock.calls[0][1].body)).prompt;
+    expect(sentPrompt).toContain("the mesh side of a play pen, stays in front of the product.");
   });
 
   it("names each facing in the Worker's own words, and falls back to the area's shape with none", () => {

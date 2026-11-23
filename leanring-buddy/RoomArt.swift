@@ -142,7 +142,7 @@ nonisolated enum RoomArtPageReading: Equatable, Sendable {
     case sizeNotOnThePage(title: String)
     case furniture(RoomArtFurnitureReading)
     case clothing(RoomArtClothingReading)
-    /// Anything else, such as a lamp or a rug.
+    /// Anything else, such as a rug or a phone case.
     case other(title: String)
 }
 
@@ -787,7 +787,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
     case pageNotHTTPS
     case cameraAccessDenied
     case noCamera
-    /// The item is neither wall art, furniture, nor clothing, such as a lamp.
+    /// The item is neither wall art, furniture, nor clothing, such as a rug.
     case notSomethingToTry
     /// The page text could not be read or was empty, or `POST /try-it-item` failed.
     case pageNotRead
@@ -822,13 +822,13 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .pageNotHTTPS: return "I can only read store pages served over https."
         case .cameraAccessDenied: return "I need camera access for that. You can turn it on in System Settings."
         case .noCamera: return "I couldn't find a camera to show your room."
-        case .notSomethingToTry: return "That doesn't look like wall art, furniture, or a shirt."
+        case .notSomethingToTry: return "That isn't something I can place in your room or try on."
         case .pageNotRead: return "I couldn't read that page."
         case .sizeNotOnThePage: return "I couldn't find the size on that page."
         case .depthServiceUnavailable: return "I couldn't measure your room. Is the depth service running?"
         case .wallNotMeasured: return "I couldn't measure your wall. Try pointing the camera at a bare wall."
         case .floorNotFound: return "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor."
-        case .furnitureNotCutOut: return "I couldn't cut the furniture out of its photo."
+        case .furnitureNotCutOut: return "I couldn't cut the item out of its photo."
         case .onlyTopsSoFar: return "I can try on shirts, sweaters, and jackets so far."
         case .shirtPhotoNeitherFlatNorOnAModel: return "I can only try on a shirt from a photo of it laid flat or worn by a model."
         case .longSleevesOnAModel: return "I can only try on long sleeves from a photo of the top laid flat."
@@ -844,13 +844,13 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .pageNotHTTPS: return "The page is not served over https"
         case .cameraAccessDenied: return "Camera access is off. Turn it on in System Settings, Privacy & Security, Camera."
         case .noCamera: return "No camera found"
-        case .notSomethingToTry: return "That doesn't look like wall art, furniture, or a shirt"
+        case .notSomethingToTry: return "That isn't something I can place in your room or try on"
         case .pageNotRead: return "Couldn't read the page"
         case .sizeNotOnThePage: return "Couldn't find the size on the page"
         case .depthServiceUnavailable: return "Couldn't measure the room. Is the depth service running?"
         case .wallNotMeasured: return "Couldn't measure the wall"
         case .floorNotFound: return "Tilt the screen down so the floor shows, then click the floor"
-        case .furnitureNotCutOut: return "Couldn't cut the furniture out of its photo"
+        case .furnitureNotCutOut: return "Couldn't cut the item out of its photo"
         case .onlyTopsSoFar: return "Only shirts, sweaters, and jackets so far"
         case .shirtPhotoNeitherFlatNorOnAModel: return "The photo shows the shirt neither laid flat nor worn"
         case .longSleevesOnAModel: return "Long sleeves need a photo of the top laid flat"

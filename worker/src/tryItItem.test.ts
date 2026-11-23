@@ -68,7 +68,7 @@ function goodClothing(overrides: Partial<ClothingItem> = {}): ClothingItem {
 }
 
 function goodOther(overrides: Partial<OtherItem> = {}): OtherItem {
-  return { title: "Brass lamp", kind: "other", whyThisSize: "A lamp is not wall art, furniture, or clothing.", itemCorners: goodCorners, ...overrides };
+  return { title: "Wool rug", kind: "other", whyThisSize: "A rug lies flat, so it is not wall art, furniture, or clothing.", itemCorners: goodCorners, ...overrides };
 }
 
 /**
@@ -220,17 +220,23 @@ describe("checkTryItItem for wall art", () => {
 });
 
 describe("checkTryItItem for furniture", () => {
-  it("rejects a width or height under 10 or over 600 centimeters, and a depth over 600", () => {
+  it("rejects a width or height under 2 or over 600 centimeters, and a depth over 600", () => {
     for (const side of ["widthCentimeters", "heightCentimeters"] as const) {
-      expectRejectedFor(goodFurniture({ furniture: { sizeFoundOnPage: true, size: { ...furnitureSize, [side]: 9.9 }, otherSizes: [] } }), "furniture.size must be from 10 to 600");
+      expectRejectedFor(goodFurniture({ furniture: { sizeFoundOnPage: true, size: { ...furnitureSize, [side]: 1.9 }, otherSizes: [] } }), "furniture.size must be from 2 to 600");
     }
     for (const side of ["widthCentimeters", "heightCentimeters", "depthCentimeters"] as const) {
-      expectRejectedFor(goodFurniture({ furniture: { sizeFoundOnPage: true, size: { ...furnitureSize, [side]: 600.5 }, otherSizes: [] } }), "furniture.size must be from 10 to 600");
+      expectRejectedFor(goodFurniture({ furniture: { sizeFoundOnPage: true, size: { ...furnitureSize, [side]: 600.5 }, otherSizes: [] } }), "furniture.size must be from 2 to 600");
     }
   });
 
   it("rejects a depth under 1 centimeter", () => {
     expectRejectedFor(goodFurniture({ furniture: { sizeFoundOnPage: true, size: { ...furnitureSize, depthCentimeters: 0.9 }, otherSizes: [] } }), "from 1 to 600 in depth");
+  });
+
+  it("accepts a small standing object, such as a figurine 5 centimeters wide and 8 tall", () => {
+    const figurine = goodFurniture({ furniture: { sizeFoundOnPage: true, size: { label: "5 x 8 x 4 cm", widthCentimeters: 5, heightCentimeters: 8, depthCentimeters: 4 }, otherSizes: [] } });
+
+    expect(checked(figurine).accepted).toBe(true);
   });
 
   it("accepts a thin item, such as a picture ledge or a floor mirror 5 centimeters deep", () => {
@@ -247,22 +253,17 @@ describe("checkTryItItem for furniture", () => {
     expect(checked(edgeReply).accepted).toBe(true);
   });
 
-  it("does not hold furniture to the wall art range", () => {
-    // 7 centimeters is a plausible postage-card print and too narrow for any furniture.
-    expectRejectedFor(goodFurniture({ furniture: { sizeFoundOnPage: true, size: { ...furnitureSize, widthCentimeters: 7 }, otherSizes: [] } }), "furniture.size must be from 10 to 600");
-  });
-
   it("names the depth in the broken size so the retry can fix it", () => {
     expectRejectedFor(
       goodFurniture({ furniture: { sizeFoundOnPage: true, size: { ...furnitureSize, depthCentimeters: 700 }, otherSizes: [] } }),
-      "furniture.size must be from 10 to 600 centimeters in width and height, and from 1 to 600 in depth, and it is 180 by 75 by 700.",
+      "furniture.size must be from 2 to 600 centimeters in width and height, and from 1 to 600 in depth, and it is 180 by 75 by 700.",
     );
   });
 
   it("checks the depth of the other sizes too", () => {
     expectRejectedFor(
       goodFurniture({ furniture: { sizeFoundOnPage: true, size: furnitureSize, otherSizes: [{ label: "deep", widthCentimeters: 200, heightCentimeters: 75, depthCentimeters: 0.5 }] } }),
-      "The furniture.otherSizes entry 1 must be from 10 to 600",
+      "The furniture.otherSizes entry 1 must be from 2 to 600",
     );
   });
 
@@ -342,7 +343,7 @@ describe("checkTryItItem for clothing", () => {
 
 describe("checkTryItItem for other", () => {
   it("passes title and corners through with the corners clamped and no corner rules", () => {
-    const lamp = goodOther({
+    const rug = goodOther({
       itemCorners: {
         topLeft: { x: -5, y: 0 },
         topRight: { x: 0, y: 0 },
@@ -351,9 +352,9 @@ describe("checkTryItItem for other", () => {
       },
     });
 
-    expect(checked(lamp)).toEqual({
+    expect(checked(rug)).toEqual({
       accepted: true,
-      reply: asModelReply({ ...lamp, itemCorners: { topLeft: { x: 0, y: 0 }, topRight: { x: 0, y: 0 }, bottomRight: { x: 0, y: 0 }, bottomLeft: { x: 0, y: 0 } } }),
+      reply: asModelReply({ ...rug, itemCorners: { topLeft: { x: 0, y: 0 }, topRight: { x: 0, y: 0 }, bottomRight: { x: 0, y: 0 }, bottomLeft: { x: 0, y: 0 } } }),
     });
   });
 });
@@ -572,6 +573,14 @@ describe("handleTryItItem", () => {
     );
     expect(kindObjectSchemas.map((kindObjectSchema) => kindObjectSchema?.required?.includes("sizeFoundOnPage"))).toEqual([true, true, false, undefined]);
     expect(sentBodies(fetchMock)[0].system[0].text).toContain("sizeFoundOnPage is true only when the page text states");
+  });
+
+  it("tells the model that a toy or a figurine is furniture, so it is placed on the floor and not refused", async () => {
+    const fetchMock = stubFetch(modelReplyResponse(asModelReply(goodFurniture())));
+
+    await handleTryItItem(requestWithBody(validRequest), "key");
+
+    expect(sentBodies(fetchMock)[0].system[0].text).toContain("furniture for any object that stands on the floor, such as a chair, a table, a lamp, a plant, a toy, a plush animal, or a figurine");
   });
 
   it.each([

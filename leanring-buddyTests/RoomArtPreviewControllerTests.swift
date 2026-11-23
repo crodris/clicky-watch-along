@@ -1186,13 +1186,13 @@ struct RoomArtPreviewControllerTests {
 
     @Test func anItemThatIsNeitherWallArtNorFurnitureNorClothingSaysSoAndMeasuresNothing() async throws {
         let worker = WorkerStub()
-        worker.pageReading = .success(.other(title: "Brass lamp"))
+        worker.pageReading = .success(.other(title: "Wool rug"))
         let harness = RoomArtHarness(worker: worker)
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         try await waitFor("the panel to fail on an item that cannot be tried") { harness.controller.phase == .failed(.notSomethingToTry) }
-        #expect(harness.spokenLines() == ["That doesn't look like wall art, furniture, or a shirt."])
+        #expect(harness.spokenLines() == ["That isn't something I can place in your room or try on."])
         #expect(worker.wallRequests.isEmpty && worker.floorRequests.isEmpty)
         harness.controller.close()
     }
@@ -2637,7 +2637,7 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
 
         try await waitFor("the panel to fail on the cutout") { harness.controller.phase == .failed(.furnitureNotCutOut) }
-        #expect(harness.spokenLines() == ["I couldn't cut the furniture out of its photo."])
+        #expect(harness.spokenLines() == ["I couldn't cut the item out of its photo."])
         #expect(worker.floorRequests.isEmpty)
         harness.controller.close()
     }
@@ -3310,9 +3310,9 @@ struct RoomArtPreviewControllerTests {
         // A failure the panel enters after it opened.
         let cameraHarness = RoomArtHarness(camera: SyntheticRoomCamera(startFailure: .noCamera))
         await cameraHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
-        let lampWorker = WorkerStub()
-        lampWorker.pageReading = .success(.other(title: "Brass lamp"))
-        let readFailureHarness = RoomArtHarness(worker: lampWorker)
+        let rugWorker = WorkerStub()
+        rugWorker.pageReading = .success(.other(title: "Wool rug"))
+        let readFailureHarness = RoomArtHarness(worker: rugWorker)
         await readFailureHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
         try await waitFor("the panel to fail on an item that cannot be tried") { readFailureHarness.controller.phase == .failed(.notSomethingToTry) }
         let dressWorker = WorkerStub()

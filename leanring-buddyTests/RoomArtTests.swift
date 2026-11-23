@@ -153,7 +153,7 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             frontPictureIndex: 1
         ))
     case "other":
-        return .other(title: "Brass lamp")
+        return .other(title: "Wool rug")
     default:
         return nil
     }
@@ -231,9 +231,9 @@ struct RoomArtReplyTests {
     }
 
     @Test func anOtherReplyNeedsOnlyItsKindAndTitle() throws {
-        let reading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: #"{"kind": "other"}"#, title: "Brass lamp")), pictureWidth: 400, pictureHeight: 500)
+        let reading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: #"{"kind": "other"}"#, title: "Wool rug")), pictureWidth: 400, pictureHeight: 500)
 
-        #expect(reading == .other(title: "Brass lamp"))
+        #expect(reading == .other(title: "Wool rug"))
     }
 
     @Test func wallArtWhosePageStatesNoSizeIsReadAsSoAndNeverHung() throws {
@@ -697,8 +697,8 @@ struct RoomArtReadingPlanTests {
     }
 
     @Test func anythingElseCannotBeTried() {
-        #expect(roomArtReadingPlan(for: .other(title: "Brass lamp")) == .fail(.notSomethingToTry))
-        #expect(RoomArtFailure.notSomethingToTry.spokenLine == "That doesn't look like wall art, furniture, or a shirt.")
+        #expect(roomArtReadingPlan(for: .other(title: "Wool rug")) == .fail(.notSomethingToTry))
+        #expect(RoomArtFailure.notSomethingToTry.spokenLine == "That isn't something I can place in your room or try on.")
         #expect(RoomArtFailure.shirtPhotoNeitherFlatNorOnAModel.spokenLine == "I can only try on a shirt from a photo of it laid flat or worn by a model.")
     }
 }
