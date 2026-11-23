@@ -733,9 +733,13 @@ private let storePageTab = RoomArtFrontTab(url: "https://shop.example/water-lili
 
 @MainActor
 private final class HarnessRecorder {
+    /// The lines spoken about the result. The ghost's one-time instruction (`roomFurnitureGhostLine`) is kept apart in
+    /// `ghostLines`, so every test about what follows the ghost keeps asking for exactly the lines it is about.
     var spokenLines: [String] = []
     /// For each spoken line, whether the controller said it reports a failure, so the cursor shakes.
     var spokenLineFailureFlags: [Bool] = []
+    /// Each time the ghost's instruction was spoken, with whether it was said as a failure.
+    var ghostLines: [(line: String, isAFailure: Bool)] = []
     var pictureCaptureStarted = false
     /// How many times the controller asked to end its spoken line, which every close does.
     var timesTheSpokenLineWasEnded = 0
@@ -796,6 +800,10 @@ private struct RoomArtHarness {
                 makeFrameSource: { camera },
                 clearTheLiveScene: { recorder.timesTheSceneWasClearedBeforeThePanel.append(panel.timesShown) },
                 speak: { line, isAFailure in
+                    guard line != roomFurnitureGhostLine else {
+                        recorder.ghostLines.append((line, isAFailure))
+                        return
+                    }
                     recorder.spokenLines.append(line)
                     recorder.spokenLineFailureFlags.append(isAFailure)
                 },
@@ -2163,6 +2171,35 @@ struct RoomArtPreviewControllerTests {
         #expect(looks.paintings == 1)
         #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
         harness.controller.close()
+    }
+
+    @Test func theGhostSaysWhereItWouldGoOncePerPanelAndNotAfterAPickUp() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub.thatPaintsAtOnce()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the first painting") { harness.artIsShowing() }
+        // Said when the ghost first appeared, as a hint and not a failure, so the cursor does not shake.
+        #expect(harness.recorder.ghostLines.map(\.line) == ["Here's where it would go. Drag it, or say right there."])
+        #expect(harness.recorder.ghostLines.map(\.isAFailure) == [false])
+
+        // A pick-up draws the ghost again, which says nothing: the learner has just placed the piece and knows how.
+        let ghostCenter = try #require(harness.ghostCenterInTheFrame())
+        harness.recorder.ghostPlacer = nil
+        harness.controller.pointerPressed(atCameraPixel: ghostCenter)
+        harness.controller.pointerReleased()
+        #expect(harness.controller.phase.furnitureGhostShows)
+        #expect(harness.recorder.ghostLines.count == 1)
+        harness.controller.close()
+
+        // A new panel's ghost says it again.
+        let secondHarness = RoomArtHarness(worker: worker, furnitureLooks: FurnitureLookStub.thatPaintsAtOnce())
+        await secondHarness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the second panel's painting") { secondHarness.artIsShowing() }
+        #expect(secondHarness.recorder.ghostLines.count == 1)
+        secondHarness.controller.close()
     }
 
     @Test func aLostRoomStaysLostThroughAPlacementItsPaintingAndAPickUpUntilTheFrameProcessorFindsIt() async throws {

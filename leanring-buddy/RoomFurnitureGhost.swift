@@ -639,6 +639,10 @@ nonisolated struct RoomArtPaintingFrame: @unchecked Sendable {
 /// A painting waits for the learner to step aside while they cover more than this share of the box: the painter would
 /// draw the piece through them, or paint them out.
 nonisolated let roomFurnitureMostOfTheBoxThePersonMayCover = 0.03
+/// What Clicky says once per panel when the ghost first appears, so the learner knows they place the piece and how. The
+/// status line says the same in fewer words, and nothing was spoken at this point, which left a quiet panel for the seconds
+/// the learner takes to read it.
+nonisolated let roomFurnitureGhostLine = "Here's where it would go. Drag it, or say right there."
 /// What Clicky says once when the learner stands where the piece is about to be painted.
 nonisolated let roomFurnitureStepAsideLine = "Step aside for a second."
 

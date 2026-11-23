@@ -2179,6 +2179,8 @@ final class RoomArtPreviewController: ObservableObject {
             furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, tracerStartInThePanel: loopTracerInThePanel())
             furnitureGhost = ghost
             print("Room furniture: the ghost shows\(ghost.shownPose.isSnappedToTheWall ? ", square to the wall" : "")")
+            // Said here and never after a pick-up, which returned above with its ghost already made, so it is once per panel.
+            environment.speak(roomFurnitureGhostLine, false)
             startPaintingAhead(for: ghost, furniture: furniture)
         case .arranging(let measurementID, let item, let surface):
             stopTheFurnituresLooks()
