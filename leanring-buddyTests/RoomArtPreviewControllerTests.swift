@@ -1467,6 +1467,8 @@ struct RoomArtPreviewControllerTests {
         // The wait takes the suite's long limit, since a loaded Mac outlasted 10 s here.
         try await waitFor("the painting") { harness.artIsShowing() }
         #expect(looks.renders.isEmpty && looks.paintings == 1)
+        // The painting was sent the newest camera frame, which decodes, and never the keyframe, which does not.
+        #expect(looks.keyframeJPEGsSent == [StandInFrameProcessor.keyframeJPEG])
         #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
         harness.controller.close()
     }
@@ -1737,7 +1739,8 @@ struct RoomArtPreviewControllerTests {
         try await waitFor("the painting asked for ahead") { paintingGate.timesWaitedOn == 1 }
         #expect(looks.orientationsSent == [RoomFurniturePaintingOrientation(facing: .camera, backAgainstTheWall: false)])
         paintingGate.open()
-        try await Task.sleep(for: .milliseconds(150))
+        try await waitFor("the painting asked for ahead to be checked") { looks.paintingsChecked == 1 }
+        await letTheQueuedMainActorWorkRun()
         #expect(harness.controller.phase.furnitureGhostShows)
         #expect(harness.frameProcessor.furnitureLayersShown.isEmpty)
 
@@ -1804,7 +1807,8 @@ struct RoomArtPreviewControllerTests {
         #expect((movedBox.map(\.x).reduce(0, +) / 8) < ghostCenter.x - 30)
         // The painting asked for ahead was dropped by the move, so it never reaches the check once it comes back.
         paintingGate.open()
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitFor("the dropped painting to come back") { paintingGate.timesPassed == 1 }
+        await letTheQueuedMainActorWorkRun()
         #expect(looks.paintingsChecked == 0)
 
         #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
@@ -1833,7 +1837,9 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.recorder.spokenLineFailureFlags == [false])
         // Nothing was painted through the learner, ahead or now.
         #expect(looks.paintings == 0)
-        try await Task.sleep(for: .milliseconds(700))
+        // Two more looks at the box, 300 ms apart, while the learner still covers it say nothing more.
+        let looksAtTheBoxSoFar = harness.frameProcessor.paintingFrameBoxes.count
+        try await waitFor("two more looks at the box") { harness.frameProcessor.paintingFrameBoxes.count >= looksAtTheBoxSoFar + 2 }
         #expect(harness.spokenLines().count == 1)
 
         harness.frameProcessor.setThePersonsShareOfTheBox(0)
