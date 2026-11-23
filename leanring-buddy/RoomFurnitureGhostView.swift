@@ -6,8 +6,8 @@
 //  line in the theme's accent with a brighter front edge, dashed posts rising from its corners, a faint outline of the
 //  top at the piece's height, a soft contact shadow, and a pill with its size. The first time it appears, and after a
 //  pick-up, the theme's cursor glyph draws it line by line (`RoomFurnitureGhostDrawTimeline`, `CursorLoopTracerGlyph`, the
-//  loop's own tracer), and with Reduce Motion on it fades in whole. The lines come from the controller each frame, through the tracker's turn, so the ghost stays planted as the
-//  camera turns. The pure rules live in `RoomFurnitureGhost.swift`.
+//  loop's own tracer), and with Reduce Motion on it fades in whole. The lines come from the controller each frame, through
+//  the tracker's turn, so the ghost stays planted as the camera turns. The pure rules live in `RoomFurnitureGhost.swift`.
 //
 
 import SwiftUI
@@ -147,7 +147,6 @@ struct RoomFurnitureGhostCanvas: View {
                 let topPath = Self.closedPath(through: lines.top).trimmedPath(from: 0, to: frame.topShare)
                 context.stroke(topPath, with: .color(color.opacity(0.45)), style: StrokeStyle(lineWidth: Self.topLineWidth, lineCap: .round, lineJoin: .round))
             }
-
         }
         .allowsHitTesting(false)
     }

@@ -85,8 +85,9 @@ struct RoomArtLoopStateTests {
         #expect(!fadingStill.tracesTheLine)
         let arranging = RoomArtPhase.arranging(id: RoomArtMeasurementID(number: 3), item: loopTestItem(), surface: .wall(loopTestWall()))
         #expect(fadingStill.after(phaseChangedTo: arranging, at: 44) == .drawing(beganAt: 44))
-        // The ghost appearing fades a tracing loop with its glyph still lapping, and the piece showing fades a still line.
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: placing, at: 41) == .fadingOut(beganAt: 10, tracesTheLine: true))
+        // The ghost appearing fades a tracing loop whole and still, since its glyph leaves for the ghost, so one glyph shows.
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: placing, at: 41) == .fadingOut(beganAt: 10, tracesTheLine: false))
+        // The piece showing fades a tracing loop with its glyph lapping, and a still line still.
         let showing = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: nil)
         #expect(waiting.after(phaseChangedTo: showing, at: 41) == .fadingOut(beganAt: 10, tracesTheLine: false))
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showing, at: 41).tracesTheLine)

@@ -1463,7 +1463,8 @@ final class RoomArtPreviewController: ObservableObject {
     private func loopTracerInThePanel() -> CGPoint? {
         guard let beganAt = loopState.beganAt,
               let outline = currentLoopOutline(cameraSize: frameProcessor.metalLayer.drawableSize, panelSize: RoomArtPanelController.panelSize) else { return nil }
-        let plan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: ProcessInfo.processInfo.systemUptime - beganAt, reduceMotionIsOn: false, tracesTheLine: loopState.tracesTheLine)
+        // The loop has just stopped lapping for the ghost, so its glyph's place is read as it was while it lapped.
+        let plan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: ProcessInfo.processInfo.systemUptime - beganAt, reduceMotionIsOn: false, tracesTheLine: true)
         let line = CursorLoopLine(outline: outline)
         return line.point(atShare: RoomArtLoopCanvas.shareOfTheLine(for: plan.frame.tracer, on: line))
     }
