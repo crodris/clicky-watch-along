@@ -1084,7 +1084,6 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
             return self
         case .showing(let item, let surface, _):
             return .moving(id: id, item: item, surfaceBeforeTheMove: surface)
-        // Furniture still being arranged has no look yet, so a click waits as it does during a measurement.
         case .closed, .readingThePage, .measuring, .placingTheFurniture, .arranging, .couldNotDraw, .moving, .preparingTheShirt, .waitingToSeeTheLearner,
              .showingTheShirt, .paintingTheShirt, .showingThePaintedShirt, .failed:
             return self

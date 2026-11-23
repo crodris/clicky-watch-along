@@ -1626,6 +1626,7 @@ final class RoomArtPreviewController: ObservableObject {
         if direction != nil, !(distance.isFinite && distance > 0) { return .distanceMovesNothing }
         ghost.nudge(direction, distanceMeters: distance / 100, turnDegrees: turnDegrees ?? 0)
         guard ghost.shareOfTheBoxInTheFrame > 0 else { return .leavesTheView }
+        environment.theLearnerAskedThePanel()
         moveTheGhost(to: ghost)
         return nil
     }
@@ -1635,6 +1636,9 @@ final class RoomArtPreviewController: ObservableObject {
     @discardableResult
     func placeTheFurnitureWhereItsGhostStands() -> Bool {
         guard phase.furnitureGhostShows, var ghost = furnitureGhost else { return false }
+        // A placement by voice or by the Place button is the learner's own, so "Step aside" and "Here it is" after it count
+        // from this moment and are not dropped for an earlier press.
+        environment.theLearnerAskedThePanel()
         ghost.release()
         furnitureGhost = ghost
         lastMeasurementNumber += 1

@@ -26,8 +26,7 @@ import simd
 enum RoomArtLoopState: Equatable {
     case hidden
     case drawing(beganAt: TimeInterval)
-    /// The whole line stays where a click arranges the item again, with no glyph lapping it, since no work runs until the
-    /// learner clicks.
+    /// The whole line stays where a press picks the ghost back up, with no glyph lapping it, since no work runs until then.
     case waitingForAClick(beganAt: TimeInterval)
     /// `tracesTheLine` says whether a glyph laps the line while it fades: a lapping loop keeps lapping, and a still line fades
     /// with no glyph appearing on it. The ghost appearing fades a lapping loop still, since its glyph leaves for the ghost's

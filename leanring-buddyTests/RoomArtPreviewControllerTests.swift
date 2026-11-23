@@ -1838,8 +1838,11 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.phase.furnitureGhostShows)
         #expect(harness.frameProcessor.furnitureLayersShown.isEmpty)
 
-        // Placed where Clicky put it, the painting asked for ahead shows, and no second one is asked for.
+        // Placed where Clicky put it, the painting asked for ahead shows, and no second one is asked for. The Place button and
+        // "right there" both count as the learner's own request, so "Here it is" is not dropped for an earlier press.
+        #expect(harness.recorder.timesTheLearnerAskedThePanel == 0)
         #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.recorder.timesTheLearnerAskedThePanel == 1)
         try await waitFor("the painting asked for ahead to show") { harness.artIsShowing() }
         #expect(looks.paintings == 1)
         #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
@@ -1975,7 +1978,10 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
         try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
         let before = try #require(harness.controller.furnitureGhost?.shownPose)
+        #expect(harness.recorder.timesTheLearnerAskedThePanel == 0)
         #expect(harness.controller.nudgeTheFurniture(.left, distanceCentimeters: nil, turnDegrees: nil) == nil)
+        // A move is the learner's own request, so a line after it is not dropped for an earlier press, and a refused one is not.
+        #expect(harness.recorder.timesTheLearnerAskedThePanel == 1)
         let afterTheNudge = try #require(harness.controller.furnitureGhost?.shownPose)
         // 30 cm toward the image's left.
         #expect(abs(simd_length(afterTheNudge.footprintCenter - before.footprintCenter) - 0.3) < 1e-6)
@@ -1985,6 +1991,7 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.nudgeTheFurniture(.left, distanceCentimeters: -40, turnDegrees: nil) == .distanceMovesNothing)
         #expect(harness.controller.nudgeTheFurniture(.left, distanceCentimeters: .infinity, turnDegrees: nil) == .distanceMovesNothing)
         #expect(harness.controller.nudgeTheFurniture(.left, distanceCentimeters: 1e20, turnDegrees: nil) == .leavesTheView)
+        #expect(harness.recorder.timesTheLearnerAskedThePanel == 1)
         #expect(harness.controller.furnitureGhost?.shownPose == afterTheNudge)
 
         // The room lost while the ghost shows says so in the status line, until it is found.

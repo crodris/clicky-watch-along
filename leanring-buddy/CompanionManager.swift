@@ -395,7 +395,8 @@ final class CompanionManager: ObservableObject {
             self.map { CursorLoopTracerLook(theme: $0.themeSettings.shownTheme, picture: $0.themeSettings.shownThemePicture) }
         },
         endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() },
-        // A painting or a return to the preview, by voice or by a click, is this request's own, so its line is not dropped.
+        // A painting, a return to the preview, or the furniture placed or moved, by voice or by a click, is this request's
+        // own, so its line is not dropped.
         theLearnerAskedThePanel: { [weak self] in
             guard let self else { return }
             self.roomArtRequest.continued(atPushToTalkPressCount: self.pushToTalkPressCount)
@@ -1751,7 +1752,6 @@ final class CompanionManager: ObservableObject {
         case .confirmTheRoomArt:
             // "Right there" places the ghost with no model call, so the confirm never depends on the router.
             print("Room furniture: placed by voice")
-            roomArtRequest.continued(atPushToTalkPressCount: pushToTalkPressCount)
             roomArtPreviewController.placeTheFurnitureWhereItsGhostStands()
         case .replayTheExplanation:
             // "Show me again" replays the recorded stops with no model call, so it never builds a paid scene.
@@ -4042,7 +4042,6 @@ final class CompanionManager: ObservableObject {
                 }
             }
         case .placeFurniture:
-            roomArtRequest.continued(atPushToTalkPressCount: pushToTalkPressCount)
             guard roomArtPreviewController.placeTheFurnitureWhereItsGhostStands() else {
                 return .outcome(.failed(error: "No furniture is being placed", state: nil))
             }
@@ -4057,7 +4056,6 @@ final class CompanionManager: ObservableObject {
             guard direction != nil || (turnDegrees ?? 0) != 0 else {
                 return .outcome(.failed(error: "Give a direction, a turn, or both", state: nil))
             }
-            roomArtRequest.continued(atPushToTalkPressCount: pushToTalkPressCount)
             if let refusal = roomArtPreviewController.nudgeTheFurniture(direction, distanceCentimeters: input["distanceCentimeters"]?.numberValue, turnDegrees: turnDegrees) {
                 return .outcome(.failed(error: refusal.toolError, state: nil))
             }
