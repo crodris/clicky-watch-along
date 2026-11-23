@@ -44,6 +44,29 @@ nonisolated struct RoomArtKeyframe: Sendable {
     var floorTexture: RoomFloorTextureMap? = nil
 }
 
+extension RoomArtKeyframe {
+    /// This keyframe with the placed items drawn into it, as the next item is measured on. The bare wall spot and the floor's
+    /// texture are found again on the baked picture, so a floor item's wall is never measured on the front of a bookcase
+    /// Clicky painted where the wall spot used to be.
+    func baked(keyframeJPEGData: Data, trackGrayscale: RoomGrayscaleImage, trackRoomMask: [Float], cameraPixelsPerTrackPixel: Double) -> RoomArtKeyframe {
+        let wallSpotInTrackPixels = bareWallSpot(grayscale: trackGrayscale, roomMask: trackRoomMask)
+        return RoomArtKeyframe(
+            measurementRequest: RoomWallRequest(
+                keyframeJPEGData: keyframeJPEGData, personMaskPNGData: measurementRequest.personMaskPNGData, anchor: measurementRequest.anchor
+            ),
+            wallLight: wallLight,
+            wallSpotAnchor: CGPoint(x: wallSpotInTrackPixels.x * cameraPixelsPerTrackPixel, y: wallSpotInTrackPixels.y * cameraPixelsPerTrackPixel),
+            keyframeNumber: keyframeNumber,
+            floorTexture: RoomFloorTextureMap(
+                width: trackGrayscale.width,
+                height: trackGrayscale.height,
+                texture: textureWithThePersonMarked(grayscale: trackGrayscale, roomMask: trackRoomMask),
+                cameraPixelsPerMapPixel: cameraPixelsPerTrackPixel
+            )
+        )
+    }
+}
+
 // MARK: - Frame processor
 
 /// One 5 second window of drawn frames while the art showed.
@@ -1136,19 +1159,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             } ?? roomMaskWithNoPerson(width: trackWidth, height: trackHeight)
             self.background = RoomArtBackground(
                 items: (self.background?.items ?? []) + [(placedArt, self.smoothedArtCorners)],
-                keyframe: RoomArtKeyframe(
-                    measurementRequest: RoomWallRequest(
-                        keyframeJPEGData: bakedJPEGData, personMaskPNGData: takenKeyframe.measurementRequest.personMaskPNGData, anchor: takenKeyframe.measurementRequest.anchor
-                    ),
-                    wallLight: takenKeyframe.wallLight,
-                    wallSpotAnchor: takenKeyframe.wallSpotAnchor,
-                    keyframeNumber: takenKeyframe.keyframeNumber,
-                    floorTexture: RoomFloorTextureMap(
-                        width: trackWidth,
-                        height: trackHeight,
-                        texture: textureWithThePersonMarked(grayscale: bakedTrackGrayscale, roomMask: bakedTrackRoomMask),
-                        cameraPixelsPerMapPixel: Double(bakedCGImage.width) / Double(trackWidth)
-                    )
+                keyframe: takenKeyframe.baked(
+                    keyframeJPEGData: bakedJPEGData, trackGrayscale: bakedTrackGrayscale, trackRoomMask: bakedTrackRoomMask,
+                    cameraPixelsPerTrackPixel: Double(bakedCGImage.width) / Double(trackWidth)
                 ),
                 keyframeImage: bakedCGImage,
                 trackGrayscale: bakedTrackGrayscale,
@@ -2582,7 +2595,7 @@ final class RoomArtPreviewController: ObservableObject {
         case .couldNotDraw(_, let item, _):
             // The loop stays and the camera keeps running, so a click on the surface picks the ghost back up there.
             environment.speak(item.notDrawnLine, true)
-        case .waitingForAFloorClick(let item, let aClickFoundNothing):
+        case .waitingForAFloorClick(let item, let aClickFoundNothing, _):
             // The camera keeps running, so the learner can tilt the screen down and click the floor, or click the table or
             // shelf where the item goes.
             let prompt = item.surfaceClickPrompt(afterAClickFoundNothing: aClickFoundNothing)
@@ -3081,7 +3094,7 @@ extension RoomArtPhase {
     /// The item a measurement is running for, nil outside one.
     var itemBeingMeasured: RoomArtPlacedItem? {
         switch self {
-        case .measuring(_, let item), .moving(_, let item, _): return item
+        case .measuring(_, let item, _), .moving(_, let item, _): return item
         default: return nil
         }
     }

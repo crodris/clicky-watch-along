@@ -1238,9 +1238,11 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// read, and a page that fails keeps the room (`roomKeptAfterAFailedItem`).
     case readingThePageInTheKeptRoom
     /// The item is read and ready, and the keyframe waits for the camera's first frame with a person mask.
-    case waitingForTheCamera(RoomArtPlacedItem)
+    /// `inTheKeptRoom` says the item joins a room that keeps its placed items, so its first measurement's failure keeps the
+    /// room (`roomKeptAfterAFailedItem`) instead of ending the panel. `measuring` and `waitingForAFloorClick` carry it on.
+    case waitingForTheCamera(RoomArtPlacedItem, inTheKeptRoom: Bool = false)
     /// The keyframe is taken and its surface is being measured.
-    case measuring(id: RoomArtMeasurementID, item: RoomArtPlacedItem)
+    case measuring(id: RoomArtMeasurementID, item: RoomArtPlacedItem, inTheKeptRoom: Bool = false)
     /// The item is on its surface. `moveFailure` is why the last click could not move it, shown in the status line until
     /// the next move, with the item back where it was.
     case showing(item: RoomArtPlacedItem, surface: RoomArtSurface, moveFailure: RoomArtFailure?)
@@ -1266,7 +1268,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// floor, and for a table or shelf item from the start, since only a click chooses a table top
     /// (`RoomArtStandsOn.needsAClickOnItsSurface`). `aClickFoundNothing` says the learner's click on a table or shelf found no
     /// flat surface, which changes its prompt (`RoomArtPlacedItem.surfaceClickPrompt`). A floor item never records it.
-    case waitingForAFloorClick(RoomArtPlacedItem, aClickFoundNothing: Bool = false)
+    case waitingForAFloorClick(RoomArtPlacedItem, aClickFoundNothing: Bool = false, inTheKeptRoom: Bool = false)
     /// Clothing the page reader says can be drawn on the learner: the picture is being prepared while the camera looks for
     /// the learner. Which preview shows is decided once the garment's cutout was tried (`shirtPreviewKind`), and every phase
     /// after this one records it, so going back from a painting returns to the same preview.
@@ -1286,8 +1288,8 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// The painted still shows until the learner goes back to the preview.
     case showingThePaintedShirt(title: String, preview: ShirtPreviewKind)
     case failed(RoomArtFailure)
-    /// The page read for a new item in a kept room failed, so the camera runs on and the room keeps its placed items: the
-    /// status line says why, and the next request places its item among them.
+    /// The page read for a new item in a kept room failed, or the item's first measurement did, so the camera runs on and the
+    /// room keeps its placed items: the status line says why, and the next request places its item among them.
     case roomKeptAfterAFailedItem(RoomArtFailure)
 
     var isOpen: Bool { self != .closed }
@@ -1314,7 +1316,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// A wall item or a standing item was read and its picture prepared, so its surface can be measured once the camera has a frame.
     func withTheItemReady(_ item: RoomArtPlacedItem) -> RoomArtPhase {
         guard isReadingThePage else { return self }
-        return .waitingForTheCamera(item)
+        return .waitingForTheCamera(item, inTheKeptRoom: self == .readingThePageInTheKeptRoom)
     }
 
     /// Clothing the reader says can be drawn on the learner was read, so its picture is prepared while the camera looks for
@@ -1342,8 +1344,8 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// bare wall or floor puts them (`startingAMeasurement`). A table or shelf item asks for a click instead, since no search
     /// can tell a table top from the floor, so nothing is measured until the learner clicks.
     func askingForAClickIfTheItemNeedsOne() -> RoomArtPhase {
-        guard case .waitingForTheCamera(let item) = self, item.standsOn?.needsAClickOnItsSurface == true else { return self }
-        return .waitingForAFloorClick(item, aClickFoundNothing: false)
+        guard case .waitingForTheCamera(let item, let inTheKeptRoom) = self, item.standsOn?.needsAClickOnItsSurface == true else { return self }
+        return .waitingForAFloorClick(item, aClickFoundNothing: false, inTheKeptRoom: inTheKeptRoom)
     }
 
     /// A keyframe was taken: the first one once the item is ready and the camera runs, a click that moves the item, or a
@@ -1351,8 +1353,8 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// nothing.
     func startingAMeasurement(id: RoomArtMeasurementID) -> RoomArtPhase {
         switch self {
-        case .waitingForTheCamera(let item), .waitingForAFloorClick(let item, _):
-            return .measuring(id: id, item: item)
+        case .waitingForTheCamera(let item, let inTheKeptRoom), .waitingForAFloorClick(let item, _, let inTheKeptRoom):
+            return .measuring(id: id, item: item, inTheKeptRoom: inTheKeptRoom)
         // Furniture stands on a floor already measured, so it never measures again: a press on the piece picks its ghost
         // back up, and after it could not be drawn a press anywhere does (`aPressPicksTheFurnitureUp`).
         case .showing(.furniture, _, _):
@@ -1368,8 +1370,10 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
 
     func withTheSurfaceMeasured(_ surface: RoomArtSurface, measurementID: RoomArtMeasurementID) -> RoomArtPhase {
         switch self {
-        case .measuring(let measuringID, let item) where measuringID == measurementID && surface.kind == item.surfaceKind:
-            guard surface.keyframeCorners(of: item) != nil else { return Self.afterTheFirstMeasurementFailed(item.surfaceKind.cannotPlaceFailure, item: item) }
+        case .measuring(let measuringID, let item, let inTheKeptRoom) where measuringID == measurementID && surface.kind == item.surfaceKind:
+            guard surface.keyframeCorners(of: item) != nil else {
+                return Self.afterTheFirstMeasurementFailed(item.surfaceKind.cannotPlaceFailure, item: item, inTheKeptRoom: inTheKeptRoom)
+            }
             return Self.placed(item, on: surface, measurementID: measurementID)
         case .moving(let movingID, let item, let surfaceBeforeTheMove) where movingID == measurementID && surface.kind == item.surfaceKind:
             guard surface.keyframeCorners(of: item) != nil else {
@@ -1442,12 +1446,12 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         return .couldNotDraw(id: measurementID, item: item, surface: surface)
     }
 
-    /// A measurement failed. A first measurement's failure ends the panel, except a floor that was not found, which waits
-    /// for a click on the floor. A move's failure puts the item back where it stood.
+    /// A measurement failed. A first measurement's failure ends the panel, or in a kept room keeps the room, except a floor
+    /// that was not found, which waits for a click on the floor. A move's failure puts the item back where it stood.
     func afterTheMeasurementFailed(_ failure: RoomArtFailure, measurementID: RoomArtMeasurementID) -> RoomArtPhase {
         switch self {
-        case .measuring(let measuringID, let item) where measuringID == measurementID:
-            return Self.afterTheFirstMeasurementFailed(failure, item: item)
+        case .measuring(let measuringID, let item, let inTheKeptRoom) where measuringID == measurementID:
+            return Self.afterTheFirstMeasurementFailed(failure, item: item, inTheKeptRoom: inTheKeptRoom)
         case .moving(let movingID, let item, let surfaceBeforeTheMove) where movingID == measurementID:
             return .showing(item: item, surface: surfaceBeforeTheMove, moveFailure: failure)
         default:
@@ -1455,15 +1459,17 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         }
     }
 
-    private static func afterTheFirstMeasurementFailed(_ failure: RoomArtFailure, item: RoomArtPlacedItem) -> RoomArtPhase {
-        if failure == .floorNotFound, case .furniture = item { return waitingForAClickOnTheSurface(item, afterAClickFoundNothing: true) }
-        return .failed(failure)
+    private static func afterTheFirstMeasurementFailed(_ failure: RoomArtFailure, item: RoomArtPlacedItem, inTheKeptRoom: Bool) -> RoomArtPhase {
+        if failure == .floorNotFound, case .furniture = item {
+            return waitingForAClickOnTheSurface(item, afterAClickFoundNothing: true, inTheKeptRoom: inTheKeptRoom)
+        }
+        return inTheKeptRoom ? .roomKeptAfterAFailedItem(failure) : .failed(failure)
     }
 
     /// A standing item waits for a click on its surface. A floor item says the floor line whether or not a click failed, so
     /// its phase is the same value either way, and only a table or shelf item records that a click found nothing.
-    private static func waitingForAClickOnTheSurface(_ item: RoomArtPlacedItem, afterAClickFoundNothing aClickFoundNothing: Bool) -> RoomArtPhase {
-        .waitingForAFloorClick(item, aClickFoundNothing: aClickFoundNothing && item.standsOn?.needsAClickOnItsSurface == true)
+    private static func waitingForAClickOnTheSurface(_ item: RoomArtPlacedItem, afterAClickFoundNothing aClickFoundNothing: Bool, inTheKeptRoom: Bool = false) -> RoomArtPhase {
+        .waitingForAFloorClick(item, aClickFoundNothing: aClickFoundNothing && item.standsOn?.needsAClickOnItsSurface == true, inTheKeptRoom: inTheKeptRoom)
     }
 
     /// The preview is chosen (`shirtPreviewKind`) and ready. `learnerIsInFrame` says the framing already settled on ready, so
@@ -1553,7 +1559,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         case .closed: return ""
         case .readingThePage, .readingThePageInTheKeptRoom: return "Reading the page…"
         case .waitingForTheCamera: return "Starting the camera…"
-        case .measuring(_, let item): return item.measuringStatusLine
+        case .measuring(_, let item, _): return item.measuringStatusLine
         case .moving(_, let item, _): return item.measuringStatusLine
         case .placingTheFurniture(_, let item, _): return theSurfaceIsLost ? item.lostLine : roomFurnitureGhostStatusLine
         case .arranging(_, let item, _): return theSurfaceIsLost ? item.lostLine : "Arranging it in your room…"
@@ -1561,7 +1567,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         case .showing(let item, _, let moveFailure):
             if theSurfaceIsLost { return item.lostLine }
             return moveFailure?.statusLine ?? item.showingStatusLine
-        case .waitingForAFloorClick(let item, let aClickFoundNothing): return item.surfaceClickPrompt(afterAClickFoundNothing: aClickFoundNothing).statusLine
+        case .waitingForAFloorClick(let item, let aClickFoundNothing, _): return item.surfaceClickPrompt(afterAClickFoundNothing: aClickFoundNothing).statusLine
         case .preparingTheShirt: return shirtCoachingLine ?? "Getting it ready…"
         case .waitingToSeeTheLearner: return shirtCoachingLine ?? "Looking for you…"
         case .showingTheShirt(_, let preview): return shirtCoachingLine ?? preview.statusLine
@@ -1569,15 +1575,18 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         // The frame is frozen, so the learner moving out of view changes nothing on screen and no coaching shows.
         case .paintingTheShirt: return roomArtShirtPaintingStatusLine
         case .showingThePaintedShirt: return roomArtShirtPaintedStatusLine
-        case .failed(let failure), .roomKeptAfterAFailedItem(let failure): return failure.statusLine
+        case .failed(let failure): return failure.statusLine
+        // The placed items hide while the room is lost, as an item that shows does, so the line says to turn back.
+        case .roomKeptAfterAFailedItem(let failure): return theSurfaceIsLost ? roomArtKeptRoomLostLine : failure.statusLine
         }
     }
 
     /// Whether the status line says what went wrong, so the panel draws it in the failure color.
     func statusLineIsAFailure(theSurfaceIsLost: Bool) -> Bool {
         switch self {
-        case .failed, .roomKeptAfterAFailedItem, .couldNotDraw: return true
-        case .waitingForAFloorClick(let item, let aClickFoundNothing): return item.surfaceClickPrompt(afterAClickFoundNothing: aClickFoundNothing).isAFailure
+        case .failed, .couldNotDraw: return true
+        case .roomKeptAfterAFailedItem: return !theSurfaceIsLost
+        case .waitingForAFloorClick(let item, let aClickFoundNothing, _): return item.surfaceClickPrompt(afterAClickFoundNothing: aClickFoundNothing).isAFailure
         case .showing(_, _, let moveFailure): return moveFailure != nil && !theSurfaceIsLost
         case .closed, .readingThePage, .readingThePageInTheKeptRoom, .waitingForTheCamera, .measuring, .placingTheFurniture, .arranging, .moving, .preparingTheShirt, .waitingToSeeTheLearner,
              .showingTheShirt, .waitingForTheLearnerToStepBack, .paintingTheShirt, .showingThePaintedShirt:
@@ -1585,6 +1594,10 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         }
     }
 }
+
+/// The status line of a kept room whose last item failed while the tracker lost it, which holds items of more than one
+/// surface, so it names the room and not a wall or a floor.
+nonisolated let roomArtKeptRoomLostLine = "Lost the room. Turn back to where it was."
 
 // MARK: - When a line may play
 

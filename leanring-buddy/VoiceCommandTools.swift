@@ -865,14 +865,24 @@ nonisolated enum RouterFailureFallback: Equatable {
     case giveUp
 }
 
-nonisolated func routerFailureFallback(for transcript: String, sceneIsOnScreen: Bool, themeStudioIsOpen: Bool = false) -> RouterFailureFallback {
+/// The room art facts are the ones `transcriptRoute` reads, so a failed "put it on my desk" while a ghost shows never closes
+/// the ghost, and "how would this lamp look on the table" in a kept room still stacks the lamp.
+nonisolated func routerFailureFallback(
+    for transcript: String,
+    sceneIsOnScreen: Bool,
+    themeStudioIsOpen: Bool = false,
+    furnitureGhostShows: Bool = false,
+    aRoomArtItemKeepsTheRoom: Bool = false
+) -> RouterFailureFallback {
     if themeStudioIsOpen { return .giveUp }
     let skippedKeywordBranch = keywordBranchAheadOfTheRouter(
         for: transcript,
         brainTakesEveryRequest: false,
         sceneIsOnScreen: sceneIsOnScreen,
         phaseIsWaitingForAQuizAnswer: false,
-        sceneIsBuilding: false
+        sceneIsBuilding: false,
+        furnitureGhostShows: furnitureGhostShows,
+        aRoomArtItemKeepsTheRoom: aRoomArtItemKeepsTheRoom
     )
     if skippedKeywordBranch == .startExperiment { return .startExperiment }
     if case .designATheme(let themeStudioRequest)? = skippedKeywordBranch { return .designATheme(themeStudioRequest) }

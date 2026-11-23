@@ -2089,6 +2089,27 @@ struct RoomArtPreviewControllerTests {
         }
     }
 
+    @Test func aStackedItemWhoseFirstMeasurementFailsKeepsTheCameraAndTheRoom() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let harness = RoomArtHarness(worker: worker)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the table to show") { harness.artIsShowing() }
+
+        // The next item's page reads fine, and the depth service does not answer for its floor.
+        worker.floorReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 502, body: #"{"error":"The depth service is not answering"}"#))
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would another table look in my room")
+        try await waitFor("the room to stay after a failed measurement") { harness.controller.phase == .roomKeptAfterAFailedItem(.depthServiceUnavailable) }
+        #expect(harness.spokenLines().last == RoomArtFailure.depthServiceUnavailable.spokenLine)
+        #expect(harness.panel.timesHidden == 0)
+        #expect(harness.camera.timesStopped == 0)
+        #expect(harness.camera.isDeliveringFrames)
+        #expect(harness.frameProcessor.sessionsStarted == 1)
+        #expect(harness.frameProcessor.backgroundItemCount == 1)
+        #expect(harness.controller.phase.keepsTheRoomForANewItem)
+        harness.controller.close()
+    }
+
     @Test func aPickUpWhileTheNextPictureIsReadStartsThePanelOverInsteadOfDroppingThePiece() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)
@@ -4325,7 +4346,7 @@ struct RoomArtBackgroundBakeTests {
 private extension RoomArtPhase {
     /// The piece waiting for a click on its surface, the floor or a table or shelf, nil in any other phase.
     var waitingForAFloorClickItem: RoomArtPlacedItem? {
-        if case .waitingForAFloorClick(let item, _) = self { return item }
+        if case .waitingForAFloorClick(let item, _, _) = self { return item }
         return nil
     }
 }

@@ -3830,7 +3830,9 @@ final class CompanionManager: ObservableObject {
         switch routerFailureFallback(
             for: transcript,
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
-            themeStudioIsOpen: themeStudioController.isOpen
+            themeStudioIsOpen: themeStudioController.isOpen,
+            furnitureGhostShows: roomArtPreviewController.phase.furnitureGhostShows,
+            aRoomArtItemKeepsTheRoom: roomArtPreviewController.phase.keepsTheRoomForANewItem
         ) {
         case .giveUp:
             await speakTheGaveUpLine()

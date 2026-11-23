@@ -637,6 +637,19 @@ struct RoomArtGeometryTests {
         // The second print's window does not overlap the first print.
         let windowsOverlap = abs(secondSpot.x - firstSpot.x) < windowWidth && abs(secondSpot.y - firstSpot.y) < windowHeight
         #expect(!windowsOverlap, "the first spot is \(firstSpot) and the second \(secondSpot)")
+
+        // The keyframe baked with the print finds its wall spot again, so a floor item's wall is not measured on the print.
+        let takenKeyframe = RoomArtKeyframe(
+            measurementRequest: RoomWallRequest(keyframeJPEGData: Data([1]), personMaskPNGData: Data([2]), anchor: CGPoint(x: 10, y: 20)),
+            wallLight: .neutral,
+            wallSpotAnchor: CGPoint(x: firstSpot.x * cameraPixelsPerTrackPixel, y: firstSpot.y * cameraPixelsPerTrackPixel)
+        )
+        let bakedKeyframe = takenKeyframe.baked(
+            keyframeJPEGData: Data([3]), trackGrayscale: wallWithThePrint, trackRoomMask: roomMask, cameraPixelsPerTrackPixel: cameraPixelsPerTrackPixel
+        )
+        #expect(bakedKeyframe.wallSpotAnchor == CGPoint(x: secondSpot.x * cameraPixelsPerTrackPixel, y: secondSpot.y * cameraPixelsPerTrackPixel))
+        #expect(bakedKeyframe.measurementRequest.keyframeJPEGData == Data([3]))
+        #expect(bakedKeyframe.measurementRequest.anchor == CGPoint(x: 10, y: 20))
     }
 
     @Test func theBareFloorSpotIsTheOpenFloorLowInTheFrameAwayFromThePerson() {
@@ -928,6 +941,16 @@ struct RoomArtPhraseTests {
 
     @Test func aFailedRouterHangsTheArtInsteadOfBuildingAScene() {
         #expect(routerFailureFallback(for: "show me how this would look in my room", sceneIsOnScreen: false) == .showArtInMyRoom)
+    }
+
+    @Test func aFailedRouterWhileTheGhostShowsNeverReopensThePanel() {
+        #expect(routerFailureFallback(for: "put it on my desk", sceneIsOnScreen: false) == .showArtInMyRoom)
+        #expect(routerFailureFallback(for: "put it on my desk", sceneIsOnScreen: false, furnitureGhostShows: true) != .showArtInMyRoom)
+    }
+
+    @Test func aFailedRouterInAKeptRoomStillStacksOnThePaintedTable() {
+        #expect(routerFailureFallback(for: "how would this lamp look on the table", sceneIsOnScreen: false) != .showArtInMyRoom)
+        #expect(routerFailureFallback(for: "how would this lamp look on the table", sceneIsOnScreen: false, aRoomArtItemKeepsTheRoom: true) == .showArtInMyRoom)
     }
 }
 
@@ -1323,6 +1346,43 @@ struct RoomArtPhaseTests {
         // Only furniture waits for a click, so a floor failure for wall art could only end the panel.
         #expect(measuring.afterTheMeasurementFailed(.floorNotFound, measurementID: firstMeasurement) == .failed(.floorNotFound))
         #expect(RoomArtPhase.failed(.wallNotMeasured).startingAMeasurement(id: secondMeasurement) == .failed(.wallNotMeasured))
+    }
+
+    @Test func aStackedItemsFailedFirstMeasurementKeepsTheRoom() {
+        let wallBehindTheCamera = WallPlane(
+            center: SIMD3(0, 0, -2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 1000,
+            principalPoint: SIMD2(640, 360), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 0.9
+        )
+        let measuringTheArt = RoomArtPhase.readingThePageInTheKeptRoom.withTheItemReady(.wallArt(artwork())).startingAMeasurement(id: firstMeasurement)
+
+        #expect(measuringTheArt.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .roomKeptAfterAFailedItem(.depthServiceUnavailable))
+        #expect(measuringTheArt.withTheSurfaceMeasured(.wall(wallBehindTheCamera), measurementID: firstMeasurement) == .roomKeptAfterAFailedItem(.wallNotMeasured))
+        #expect(measuringTheArt.afterTheMeasurementFailed(.wallNotMeasured, measurementID: firstMeasurement).keepsTheRoomForANewItem)
+
+        // A floor that was not found still asks for a click, and a later click's failure still keeps the room.
+        let measuringTheSofa = RoomArtPhase.readingThePageInTheKeptRoom.withTheItemReady(.furniture(furniture())).startingAMeasurement(id: firstMeasurement)
+        let waitingForAClick = measuringTheSofa.afterTheMeasurementFailed(.floorNotFound, measurementID: firstMeasurement)
+        #expect(waitingForAClick == .waitingForAFloorClick(.furniture(furniture()), inTheKeptRoom: true))
+        let measuringTheClick = waitingForAClick.startingAMeasurement(id: secondMeasurement)
+        #expect(measuringTheClick.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: secondMeasurement) == .roomKeptAfterAFailedItem(.depthServiceUnavailable))
+
+        // A table or shelf item asks for its click and keeps the room through it too.
+        let mug = RoomArtPlacedItem.furniture(furniture(standsOn: .tableOrShelf))
+        let measuringTheMug = RoomArtPhase.readingThePageInTheKeptRoom.withTheItemReady(mug).askingForAClickIfTheItemNeedsOne().startingAMeasurement(id: firstMeasurement)
+        #expect(measuringTheMug.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .roomKeptAfterAFailedItem(.depthServiceUnavailable))
+
+        // A fresh panel still fails.
+        let measuringInAFreshPanel = RoomArtPhase.readingThePage.withTheItemReady(.wallArt(artwork())).startingAMeasurement(id: firstMeasurement)
+        #expect(measuringInAFreshPanel.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .failed(.depthServiceUnavailable))
+    }
+
+    @Test func aKeptRoomWhoseLastItemFailedSaysToTurnBackWhileTheRoomIsLost() {
+        let keptRoom = RoomArtPhase.roomKeptAfterAFailedItem(.pageNotRead)
+
+        #expect(keptRoom.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the room. Turn back to where it was.")
+        #expect(!keptRoom.statusLineIsAFailure(theSurfaceIsLost: true))
+        #expect(keptRoom.statusLine(theSurfaceIsLost: false, shirtCoachingLine: nil) == RoomArtFailure.pageNotRead.statusLine)
+        #expect(keptRoom.statusLineIsAFailure(theSurfaceIsLost: false))
     }
 
     @Test func theSizeIsSaidInInchesToTheNearestHalfInch() {
