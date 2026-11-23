@@ -21,6 +21,8 @@ nonisolated enum TranscriptRoute: Equatable {
     case putTheSceneBack
     /// "Show me again" replays the narration's recorded stops with no model call.
     case replayTheExplanation
+    /// "Right there" paints the shirt the room art panel previews, and "go back" returns to the preview.
+    case shirtPaintedStill(ShirtStillVoiceRequest)
     /// "Animate this", "let me try it", and "change my theme" run with no model call.
     case keywordBranch(KeywordBranchAheadOfTheRouter)
     /// The voice command router, on the harness brain or the Worker.
@@ -46,6 +48,8 @@ nonisolated struct TranscriptRouteContext: Equatable, Sendable {
     var backgroundAgentsArePaused: Bool
     /// The narration of the pop-out on screen recorded stops, so "show me again" replays them.
     var replayStopsAreRecorded: Bool = false
+    /// What the room art panel's shirt can do by voice, so "right there" and "go back" reach it.
+    var shirtStillVoiceTargets: ShirtStillVoiceTargets = .none
 }
 
 /// The route of a transcript, checked in the order the app has always checked it. `videoIsInFront` is asked only for a
@@ -72,6 +76,15 @@ nonisolated func transcriptRoute(
         themeStudioIsOpen: context.themeStudioIsOpen
     ) {
         return .replayTheExplanation
+    }
+    let shirtStillRequest = shirtStillVoiceRequest(for: transcript)
+    if let shirtStillRequest, shirtStillPhraseRunsAheadOfTheRouter(
+        request: shirtStillRequest,
+        targets: context.shirtStillVoiceTargets,
+        quizQuestionIsOpen: context.phaseIsWaitingForAQuizAnswer,
+        themeStudioIsOpen: context.themeStudioIsOpen
+    ) {
+        return .shirtPaintedStill(shirtStillRequest)
     }
     if let keywordBranch = keywordBranchAheadOfTheRouter(
         for: transcript,

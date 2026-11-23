@@ -8,7 +8,9 @@
 //  runs, around the window `bareWallSpot` or `bareFloorSpot` scored, and it follows the room as the camera
 //  turns: the window's four corners go through the tracker's current warp each frame, and the line is bent onto the mapped
 //  corners. It starts when the keyframe is taken and leaves with a fade when the item shows or the measurement fails. For a
-//  shirt it traces the learner's torso instead, from the moment the panel knows it is a shirt until the shirt first shows.
+//  shirt it traces the shirt itself instead (`ShirtOutline`): the outline of the learner's own top from the moment the panel
+//  knows it is a shirt until the shirt first shows, and the outline of the area being painted while the shirt is painted,
+//  until the painted still shows.
 //
 //  This file holds the pure rules (when the loop shows and clears, the window's corners, the corner mapping, the camera to
 //  panel fit, the bent outline) and the views that draw it.
@@ -31,21 +33,21 @@ enum RoomArtLoopState: Equatable {
     /// no glyph appearing on it.
     case fadingOut(beganAt: TimeInterval, tracesTheLine: Bool)
 
-    /// The panel's phase changed. The loop starts with a measurement, a first one or a click's, a retry click included, and
-    /// with a shirt being prepared, and keeps its clock while the work goes on: while furniture waits for its first look
-    /// around the footprint where it will stand, and when the garment is ready before the learner stands in view. After the
-    /// furniture could not be drawn, the line stays to show where to click, with the glyph still. The item or the shirt
-    /// showing, a floor that was not found, or a failure fades it, and a panel that closes or is still reading the page has
-    /// no loop at all.
+    /// The panel's phase changed. The loop starts with a measurement, a first one or a click's, a retry click included, with
+    /// a shirt being prepared, and with a shirt being painted, and keeps its clock while the work goes on: while furniture
+    /// waits for its first look around the footprint where it will stand, and when the garment is ready before the learner
+    /// stands in view. After the furniture could not be drawn, the line stays to show where to click, with the glyph still.
+    /// The item or the shirt showing, a floor that was not found, or a failure fades it, and a panel that closes or is still
+    /// reading the page has no loop at all.
     func after(phaseChangedTo phase: RoomArtPhase, at now: TimeInterval) -> RoomArtLoopState {
         switch phase {
-        case .measuring, .moving, .retrying, .arranging, .preparingTheShirt, .waitingToSeeTheLearner:
+        case .measuring, .moving, .retrying, .arranging, .preparingTheShirt, .waitingToSeeTheLearner, .paintingTheShirt:
             if case .drawing = self { return self }
             return .drawing(beganAt: now)
         case .couldNotDraw:
             if let beganAt { return .waitingForAClick(beganAt: beganAt) }
             return .waitingForAClick(beganAt: now)
-        case .showing, .waitingForAFloorClick, .showingTheShirt, .failed:
+        case .showing, .waitingForAFloorClick, .showingTheShirt, .showingThePaintedShirt, .failed:
             switch self {
             case .drawing(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: true)
             case .waitingForAClick(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)
@@ -94,6 +96,24 @@ enum RoomArtLoopState: Equatable {
 nonisolated struct RoomArtLoopSnapshot: Equatable, Sendable {
     let keyframeCorners: RoomArtCorners
     let currentCorners: RoomArtCorners
+    /// For a shirt, the outline of the shirt itself in camera pixels, which the line traces instead of the window
+    /// (`ShirtOutline`). Nil for the wall and the floor.
+    var closedOutline: [CGPoint]? = nil
+
+    /// A loop that traces `outline`, a closed line in camera pixels, with its bounding box as the window. Nil for an outline
+    /// with fewer than 3 points or no area.
+    init?(tracing outline: [CGPoint]) {
+        guard outline.count >= 3, let left = outline.map(\.x).min(), let right = outline.map(\.x).max(),
+              let top = outline.map(\.y).min(), let bottom = outline.map(\.y).max(), right - left > 1, bottom - top > 1 else { return nil }
+        let box = RoomArtCorners(rect: CGRect(x: left, y: top, width: right - left, height: bottom - top))
+        self.init(keyframeCorners: box, currentCorners: box, closedOutline: outline)
+    }
+
+    init(keyframeCorners: RoomArtCorners, currentCorners: RoomArtCorners, closedOutline: [CGPoint]? = nil) {
+        self.keyframeCorners = keyframeCorners
+        self.currentCorners = currentCorners
+        self.closedOutline = closedOutline
+    }
 }
 
 nonisolated extension RoomArtCorners {
@@ -128,20 +148,6 @@ nonisolated enum RoomArtLoopGeometry {
     /// Where the keyframe's corners are after the tracker's turn of the laptop, the same warp that moves the art's corners.
     static func corners(of keyframeCorners: RoomArtCorners, after warp: EuclideanWarp) -> RoomArtCorners {
         RoomArtCorners(clockwiseFromTopLeft: keyframeCorners.clockwiseFromTopLeft.map(warp.apply))
-    }
-
-    /// The loop around the learner's torso while a shirt is prepared: the line is drawn around the torso's upright bounding
-    /// box and bent onto the torso's own corners, where the shirt will land (`ShirtTryOnRenderer.bodyTorsoCorners`), so it
-    /// leans with the learner. Nil when the torso has no area to outline.
-    static func torsoLoop(of torso: BodyTorso) -> RoomArtLoopSnapshot? {
-        let torsoCorners = ShirtTryOnRenderer.bodyTorsoCorners(of: torso)
-        guard let left = torsoCorners.map(\.x).min(), let right = torsoCorners.map(\.x).max(),
-              let top = torsoCorners.map(\.y).min(), let bottom = torsoCorners.map(\.y).max(),
-              right - left > 1, bottom - top > 1 else { return nil }
-        return RoomArtLoopSnapshot(
-            keyframeCorners: RoomArtCorners(rect: CGRect(x: left, y: top, width: right - left, height: bottom - top)),
-            currentCorners: RoomArtCorners(clockwiseFromTopLeft: torsoCorners)
-        )
     }
 }
 
@@ -183,9 +189,13 @@ enum RoomArtLoopOutline {
     /// smoothly with the wall's perspective.
     private static let piecesPerCurve = 12
 
-    /// Nil when the camera has no frame yet, or the corners cannot be mapped onto each other (three on one line).
+    /// Nil when the camera has no frame yet, or the corners cannot be mapped onto each other (three on one line). A snapshot
+    /// with a shirt's outline draws that outline instead of the window.
     static func path(for snapshot: RoomArtLoopSnapshot, fit: RoomArtVideoFit) -> Path? {
         guard fit.isUsable else { return nil }
+        if let closedOutline = snapshot.closedOutline {
+            return closedPath(through: closedOutline.map(fit.viewPoint(forCameraPixel:)))
+        }
         let keyframeCornersInThePanel = fit.viewCorners(of: snapshot.keyframeCorners)
         let keyframeRect = CGRect(
             x: keyframeCornersInThePanel.topLeft.x,
@@ -200,6 +210,28 @@ enum RoomArtLoopOutline {
             to: fit.viewCorners(of: snapshot.currentCorners).clockwiseFromTopLeft
         ) else { return nil }
         return bent(straightOutline, through: keyframeToCurrent)
+    }
+
+    /// A smooth closed line through every point in order: a Catmull-Rom spline written as cubic curves, so the line passes
+    /// through the outline's points and bends between them like a hand-drawn stroke. It starts at the first point, where the
+    /// cursor glyph starts its trace. Nil for fewer than 3 points.
+    static func closedPath(through points: [CGPoint]) -> Path? {
+        guard points.count >= 3 else { return nil }
+        var path = Path()
+        path.move(to: points[0])
+        for index in points.indices {
+            let previous = points[(index + points.count - 1) % points.count]
+            let start = points[index]
+            let end = points[(index + 1) % points.count]
+            let next = points[(index + 2) % points.count]
+            path.addCurve(
+                to: end,
+                control1: CGPoint(x: start.x + (end.x - previous.x) / 6, y: start.y + (end.y - previous.y) / 6),
+                control2: CGPoint(x: end.x - (next.x - start.x) / 6, y: end.y - (next.y - start.y) / 6)
+            )
+        }
+        path.closeSubpath()
+        return path
     }
 
     /// `path` with every point mapped through `transform`, a perspective transform that a path cannot apply itself.

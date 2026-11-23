@@ -394,7 +394,12 @@ final class CompanionManager: ObservableObject {
         loopTracerLook: { [weak self] in
             self.map { CursorLoopTracerLook(theme: $0.themeSettings.shownTheme, picture: $0.themeSettings.shownThemePicture) }
         },
-        endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() }
+        endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() },
+        // A painting or a return to the preview, by voice or by a click, is this request's own, so its line is not dropped.
+        theLearnerAskedThePanel: { [weak self] in
+            guard let self else { return }
+            self.roomArtRequest.continued(atPushToTalkPressCount: self.pushToTalkPressCount)
+        }
     ))
     /// The room art line waiting for its turn or playing. A new line replaces it, and every close of the panel ends it.
     private var roomArtSpeechTask: Task<Void, Never>?
@@ -1747,6 +1752,15 @@ final class CompanionManager: ObservableObject {
             // "Show me again" replays the recorded stops with no model call, so it never builds a paid scene.
             print("Instant replay: replaying on request")
             instantReplay.playFromTheStart()
+        case .shirtPaintedStill(let shirtStillRequest):
+            switch shirtStillRequest {
+            case .paintIt:
+                print("Shirt painting: painting on request")
+                roomArtPreviewController.paintTheShirt()
+            case .backToLive:
+                print("Shirt painting: back to the live preview on request")
+                roomArtPreviewController.goBackToTheLiveShirt()
+            }
         // "Animate this" and "let me try it" keep their keyword branches ahead of the router, so a demo never depends on
         // the model choosing them, unless the brain flag hands the utterance to the router.
         case .keywordBranch(.animatePicture):
@@ -1941,7 +1955,8 @@ final class CompanionManager: ObservableObject {
             approvalIsWaiting: approvalAtThePressStillWaiting != nil,
             backgroundAgentIsRunning: backgroundAgentStore.anAgentIsRunning,
             backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused,
-            replayStopsAreRecorded: replayStopsAreRecordedForTheSceneOnScreen
+            replayStopsAreRecorded: replayStopsAreRecordedForTheSceneOnScreen,
+            shirtStillVoiceTargets: roomArtPreviewController.shirtStillVoiceTargets
         )
     }
 

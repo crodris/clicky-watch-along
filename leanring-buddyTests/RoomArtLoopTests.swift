@@ -146,28 +146,6 @@ struct RoomArtLoopGeometryTests {
         #expect(abs((corners.topLeft.y + corners.bottomLeft.y) / 2 - 560) < 1e-9)
     }
 
-    @Test func theTorsoLoopOutlinesTheTorsosBoxAndBendsOntoWhereTheShirtLands() throws {
-        let torso = BodyTorso(
-            imageLeftShoulder: CGPoint(x: 500, y: 200), imageRightShoulder: CGPoint(x: 780, y: 220),
-            imageLeftHip: CGPoint(x: 520, y: 600), imageRightHip: CGPoint(x: 760, y: 610),
-            hipsWereEstimated: false, shouldersAreSeen: true
-        )
-        let loop = try #require(RoomArtLoopGeometry.torsoLoop(of: torso))
-        let landing = ShirtTryOnRenderer.bodyTorsoCorners(of: torso)
-
-        #expect(loop.currentCorners.clockwiseFromTopLeft == landing)
-        // The box holds every landing corner, and touches the outermost on each side.
-        #expect(loop.keyframeCorners.topLeft.x == landing.map(\.x).min() && loop.keyframeCorners.bottomRight.x == landing.map(\.x).max())
-        #expect(loop.keyframeCorners.topLeft.y == landing.map(\.y).min() && loop.keyframeCorners.bottomRight.y == landing.map(\.y).max())
-        // A torso with no width outlines nothing.
-        let flatTorso = BodyTorso(
-            imageLeftShoulder: CGPoint(x: 500, y: 200), imageRightShoulder: CGPoint(x: 500, y: 200),
-            imageLeftHip: CGPoint(x: 500, y: 200), imageRightHip: CGPoint(x: 500, y: 200),
-            hipsWereEstimated: false, shouldersAreSeen: true
-        )
-        #expect(RoomArtLoopGeometry.torsoLoop(of: flatTorso) == nil)
-    }
-
     @Test func theCornersFollowTheTrackersWarp() {
         let keyframe = RoomArtCorners(rect: CGRect(x: 100, y: 50, width: 200, height: 100))
         // A quarter turn about the image origin, then a shift: (x, y) goes to (100 - y, x + 50).
