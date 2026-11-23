@@ -23,7 +23,7 @@ import Foundation
 /// What Clicky says, and the status line shows, when "right there" arms the capture. Not a failure.
 nonisolated let roomArtShirtStepBackLine = "Step back and hold still."
 /// What Clicky says when the capture gave up. Not a failure, so the cursor does not shake.
-nonisolated let roomArtShirtStepBackTimeoutLine = "I can't see your shoulders yet. Say right there when you're ready."
+nonisolated let roomArtShirtStepBackTimeoutLine = "I can't see your shoulders yet. Say paint it when you're ready."
 
 // MARK: - The sounds
 

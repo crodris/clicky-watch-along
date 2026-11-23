@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  The shirt try-on's final look. The live overlay (`ShirtTryOnRenderer`) is the quick preview, and when the learner says
-//  "right there" or clicks Paint it, the panel arms a capture (`ShirtStepBackCapture`) that freezes the camera frame once they
+//  "paint it" or clicks Paint it, the panel arms a capture (`ShirtStepBackCapture`) that freezes the camera frame once they
 //  have stepped back and held still, and OpenAI's image edit paints the store's top onto them in that frame (`POST /room-furniture-composite` with kind "shirt"), which follows their pose, folds, and light the
 //  way a 2D overlay cannot. The painted still crossfades in, and "go back" or Back to live returns to the overlay.
 //
@@ -16,8 +16,9 @@
 //  overlay's garment landed, and the area the new garment covers on the body (`ShirtCoverage`: down to its hem, and along
 //  each arm to the wrist for long sleeves), fills the holes a print leaves, and takes away the neck and head (the analysis's
 //  neck cut), the face, the hands, and the bare skin the new top does not cover, which is not skin the coverage reaches, such
-//  as a forearm a long sleeve covers. The hands and the face are also kept out of the paste, which grows the mask by 24
-//  pixels, since in the spike that growth repainted about 30 percent of the hand pixels.
+//  as a forearm a long sleeve covers. The hands, the face, the neck, and the bare arms with the room beside them are also
+//  kept out of the paste, which grows the mask by 24 pixels, since in the spike that growth repainted about 30 percent of
+//  the hand pixels, and on the arms it took the painting's own redraw of each arm, a few pixels off the filmed one.
 //
 
 import CoreGraphics
@@ -32,7 +33,7 @@ import simd
 
 /// What the learner asks of the shirt by voice while the panel shows it.
 nonisolated enum ShirtStillVoiceRequest: Equatable, Sendable {
-    /// "Right there": arm the capture, which freezes a frame once the learner has stepped back and held still, and paints the shirt into it.
+    /// "Paint it" (or its quiet alias "right there"): arm the capture, which freezes a frame once the learner has stepped back and held still, and paints the shirt into it.
     case paintIt
     /// "Go back": leave the painted still for the live preview.
     case backToLive
@@ -103,9 +104,9 @@ extension RoomArtPhase {
 nonisolated enum ShirtStillVoiceTargets: Equatable, Sendable {
     /// No shirt shows, so the phrases go to the router as before.
     case none
-    /// The live preview shows, so "right there" paints it.
+    /// The live preview shows, so "paint it" paints it.
     case livePreview
-    /// The capture waits for the learner to step back, so "right there" restarts it and "go back" cancels it.
+    /// The capture waits for the learner to step back, so "paint it" restarts it and "go back" cancels it.
     case stepBack
     /// A painting is on its way or the painted still shows, so "go back" returns to the preview.
     case paintedStill
@@ -129,11 +130,11 @@ nonisolated func shirtStillPhraseRunsAheadOfTheRouter(
 // MARK: - The lines
 
 /// What Clicky says when the live preview first shows, so the learner knows how to get the real look.
-nonisolated let roomArtShirtPreviewLine = "Here's a preview. Say right there to put it on you."
+nonisolated let roomArtShirtPreviewLine = "Here's a preview. Say paint it to put it on you."
 /// What Clicky says when the ghost outline first shows, for a garment the live preview cannot draw.
-nonisolated let roomArtShirtGhostLine = "This outline is where it will go. Say right there to put it on you."
+nonisolated let roomArtShirtGhostLine = "This outline is where it will go. Say paint it to put it on you."
 /// The status line while the ghost outline shows over the learner.
-nonisolated let roomArtShirtGhostStatusLine = "Where it will go · say right there"
+nonisolated let roomArtShirtGhostStatusLine = "Where it will go · say paint it"
 /// What Clicky says when the painted still has crossfaded in.
 nonisolated let roomArtShirtPaintedLine = "Here it is on you."
 /// The status line while the shirt is painted into the frozen frame.
@@ -165,7 +166,7 @@ nonisolated enum ShirtPaintingFailure: Error, Equatable, Sendable {
         case .serviceIsOutOfCredit: return "OpenAI is out of credit, so I can't paint it on you right now."
         case .appSecretRefused: return RoomArtFailure.appSecretMissing.spokenLine
         case .workerUnreachable: return RoomArtFailure.workerUnreachable.spokenLine
-        case .paintingFailed: return "I couldn't put it on you that time. Say right there to try again."
+        case .paintingFailed: return "I couldn't put it on you that time. Say paint it to try again."
         }
     }
 }
@@ -209,9 +210,9 @@ nonisolated struct ShirtPaintMasks: Equatable, Sendable {
     let height: Int
     /// 255 where the painting may draw, 0 elsewhere.
     let paintable: [UInt8]
-    /// 0 to 255, how much of the filmed frame the paste puts back over the painting: 255 on the hands, the face, and the
-    /// neck, fading to 0 over `ShirtPaintMask.protectedFeatherPixels` around the hands and the face, and ending at the
-    /// neck's edge.
+    /// 0 to 255, how much of the filmed frame the paste puts back over the painting: 255 on the hands, the face, the neck,
+    /// and the bare arms with the room beside them, fading to 0 over `ShirtPaintMask.protectedFeatherPixels` around the
+    /// hands and the face, and inside the edge of the neck and the arms.
     let protected: [UInt8]
     /// The old top as found, 255 where it is, for the log and the checks.
     let oldShirt: [UInt8]
@@ -280,22 +281,88 @@ nonisolated enum ShirtPaintMask {
               let fullCut = resizedGrayBytes(work.cut.map { $0 ? 255 : 0 }, width: workWidth, height: workHeight, toWidth: width, toHeight: height),
               let fullOldShirt = resizedGrayBytes(work.oldShirt.map { $0 ? 255 : 0 }, width: workWidth, height: workHeight, toWidth: width, toHeight: height) else { return nil }
         var paintable = [Bool](repeating: false, count: width * height)
-        // The paste puts back the hands, the face, and the neck exactly as filmed, past the 24 pixels it grows the mask by.
-        // The hands and the face fade out past their edge, so no seam shows on the room or the arm. The neck ends with a hard
-        // edge, since a fade past it would bring back a rim of the old collar above the new one.
+        // The paste puts back the hands, the face, the neck, and the bare arms as filmed, past the 24 pixels it grows the mask
+        // by. The hands and the face fade out past their edge, so no seam shows on the room or the arm. The neck and the arms
+        // fade in inside their own edge, since a fade past the neck would bring back a rim of the old collar above the new one.
         var protected = feathered(handsAndFace, width: width, height: height, featherPixels: protectedFeatherPixels)
         let neckSkin = neckSkinRegion(frame: frame)
         for index in 0..<(width * height) {
             paintable[index] = fullPaintable[index] > 127 && !handsAndFace[index] && !neckSkin[index]
-            if (fullCut[index] > 127 && frame.personMask[index] > 127) || neckSkin[index] { protected[index] = 255 }
         }
         guard paintable.contains(true) else { return nil }
+        let neck = neckPutBack(
+            neckSkin: neckSkin, cut: fullCut.map { $0 > 127 }, personMask: frame.personMask, paintable: paintable, width: width, height: height
+        )
+        let newGarmentCovers = coverage.area(for: torso).mask(width: width, height: height)
+        let arms = bareArmsPutBack(
+            armZone: armZone(torso: torso, width: width, height: height), paintable: paintable,
+            newGarmentCovers: newGarmentCovers, shoulderWidth: torso.shoulderWidth, width: width, height: height
+        )
+        for index in 0..<(width * height) { protected[index] = max(protected[index], neck[index], arms[index]) }
         return ShirtPaintMasks(
             width: width, height: height,
             paintable: paintable.map { $0 ? 255 : 0 },
             protected: protected,
             oldShirt: fullOldShirt.map { $0 > 127 ? 255 : 0 }
         )
+    }
+
+    /// The neck's put-back edge is smoothed by a majority over a square of this radius at the frame's own size, so no step of
+    /// the working size's cut and no speck of the skin rule shows along the collar.
+    static let neckEdgeSmoothingRadiusPixels = 2
+    /// The neck and the bare arms fade from the painting to the filmed frame over this many pixels inside their own edge.
+    static let neckEdgeFadePixels = 2
+    static let armEdgeFadePixels = 4
+    static let armEdgeSmoothingRadiusPixels = 3
+    /// The arms are put back only this far from where the painting may draw, in shoulder widths, so the new sleeve's edge,
+    /// which the painting may draw a few pixels past the mask, stays whole.
+    static let armGapInShoulderWidths = 0.03
+    /// The bare arms are put back this far past a long sleeve's half width (`ShirtCoverage.armHalfWidthInShoulderWidths`), in
+    /// shoulder widths, which takes the room beside each arm as well.
+    static let armZoneMarginInShoulderWidths = 0.05
+
+    /// 0 to 255, how much of the filmed frame the paste puts back at the neck: the neck's skin, and the analysis's cut (hair
+    /// or a beard above the collar) only where the painting may not draw. Where the painting may draw, the cut is the old
+    /// collar and the old top on the shoulders beside the neck, which the new top covers, and putting it back left a dark
+    /// line of the old top between the new collar and the neck. The edge is smoothed at the frame's size and fades inward,
+    /// since the cut comes from the working size and its edge stepped there.
+    static func neckPutBack(neckSkin: [Bool], cut: [Bool], personMask: [UInt8], paintable: [Bool], width: Int, height: Int) -> [UInt8] {
+        var region = [Bool](repeating: false, count: width * height)
+        for index in region.indices {
+            region[index] = neckSkin[index] || (cut[index] && personMask[index] > 127 && !paintable[index])
+        }
+        let window = (2 * neckEdgeSmoothingRadiusPixels + 1) * (2 * neckEdgeSmoothingRadiusPixels + 1)
+        let smoothed = boxFiltered(region, width: width, height: height, radius: neckEdgeSmoothingRadiusPixels) { count in 2 * count > window }
+        return fadedInside(smoothed, width: width, height: height, fadePixels: neckEdgeFadePixels)
+    }
+
+    /// Where the bare arms and the room beside them are: each arm from the shoulder through the elbow to the wrist, as wide
+    /// as a long sleeve and `armZoneMarginInShoulderWidths` more.
+    static func armZone(torso: BodyTorso, width: Int, height: Int) -> [Bool] {
+        let arms = ShirtCoverage(sleeves: .long, length: .hip).area(for: torso).sleeveMask(width: width, height: height)
+        let margin = max(1, Int((armZoneMarginInShoulderWidths * torso.shoulderWidth).rounded()))
+        return dilated(arms, width: width, height: height, radius: margin)
+    }
+
+    /// 0 to 255, how much of the filmed frame the paste puts back on the arms: the arm zone more than `armGapInShoulderWidths`
+    /// from where the painting may draw or the new garment reaches. The paste grows the mask by 24 pixels, and on the arms
+    /// that took the painting's own redraw of the arm, whose outline lies a few pixels off the filmed one, which showed as a
+    /// doubled outline down each arm. The gap leaves the new sleeve's own edge whole where the painting draws it a little
+    /// past the mask, which a put-back right at the mask's stepped edge cut into a zigzag. The edge is smoothed and fades in
+    /// inside it, so the painting meets the filmed arm with no seam.
+    static func bareArmsPutBack(armZone: [Bool], paintable: [Bool], newGarmentCovers: [Bool], shoulderWidth: Double, width: Int, height: Int) -> [UInt8] {
+        let gap = max(1, Int((armGapInShoulderWidths * shoulderWidth).rounded()))
+        let nearThePainting = dilated(zip(paintable, newGarmentCovers).map { $0 || $1 }, width: width, height: height, radius: gap)
+        var region = [Bool](repeating: false, count: width * height)
+        for index in region.indices { region[index] = armZone[index] && !nearThePainting[index] }
+        let window = (2 * armEdgeSmoothingRadiusPixels + 1) * (2 * armEdgeSmoothingRadiusPixels + 1)
+        let smoothed = boxFiltered(region, width: width, height: height, radius: armEdgeSmoothingRadiusPixels) { count in 2 * count > window }
+        return fadedInside(smoothed, width: width, height: height, fadePixels: armEdgeFadePixels)
+    }
+
+    /// 255 inside the region more than `fadePixels` from its edge, falling to 0 at its edge, and 0 outside it.
+    static func fadedInside(_ region: [Bool], width: Int, height: Int, fadePixels: Int) -> [UInt8] {
+        feathered(eroded(region, width: width, height: height, radius: fadePixels), width: width, height: height, featherPixels: fadePixels)
     }
 
     /// The skin of the neck at the frame's own size: person pixels the skin rule keeps, above the neck's base and within the
@@ -855,6 +922,24 @@ final class ShirtPaintingClient {
     }
 
     func paint(_ request: ShirtPaintingRequest) async throws -> CGImage {
+        let painted = try await paintedReply(request)
+        // The paste walks every pixel of the frame, so it runs off the main actor, where the panel draws.
+        let pasteContext = ciContext
+        // A CGImage is immutable, so the detached task may read it.
+        nonisolated(unsafe) let keyframe = request.keyframe
+        let masks = request.masks
+        let pastedOrNil = await Task.detached(priority: .userInitiated) {
+            shirtPaintedStillPasted(keyframe: keyframe, painted: painted, masks: masks, context: pasteContext)
+        }.value
+        guard let pasted = pastedOrNil else {
+            throw RoomFurnitureGenerationError.replyCouldNotBeRead(reason: "the painting could not be pasted into the frame")
+        }
+        return pasted
+    }
+
+    /// The Worker's painted frame as it came back, before the paste. The photo check keeps it, so a change to the paste can be
+    /// judged on the same painting with no new call.
+    func paintedReply(_ request: ShirtPaintingRequest) async throws -> CGImage {
         guard let requestBody = shirtPaintingRequestBody(request) else {
             throw RoomFurnitureGenerationError.inputCouldNotBeRead(reason: "the frame or the mask could not be encoded")
         }
@@ -874,18 +959,7 @@ final class ShirtPaintingClient {
               painted.width == reply.width, painted.height == reply.height else {
             throw RoomFurnitureGenerationError.replyCouldNotBeRead(reason: "the reply holds no painted frame of the size it states")
         }
-        // The paste walks every pixel of the frame, so it runs off the main actor, where the panel draws.
-        let pasteContext = ciContext
-        // A CGImage is immutable, so the detached task may read it.
-        nonisolated(unsafe) let keyframe = request.keyframe
-        let masks = request.masks
-        let pastedOrNil = await Task.detached(priority: .userInitiated) {
-            shirtPaintedStillPasted(keyframe: keyframe, painted: painted, masks: masks, context: pasteContext)
-        }.value
-        guard let pasted = pastedOrNil else {
-            throw RoomFurnitureGenerationError.replyCouldNotBeRead(reason: "the painting could not be pasted into the frame")
-        }
-        return pasted
+        return painted
     }
 }
 

@@ -63,9 +63,9 @@ struct ShirtPreviewKindTests {
 
     @Test func eachPreviewSaysItsOwnLines() {
         #expect(ShirtPreviewKind.liveGarment.statusLine == "On you")
-        #expect(ShirtPreviewKind.liveGarment.spokenLine == "Here's a preview. Say right there to put it on you.")
-        #expect(ShirtPreviewKind.ghostOutline.statusLine == "Where it will go · say right there")
-        #expect(ShirtPreviewKind.ghostOutline.spokenLine == "This outline is where it will go. Say right there to put it on you.")
+        #expect(ShirtPreviewKind.liveGarment.spokenLine == "Here's a preview. Say paint it to put it on you.")
+        #expect(ShirtPreviewKind.ghostOutline.statusLine == "Where it will go · say paint it")
+        #expect(ShirtPreviewKind.ghostOutline.spokenLine == "This outline is where it will go. Say paint it to put it on you.")
     }
 }
 

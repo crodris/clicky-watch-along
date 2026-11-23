@@ -3396,7 +3396,7 @@ struct RoomArtPreviewControllerTests {
 
         harness.frameProcessor.settleTheShirtFraming(on: .ready)
         try await waitFor("the shirt to show on the learner") { harness.controller.phase == .showingTheShirt(title: "Linen shirt", preview: .liveGarment) }
-        #expect(harness.spokenLines() == ["Stand back so I can see your shoulders and chest.", "Here's a preview. Say right there to put it on you."])
+        #expect(harness.spokenLines() == ["Stand back so I can see your shoulders and chest.", "Here's a preview. Say paint it to put it on you."])
         #expect(harness.statusLine() == "On you")
         #expect(harness.controller.loopState.isFadingOut)
         // A shirt needs no depth: no floor and no keyframe on a surface. The camera's first frame may come before the page
@@ -3555,7 +3555,7 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt", preview: .liveGarment))
         #expect(harness.frameProcessor.resumes == 1 && !harness.frameProcessor.isFrozen)
         // The preview's line is not said again on the way back.
-        #expect(harness.spokenLines().filter { $0 == "Here's a preview. Say right there to put it on you." }.count == 1)
+        #expect(harness.spokenLines().filter { $0 == "Here's a preview. Say paint it to put it on you." }.count == 1)
         // Back to live again changes nothing.
         harness.controller.goBackToTheLiveShirt()
         #expect(harness.frameProcessor.resumes == 1)
@@ -3713,7 +3713,7 @@ struct RoomArtPreviewControllerTests {
         try await waitFor("the number 3") { harness.controller.shirtCaptureCountdownNumber == 3 }
 
         harness.frameProcessor.reportTheCapture(.timedOut)
-        try await waitFor("the time out line") { harness.spokenLines().last == "I can't see your shoulders yet. Say right there when you're ready." }
+        try await waitFor("the time out line") { harness.spokenLines().last == "I can't see your shoulders yet. Say paint it when you're ready." }
         #expect(harness.recorder.spokenLineFailureFlags.last == false)
         #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt", preview: .liveGarment))
         #expect(harness.controller.shirtCaptureCountdownNumber == nil)
@@ -3839,7 +3839,7 @@ struct RoomArtPreviewControllerTests {
         let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
 
         try await sayRightThereAndHoldStill(harness)
-        try await waitFor("the failure line") { harness.spokenLines().last == "I couldn't put it on you that time. Say right there to try again." }
+        try await waitFor("the failure line") { harness.spokenLines().last == "I couldn't put it on you that time. Say paint it to try again." }
         #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt", preview: .liveGarment))
         #expect(harness.recorder.spokenLineFailureFlags.last == true)
         #expect(harness.frameProcessor.resumes == 1 && !harness.frameProcessor.isFrozen)
@@ -3925,11 +3925,11 @@ struct RoomArtPreviewControllerTests {
         garmentGate.open()
 
         try await waitFor("the shirt to show on the learner") { harness.controller.phase == .showingTheShirt(title: "Linen shirt", preview: .liveGarment) }
-        #expect(harness.spokenLines() == ["Here's a preview. Say right there to put it on you."])
+        #expect(harness.spokenLines() == ["Here's a preview. Say paint it to put it on you."])
         // Stepping away once the shirt shows moves only the status line, even with no advice said before.
         harness.frameProcessor.settleTheShirtFraming(on: .standBack)
         try await waitFor("the coaching in the status line") { harness.controller.shirtCoachingLine != nil }
-        #expect(harness.spokenLines() == ["Here's a preview. Say right there to put it on you."])
+        #expect(harness.spokenLines() == ["Here's a preview. Say paint it to put it on you."])
         harness.controller.close()
     }
 
@@ -3944,7 +3944,7 @@ struct RoomArtPreviewControllerTests {
 
         try await waitFor("the shirt to show on the learner") { harness.controller.phase == .showingTheShirt(title: "Linen shirt", preview: .liveGarment) }
         #expect(harness.cutouts.garmentPhotosAsked == [.onModel])
-        #expect(harness.spokenLines() == ["Here's a preview. Say right there to put it on you."])
+        #expect(harness.spokenLines() == ["Here's a preview. Say paint it to put it on you."])
         harness.controller.close()
     }
 
@@ -4007,9 +4007,9 @@ struct RoomArtPreviewControllerTests {
         harness.frameProcessor.settleTheShirtFraming(on: .ready)
         try await waitFor("the ghost to show on the learner") { harness.controller.phase == .showingTheShirt(title: "Linen shirt", preview: .ghostOutline) }
         #expect(harness.controller.loopState.isHoldingTheGhost)
-        #expect(harness.statusLine() == "Where it will go · say right there")
+        #expect(harness.statusLine() == "Where it will go · say paint it")
         // Said once, as a hint and not a failure.
-        #expect(harness.spokenLines() == ["This outline is where it will go. Say right there to put it on you."])
+        #expect(harness.spokenLines() == ["This outline is where it will go. Say paint it to put it on you."])
         #expect(harness.recorder.spokenLineFailureFlags == [false])
         harness.controller.close()
     }

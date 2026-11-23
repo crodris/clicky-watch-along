@@ -23,9 +23,17 @@
 //  The numbers, per painting:
 //  - the old top left showing: the share of the old top's pixels that look like it and are, with their 7 by 7 neighborhood,
 //    as they were;
-//  - the face, the hands, and the neck: the share of each one's pixels that are byte for byte as filmed;
+//  - the face, the hands, and the neck: the share of each one's pixels that are byte for byte as filmed, the neck's taken
+//    inside the few pixels its put-back fades in over;
 //  - print sharpness: the painting's mean gradient over the chest against the live preview's, which is the product photo
-//    warped onto the same chest, so 1 is as sharp as the product.
+//    warped onto the same chest, so 1 is as sharp as the product;
+//  - the old top at the neck: pixels in the band where the new collar meets the neck that came back as filmed and look like
+//    the old top, per shoulder width, which showed as a stepped dark line between the new collar and the neck;
+//  - the bare arms: the share of the arms and the room beside them, outside what the painting may draw and the new top
+//    covers, more than 8 levels off the filmed frame, which the painting's redraw of the arm made as a doubled outline.
+//
+//  Each run keeps the Worker's reply (reply-<name>.png) beside the pasted still, so SHIRT_PAINT_REUSE=1 pastes it again with
+//  the paste as it is now. A folder with only an older painted-<name>.png judges that paste as it was.
 //
 
 import CoreGraphics
@@ -50,6 +58,8 @@ struct ShirtPaintedStillMetrics: Codable {
     var handsExactShare = 0.0
     var neckExactShare = 0.0
     var printSharpnessAgainstThePreview = 0.0
+    var oldTopAtTheNeckPixelsPerShoulderWidth = 0.0
+    var bareArmsChangedShare = 0.0
     var seconds = 0.0
 }
 
@@ -237,20 +247,30 @@ struct ShirtPaintedStillPhotoCheckTests {
             if paintCheckEnvironment["SHIRT_PAINT_MASKS_ONLY"] == "1" { continue }
 
             let paintedURL = outputFolder.appendingPathComponent("painted-\(shirtName).png")
+            // The Worker's reply before the paste, so SHIRT_PAINT_REUSE=1 pastes it again with the paste as it is now.
+            let replyURL = outputFolder.appendingPathComponent("reply-\(shirtName).png")
             let startedAt = Date()
             let painted: CGImage
             if reusesSavedPaintings {
-                painted = try loadImage(at: paintedURL)
+                if FileManager.default.fileExists(atPath: replyURL.path) {
+                    painted = try #require(shirtPaintedStillPasted(keyframe: standingPhoto, painted: try loadImage(at: replyURL), masks: masks, context: context))
+                    try savePNG(painted, to: paintedURL)
+                } else {
+                    // A painting saved before the reply was kept can only be judged as it was pasted then.
+                    painted = try loadImage(at: paintedURL)
+                }
             } else {
                 let productJPEG = try #require(shirtPaintingProductJPEG(picture: productPhoto, itemCorners: wholePhoto))
                 let client = ShirtPaintingClient(workerBaseURL: try #require(paintCheckEnvironment["SHIRT_PAINT_WORKER"]))
-                painted = try await client.paint(ShirtPaintingRequest(
+                let reply = try await client.paintedReply(ShirtPaintingRequest(
                     keyframe: standingPhoto, productJPEG: productJPEG, masks: masks, itemTitle: shirtName,
                     garment: ShirtPaintingGarment(
                         kind: garmentKind, sleeves: garmentSleeves, length: garmentLength, baseColorHex: baseColorHex.uppercased(),
                         printDescription: paintCheckEnvironment["SHIRT_PAINT_PRINT_\(shirtName)"] ?? ""
                     )
                 ))
+                try savePNG(reply, to: replyURL)
+                painted = try #require(shirtPaintedStillPasted(keyframe: standingPhoto, painted: reply, masks: masks, context: context))
                 try savePNG(painted, to: paintedURL)
             }
             let paintedPixels = try #require(rgbaBytes(of: painted, width: width, height: height))
@@ -282,8 +302,44 @@ struct ShirtPaintedStillPhotoCheckTests {
             metrics.oldTopLeftShowingShare = Double(oldTopStillShowing) / Double(max(oldTopPixels, 1))
             metrics.faceExactShare = exactShare(faceRegion)
             metrics.handsExactShare = exactShare(handRegion)
-            metrics.neckExactShare = exactShare(neckRegion)
+            // The neck fades in over a few pixels inside its edge, so its edge pixels are a blend and only the rest is exact.
+            metrics.neckExactShare = exactShare(ShirtPaintMask.eroded(
+                neckRegion, width: width, height: height, radius: ShirtPaintMask.neckEdgeFadePixels + ShirtPaintMask.neckEdgeSmoothingRadiusPixels
+            ))
             metrics.printSharpnessAgainstThePreview = meanGradient(of: paintedPixels, width: width, box: chestBox) / max(meanGradient(of: previewPixels, width: width, box: chestBox), 0.001)
+
+            // The old top at the neck: pixels in the band where the new collar meets the neck that the paste put back as
+            // filmed (within 2 levels) and that look like the old top, as its collar and the tops of its shoulders did when
+            // they showed between the new collar and the neck. Counted per shoulder width. Darkness alone cannot tell them
+            // from a neck in shadow.
+            var oldTopAtTheNeckPixels = 0
+            for index in 0..<(width * height) where personBytes[index] > 127 && !faceRegion[index] {
+                let point = SIMD2(Double(index % width), Double(index / width))
+                let aboveTheNeckBase = simd_dot(point - neckBase, upAxis)
+                guard abs(simd_dot(point - shoulderMiddle, shoulderAxis)) < 0.4 * torso.shoulderWidth,
+                      aboveTheNeckBase > -0.15 * torso.shoulderWidth, aboveTheNeckBase < 0.15 * torso.shoulderWidth,
+                      (0..<3).allSatisfy({ abs(Int(paintedPixels[index * 4 + $0]) - Int(originalPixels[index * 4 + $0])) <= 2 }) else { continue }
+                let lab = ShirtColorMath.quickLab(red: paintedPixels[index * 4], green: paintedPixels[index * 4 + 1], blue: paintedPixels[index * 4 + 2])
+                if ShirtColorMath.distance(from: lab, to: oldShirtLab) < ShirtColorMath.oldShirtDistanceLimit { oldTopAtTheNeckPixels += 1 }
+            }
+            metrics.oldTopAtTheNeckPixelsPerShoulderWidth = Double(oldTopAtTheNeckPixels) / torso.shoulderWidth
+            // The bare arms and the room beside them, where the new top does not reach and the painting may not draw, are
+            // as filmed: the share of their pixels more than 8 levels off. The gap the put-back leaves beside the painting
+            // for the new sleeve's edge, the pixels inside its fade, and the hands are left out.
+            let paintableRegion = masks.paintable.map { $0 > 127 }
+            let newGarmentCovers = coverage.area(for: torso).mask(width: width, height: height)
+            let armGapPixels = Int((ShirtPaintMask.armGapInShoulderWidths * torso.shoulderWidth).rounded())
+            let nearThePainting = ShirtPaintMask.dilated(
+                zip(paintableRegion, newGarmentCovers).map { $0 || $1 }, width: width, height: height,
+                radius: armGapPixels + ShirtPaintMask.armEdgeSmoothingRadiusPixels + ShirtPaintMask.armEdgeFadePixels + 1
+            )
+            let armZone = ShirtPaintMask.armZone(torso: torso, width: width, height: height)
+            var armPixels = 0, armPixelsChanged = 0
+            for index in 0..<(width * height) where armZone[index] && !nearThePainting[index] && !handRegion[index] {
+                armPixels += 1
+                if (0..<3).contains(where: { abs(Int(paintedPixels[index * 4 + $0]) - Int(originalPixels[index * 4 + $0])) > 8 }) { armPixelsChanged += 1 }
+            }
+            metrics.bareArmsChangedShare = Double(armPixelsChanged) / Double(max(armPixels, 1))
             metrics.seconds = Date().timeIntervalSince(startedAt)
             everyMetric.append(metrics)
             print("Shirt paint check: \(shirtName) \(String(data: try JSONEncoder().encode(metrics), encoding: .utf8) ?? "")")
@@ -294,6 +350,8 @@ struct ShirtPaintedStillPhotoCheckTests {
             }
             #expect(metrics.oldTopLeftShowingShare < 0.01, "\(shirtName): old top left showing")
             #expect(metrics.faceExactShare == 1 && metrics.handsExactShare == 1 && metrics.neckExactShare == 1, "\(shirtName): face, hands, neck")
+            #expect(metrics.oldTopAtTheNeckPixelsPerShoulderWidth < 0.1, "\(shirtName): the old top put back at the neck")
+            #expect(metrics.bareArmsChangedShare < 0.002, "\(shirtName): the bare arms or the room beside them repainted")
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
