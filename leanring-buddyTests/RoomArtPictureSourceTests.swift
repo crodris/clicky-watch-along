@@ -290,11 +290,13 @@ struct RoomArtPictureSourceTests {
             }
         }
         // The cancel comes once the stalled download has started, so it ends a wait that is running.
-        let stalledImagePath = stalledImageURL.path
-        for _ in 0..<6000 where !StubbedPictureURLProtocol.startedRequests.withLock({ $0.contains("https://\(stalledImagePath)") }) {
+        // The wait gives up after 30 seconds, well inside the test's limit, so a download that never starts fails on this line.
+        let stalledImageRequestIsRecorded = { StubbedPictureURLProtocol.startedRequests.withLock { $0.contains("https://\(stalledImageURL.path)") } }
+        let startWaitDeadline = Date().addingTimeInterval(30)
+        while !stalledImageRequestIsRecorded() && Date() < startWaitDeadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
-        #expect(StubbedPictureURLProtocol.startedRequests.withLock { $0.contains("https://\(stalledImagePath)") })
+        #expect(stalledImageRequestIsRecorded())
         roomArtRequest.cancel()
         // Neither the deadline nor the idle timeout passes in 600 seconds, so the request can only end because the cancel
         // ended its wait.

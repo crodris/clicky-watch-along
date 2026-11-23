@@ -618,7 +618,8 @@ private struct RoomArtHarness {
         // The production wait for a furniture look is 45 s of wall-clock time. No test gets it: a test that does not pass a
         // deadline gets one that never opens, so a loaded machine cannot run the wait out while a painting is held.
         let furnitureLookDeadline = furnitureLookDeadline ?? TestGate()
-        environment.waitTheLongestForAFurnitureLook = { await furnitureLookDeadline.wait() }
+        // A close cancels the wait, as it cancels the production sleep, so no wait outlives its controller.
+        environment.waitTheLongestForAFurnitureLook = { try? await furnitureLookDeadline.waitUnlessCancelled() }
         controller = RoomArtPreviewController(environment: environment, frameProcessor: frameProcessor, panelPresenter: panel)
         self.panel = panel
         self.worker = worker
@@ -1692,7 +1693,8 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.phase == .preparingTheShirt(title: "Linen shirt"))
         #expect(harness.statusLine() == "Getting the shirt ready…")
         harness.frameProcessor.settleTheShirtFraming(on: .ready)
-        // The controller has heard the learner is in view before the garment is made, which is the order this test pins.
+        // The drain lets the framing reach the controller while the garment is still pending, which is the order this test
+        // pins. The wait for the shirt below fails if the controller ignored the learner who was already in view.
         await letThePostedQueuesDrain()
         #expect(harness.controller.phase == .preparingTheShirt(title: "Linen shirt"))
         garmentGate.open()
