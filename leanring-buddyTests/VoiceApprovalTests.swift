@@ -155,11 +155,11 @@ struct VoiceApprovalTests {
         #expect(themeStudioCardFrame(pictureRect: pictureOnAnotherScreen, mouseLocation: mouseNearThePicture) == cardFrameAtTheFirstCornerAroundTheMouse(mouseNearThePicture))
     }
 
-    @Test func onlyACardOpenedOnAPictureRisesAboveTheCursorOverlayAndOnlyWhileItDesigns() {
+    @Test func theCardRisesAboveTheCursorOverlayOnlyWhileADesignFromAPictureRuns() {
         let cursorOverlayLevel = NSWindow.Level.screenSaver.rawValue + 1
-        #expect(themeStudioCardLevel(isDesigning: true, openedOnAPicture: true).rawValue > cursorOverlayLevel)
-        #expect(themeStudioCardLevel(isDesigning: false, openedOnAPicture: true).rawValue < cursorOverlayLevel)
-        #expect(themeStudioCardLevel(isDesigning: true, openedOnAPicture: false).rawValue < cursorOverlayLevel)
-        #expect(themeStudioCardLevel(isDesigning: false, openedOnAPicture: false).rawValue < cursorOverlayLevel)
+        #expect(themeStudioCardLevel(isDesigning: true, readsAPicture: true).rawValue > cursorOverlayLevel)
+        #expect(themeStudioCardLevel(isDesigning: false, readsAPicture: true).rawValue < cursorOverlayLevel)
+        #expect(themeStudioCardLevel(isDesigning: true, readsAPicture: false).rawValue < cursorOverlayLevel)
+        #expect(themeStudioCardLevel(isDesigning: false, readsAPicture: false).rawValue < cursorOverlayLevel)
     }
 }

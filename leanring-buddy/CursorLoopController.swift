@@ -249,14 +249,14 @@ final class CursorLoopController: ObservableObject {
         change { $0.end(because: reason) }
     }
 
-    /// The media a loop or an agent line is around now, in AppKit screen coordinates, or nil when none is. Bring back's drop
-    /// keeps clear of it, and reading it costs no Apple Event, which an agent's end would otherwise spend on the main actor.
     /// The media a request's own loop is around now, in AppKit screen coordinates, or nil. An agent's spark line does not
     /// count, so a Theme Studio card opens on the picture the learner asked about and never on a video an agent works on.
     var mediaTheRequestLoopIsAroundInAppKitCoordinates: CGRect? {
         state.loopOnTheMedia.map { appKitRect(of: $0.media.screenRect, mainDisplayHeight: NSScreen.screens.first?.frame.height ?? 0) }
     }
 
+    /// The media a loop or an agent line is around now, in AppKit screen coordinates, or nil when none is. Bring back's drop
+    /// keeps clear of it, and reading it costs no Apple Event, which an agent's end would otherwise spend on the main actor.
     var mediaScreenRectInAppKitCoordinates: CGRect? {
         state.mediaThePollWatches.map { appKitRect(of: $0.screenRect, mainDisplayHeight: NSScreen.screens.first?.frame.height ?? 0) }
     }

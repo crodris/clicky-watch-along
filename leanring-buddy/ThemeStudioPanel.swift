@@ -2,11 +2,12 @@
 //  ThemeStudioPanel.swift
 //  leanring-buddy
 //
-//  The Theme Studio card: a borderless, nonactivating panel next to the cursor, or on the bottom-right corner of the picture
-//  a design reads, that shows three theme ideas. It never becomes key, so Chrome keeps the keyboard, and it sits one level
-//  below the cursor overlay windows, so the real cursor, which previews the highlighted idea, draws over it. While a design
-//  from a picture runs, it rises above them, since the loop around that picture draws in the overlay. A tile click picks an idea, and Save and Close are buttons. The
-//  learner can do all of it by voice too (the router's pick_theme_idea, save_theme, and close_theme_studio tools).
+//  The Theme Studio card: a borderless, nonactivating panel that shows three theme ideas, next to the cursor, or on the
+//  bottom-right corner of the picture a design reads. It never becomes key, so Chrome keeps the keyboard, and it sits one
+//  level below the cursor overlay windows, so the real cursor, which previews the highlighted idea, draws over it. While a
+//  design from a picture runs, it rises above them, since the loop around that picture draws in the overlay. A tile click
+//  picks an idea, and Save and Close are buttons. The learner can do all of it by voice too (the router's pick_theme_idea,
+//  save_theme, and close_theme_studio tools).
 //
 //  The card is a Tether Card that Glides out of the cursor on the carrier panel and closes back into it. A save stamps the
 //  saved tile, flies that idea's cursor into the real cursor, and then closes the card into it. With Reduce Motion on, the
@@ -45,7 +46,7 @@ final class ThemeStudioPanelController {
     private(set) var openingFlight: CarrierFlight?
     /// The studio whose card this is, which a card that closes plays its move with.
     private weak var studio: ThemeStudioController?
-    /// Raises a card opened on a picture above the cursor overlay while ideas are being designed (`themeStudioCardLevel`).
+    /// Raises the card above the cursor overlay while a design from a picture runs (`themeStudioCardLevel`).
     private var levelFollowsTheDesign: AnyCancellable?
 
     /// The picture the cursor loop is drawn around, in AppKit screen coordinates, or nil. A design from a picture opens the
@@ -94,16 +95,17 @@ final class ThemeStudioPanelController {
         cardPanel.isOpaque = false
         cardPanel.backgroundColor = .clear
         cardPanel.hasShadow = false
-        cardPanel.level = themeStudioCardLevel(isDesigning: false, openedOnAPicture: false)
+        cardPanel.level = themeStudioCardLevel(isDesigning: false, readsAPicture: false)
         cardPanel.hidesOnDeactivate = false
         cardPanel.isReleasedWhenClosed = false
         cardPanel.isExcludedFromWindowsMenu = true
         cardPanel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         cardPanel.contentView = hostingView
         panel = cardPanel
-        let openedOnAPicture = pictureRect != nil
-        levelFollowsTheDesign = studio.$state.sink { [weak cardPanel] state in
-            cardPanel?.level = themeStudioCardLevel(isDesigning: state.isDesigning, openedOnAPicture: openedOnAPicture)
+        // Each design asks again, since a refine that does not read the picture draws no loop to rise above.
+        levelFollowsTheDesign = studio.$state.sink { [weak self, weak cardPanel] state in
+            guard let self else { return }
+            cardPanel?.level = themeStudioCardLevel(isDesigning: state.isDesigning, readsAPicture: self.pictureTheLoopIsAround() != nil)
         }
         resizeObserver = keepThePanelOnScreenAsItResizes(cardPanel) { [weak self] in
             (
@@ -885,8 +887,8 @@ func themeStudioPointerArea(mouseLocation: CGPoint) -> CGRect {
 /// The card's window level. It sits below the cursor overlay windows (one level above screen saver), so the previewed
 /// cursor draws over it, except while a design from a picture runs, when the loop around that picture, drawn in the
 /// overlay, would cross it, so the card rises to the carrier's level until the ideas arrive.
-func themeStudioCardLevel(isDesigning: Bool, openedOnAPicture: Bool) -> NSWindow.Level {
-    isDesigning && openedOnAPicture
+func themeStudioCardLevel(isDesigning: Bool, readsAPicture: Bool) -> NSWindow.Level {
+    isDesigning && readsAPicture
         ? NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
         : .screenSaver
 }
