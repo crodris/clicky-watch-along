@@ -11,9 +11,9 @@ import (
 
 // A voice answer to an approval request is decided here, next to the approval gate that holds the request. The model
 // reads only the capability word of a waiting request, and it can be talked into a yes by text a page wrote, such as a
-// video title, so a yes counts only when the learner's own transcript is a short answer. This file is the port of
-// leanring-buddy/VoiceApprovals.swift (`approvalVoiceAnswerTheLearnerSaid` and the `ApprovalVoiceAnswer` vocabulary).
-// testdata/approval-voice-answers.json is read by a test on each side, so the two cannot differ while both exist.
+// video title, so a yes counts only when the learner's own transcript is a short answer (`approvalVoiceAnswerTheLearnerSaid`
+// and the vocabulary it allows). testdata/approval-voice-answers.json lists the transcripts and model answers the test
+// checks, with what each keeps.
 
 // answerApprovalTool is the brain's tool for answering the request a background agent waits on. The app lists it only
 // while a request waits, and the brain offers it only when the gate agrees (see offersForACommand).
@@ -61,9 +61,9 @@ func wordSet(words ...string) map[string]bool {
 	return set
 }
 
-// approvalTranscriptWords splits a transcript the way the Swift check does: lowercase, a curly apostrophe as a straight
-// one, and a word is a run of letters and apostrophes. A combining mark counts as part of its word, as a Swift Character
-// holds it, so a mark never turns a word outside the vocabulary into one inside it.
+// approvalTranscriptWords splits a transcript into words: lowercase, a curly apostrophe as a straight one, and a word is
+// a run of letters and apostrophes. A combining mark counts as part of its word, so a mark never turns a word outside
+// the vocabulary into one inside it.
 func approvalTranscriptWords(transcript string) []string {
 	lowered := strings.ReplaceAll(strings.ToLower(transcript), "’", "'")
 	return strings.FieldsFunc(lowered, func(character rune) bool {

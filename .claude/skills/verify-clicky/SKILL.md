@@ -121,9 +121,8 @@ $V app-wait 240
 ```
 
 `app-launch --brain "<steps>"` also passes `--brain-takes-every-request`, so the voice command router takes every first utterance, as with the `brainTakesEveryRequest` default on, without changing the defaults the everyday Clicky shares.
-`app-launch --harness-brain "<steps>"` also passes `--brain-runs-in-the-harness`, so each voice command runs on the brain in the agent harness instead of `POST /voice-command`, as with the `brainRunsInTheHarness` default on.
-The two flags go in either order, such as `app-launch --brain --harness-brain "<steps>"`.
-`app-launch --no-app-secret` makes the Debug app act as if no app secret were set, and `--wrong-app-secret` as if the Worker refused it. Both pass the app's `--app-secret-mode none|wrong` launch argument, so they never write or delete the defaults the everyday Clicky shares.
+Every voice command runs on the brain in the agent harness, which needs the app secret, so `app-launch` copies `CLICKY_APP_SECRET` from `worker/.dev.vars` into the Debug app's `clickyAppSecret` default.
+With no secret, the app logs `Brain: no app secret` at launch and every voice command takes the router failure fallback.
 
 Steps are separated by `|`.
 The app waits 3 seconds, then sends each step as if it were spoken.
@@ -132,10 +131,9 @@ A step that starts with `?` first waits up to 4 minutes for a quiz question to b
 A step that starts with `~` lets the next step interrupt it after 6 seconds.
 A step that starts with `&` first waits up to 3 minutes for every background agent to finish, then for a 3D model's rise and narration or an experiment's rise and guess question, then 4 seconds more for the finish chip.
 A step that starts with `^` presses push-to-talk 0.3 seconds after the app writes the step's `voice_command` line to the harness, through the handler a real press runs, and releases it 0.2 seconds later.
-It needs `--harness-brain`, and the log says `Live scene rehearsal: pressing push-to-talk during the voice command`.
+The log says `Live scene rehearsal: pressing push-to-talk during the voice command`.
 The empty press asks nothing, and the next step goes out as usual.
 A step that starts with `%` stands in for the microphone's partial transcript, so a voice command can start on it at the release as a real press would: `%turn it left` hears the same words at the release and in the final transcript, and `%turn it >> turn it right` hears `turn it` at the release and `turn it right` as the final transcript, which discards the first command.
-It needs `--harness-brain`.
 A step that starts with `+N ` waits N more seconds first, such as `+12 build me a 3D model`, so a recorded take can land a request on a chosen moment of a playing video.
 It goes before any other prefix, and N is a number of seconds up to 600.
 `app-wait` returns when the app logs `Live scene rehearsal: done`.
@@ -177,9 +175,9 @@ worker-up [port] [-- wrangler args]
 worker-down [port]        Stop the Workers this script started, or only the one on that port.
 post <route> <body.json> [port]
                           POST a JSON body to a Worker this script started, and save the response.
-app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] [--worker-port <port>] [--no-speculation] [--room-camera-file <video>] [--show-setup] "<steps>"
+app-launch [--brain] [--every-permission] [--worker-port <port>] [--no-speculation] [--room-camera-file <video>] [--show-setup] "<steps>"
                           Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
-                          --brain passes --brain-takes-every-request, and --harness-brain passes --brain-runs-in-the-harness.
+                          --brain passes --brain-takes-every-request.
                           --worker-port makes the app call a Worker this script started on that port instead of 8787.
                           --no-speculation passes --no-voice-command-speculation.
                           --room-camera-file passes the same Debug argument, so the room art panel loops that video instead of the camera.

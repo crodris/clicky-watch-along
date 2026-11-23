@@ -196,9 +196,9 @@ pnpm wrangler secret put OPENAI_API_KEY
 pnpm wrangler secret put GOOGLE_MAPS_API_KEY
 # Optional, for Notion study guides and task agent pages
 pnpm wrangler secret put NOTION_API_KEY
-# A random string, such as from openssl rand -hex 32, that the app also holds. The Notion routes, /try-it-item,
-# /room-wall, and /v1/messages refuse requests without it, and /v1/messages carries the voice command brain and the task agents,
-# so an app with no secret keeps its voice commands on the old /voice-command route and its task agents fail.
+# Required: a random string, such as from openssl rand -hex 32, that the app also holds. The Notion routes, /try-it-item,
+# /room-wall, and /v1/messages refuse requests without it, and /v1/messages carries the voice command brain and the task agents.
+# Without it, every voice command fails in the brain and falls back to keyword matching, and task agents fail.
 # Set it in the app with:
 # defaults write com.crodris.clicky-watch-along clickyAppSecret <the same string>
 pnpm wrangler secret put CLICKY_APP_SECRET
@@ -310,14 +310,13 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   BackgroundAgentListPanel.swift # The agent list that a disc click or the settings dial's Agents slice opens
   SettingsDialModel.swift        # The settings dial's picking rules and edge placement
   SettingsDialPanel.swift        # The settings dial that Shift + Option opens
-harness/                 # Go helper that runs the task agent's loop through the Worker's /v1/messages
+harness/                 # Go helper that runs the task agent's loop and the voice command brain through the Worker's /v1/messages
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /study-guide, /study-guide-status, /v1/messages, /notion-page, /v1/3dtiles, /try-it-item, /room-wall
+  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /study-guide, /study-guide-status, /v1/messages, /notion-page, /v1/3dtiles, /try-it-item, /room-wall
   src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
   src/liveScene.ts          # Asks GPT-6.1 Sol for a 3D model or GPT-6.2 Sol for a simulation, and grades spoken answers
   src/videoFrameParts.ts    # Finds the subject and its parts in a video frame or page image
   src/landmark.ts           # Recognizes a famous place in a video frame
-  src/voiceCommand.ts       # Asks Haiku which voice tools to call
   src/pictureFlows.ts       # Draws what flows through a popped-out picture
   src/mapTiles.ts           # Forwards Google 3D Tiles requests with the Maps key
   src/studyGuide.ts         # Writes the study guide and checks a saved guide's page

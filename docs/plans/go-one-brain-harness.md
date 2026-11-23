@@ -63,7 +63,7 @@ The three approval follow-ups go first, because the cutover PR moves the approva
 | 6 | The brain keeps a session, with compaction | Piece 1 | 1 day | Yes, the harness flag |
 | 7 | The turn budget rule, with no planner tool | Piece 3 | 2 hours, since the evals showed Sonnet planning adds nothing | Yes, the harness flag |
 | 8 | Approval rules move into the harness, and the harness flag turns on | Piece 4 | 1.5 days | The flag's default turns on |
-| 9 | Delete the old path | Cleanup | 2 hours | Chris decides when |
+| 9 | Delete the old path | Cleanup | 2 hours | Merged in PR 9 (this change) |
 
 Total: about 6.5 days of agent work for the brain, plus about 1.5 days for PR 0 and the three approval items.
 The council review added a day to PR 4 and PR 8, for the hand-off mark, the request limits, the turn index, and the app secret fallback.
@@ -586,6 +586,8 @@ New `harness/voiceapproval.go` (the yes check and the offer rule), `harness/brai
 
 ## PR 9: Delete the old path (Chris decides when)
 
+Merged in PR 9 (this change).
+
 After a few days of use with the harness flag on, delete `POST /voice-command` and its tests, `VoiceCommandClient`, `recentVoiceToolActionLines`, the Swift copy of the voice approval check, the shared fixture's Swift reader, the harness flag, and the Worker backend of the brain evals.
 Update `AGENTS.md`, `bench/README.md`, and the verify-clicky feature map in the same PR.
 Two things go with the old path:
@@ -630,8 +632,8 @@ PR 8 makes this the only path, so check the relaunch time in PR 4's verify run.
 
 ### Two copies of the approval check during the move
 
-From PR 8 to PR 9 the Swift and Go yes checks both exist.
-The shared fixture keeps them from differing, and PR 9 deletes the Swift copy.
+From PR 8 to PR 9 the Swift and Go yes checks both existed, and the shared fixture kept them from differing.
+PR 9 deleted the Swift copy, so `harness/voiceapproval.go` holds the only check.
 
 ### Cache minimum for Haiku
 

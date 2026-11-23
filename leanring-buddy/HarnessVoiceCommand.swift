@@ -2,9 +2,9 @@
 //  HarnessVoiceCommand.swift
 //  leanring-buddy
 //
-//  The app's side of a voice command on the brain, with the brainRunsInTheHarness flag on: the lines the command
-//  writes to the harness, and the loop over the harness's events for it. The harness runs the model's turns
-//  (harness/brainloop.go), and the app runs each tool call through runVoiceTool exactly as the old path does.
+//  The app's side of a voice command on the brain: the lines the command writes to the harness, and the loop over the
+//  harness's events for it. The harness runs the model's turns (harness/brainloop.go), and the app runs each tool call
+//  through runVoiceTool.
 //
 
 import Foundation
@@ -128,8 +128,8 @@ enum AppVoiceToolStep {
 }
 
 /// The outcome of one app voice tool's step. A hand-off sets the harness command's mark before its new path starts,
-/// since the new path may cancel the command's own task, whose cancel handler reads the mark. The old path and the debug
-/// server pass no mark.
+/// since the new path may cancel the command's own task, whose cancel handler reads the mark. The debug server passes no
+/// mark.
 func voiceToolOutcome(of appVoiceToolStep: AppVoiceToolStep, handOffMark: HarnessVoiceCommandLines?) -> VoiceToolOutcome {
     switch appVoiceToolStep {
     case .outcome(let outcome):
@@ -147,7 +147,7 @@ nonisolated enum HarnessVoiceCommandEnding: Equatable, Sendable {
     /// Say the line, which may be empty, or the gave-up line, then go idle.
     case finished(spokenLine: String, gaveUp: Bool)
     /// The Worker, Anthropic, or the harness failed, or the harness sent nothing in time, so the router failure
-    /// fallback runs.
+    /// fallback runs. A Worker that refused the app secret is one of these.
     case failed(reason: String)
     /// A press, a new command, or a hand-off cancelled the command's task, which owns nothing more.
     case cancelled
@@ -195,9 +195,8 @@ nonisolated let harnessPlanningLogLinePrefix = "Brain: planning on "
 /// larger model's turn, which ends a hung turn with a gave-up line first.
 nonisolated let secondsToWaitForAPlanningTurn: Double = 35
 
-/// Runs one voice command's events: each tool call through `runTool`, with the approval request the card showed at the
-/// press, and whether it was read whole then, only for a call from the model's first turn, and its outcome back to the
-/// harness. It returns how the command ended. The wait for each event has a deadline, which stops while a tool runs,
+/// Runs one voice command's events: each tool call through `runTool`, and its outcome back to the harness. The harness
+/// settles `answer_approval` itself, so no call carries an approval request. It returns how the command ended. The wait for each event has a deadline, which stops while a tool runs,
 /// since a tool such as play_video's check takes its own time, and which is 35 seconds instead of 10 after the harness
 /// says the larger model's turn started.
 /// When it passes, `whenNoEventArrivesInTime` must end the stream with a failure, and no call still queued behind the
@@ -211,12 +210,11 @@ nonisolated let secondsToWaitForAPlanningTurn: Double = 35
 func runTheVoiceCommandEvents(
     _ commandEvents: AsyncStream<HarnessTaskEvent>,
     lines: HarnessVoiceCommandLines,
-    approvalWhenTheCommandStarted: ApprovalAtPress?,
     secondsToWaitForAnEvent: Double = secondsToWaitForTheNextHarnessVoiceCommandEvent,
     secondsToWaitAfterAPlanningLine: Double = secondsToWaitForAPlanningTurn,
     whenNoEventArrivesInTime: @escaping @MainActor () -> Void,
     whenTheLineIfEveryCallChangesArrives: (_ spokenLine: String, _ toolNames: [String]) -> Void = { _, _ in },
-    runTool: (_ toolCall: VoiceToolCall, _ approvalTheLearnerIsAnswering: ApprovalAtPress?) async -> VoiceToolOutcome
+    runTool: (_ toolCall: VoiceToolCall) async -> VoiceToolOutcome
 ) async -> HarnessVoiceCommandEnding {
     let eventDeadlineRecord = HarnessVoiceCommandDeadlineRecord()
     var eventDeadline: Task<Void, Never>?
@@ -243,9 +241,7 @@ func runTheVoiceCommandEvents(
                 guard !eventDeadlineRecord.deadlineHasPassed else { return .failed(reason: "a tool call arrived after the wait for it ran out") }
                 let toolCall = VoiceToolCall(id: harnessToolCall.toolUseID, name: harnessToolCall.toolName, input: harnessToolCall.input)
                 lines.callStarted(toolUseID: toolCall.id)
-                // Only the model's first reply to the learner's words may answer a request. A later turn has read tool
-                // results, which can hold text a page or a server wrote. A call with no turn counts as a later one.
-                let outcome = await runTool(toolCall, harnessToolCall.turnIndex == 0 ? approvalWhenTheCommandStarted : nil)
+                let outcome = await runTool(toolCall)
                 lines.sendTheResult(of: outcome)
                 if outcome == .handedOff {
                     return .finished(spokenLine: "", gaveUp: false)

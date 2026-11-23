@@ -13,7 +13,7 @@
  *                       Gemini: minimal (sent as low), low, medium, high, or xhigh.
  *   BENCH_SERVICE_TIER  GPT only, such as ultrafast. The tier OpenAI reports back goes in the usage log line.
  *
- * /v1/messages (the agent harness) takes only a claude-* model and answers a 501 to any other. On /live-scene a gpt-* model
+ * /v1/messages (the agent harness: the task agent and the voice brain) takes only a claude-* model and answers a 501 to any other. On /live-scene a gpt-* model
  * runs the app's own GPT request with its model and tier swapped, and any other model runs the Claude request (liveScene.ts).
  * /video-quiz-plan runs on GPT-6.2 Sol in every Worker through the same OpenAI mapping, and BENCH_MODEL replaces it.
  * Every prompt here was tuned for Claude, so a GPT or Gemini model that loses may only have lost to the prompt.
@@ -26,21 +26,12 @@ const gptEfforts = ["none", "minimal", "low", "medium", "high", "xhigh"];
 const geminiEfforts = ["minimal", "low", "medium", "high", "xhigh"];
 const serviceTierPattern = /^[a-z_]+$/;
 
-/**
- * The efforts a GPT model gets for a route that turns thinking off, lowest first. Which of them a model accepts is
- * not listed anywhere the Worker can read, so a 400 that names the effort moves to the next one.
- */
-const thinkingOffEffortLadder = ["none", "minimal", "low"];
-
 export type ClaudeBenchOverride = { provider: "anthropic"; model: string; effort?: string };
 export type OpenAIBenchOverride = { provider: "openai"; model: string; apiKey: string; effort?: string; serviceTier?: string };
 export type GeminiBenchOverride = { provider: "gemini"; model: string; apiKey: string; effort?: string };
 export type BenchModelOverride = ClaudeBenchOverride | OpenAIBenchOverride | GeminiBenchOverride;
 
 let activeOverride: BenchModelOverride | undefined;
-
-/** The lowest effort each GPT model accepted for a route with thinking off, so later calls skip the 400s. */
-const acceptedThinkingOffEffortByModel = new Map<string, string>();
 
 /**
  * Called at the top of every request. Returns a message when the vars are wrong, which the Worker answers as a 500,
@@ -119,8 +110,8 @@ const claudeModelsThatTurnThinkingOff = ["claude-haiku-5-5"];
 
 /**
  * The Claude override: the same request with its model replaced, and its effort when BENCH_EFFORT is set.
- * A route that turns thinking off (/voice-command) keeps its low effort and loses the `thinking` field on a model
- * that cannot turn thinking off, which is as close to thinking off as that model goes.
+ * A request that turns thinking off (the voice brain's, through /v1/messages) keeps its low effort and loses the
+ * `thinking` field on a model that cannot turn thinking off, which is as close to thinking off as that model goes.
  */
 export function applyClaudeBenchOverride(messagesRequestBody: unknown, override: ClaudeBenchOverride): unknown {
   if (!isPlainRecord(messagesRequestBody)) {
@@ -151,7 +142,6 @@ const anthropicRequestSchema = z
       }),
     ),
     max_tokens: z.number().optional(),
-    thinking: z.object({ type: z.string() }).passthrough().optional(),
     output_config: z
       .object({
         effort: z.string().optional(),
@@ -159,12 +149,6 @@ const anthropicRequestSchema = z
       })
       .passthrough()
       .optional(),
-    tools: z
-      .array(
-        z.object({ name: z.string(), description: z.string().optional(), input_schema: z.record(z.unknown()) }).passthrough(),
-      )
-      .optional(),
-    tool_choice: z.object({ type: z.string() }).passthrough().optional(),
   })
   .passthrough();
 
@@ -183,17 +167,10 @@ function openAIContentPart(role: "user" | "assistant", block: Record<string, unk
   return `a ${String(block.type)} block`;
 }
 
-/** The effort GPT or Gemini gets: BENCH_EFFORT first, then the lowest effort for thinking off, then the route's own effort. */
-function reasoningEffortFor(
-  request: z.infer<typeof anthropicRequestSchema>,
-  override: { effort?: string },
-  thinkingOffEffort: string,
-): string | undefined {
+/** The effort GPT or Gemini gets: BENCH_EFFORT first, then the route's own effort. */
+function reasoningEffortFor(request: z.infer<typeof anthropicRequestSchema>, override: { effort?: string }): string | undefined {
   if (override.effort !== undefined) {
     return override.effort;
-  }
-  if (request.thinking?.type === "disabled") {
-    return thinkingOffEffort;
   }
   const routeEffort = request.output_config?.effort;
   // Claude's top effort is called xhigh by OpenAI and Gemini, which have no max.
@@ -202,23 +179,15 @@ function reasoningEffortFor(
 
 /**
  * Maps one Anthropic Messages request to an OpenAI Responses request. A shape no benchmark case sends, such as
- * tool_result blocks, a forced tool, or a server tool, is reported as unsupported instead of being guessed at.
+ * tool blocks, is reported as unsupported instead of being guessed at.
  */
-export function anthropicBodyToOpenAIResponsesBody(
-  anthropicBody: unknown,
-  override: OpenAIBenchOverride,
-  thinkingOffEffort: string = thinkingOffEffortLadder[0],
-): BenchRequestMapping {
+export function anthropicBodyToOpenAIResponsesBody(anthropicBody: unknown, override: OpenAIBenchOverride): BenchRequestMapping {
   const parsedRequest = anthropicRequestSchema.safeParse(anthropicBody);
   if (!parsedRequest.success) {
     const firstIssue = parsedRequest.error.issues[0];
     return { ok: false, unsupported: `a request the port cannot read (${firstIssue?.path.join(".")}: ${firstIssue?.message})` };
   }
   const request = parsedRequest.data;
-
-  if (request.tool_choice !== undefined && request.tool_choice.type !== "auto") {
-    return { ok: false, unsupported: `tool_choice ${request.tool_choice.type}` };
-  }
 
   const input: Array<Record<string, unknown>> = [];
   for (const message of request.messages) {
@@ -236,7 +205,7 @@ export function anthropicBodyToOpenAIResponsesBody(
 
   const instructions =
     typeof request.system === "string" ? request.system : request.system?.map((systemBlock) => systemBlock.text).join("\n\n");
-  const reasoningEffort = reasoningEffortFor(request, override, thinkingOffEffort);
+  const reasoningEffort = reasoningEffortFor(request, override);
   const responseFormat = request.output_config?.format;
 
   return {
@@ -251,19 +220,6 @@ export function anthropicBodyToOpenAIResponsesBody(
       ...(responseFormat === undefined
         ? {}
         : { text: { format: { type: "json_schema", name: "reply", schema: responseFormat.schema, strict: true } } }),
-      // The app's tool schemas have optional properties, which strict mode refuses.
-      ...(request.tools === undefined
-        ? {}
-        : {
-            tools: request.tools.map((tool) => ({
-              type: "function",
-              name: tool.name,
-              description: tool.description ?? "",
-              parameters: tool.input_schema,
-              strict: false,
-            })),
-            tool_choice: "auto",
-          }),
       ...(override.serviceTier === undefined ? {} : { service_tier: override.serviceTier }),
     },
   };
@@ -290,22 +246,13 @@ const openAIMessageItemSchema = z.object({
   content: z.array(z.object({ type: z.string(), text: z.string().optional(), refusal: z.string().optional() })),
 });
 
-const openAIFunctionCallItemSchema = z.object({
-  id: z.string().optional(),
-  call_id: z.string().optional(),
-  name: z.string(),
-  arguments: z.string(),
-});
-
 export type AnthropicShapedMessage = {
   id: string | undefined;
   type: "message";
   role: "assistant";
   model: string | undefined;
-  content: Array<
-    { type: "text"; text: string } | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-  >;
-  stop_reason: "end_turn" | "tool_use" | "max_tokens" | "refusal";
+  content: Array<{ type: "text"; text: string }>;
+  stop_reason: "end_turn" | "max_tokens" | "refusal";
   usage: { input_tokens: number; output_tokens: number };
 };
 
@@ -338,25 +285,13 @@ export function openAIResponseToAnthropicMessage(responseJSON: unknown): OpenAIR
           content.push({ type: "text", text: contentPart.refusal });
         }
       }
-    } else if (outputItem.type === "function_call") {
-      const functionCall = openAIFunctionCallItemSchema.safeParse(outputItem);
-      if (!functionCall.success) {
-        return { ok: false, error: "OpenAI function_call had no name or arguments" };
-      }
-      content.push({
-        type: "tool_use",
-        id: functionCall.data.call_id ?? functionCall.data.id ?? "",
-        name: functionCall.data.name,
-        input: parseToolArguments(functionCall.data.arguments),
-      });
     }
     // Reasoning items carry no answer, so they are dropped, as Anthropic's thinking blocks are by the routes.
   }
 
   const incompleteReason = response.incomplete_details?.reason;
-  const stopReason: AnthropicShapedMessage["stop_reason"] = content.some((block) => block.type === "tool_use")
-    ? "tool_use"
-    : incompleteReason === "max_output_tokens"
+  const stopReason: AnthropicShapedMessage["stop_reason"] =
+    incompleteReason === "max_output_tokens"
       ? "max_tokens"
       : refused || incompleteReason === "content_filter"
         ? "refusal"
@@ -376,20 +311,6 @@ export function openAIResponseToAnthropicMessage(responseJSON: unknown): OpenAIR
   };
 }
 
-/** Arguments from a function with strict off can be invalid JSON. That reaches the route as an empty input, which its check rejects. */
-function parseToolArguments(argumentsText: string): Record<string, unknown> {
-  try {
-    const parsedArguments: unknown = JSON.parse(argumentsText);
-    if (isPlainRecord(parsedArguments)) {
-      return parsedArguments;
-    }
-  } catch {
-    // Falls through to the empty input below.
-  }
-  console.error(`[bench] A function call's arguments were not a JSON object: ${argumentsText.slice(0, 200)}`);
-  return {};
-}
-
 // ---------- Calling OpenAI ----------
 
 function postToOpenAIResponses(override: OpenAIBenchOverride, responsesBody: Record<string, unknown>): Promise<Response> {
@@ -398,10 +319,6 @@ function postToOpenAIResponses(override: OpenAIBenchOverride, responsesBody: Rec
     headers: { authorization: `Bearer ${override.apiKey}`, "content-type": "application/json" },
     body: JSON.stringify(responsesBody),
   });
-}
-
-function thinkingIsOff(anthropicBody: unknown): boolean {
-  return isPlainRecord(anthropicBody) && isPlainRecord(anthropicBody.thinking) && anthropicBody.thinking.type === "disabled";
 }
 
 export type BenchMessageResult =
@@ -422,40 +339,22 @@ export async function requestBenchOpenAIMessage(
   routeName: string,
   anthropicBody: unknown,
 ): Promise<BenchMessageResult> {
-  // A route with thinking off and no BENCH_EFFORT starts at the lowest effort this model has accepted before.
-  const searchesForLowestEffort = thinkingIsOff(anthropicBody) && override.effort === undefined;
-  const effortLadder = searchesForLowestEffort
-    ? thinkingOffEffortLadder.slice(Math.max(0, thinkingOffEffortLadder.indexOf(acceptedThinkingOffEffortByModel.get(override.model) ?? "")))
-    : [thinkingOffEffortLadder[0]];
+  const mapping = anthropicBodyToOpenAIResponsesBody(anthropicBody, override);
+  if (!mapping.ok) {
+    return { ok: false, status: 501, error: `BENCH_MODEL ${override.model} cannot take ${mapping.unsupported}` };
+  }
 
-  let upstreamResponse: Response | undefined;
-  for (const [ladderIndex, thinkingOffEffort] of effortLadder.entries()) {
-    const mapping = anthropicBodyToOpenAIResponsesBody(anthropicBody, override, thinkingOffEffort);
-    if (!mapping.ok) {
-      return { ok: false, status: 501, error: `BENCH_MODEL ${override.model} cannot take ${mapping.unsupported}` };
-    }
-    try {
-      upstreamResponse = await postToOpenAIResponses(override, mapping.body);
-    } catch (error) {
-      console.error(`[${routeName}] OpenAI request failed:`, error);
-      return { ok: false, status: 502, error: "OpenAI could not be reached" };
-    }
-    if (upstreamResponse.ok) {
-      if (searchesForLowestEffort) {
-        acceptedThinkingOffEffortByModel.set(override.model, thinkingOffEffort);
-      }
-      break;
-    }
+  let upstreamResponse: Response;
+  try {
+    upstreamResponse = await postToOpenAIResponses(override, mapping.body);
+  } catch (error) {
+    console.error(`[${routeName}] OpenAI request failed:`, error);
+    return { ok: false, status: 502, error: "OpenAI could not be reached" };
+  }
+  if (!upstreamResponse.ok) {
     const errorText = await upstreamResponse.text();
-    const triedEveryEffort = ladderIndex === effortLadder.length - 1;
-    if (upstreamResponse.status === 400 && /effort|reasoning/i.test(errorText) && !triedEveryEffort) {
-      continue;
-    }
     console.error(`[${routeName}] OpenAI API error ${upstreamResponse.status}: ${errorText}`);
     return { ok: false, status: upstreamResponse.status, error: errorText.length > 0 ? errorText : "OpenAI request failed" };
-  }
-  if (upstreamResponse === undefined) {
-    return { ok: false, status: 502, error: "OpenAI could not be reached" };
   }
 
   let responseJSON: unknown;
@@ -473,51 +372,16 @@ export async function requestBenchOpenAIMessage(
 
 // ---------- Gemini: Anthropic Messages request to Chat Completions request, and the reply back ----------
 
-/**
- * Gemini's OpenAI-compatible endpoint takes the Chat Completions shape, not Responses.
- * Thinking cannot be turned off there, so a route that turns it off gets the lowest effort.
- */
-const geminiThinkingOffEffort = "low";
-
-/**
- * The thought signature Gemini attaches to a tool call (`extra_content`), by the id the route and the app see.
- * The route's reply keeps only id, name, and input, and Gemini may refuse a later turn whose history lacks the
- * signature, so it is put back on the same call when the app sends that call in /voice-command's next turn.
- * One Worker process runs one bakeoff, so a map that never shrinks is fine.
- */
-const geminiExtraContentByToolCallId = new Map<string, unknown>();
-let geminiToolCallIdCounter = 0;
+// Gemini's OpenAI-compatible endpoint takes the Chat Completions shape, not Responses.
 
 function base64ImageDataURL(imageBlock: Record<string, unknown>): string | undefined {
   const imageSource = imageSourceSchema.safeParse(imageBlock.source);
   return imageSource.success ? `data:${imageSource.data.media_type};base64,${imageSource.data.data}` : undefined;
 }
 
-/** A tool_result's content is a string or a list of text blocks. Anything else, such as an image, is not ported. */
-function toolResultText(toolResultContent: unknown): string | undefined {
-  if (toolResultContent === undefined) {
-    return "";
-  }
-  if (typeof toolResultContent === "string") {
-    return toolResultContent;
-  }
-  if (Array.isArray(toolResultContent)) {
-    const texts: string[] = [];
-    for (const contentBlock of toolResultContent) {
-      if (!isPlainRecord(contentBlock) || contentBlock.type !== "text" || typeof contentBlock.text !== "string") {
-        return undefined;
-      }
-      texts.push(contentBlock.text);
-    }
-    return texts.join("\n");
-  }
-  return undefined;
-}
-
 /**
- * The Chat Completions messages for an Anthropic request's history. A tool_use block in an assistant message becomes a
- * tool call on it, and a tool_result block in a user message becomes a `tool` message, placed before that user message's
- * other content so each tool message directly follows the call it answers.
+ * The Chat Completions messages for an Anthropic request's history. Only text blocks, and base64 images in user
+ * messages, are ported.
  */
 function geminiChatMessages(
   request: z.infer<typeof anthropicRequestSchema>,
@@ -528,40 +392,22 @@ function geminiChatMessages(
     messages.push({ role: "system", content: system });
   }
 
-  const toolNamesByCallId = new Map<string, string>();
   for (const message of request.messages) {
     const blocks = typeof message.content === "string" ? [{ type: "text", text: message.content }] : message.content;
 
     if (message.role === "assistant") {
       const texts: string[] = [];
-      const toolCalls: Array<Record<string, unknown>> = [];
       for (const block of blocks) {
         if (block.type === "text" && typeof block.text === "string") {
           texts.push(block.text);
-        } else if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
-          toolNamesByCallId.set(block.id, block.name);
-          const extraContent = geminiExtraContentByToolCallId.get(block.id);
-          toolCalls.push({
-            id: block.id,
-            type: "function",
-            function: { name: block.name, arguments: JSON.stringify(block.input ?? {}) },
-            ...(extraContent === undefined ? {} : { extra_content: extraContent }),
-          });
         } else {
           return { ok: false, unsupported: `a ${String(block.type)} block` };
         }
       }
-      const text = texts.join("\n");
-      messages.push({
-        role: "assistant",
-        // A message with tool calls may leave its content out.
-        ...(text === "" && toolCalls.length > 0 ? {} : { content: text }),
-        ...(toolCalls.length === 0 ? {} : { tool_calls: toolCalls }),
-      });
+      messages.push({ role: "assistant", content: texts.join("\n") });
       continue;
     }
 
-    const toolMessages: Array<Record<string, unknown>> = [];
     const userParts: Array<Record<string, unknown>> = [];
     for (const block of blocks) {
       if (block.type === "text" && typeof block.text === "string") {
@@ -572,23 +418,10 @@ function geminiChatMessages(
           return { ok: false, unsupported: "an image that is not base64" };
         }
         userParts.push({ type: "image_url", image_url: { url: imageURL } });
-      } else if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
-        const resultText = toolResultText(block.content);
-        if (resultText === undefined) {
-          return { ok: false, unsupported: "a tool_result with a block that is not text" };
-        }
-        const toolName = toolNamesByCallId.get(block.tool_use_id);
-        toolMessages.push({
-          role: "tool",
-          tool_call_id: block.tool_use_id,
-          ...(toolName === undefined ? {} : { name: toolName }),
-          content: resultText,
-        });
       } else {
         return { ok: false, unsupported: `a ${String(block.type)} block` };
       }
     }
-    messages.push(...toolMessages);
     if (userParts.length > 0) {
       messages.push({ role: "user", content: userParts });
     }
@@ -605,15 +438,12 @@ export function anthropicBodyToGeminiChatBody(anthropicBody: unknown, override: 
   }
   const request = parsedRequest.data;
 
-  if (request.tool_choice !== undefined && request.tool_choice.type !== "auto") {
-    return { ok: false, unsupported: `tool_choice ${request.tool_choice.type}` };
-  }
   const chatMessages = geminiChatMessages(request);
   if (!chatMessages.ok) {
     return chatMessages;
   }
 
-  const reasoningEffort = reasoningEffortFor(request, override, geminiThinkingOffEffort);
+  const reasoningEffort = reasoningEffortFor(request, override);
   const responseFormat = request.output_config?.format;
   return {
     ok: true,
@@ -627,26 +457,9 @@ export function anthropicBodyToGeminiChatBody(anthropicBody: unknown, override: 
       ...(responseFormat === undefined
         ? {}
         : { response_format: { type: "json_schema", json_schema: { name: "reply", schema: responseFormat.schema, strict: true } } }),
-      ...(request.tools === undefined
-        ? {}
-        : {
-            tools: request.tools.map((tool) => ({
-              type: "function",
-              function: { name: tool.name, description: tool.description ?? "", parameters: tool.input_schema },
-            })),
-            tool_choice: "auto",
-          }),
     },
   };
 }
-
-const geminiToolCallSchema = z
-  .object({
-    id: z.string().nullish(),
-    function: z.object({ name: z.string(), arguments: z.string() }),
-    extra_content: z.unknown().optional(),
-  })
-  .passthrough();
 
 const geminiChatCompletionSchema = z
   .object({
@@ -659,7 +472,6 @@ const geminiChatCompletionSchema = z
             .object({
               content: z.string().nullish(),
               refusal: z.string().nullish(),
-              tool_calls: z.array(z.unknown()).nullish(),
             })
             .passthrough(),
           finish_reason: z.string().nullish(),
@@ -670,11 +482,8 @@ const geminiChatCompletionSchema = z
   })
   .passthrough();
 
-/** The Anthropic stop reason for a Chat Completions finish reason, which says nothing of tool use when it is "stop". */
-function anthropicStopReasonForFinishReason(finishReason: string, hasToolUse: boolean): AnthropicShapedMessage["stop_reason"] {
-  if (hasToolUse || finishReason === "tool_calls") {
-    return "tool_use";
-  }
+/** The Anthropic stop reason for a Chat Completions finish reason. */
+function anthropicStopReasonForFinishReason(finishReason: string): AnthropicShapedMessage["stop_reason"] {
   if (finishReason === "length") {
     return "max_tokens";
   }
@@ -721,20 +530,8 @@ export function geminiChatCompletionToAnthropicMessage(responseJSON: unknown): G
   if (typeof answerText === "string" && answerText !== "") {
     content.push({ type: "text", text: answerText });
   }
-  for (const toolCallValue of choiceMessage.tool_calls ?? []) {
-    const toolCall = geminiToolCallSchema.safeParse(toolCallValue);
-    if (!toolCall.success) {
-      return { ok: false, error: "Gemini tool call had no name or arguments" };
-    }
-    const toolCallId = toolCall.data.id || `gemini_call_${geminiToolCallIdCounter++}`;
-    if (toolCall.data.extra_content !== undefined) {
-      geminiExtraContentByToolCallId.set(toolCallId, toolCall.data.extra_content);
-    }
-    content.push({ type: "tool_use", id: toolCallId, name: toolCall.data.function.name, input: parseToolArguments(toolCall.data.function.arguments) });
-  }
 
   const usageForLog = geminiUsageForLog(response.usage);
-  const hasToolUse = content.some((block) => block.type === "tool_use");
   return {
     ok: true,
     usageForLog,
@@ -744,7 +541,7 @@ export function geminiChatCompletionToAnthropicMessage(responseJSON: unknown): G
       role: "assistant",
       model: response.model,
       content,
-      stop_reason: choiceMessage.refusal ? "refusal" : anthropicStopReasonForFinishReason(firstChoice.finish_reason ?? "stop", hasToolUse),
+      stop_reason: choiceMessage.refusal ? "refusal" : anthropicStopReasonForFinishReason(firstChoice.finish_reason ?? "stop"),
       usage: { input_tokens: numberOrZero(usageForLog.input_tokens), output_tokens: numberOrZero(usageForLog.output_tokens) },
     },
   };
@@ -976,7 +773,7 @@ export function geminiStreamToAnthropicStream(): TransformStream<Uint8Array, Uin
         enqueueTextDelta(controller, delta.content);
       }
       if (typeof firstChoice.finish_reason === "string") {
-        stopReason = anthropicStopReasonForFinishReason(firstChoice.finish_reason, false);
+        stopReason = anthropicStopReasonForFinishReason(firstChoice.finish_reason);
       }
       if (isPlainRecord(eventJSON.usage)) {
         usage = geminiUsageForLog(eventJSON.usage);

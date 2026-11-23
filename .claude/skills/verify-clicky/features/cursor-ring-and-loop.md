@@ -53,12 +53,12 @@ Preconditions:
 - **Clear on a tab change.** Start `$V app-launch "what is this?"`, and switch Chrome's tab while the answer is thinking.
   The log shows `Cursor loop: ended because tabOrMediaChanged` within about a second.
 
-- **Agent sparks.** Open a YouTube video that is not a face or a heart in a normal Chrome window, make Chrome the front app, and run `$V app-launch --harness-brain "let me try it|build me a 3D model of this|& thanks"`.
+- **Agent sparks.** Open a YouTube video that is not a face or a heart in a normal Chrome window, make Chrome the front app, and run `$V app-launch "let me try it|build me a 3D model of this|& thanks"`.
   Each step presses and releases push-to-talk first, so the release read puts the media in hand, and each agent started by that step joins the line.
   Record the video's display with `screencapture -x -V 60 -D 1 "$RUN/sparks.mov"` and tile frames with `ffmpeg`: two sparks, one lime and one violet, lap a faint accent track around the video, and the log shows `Cursor loop: agent sparks lap the media in the front tab` once.
   When an agent finishes, its spark finishes its lap and the line fades, and `Cursor loop: ended because aSceneStartedToShow` follows when the scene rises.
   The debug endpoint's `debug_seed_agents` joins no line, since a seeded agent has no source tab and the endpoint makes no press.
-- **No line without media.** Run `$V app-launch --harness-brain "build me a 3D model of this"` with Chrome not the front app.
+- **No line without media.** Run `$V app-launch "build me a 3D model of this"` with Chrome not the front app.
   No `agent sparks lap` line appears.
 
 ## Gotchas

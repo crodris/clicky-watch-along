@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  The moments of one routed voice command, so its latency is measured stage by stage. The command runs on the
-//  harness brain or on the Worker router, and both record the same marks. The app logs one line when the command ends.
+//  harness brain, and the app logs one line when the command ends.
 //
 
 import Foundation
@@ -25,7 +25,7 @@ nonisolated struct VoiceCommandTiming: Equatable, Sendable {
     /// The audio of the first line the command spoke started playing.
     var firstLineAudioStartedAt: Date?
     /// Whether the finished line played the audio fetched while the calls ran, or a fetch started after them. Nil for a
-    /// command that spoke no finished line, or that ran on the Worker router, which sends no early line.
+    /// command that spoke no finished line.
     var lineAudio: VoiceCommandLineAudio?
     /// Whether the command started on the partial transcript and the final one kept it, or the final transcript
     /// discarded such a command and this is the final one's. Nil when the press started no command on its partial
@@ -86,8 +86,8 @@ nonisolated struct PushToTalkPressAcceptance: Sendable {
     }
 }
 
-/// Collects one command's marks. The first mark of each kind wins, since a command that falls back to the old path
-/// sends twice, and it prints its line once.
+/// Collects one command's marks. The first mark of each kind wins, since a command marks the first tool call for each
+/// call it runs, and it prints its line once.
 @MainActor
 final class VoiceCommandTimingRecorder {
     private(set) var timing: VoiceCommandTiming

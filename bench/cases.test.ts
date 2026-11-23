@@ -23,14 +23,6 @@ function benchCase(caseId: string): BenchCase {
   return foundCase;
 }
 
-/** What /voice-command's Worker returns: text and tool_use blocks. */
-function voiceReply(...toolCalls: Array<[string, Record<string, unknown>]>): string {
-  return JSON.stringify({
-    content: [{ type: "text", text: "ok" }, ...toolCalls.map(([name, input], callIndex) => ({ type: "tool_use", id: `t${callIndex}`, name, input }))],
-    stopReason: "tool_use",
-  });
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -58,49 +50,6 @@ describe("benchCases", () => {
     for (const caseId of onlyLists.flat()) {
       assert.ok(benchCases.some((candidate) => candidate.id === caseId), `README names the case ${caseId}, which does not exist`);
     }
-  });
-});
-
-describe("the /voice-command cases", () => {
-  it("swap the learner's words into the app's own body and keep its tools and scene state", () => {
-    const zoomBody = benchCase("voice-command-zoom").requestBody(appProfile) as { messages: [{ content: string }]; tools: Array<{ name: string }> };
-    const originalBody = JSON.parse(readFileSync(join(benchDirectory, "fixtures", "voice-command.json"), "utf8"));
-
-    assert.ok(zoomBody.messages[0].content.endsWith('Learner said: "zoom in a little"'));
-    assert.equal(zoomBody.messages[0].content.split("Learner said:")[0], originalBody.messages[0].content.split("Learner said:")[0]);
-    assert.deepEqual(zoomBody.tools, originalBody.tools);
-  });
-
-  it("offer the video tools over a YouTube video for the seek case", () => {
-    const seekBody = benchCase("voice-command-seek").requestBody(appProfile) as { tools: Array<{ name: string }> };
-
-    assert.ok(["seek_relative", "seek_to_time", "find_moment"].every((toolName) => seekBody.tools.some((tool) => tool.name === toolName)));
-  });
-
-  it("pass the seek case for going back 30 seconds either way, and fail a wrong direction, size, or a missing confirmation", () => {
-    assert.equal(check("voice-command-seek", voiceReply(["seek_relative", { seconds: -30, confirmation: "back 30 seconds" }])).passed, true);
-    assert.equal(check("voice-command-seek", voiceReply(["seek_to_time", { seconds: 94, confirmation: "back 30 seconds" }])).passed, true);
-    assert.equal(check("voice-command-seek", voiceReply(["seek_relative", { seconds: 30, confirmation: "ahead" }])).passed, false);
-    assert.equal(check("voice-command-seek", voiceReply(["seek_relative", { seconds: -10, confirmation: "back" }])).passed, false);
-    assert.equal(check("voice-command-seek", voiceReply(["seek_relative", { seconds: -30 }])).passed, false);
-    assert.equal(check("voice-command-seek", voiceReply(["seek_relative", { seconds: -30, confirmation: "back" }], ["pause_video", { confirmation: "paused" }])).passed, false);
-  });
-
-  it("pass the zoom case for one zoom in, and fail a zoom out, a zoom to a part, or no call", () => {
-    assert.equal(check("voice-command-zoom", voiceReply(["zoom", { factor: 1.3, confirmation: "closer" }])).passed, true);
-    assert.equal(check("voice-command-zoom", voiceReply(["zoom", { factor: 0.7, confirmation: "farther" }])).passed, false);
-    assert.equal(check("voice-command-zoom", voiceReply(["zoom_to_part", { label: "engine", confirmation: "closer" }])).passed, false);
-    assert.equal(check("voice-command-zoom", voiceReply()).passed, false);
-  });
-
-  it("pass the explain case for explain_part on the tail, in any letter case, and fail another part", () => {
-    assert.equal(check("voice-command-explain", voiceReply(["explain_part", { label: "Tail", confirmation: "the tail" }])).passed, true);
-    assert.equal(check("voice-command-explain", voiceReply(["explain_part", { label: "wing", confirmation: "the wing" }])).passed, false);
-  });
-
-  it("pass the no-tool case only when the reply holds no tool call", () => {
-    assert.equal(check("voice-command-no-tool", voiceReply()).passed, true);
-    assert.equal(check("voice-command-no-tool", voiceReply(["answer_with_screen", { confirmation: "looking" }])).passed, false);
   });
 });
 

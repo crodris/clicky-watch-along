@@ -3,8 +3,7 @@
 //  leanring-buddy
 //
 //  The task agent's loop runs in a Go helper process, harness/ in the repo, bundled at Contents/Helpers/
-//  clicky-agent-harness. With the brainRunsInTheHarness flag on, the voice command brain (harness/brain.go) runs there
-//  too. The app and the harness talk in JSON lines on the harness's stdin and stdout. The harness runs Claude through
+//  clicky-agent-harness. The voice command brain (harness/brain.go) runs there too. The app and the harness talk in JSON lines on the harness's stdin and stdout. The harness runs Claude through
 //  the Worker's /v1/messages passthrough. It asks the app for the task agent's tools that touch the Mac or Notion, and
 //  for a voice command's scene, video, and agent tools. harness/protocol.go is the other half of the messages in this
 //  file.
@@ -22,16 +21,6 @@ nonisolated struct HarnessToolCall: Equatable, Sendable {
     let toolUseID: String
     let toolName: String
     let input: [String: JSONValue]
-    /// The turn of a voice command the call came from, counted from 0, since only the first may answer an approval.
-    /// Nil for a task's call.
-    let turnIndex: Int?
-
-    init(toolUseID: String, toolName: String, input: [String: JSONValue], turnIndex: Int? = nil) {
-        self.toolUseID = toolUseID
-        self.toolName = toolName
-        self.input = input
-        self.turnIndex = turnIndex
-    }
 }
 
 /// What the app hears from the harness for one task or voice command. The stream of events ends after finished,
@@ -150,8 +139,7 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
                 HarnessToolCall(
                     toolUseID: try requiredText("toolUseID"),
                     toolName: try requiredText("name"),
-                    input: input,
-                    turnIndex: messageJSON["turnIndex"]?.numberValue.flatMap { turnIndex in Int(exactly: turnIndex) }
+                    input: input
                 )
             )
         case "task_finished":

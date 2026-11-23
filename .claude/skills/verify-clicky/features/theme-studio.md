@@ -15,10 +15,10 @@ The learner picks or refines by voice or click, the real cursor previews the hig
 - `studio-picture` captures the largest picture in Chrome's front tab for "make my theme from this picture", draws the loop, and lets an idea use it as the cursor (whole or round, with an outline and a tint) or as the agent tokens' faces.
 - `studio-save` writes `theme.json` and `picture.jpg`, sets `companionTheme` to `custom:<id>`, closes the card, stops the line Clicky is saying about the ideas, and plays the theme's done sound.
   The saved tile shows a check stamp, that idea's cursor flies from the tile into the real cursor on the carrier, and then the card closes into the cursor.
-  A click on Save shows a chip above the cursor, "Theme saved", or "Couldn't save the theme" when the write fails, and the card stays open on a failure. The voice tool's chip comes from the router instead.
+  A click on Save shows a chip above the cursor, "Theme saved", or "Couldn't save the theme" when the write fails, and the card stays open on a failure. The voice tool's chip comes from the brain's call instead.
 - `studio-close` closes the card and keeps the old theme, from `close_theme_studio`, the Close button, or Escape, and stops the line Clicky is saying about the ideas, or a line still waiting to be said.
   It stops only the studio's own line, so an answer Clicky is giving for a request the router handed off keeps playing.
-- `studio-router` sends every word spoken with the card open to `/voice-command`, with no keyword branch ahead of it, so "two" or "save it" reaches the router even while a scene builds. Quiz phrases such as "can we stop" are the router's too, unless a quiz question is open.
+- `studio-router` sends every word spoken with the card open to the brain in the agent harness, with no keyword branch ahead of it, so "two" or "save it" reaches the router even while a scene builds. Quiz phrases such as "can we stop" are the router's too, unless a quiz question is open.
   A failed router request says "Sorry, I couldn't do that one." and leaves the card as it was, instead of answering the words as a question about the screen.
 - `studio-manage` renames or deletes a saved theme from its card in the menu bar panel (`ThemeCard`, `CompanionThemeSettings.renameSavedTheme` and `deleteSavedTheme`). A rename changes only the name in `theme.json` and keeps its modification date, and a delete removes the theme's folder. Escape in the rename field cancels only the rename, and leaves an open studio card or scene alone.
 - `studio-agents` gives each new agent the first theme agent color no running agent or waiting result has, and the picture as its round face when the theme uses it.
@@ -113,7 +113,7 @@ Preconditions:
 
 ## Gotchas
 
-- The spoken phrases ("change my theme", "two, but make it a star") go through push-to-talk and speech recognition, which this skill cannot drive. The rehearsal flag feeds a sentence to the same pipeline, so `$V app-launch "change my theme"` opens the studio, but the router steps that follow need the Worker's `/voice-command`.
+- The spoken phrases ("change my theme", "two, but make it a star") go through push-to-talk and speech recognition, which this skill cannot drive. The rehearsal flag feeds a sentence to the same pipeline, so `$V app-launch "change my theme"` opens the studio, but the router steps that follow need the brain in the harness, which needs the app secret.
   Report a spoken refinement checked only through the tool endpoint as verified at the tool layer, not through speech.
 - The card sits one level below the cursor overlay windows, so the previewed cursor draws over it. A cursor that looks cut off by the card is a window level bug.
 - An idea that uses the picture cannot be saved without the picture's JPEG, and a saved folder without `picture.jpg` is skipped at load with a `Custom themes: skipped` log line.

@@ -3,8 +3,8 @@
 //  leanring-buddy
 //
 //  The fast path for a spoken follow-up command. The app lists its tools in the WebMCP and MCP
-//  shape ({ name, description, inputSchema }), POST /voice-command asks a fast model which to call,
-//  the app runs them, and Clicky speaks a short confirmation after the screen has changed.
+//  shape ({ name, description, inputSchema }), the brain in the agent harness (harness/brainloop.go) asks a fast model
+//  which to call, the app runs them, and Clicky speaks a short confirmation after the screen has changed.
 //  Page tools live in LiveSceneAssets/scene-tools.js. App tools (the video, the quiz, and the slow
 //  paths) are listed here and run by CompanionManager.
 //
@@ -430,9 +430,9 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     }
 }
 
-// MARK: - Worker reply
+// MARK: - Tool calls
 
-/// A tool call from the model. The Worker adds confirmation to every tool's input, so it is split out here.
+/// A tool call from the model. The harness adds a confirmation property to every tool, so it is split out here.
 nonisolated struct VoiceToolCall: Equatable, Sendable {
     let id: String
     let name: String
@@ -561,7 +561,7 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             // pop_out, animate_picture, build_new_scene, answer_with_screen, show_ready_model, hear_task_answer, and
             // show_art_in_my_room hand off to a path with its own status line, thinking dots, rising scene, panel, or
             // voice. answer_approval shows no chip of its own, since the desk's approval_settled shows the outcome the
-            // harness's gate took, on both paths.
+            // harness's gate took.
             return nil
         }
     }
@@ -617,41 +617,7 @@ nonisolated enum VoiceToolChipMoment: Sendable {
     case afterTheCall(VoiceToolOutcome)
 }
 
-/// POST /voice-command's reply. assistantContent goes back to the Worker unchanged on the next turn.
-nonisolated struct VoiceCommandReply: Equatable, Sendable {
-    let assistantContent: [JSONValue]
-    let toolCalls: [VoiceToolCall]
-    let text: String
-
-    init(responseData: Data) throws {
-        let responseJSON = try JSONDecoder().decode(JSONValue.self, from: responseData)
-        guard let contentBlocks = responseJSON["content"]?.arrayValue else {
-            throw VoiceCommandError.replyHadNoContent
-        }
-        assistantContent = contentBlocks
-        toolCalls = contentBlocks.compactMap { contentBlock in
-            guard contentBlock["type"]?.stringValue == "tool_use",
-                  let id = contentBlock["id"]?.stringValue,
-                  let name = contentBlock["name"]?.stringValue,
-                  let input = contentBlock["input"]?.objectValue else {
-                return nil
-            }
-            return VoiceToolCall(id: id, name: name, input: input)
-        }
-        text = contentBlocks
-            .filter { $0["type"]?.stringValue == "text" }
-            .compactMap { $0["text"]?.stringValue }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-nonisolated enum VoiceCommandError: Error, Equatable {
-    case replyHadNoContent
-    case workerReturned(statusCode: Int, body: String)
-}
-
-// MARK: - Outcomes and the next step
+// MARK: - Outcomes
 
 /// What running one tool did.
 nonisolated enum VoiceToolOutcome: Equatable, Sendable {
@@ -682,15 +648,6 @@ nonisolated enum VoiceToolOutcome: Equatable, Sendable {
     }
 }
 
-nonisolated enum VoiceCommandNextStep: Equatable, Sendable {
-    /// Say this line, which may be empty, and finish.
-    case speak(String)
-    /// Send the tool results back, because the model has to read a lookup or a failure before it can finish.
-    case askTheModelAgain
-    /// A slow path owns the rest of the reply.
-    case finishSilently
-}
-
 /// The page tools scene-tools.js defines. A page can rewrite what it lists, so only these names are offered
 /// from it, and none of them can shadow an app tool.
 nonisolated let pageVoiceToolNames: Set<String> = ["rotate_model", "zoom", "zoom_to_part", "reset_view", "explode_view", "set_inside_view", "set_control", "run_simulation", "set_labels"]
@@ -703,7 +660,7 @@ nonisolated let longestPageToolDescription = 1000
 /// encodes to more bytes than this is dropped. The bundled tools' schemas are a few hundred bytes.
 nonisolated let largestPageToolInputSchemaBytes = 2000
 
-/// The Worker refuses a request with two tools of one name, which would send every command to the keyword path, so a
+/// The model API refuses a request with two tools of one name, which would send every command to the keyword path, so a
 /// page that lists a name twice keeps its first entry.
 nonisolated func voiceToolsOfferedToTheModel(pageTools: [VoiceToolDescriptor], appTools: [AppVoiceTool], skills: [TaskAgentSkillSummary] = []) -> [VoiceToolDescriptor] {
     var pageToolNamesSeen: Set<String> = []
@@ -727,78 +684,8 @@ nonisolated func voiceToolsOfferedToTheModel(pageTools: [VoiceToolDescriptor], a
 /// Spoken text comes from the model, which reads page text, so it is cut to a length that fits a confirmation or one sentence.
 nonisolated let longestSpokenVoiceCommandLine = 300
 
-/// The confirmations are spoken only when every tool changed the screen. A lookup or a failure goes back
-/// to the model, which then acts on the lookup or says what went wrong.
-nonisolated func voiceCommandNextStep(toolCalls: [VoiceToolCall], outcomes: [VoiceToolOutcome], replyText: String) -> VoiceCommandNextStep {
-    if outcomes.contains(.handedOff) {
-        return .finishSilently
-    }
-    if toolCalls.isEmpty {
-        return .speak(String(replyText.prefix(longestSpokenVoiceCommandLine)))
-    }
-    let modelMustReadTheResults = outcomes.contains { outcome in
-        switch outcome {
-        case .lookedUp, .failed: return true
-        case .changed, .handedOff: return false
-        }
-    }
-    if modelMustReadTheResults {
-        return .askTheModelAgain
-    }
-    let confirmations = toolCalls.map(\.confirmation).filter { !$0.isEmpty }
-    return .speak(String(confirmations.joined(separator: " ").prefix(longestSpokenVoiceCommandLine)))
-}
-
-/// The result of a call that did not run because an earlier call in its reply failed. The words match the harness's
-/// `notRunAfterAFailureResultText` in harness/brainsession.go.
-nonisolated let notRunAfterAFailureResultText = "Not run: an earlier call in this reply failed"
-
-/// A failed call stops the calls after it in the same reply, since a later call that depends on it, such as a pop-out
-/// after a seek that found no moment, would act on the wrong screen and the hand-off would end the command with the
-/// learner never hearing the failure. Each skipped call still gets a tool_result, since the API refuses a tool_use with
-/// none, and the model is asked again with them. These are the blocks for the calls after the failed one.
-nonisolated func notRunAfterAFailureToolResultBlocks(toolCalls: [VoiceToolCall], failedCallIndex: Int) -> [JSONValue] {
-    toolCalls.dropFirst(failedCallIndex + 1).map { skippedCall in
-        .object([
-            "type": .string("tool_result"),
-            "tool_use_id": .string(skippedCall.id),
-            "content": .string(notRunAfterAFailureResultText),
-            "is_error": .bool(false),
-        ])
-    }
-}
-
-/// Runs one reply's calls in order on the old path and collects each call's outcome and tool_result block. A hand-off
-/// stops the loop and adds no block, since the command ends. A failed call stops it too and gives each later call the
-/// `Not run` block, since the model is asked again. `runOne` returns nil when a push-to-talk press cancelled the
-/// command during the call, which ends the loop with nil.
-func runVoiceToolCallsInOrder(
-    _ toolCalls: [VoiceToolCall],
-    runOne: (VoiceToolCall) async -> VoiceToolOutcome?
-) async -> (outcomes: [VoiceToolOutcome], toolResultBlocks: [JSONValue])? {
-    var outcomes: [VoiceToolOutcome] = []
-    var toolResultBlocks: [JSONValue] = []
-    for (toolCallIndex, toolCall) in toolCalls.enumerated() {
-        guard !Task.isCancelled else { return nil }
-        guard let outcome = await runOne(toolCall) else { return nil }
-        outcomes.append(outcome)
-        if outcome == .handedOff { break }
-        toolResultBlocks.append(.object([
-            "type": .string("tool_result"),
-            "tool_use_id": .string(toolCall.id),
-            "content": .string(outcome.toolResultText),
-            "is_error": .bool(outcome.isFailure),
-        ]))
-        if outcome.isFailure {
-            toolResultBlocks += notRunAfterAFailureToolResultBlocks(toolCalls: toolCalls, failedCallIndex: toolCallIndex)
-            break
-        }
-    }
-    return (outcomes, toolResultBlocks)
-}
-
 /// What Clicky says when the router's turns run out with the model still waiting on a lookup or a failure, so the learner
-/// is never left in silence. It is always this apology, never the model's last words: the Worker tells the model that
+/// is never left in silence. It is always this apology, never the model's last words: the brain tells the model that
 /// text next to a tool call is never spoken, so that text was written before the call ran and can claim a success that failed.
 nonisolated let voiceCommandGaveUpLine = "Sorry, I couldn't do that one."
 
@@ -817,17 +704,7 @@ nonisolated func learnerVideoPlayOutcome(videoStateAfterPlay: JSONValue?) -> Voi
     return .changed(state: videoState)
 }
 
-// MARK: - The message the model reads
-
-/// One line per recent tool call, so "no, the other way" can be read against what Clicky just did.
-nonisolated func voiceToolActionLine(toolCall: VoiceToolCall, outcome: VoiceToolOutcome) -> String {
-    let resultWord: String
-    switch outcome {
-    case .changed, .lookedUp, .handedOff: resultWord = "ok"
-    case .failed(let error, _): resultWord = "failed: \(error)"
-    }
-    return "\(toolCall.name) \(JSONValue.object(toolCall.inputWithoutConfirmation).compactJSONText) -> \(resultWord)"
-}
+// MARK: - What the model reads
 
 /// What the router's scene state says while a background build waits to be shown. Without it the only sign is
 /// show_ready_model in the tool list, and "show me the model" went to a new build or a plain answer.
@@ -859,19 +736,6 @@ nonisolated func sceneStateFieldsAddingBackgroundAgents(
     var fieldsWithBackgroundAgents = existingSceneStateFields
     fieldsWithBackgroundAgents["backgroundAgents"] = .string(backgroundAgentsState)
     return fieldsWithBackgroundAgents
-}
-
-/// Page text and captions sit inside tags the model is told never to obey, so a "<" in them could close the tag early.
-nonisolated func voiceCommandUserMessageText(transcript: String, sceneState: JSONValue, recentActionLines: [String]) -> String {
-    let stateText = sceneState.compactJSONText.replacingOccurrences(of: "<", with: " ")
-    let actionsText = recentActionLines.joined(separator: "\n").replacingOccurrences(of: "<", with: " ")
-    return """
-    <scene_state>\(stateText)</scene_state>
-    <recent_actions>
-    \(actionsText)
-    </recent_actions>
-    Learner said: "\(transcript)"
-    """
 }
 
 /// The router takes a command only when something is live to command: a scene on screen, a
@@ -926,84 +790,6 @@ nonisolated enum BrainTakesEveryRequest {
         #endif
         return defaults.bool(forKey: defaultsKey)
     }
-}
-
-/// The harness flag. With it on, the voice command router runs in the Go agent harness (harness/brainloop.go) instead
-/// of calling POST /voice-command, with the same Haiku loop. It decides where the router runs, and
-/// `BrainTakesEveryRequest` decides when it takes a transcript. On by default, since the harness brain passed the
-/// parity gate against the Worker route. This is the one place that reads it.
-/// Turn it off with `defaults write com.crodris.clicky-watch-along brainRunsInTheHarness -bool NO`, and in a Debug build
-/// `--brain-runs-in-the-harness` turns it on whatever the saved setting says. An install with no app secret still uses
-/// the Worker route (`VoiceCommandBackend`).
-nonisolated enum BrainRunsInTheHarness {
-    static let defaultsKey = "brainRunsInTheHarness"
-    static let debugLaunchArgument = "--brain-runs-in-the-harness"
-
-    static func isOn(
-        defaults: UserDefaults = .standard,
-        launchArguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        #if DEBUG
-        if launchArguments.contains(debugLaunchArgument) { return true }
-        #endif
-        // A setting that was never written reads as on, and only an explicit NO turns it off.
-        return defaults.object(forKey: defaultsKey) as? Bool ?? true
-    }
-}
-
-/// What the harness sends as a command's `task_failed` reason when the Worker's own app secret check refused the turn
-/// (`errAppSecretRefused` in harness/brainloop.go holds the same words).
-nonisolated let harnessFailureReasonAppSecretRefused = "app secret refused"
-
-/// Where this launch's voice commands run. The harness brain calls the Worker's `/v1/messages`, which requires the app
-/// secret, and the old path's `/voice-command` does not, so an install with no secret, or one whose secret the Worker
-/// refuses, keeps working voice commands on the old path. The secret is read once at launch, since the harness takes it
-/// from its environment when it starts. PR 9 of docs/plans/go-one-brain-harness.md deletes the old path and makes the
-/// secret a setup requirement.
-nonisolated struct VoiceCommandBackend: Equatable, Sendable {
-    let flagIsOn: Bool
-    let appSecretIsSet: Bool
-    private(set) var workerRefusedTheAppSecret = false
-
-    init(flagIsOn: Bool, appSecretIsSet: Bool) {
-        self.flagIsOn = flagIsOn
-        self.appSecretIsSet = appSecretIsSet
-    }
-
-    var runsInTheHarness: Bool {
-        flagIsOn && appSecretIsSet && !workerRefusedTheAppSecret
-    }
-
-    /// The line the app logs once at launch when the flag is on but no secret is set.
-    var noAppSecretLogLine: String? {
-        flagIsOn && !appSecretIsSet ? "Brain: no app secret, so voice commands use the Worker router" : nil
-    }
-
-    /// The Worker refused the secret, so every later command of this launch runs on the old path.
-    mutating func noteThatTheWorkerRefusedTheAppSecret() {
-        workerRefusedTheAppSecret = true
-    }
-}
-
-/// What the app does after the harness failed a voice command.
-nonisolated enum HarnessCommandFailureNextStep: Equatable, Sendable {
-    /// Send the same command once on the old path. Nothing of the command has run, so nothing repeats.
-    case resendOnTheOldPath
-    /// The router failure fallback: the keyword path, the experiment, or a short line during a quiz question.
-    case routerFailureFallback
-}
-
-/// A refused secret moves the rest of the launch to the old path, and re-sends the command that hit it only when none of
-/// its tools has run, since a tool that ran already changed the screen and the old path would repeat it. Every other
-/// failure takes the router failure fallback, as before.
-nonisolated func nextStepAfterTheHarnessFailedACommand(
-    reason: String,
-    aToolOfTheCommandRan: Bool,
-    backend: inout VoiceCommandBackend
-) -> HarnessCommandFailureNextStep {
-    guard reason == harnessFailureReasonAppSecretRefused else { return .routerFailureFallback }
-    backend.noteThatTheWorkerRefusedTheAppSecret()
-    return aToolOfTheCommandRan ? .routerFailureFallback : .resendOnTheOldPath
 }
 
 /// A keyword branch that runs ahead of the router, because its words always mean the same thing.
@@ -1165,42 +951,4 @@ nonisolated func videoCaptionMomentsMatching(query: String, captionLines: [Video
         }
         .prefix(limit)
         .map { scoredMoment in scoredMoment.moment }
-}
-
-// MARK: - Worker client
-
-@MainActor
-final class VoiceCommandClient {
-    private let voiceCommandURL: URL
-    private let session: URLSession
-
-    init(workerBaseURL: String) {
-        guard let voiceCommandURL = URL(string: "\(workerBaseURL)/voice-command") else {
-            preconditionFailure("Worker base URL did not form the voice command URL: \(workerBaseURL)")
-        }
-        self.voiceCommandURL = voiceCommandURL
-        let configuration = URLSessionConfiguration.default
-        // Haiku answers in about a second. Past this the app falls back to the keyword path.
-        configuration.timeoutIntervalForRequest = 8
-        configuration.timeoutIntervalForResource = 8
-        session = URLSession(configuration: configuration)
-    }
-
-    func requestToolCalls(messages: [JSONValue], tools: [VoiceToolDescriptor]) async throws -> VoiceCommandReply {
-        let requestBody = JSONValue.object([
-            "messages": .array(messages),
-            "tools": .array(tools.map(\.workerRequestJSON)),
-        ])
-        let (responseData, statusCode) = try await WorkerJSONPost.send(
-            try JSONEncoder().encode(requestBody),
-            to: voiceCommandURL,
-            using: session,
-            sendsAppSecret: false
-        )
-        guard statusCode == 200 else {
-            throw VoiceCommandError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
-        }
-        try Task.checkCancellation()
-        return try VoiceCommandReply(responseData: responseData)
-    }
 }

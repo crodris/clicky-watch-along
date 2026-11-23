@@ -114,11 +114,6 @@ struct ThemeStudioRouterRuleTests {
         #expect(ThemeStudioController.SaveOutcome.nothingToSave.chipPhraseAfterAClickOnSave == nil)
     }
 
-    @Test func designingHandsOffSoTheRouterSaysNothingAfterIt() {
-        let designCall = call("design_theme", ["request": .string("cozy")])
-        #expect(voiceCommandNextStep(toolCalls: [designCall], outcomes: [.handedOff], replyText: "") == .finishSilently)
-    }
-
     @Test func theRouterTakesEveryCommandWhileTheStudioIsOpenEvenWithNothingElseLive() {
         #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false) == false)
         #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, themeStudioIsOpen: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
@@ -143,11 +138,10 @@ struct ThemeStudioRouterRuleTests {
         #expect(videoQuizPhrasesAreMatchedAheadOfTheRouter(themeStudioIsOpen: true, phaseIsWaitingForAQuizAnswer: true))
     }
 
-    @Test func theRoutersMessageCarriesTheStudiosIdeasAndHighlight() throws {
+    @Test func theRoutersSceneStateCarriesTheStudiosIdeasAndHighlight() throws {
         let ideas = try threeStudioIdeas()
         let sceneState = JSONValue.object(["themeStudio": try #require(voiceCommandThemeStudioState(.showingIdeas(ideas)))])
-        let message = voiceCommandUserMessageText(transcript: "two", sceneState: sceneState, recentActionLines: [])
-        #expect(message.contains(#""themeStudio":{"designing":false,"highlighted":1,"ideas":["Ember","Moonlit","Forest"]}"#))
+        #expect(sceneState.compactJSONText.contains(#""themeStudio":{"designing":false,"highlighted":1,"ideas":["Ember","Moonlit","Forest"]}"#))
     }
 }
 

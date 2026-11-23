@@ -27,7 +27,7 @@ nonisolated enum TranscriptRoute: Equatable {
     case shirtPaintedStill(ShirtStillVoiceRequest)
     /// "Animate this", "let me try it", and "change my theme" run with no model call.
     case keywordBranch(KeywordBranchAheadOfTheRouter)
-    /// The voice command router, on the harness brain or the Worker.
+    /// The voice command router, which runs on the harness brain.
     case voiceCommandRouter
     /// A quiz answer, a scene still building, or a request with nothing on screen for the router to command.
     case keywordPath
@@ -176,12 +176,10 @@ nonisolated enum SpeculativeStartStep: Equatable {
 nonisolated func speculativeStartStep(
     partialTranscript: String,
     partialRoute: TranscriptRoute,
-    voiceCommandsRunInTheHarness: Bool,
     approvalAtPress: ApprovalAtPress?,
     speculationIsOn: Bool
 ) -> SpeculativeStartStep {
     guard speculationIsOn else { return .doNotStart(reason: "speculation is turned off") }
-    guard voiceCommandsRunInTheHarness else { return .doNotStart(reason: "voice commands run on the Worker router") }
     guard approvalAtPress == nil else { return .doNotStart(reason: "an approval request is waiting, and a partial yes or no could answer it") }
     guard !transcriptWordsForComparison(partialTranscript).isEmpty else { return .waitForOtherWords(reason: "no words were heard yet") }
     guard partialRoute == .voiceCommandRouter else { return .waitForOtherWords(reason: "the partial transcript does not go to the router") }
@@ -206,13 +204,11 @@ nonisolated func speculationStep(
     partialTranscript: String,
     finalTranscript: String,
     finalRoute: TranscriptRoute,
-    voiceCommandsRunInTheHarness: Bool,
     finalUsesTheSameScreenRead: Bool,
     commandInputsAreUnchanged: Bool,
     heldCommandIsStillRunning: Bool
 ) -> SpeculationStep {
     guard finalRoute == .voiceCommandRouter else { return .discard(reason: "the final transcript does not go to the router") }
-    guard voiceCommandsRunInTheHarness else { return .discard(reason: "voice commands moved to the Worker router") }
     guard heldCommandIsStillRunning else { return .discard(reason: "the held command already ended in the harness") }
     guard finalUsesTheSameScreenRead else { return .discard(reason: "the page the command read is gone") }
     guard transcriptWordsForComparison(partialTranscript) == transcriptWordsForComparison(finalTranscript) else {
@@ -230,8 +226,8 @@ struct VoiceCommandInputs: Equatable {
     let frontVideoState: JSONValue?
     /// The scene state the harness reads. It has no `approvalWaiting`, since the harness names the waiting request itself.
     let harnessSceneState: JSONValue
-    /// The request the card showed when the learner pressed push-to-talk, and whether its whole summary had shown then. A
-    /// voice answer may reach only this one. It is part of the inputs, so a final transcript whose approval state differs
+    /// The request the card showed when the learner pressed push-to-talk, and whether its whole summary had shown then. The
+    /// harness lets a voice answer reach only this one. It is part of the inputs, so a final transcript whose approval state differs
     /// from the partial's discards the command, whether the request is new, gone, or has been read since.
     let approvalWhenTheCommandStarted: ApprovalAtPress?
 

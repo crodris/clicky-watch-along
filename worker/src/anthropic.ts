@@ -13,8 +13,8 @@ import {
   requestBenchOpenAIMessage,
 } from "./benchModelOverride";
 
-// Passthrough keeps every field of each block and of the reply, because /voice-command reads tool_use inputs and a
-// caller may send the blocks back to Anthropic unchanged.
+// Passthrough keeps every field of each block and of the reply, because a caller may send the blocks back to Anthropic
+// unchanged.
 const anthropicMessageSchema = z
   .object({
     content: z.array(z.object({ type: z.string(), text: z.string().optional() }).passthrough()),

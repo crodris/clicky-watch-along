@@ -99,7 +99,10 @@ function taskAgentStats(side: string): ModelStats {
 
 const flagshipSides = ["base", "haiku", "sonnet", "opus", "fable", "sol62", "astra"] as const;
 
-/** Each call the bench measures, with the result label of the six-challenger run and of the Neon run. */
+/**
+ * Each call the bench measured, with the result label of the six-challenger run and of the Neon run. The /voice-command
+ * route and its bench cases were removed, so its row reads the committed results of the 2026-11-19 bakeoff.
+ */
 const calls = [
   { key: "quiz", name: "Quiz plan", route: "/video-quiz-plan", neonLabel: "nquiz" },
   { key: "flows", name: "Picture flows", route: "/picture-flows", neonLabel: "nflows" },

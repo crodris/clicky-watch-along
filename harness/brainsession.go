@@ -388,7 +388,7 @@ func textCutTo(text string, limit int) (string, int) {
 	return string([]rune(text)[:limit-len(cutMarker)]) + cutMarker, 0
 }
 
-// voiceToolActionLine is one tool call in the app's recent action format, so the model reads it as the old path did:
+// voiceToolActionLine is one tool call in the app's recent action format:
 // the name, the input without the confirmation, and "ok" or "failed: <why>". resultText is the app's result text. The
 // reason is a tool's error text, which can repeat page text. The line is stored raw and escaped once, where it is written
 // into a tag (taggedLine) or the fold (escapedLine), since escaping twice doubles every backslash again.

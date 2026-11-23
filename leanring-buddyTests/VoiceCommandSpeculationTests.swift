@@ -74,7 +74,6 @@ struct VoiceCommandSpeculationTests {
                 partialTranscript: partial,
                 finalTranscript: final,
                 finalRoute: .voiceCommandRouter,
-                voiceCommandsRunInTheHarness: true,
                 finalUsesTheSameScreenRead: true,
                 commandInputsAreUnchanged: true,
                 heldCommandIsStillRunning: true
@@ -133,7 +132,6 @@ struct VoiceCommandSpeculationTests {
             speculativeStartStep(
                 partialTranscript: transcript,
                 partialRoute: .keywordBranch(.showArtInMyRoom),
-                voiceCommandsRunInTheHarness: true,
                 approvalAtPress: nil,
                 speculationIsOn: true
             ) == .waitForOtherWords(reason: "the partial transcript does not go to the router")
@@ -141,8 +139,8 @@ struct VoiceCommandSpeculationTests {
     }
 
     @Test func aPartialStartsACommandOnlyWhenTheBrainWouldTakeItAndNoApprovalIsWaiting() {
-        func step(_ partial: String, route: TranscriptRoute = .voiceCommandRouter, harness: Bool = true, approvalAtPress: ApprovalAtPress? = nil, isOn: Bool = true) -> SpeculativeStartStep {
-            speculativeStartStep(partialTranscript: partial, partialRoute: route, voiceCommandsRunInTheHarness: harness, approvalAtPress: approvalAtPress, speculationIsOn: isOn)
+        func step(_ partial: String, route: TranscriptRoute = .voiceCommandRouter, approvalAtPress: ApprovalAtPress? = nil, isOn: Bool = true) -> SpeculativeStartStep {
+            speculativeStartStep(partialTranscript: partial, partialRoute: route, approvalAtPress: approvalAtPress, speculationIsOn: isOn)
         }
         #expect(step("turn it left") == .start)
         // The harness settles an approval from the transcript's own words, so a partial "yes" must never reach one.
@@ -156,7 +154,6 @@ struct VoiceCommandSpeculationTests {
         #expect(step("stop the", route: .videoQuizCommand(.stop)) == .waitForOtherWords(reason: "the partial transcript does not go to the router"))
         #expect(step("the heart", route: .keywordPath) == .waitForOtherWords(reason: "the partial transcript does not go to the router"))
         #expect(step("") == .waitForOtherWords(reason: "no words were heard yet"))
-        #expect(step("turn it left", harness: false) == .doNotStart(reason: "voice commands run on the Worker router"))
         #expect(step("turn it left", isOn: false) == .doNotStart(reason: "speculation is turned off"))
     }
 
@@ -204,7 +201,7 @@ struct VoiceCommandSpeculationTests {
 
     @Test func aPartialHoldOnOrGoAheadStartsACommandUnlessAnApprovalWaitsAtThePress() {
         func step(_ partial: String, approvalAtPress: ApprovalAtPress?) -> SpeculativeStartStep {
-            speculativeStartStep(partialTranscript: partial, partialRoute: .voiceCommandRouter, voiceCommandsRunInTheHarness: true, approvalAtPress: approvalAtPress, speculationIsOn: true)
+            speculativeStartStep(partialTranscript: partial, partialRoute: .voiceCommandRouter, approvalAtPress: approvalAtPress, speculationIsOn: true)
         }
         #expect(step("hold on", approvalAtPress: nil) == .start)
         #expect(step("go ahead", approvalAtPress: nil) == .start)
@@ -244,7 +241,6 @@ struct VoiceCommandSpeculationTests {
                 partialTranscript: "hold on",
                 finalTranscript: "Hold on.",
                 finalRoute: finalRoute,
-                voiceCommandsRunInTheHarness: true,
                 finalUsesTheSameScreenRead: true,
                 commandInputsAreUnchanged: startedInputs == finalInputs,
                 heldCommandIsStillRunning: true
@@ -279,12 +275,11 @@ struct VoiceCommandSpeculationTests {
     }
 
     @Test func theFinalTranscriptKeepsTheCommandOnlyWhenEverythingItWasStartedFromStillHolds() {
-        func step(final: String = "Turn it left.", route: TranscriptRoute = .voiceCommandRouter, harness: Bool = true, sameRead: Bool = true, sameInputs: Bool = true, stillRunning: Bool = true) -> SpeculationStep {
+        func step(final: String = "Turn it left.", route: TranscriptRoute = .voiceCommandRouter, sameRead: Bool = true, sameInputs: Bool = true, stillRunning: Bool = true) -> SpeculationStep {
             speculationStep(
                 partialTranscript: "turn it left",
                 finalTranscript: final,
                 finalRoute: route,
-                voiceCommandsRunInTheHarness: harness,
                 finalUsesTheSameScreenRead: sameRead,
                 commandInputsAreUnchanged: sameInputs,
                 heldCommandIsStillRunning: stillRunning
@@ -296,7 +291,6 @@ struct VoiceCommandSpeculationTests {
         // The last word turned the request into one a keyword branch owns.
         #expect(step(final: "let me try it", route: .keywordBranch(.startExperiment)) == .discard(reason: "the final transcript does not go to the router"))
         #expect(step(route: .keywordPath) == .discard(reason: "the final transcript does not go to the router"))
-        #expect(step(harness: false) == .discard(reason: "voice commands moved to the Worker router"))
         #expect(step(sameRead: false) == .discard(reason: "the page the command read is gone"))
         // A quiz question opened, or the Theme Studio closed, while the final transcript was on its way.
         #expect(step(sameInputs: false) == .discard(reason: "what the command offers changed"))

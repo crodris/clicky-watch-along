@@ -315,48 +315,6 @@ function simulationCase(id: string, frameFileName: string, description: string):
   };
 }
 
-type VoiceToolCall = { name: string; input: Record<string, unknown> };
-
-function voiceToolCallsIn(replyText: string): VoiceToolCall[] {
-  const content = parseJSONObject(replyText)?.content;
-  return (Array.isArray(content) ? content : [])
-    .filter(isRecord)
-    .filter((block) => block.type === "tool_use")
-    .map((block) => ({ name: String(block.name), input: isRecord(block.input) ? block.input : {} }));
-}
-
-/** The app's own /voice-command body in a fixture, with the learner's words swapped in, so the tools and scene state stay what the app sends. */
-function voiceCommandBody(fixtureFileName: string, learnerTranscript: string): unknown {
-  const body = JSON.parse(readFileSync(join(fixturesDirectory, fixtureFileName), "utf8"));
-  body.messages[0].content = String(body.messages[0].content).replace(/Learner said: ".*"$/s, `Learner said: "${learnerTranscript}"`);
-  return body;
-}
-
-/** Every case expects one tool call, with a confirmation Clicky speaks, unless it expects none. */
-function voiceCommandCase(voiceCommandSpec: {
-  id: string;
-  fixtureFileName: string;
-  learnerTranscript: string;
-  description: string;
-  /** A reason the one tool call is wrong, or undefined when it is right. */
-  problemWith: (toolCall: VoiceToolCall) => string | undefined;
-}): BenchCase {
-  const { id, fixtureFileName, learnerTranscript, description, problemWith } = voiceCommandSpec;
-  return {
-    id,
-    route: "/voice-command",
-    description,
-    requestBody: () => voiceCommandBody(fixtureFileName, learnerTranscript),
-    checkReply: (replyText) => {
-      const toolCalls = voiceToolCallsIn(replyText);
-      const toolCall = toolCalls[0];
-      const confirmation = String(toolCall?.input.confirmation ?? "");
-      const problem = toolCalls.length !== 1 ? `${toolCalls.length} tool calls` : (problemWith(toolCall) ?? (confirmation.length === 0 ? "no confirmation" : undefined));
-      return { passed: problem === undefined, detail: `${toolCalls.map((call) => `${call.name} ${JSON.stringify({ ...call.input, confirmation: undefined })}`).join(", ") || "no tool"}${problem === undefined ? "" : `: ${problem}`}` };
-    },
-  };
-}
-
 type PictureFlowsExpectation =
   | { kind: "nothingFlows" }
   | { kind: "flows"; colors: string[]; styles: string[] };
@@ -596,62 +554,6 @@ export const benchCases: BenchCase[] = [
   simulationCase("simulation-pendulum", "pendulum-frame.jpg", "Builds a simulation over a pendulum frame for \"let me try it\""),
   simulationCase("simulation-dissolving", "dissolving-frame.jpg", "Builds a dissolving experiment over a hot and cold water frame for \"let me try it\""),
   simulationCase("simulation-cooling", "cooling-frame.jpg", "Builds a cooling experiment over a cocoa mug frame for \"let me try it\""),
-  {
-    id: "voice-command",
-    route: "/voice-command",
-    description: 'Turns a frame pop-out the other way after "no, turn it the other way", with a recent rotate_model of 45 degrees',
-    // The body is the one the app builds: its scene state JSON, its recent actions, and the tools a pop-out offers.
-    requestBody: () => JSON.parse(readFileSync(join(fixturesDirectory, "voice-command.json"), "utf8")),
-    checkReply: (replyText) => {
-      const reply = parseJSONObject(replyText);
-      const toolCalls = (Array.isArray(reply?.content) ? reply.content : []).filter(isRecord).filter((block) => block.type === "tool_use");
-      const rotation = toolCalls.find((toolCall) => toolCall.name === "rotate_model");
-      const yawDegrees = isRecord(rotation?.input) ? numberField(rotation.input, "yawDegrees") : 0;
-      const confirmation = isRecord(rotation?.input) ? String(rotation.input.confirmation ?? "") : "";
-      return {
-        passed: toolCalls.length === 1 && yawDegrees < 0 && confirmation.length > 0,
-        detail: `${toolCalls.map((toolCall) => String(toolCall.name)).join(", ") || "no tool"}, yaw ${yawDegrees}, says "${confirmation}"`,
-      };
-    },
-  },
-  voiceCommandCase({
-    id: "voice-command-seek",
-    fixtureFileName: "voice-command-video.json",
-    learnerTranscript: "go back 30 seconds",
-    description: 'Goes back 30 seconds in a YouTube video at 2:04, by seeking 30 seconds back or to 1:34',
-    problemWith: ({ name, input }) => {
-      const seconds = numberField(input, "seconds");
-      const wentBack30 = (name === "seek_relative" && Math.abs(seconds + 30) <= 1) || (name === "seek_to_time" && Math.abs(seconds - 94) <= 1);
-      return wentBack30 ? undefined : `${name} ${seconds} does not go back 30 seconds from 124`;
-    },
-  }),
-  voiceCommandCase({
-    id: "voice-command-zoom",
-    fixtureFileName: "voice-command.json",
-    learnerTranscript: "zoom in a little",
-    description: "Zooms in on a frame pop-out with one zoom call, by a factor above 1",
-    problemWith: ({ name, input }) => {
-      const factor = numberField(input, "factor");
-      return name === "zoom" && factor > 1 && factor <= 2 ? undefined : `${name} ${factor} is not a small zoom in`;
-    },
-  }),
-  voiceCommandCase({
-    id: "voice-command-explain",
-    fixtureFileName: "voice-command.json",
-    learnerTranscript: "what does the tail do?",
-    description: "Explains the tail of a frame pop-out labeled wing, tail, and engine, with explain_part",
-    problemWith: ({ name, input }) => (name === "explain_part" && String(input.label).toLowerCase() === "tail" ? undefined : `${name} ${String(input.label)} is not explain_part tail`),
-  }),
-  {
-    id: "voice-command-no-tool",
-    route: "/voice-command",
-    description: 'Calls no tool for "thanks, that looks great", which asks for nothing',
-    requestBody: () => voiceCommandBody("voice-command.json", "thanks, that looks great"),
-    checkReply: (replyText) => {
-      const toolCalls = voiceToolCallsIn(replyText);
-      return { passed: toolCalls.length === 0, detail: toolCalls.length === 0 ? "no tool" : toolCalls.map((toolCall) => toolCall.name).join(", ") };
-    },
-  },
   judgeCase({ caseSuffix: "correct", quiz: heartQuiz, learnerTranscript: "that's the left ventricle, it pumps blood out to the whole body", expectedVerdict: "correct" }),
   judgeCase({ caseSuffix: "named-only", quiz: heartQuiz, learnerTranscript: "the left ventricle", expectedVerdict: "named_only", wordsTheReplyMustNotSay: ["pump", "aorta"] }),
   judgeCase({ caseSuffix: "wrong", quiz: heartQuiz, learnerTranscript: "is it the lungs?", expectedVerdict: "wrong", wordsTheReplyMustNotSay: ["ventricle", "pump"] }),

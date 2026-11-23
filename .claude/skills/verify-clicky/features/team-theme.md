@@ -39,7 +39,7 @@ Preconditions:
 - A Debug build that bundles the portraits.
   Run `python3 -I tools/fetch-haikyu-portraits.py` once per checkout, then `$V build`.
 - A Worker this run started on 8787, which `app-launch` requires.
-  The seeded-agent steps make no model call, and the Volleyball cursor step makes one pointing request (`/voice-command`, `/chat`, and `/tts`).
+  The seeded-agent steps make no model call, and the Volleyball cursor step makes one pointing request (`/v1/messages` for the brain, `/chat`, and `/tts`).
 - The mouse on the main display, since the overlay draws on the screen under it.
 
 - **Seeded agents.** Run `defaults write com.crodris.clicky-watch-along companionTheme bundled:school-karasuno`, then `$V app-launch "+600 thanks"`, which keeps the app idle for 10 minutes.

@@ -15,9 +15,7 @@ import (
 
 // This file is the whole definition of the brain, the voice command loop: its model, prompt, tools, the message the
 // model reads, and the rule for what follows each turn. The loop in brainloop.go only runs it, and the memory it keeps
-// across commands is in brainsession.go. It began as a port of the old path, POST /voice-command in
-// worker/src/voiceCommand.ts and the loop in CompanionManager.runVoiceCommand, and its prompt now differs from the
-// Worker's in the lines that tell the model to read the conversation instead of recent_actions.
+// across commands is in brainsession.go.
 
 const (
 	brainModel     = "claude-haiku-5-5"
@@ -32,7 +30,7 @@ const (
 	brainPlanningModel = "claude-sonnet-5-5"
 
 	// A Haiku turn with no reply by then fails the command, so the app's router failure fallback starts within this long
-	// of the turn's request, as the old path's per-request timeout gave. Haiku answers in about a second.
+	// of the turn's request. Haiku answers in about a second.
 	brainTurnTimeout = 8 * time.Second
 
 	// A Sonnet turn can take longer. The app waits 35 seconds from the planning log line, which stays above this.
@@ -43,9 +41,8 @@ const (
 // events instead of 10 (secondsToWaitForAPlanningTurn in HarnessVoiceCommand.swift), so the two stay in step.
 const brainPlanningLogLine = "Brain: planning on " + brainPlanningModel
 
-// brainSystemPrompt is the old path's voiceCommandSystemPrompt in worker/src/voiceCommand.ts, with the three lines that
-// named recent_actions rewritten, since the brain reads earlier commands from its own conversation. The Worker's prompt
-// stays as it was, for the old path.
+// brainSystemPrompt is the brain's system prompt. The brain reads earlier commands from its own conversation, so the
+// prompt names no recent_actions list.
 var brainSystemPrompt = strings.Join([]string{
 	"You are Clicky's hands. The learner just spoke a request by push-to-talk. They may be watching a 3D scene or a video in Chrome, or have nothing special on screen, and every request reaches you first, so pick the tool for it.",
 	"Call the tool or tools that do what they asked, right away. Text you write next to a tool call is never spoken, so keep it to a few words or leave it out.",
@@ -71,7 +68,7 @@ var confirmationProperty = map[string]any{
 
 const confirmationPropertyName = "confirmation"
 
-// brainTools is the app's tools as the model sees them, the port of toolsForAnthropic: each gets the confirmation
+// brainTools is the app's tools as the model sees them: each gets the confirmation
 // property, required unless the tool is read-only or already requires it, and the last one carries the cache breakpoint
 // that caches the whole list. The app's properties keep their order after the confirmation, and a confirmation property
 // the app's schema already has keeps the app's own words.
@@ -89,7 +86,7 @@ func brainTools(offers []voiceToolOffer) ([]anthropic.ToolUnionParam, error) {
 			switch schemaMember.key {
 			case "type":
 			case "properties":
-				// A properties value that is not an object counts as none, as the old path's spread of a non-object did.
+				// A properties value that is not an object counts as none.
 				appProperties, _ = orderedObjectMembers(schemaMember.value)
 			case "required":
 				var requiredNames []any
@@ -185,8 +182,7 @@ func propertiesWithConfirmationFirst(appProperties []objectMember) json.RawMessa
 
 // brainRequest is one turn's request, on Haiku or, for the extra turn, on Sonnet. Thinking is off and effort is low,
 // since a tool call needs no reasoning and the learner is waiting for the screen to change. The system prompt carries
-// its own cache breakpoint, which the old path got from the Worker's withCachedSystemPrompt and the /v1/messages
-// passthrough does not add.
+// its own cache breakpoint, since the /v1/messages passthrough adds none.
 func brainRequest(model anthropic.Model, messages []anthropic.MessageParam, tools []anthropic.ToolUnionParam) anthropic.MessageNewParams {
 	return anthropic.MessageNewParams{
 		Model:        model,

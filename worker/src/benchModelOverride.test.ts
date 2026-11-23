@@ -201,15 +201,8 @@ describe("anthropicBodyToOpenAIResponsesBody", () => {
     expect(mappedBody({ messages: [] })).not.toHaveProperty("reasoning");
   });
 
-  it("gives the lowest effort for thinking off, ahead of the route's own effort", () => {
-    const thinkingOffBody = { thinking: { type: "disabled" }, output_config: { effort: "low" }, messages: [] };
-
-    expect(mappedBody(thinkingOffBody).reasoning).toEqual({ effort: "none" });
-    expect(anthropicBodyToOpenAIResponsesBody(thinkingOffBody, gptOverride(), "minimal")).toMatchObject({ ok: true, body: { reasoning: { effort: "minimal" } } });
-  });
-
-  it("lets BENCH_EFFORT win over thinking off and the route's effort", () => {
-    const body = mappedBody({ thinking: { type: "disabled" }, output_config: { effort: "low" }, messages: [] }, gptOverride({ effort: "high" }));
+  it("lets BENCH_EFFORT win over the route's effort", () => {
+    const body = mappedBody({ output_config: { effort: "low" }, messages: [] }, gptOverride({ effort: "high" }));
 
     expect(body.reasoning).toEqual({ effort: "high" });
   });
@@ -222,25 +215,11 @@ describe("anthropicBodyToOpenAIResponsesBody", () => {
     expect(body.text).toEqual({ format: { type: "json_schema", name: "reply", schema, strict: true } });
   });
 
-  it("maps tools to non-strict functions with automatic choice", () => {
-    const inputSchema = { type: "object", properties: { yawDegrees: { type: "number" } }, required: ["yawDegrees"] };
-
-    const body = mappedBody({
-      tool_choice: { type: "auto" },
-      tools: [{ name: "rotate_model", description: "Turn it", input_schema: inputSchema, cache_control: { type: "ephemeral" } }],
-      messages: [],
-    });
-
-    expect(body.tools).toEqual([{ type: "function", name: "rotate_model", description: "Turn it", parameters: inputSchema, strict: false }]);
-    expect(body.tool_choice).toBe("auto");
-  });
-
   it.each([
     ["a tool_result block", "tool_result", { messages: [{ role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] }] }],
     ["a tool_use block", "tool_use", { messages: [{ role: "assistant", content: [{ type: "tool_use", id: "t1", name: "x", input: {} }] }] }],
     ["a thinking block", "thinking", { messages: [{ role: "assistant", content: [{ type: "thinking", thinking: "..." }] }] }],
     ["an image that is not base64", "not base64", { messages: [{ role: "user", content: [{ type: "image", source: { type: "url", url: "https://x" } }] }] }],
-    ["a forced tool", "tool_choice tool", { tool_choice: { type: "tool", name: "x" }, messages: [] }],
   ])("reports %s as unsupported instead of guessing", (_unsupportedThing, expectedMention, anthropicBody) => {
     const mapping = anthropicBodyToOpenAIResponsesBody(anthropicBody, gptOverride());
 
@@ -250,11 +229,6 @@ describe("anthropicBodyToOpenAIResponsesBody", () => {
     }
   });
 
-  it("reports a server tool, which has no input_schema, as unsupported", () => {
-    const mapping = anthropicBodyToOpenAIResponsesBody({ tools: [{ type: "web_search_20250305", name: "web_search" }], messages: [] }, gptOverride());
-
-    expect(mapping.ok).toBe(false);
-  });
 });
 
 describe("openAIResponseToAnthropicMessage", () => {
@@ -285,30 +259,6 @@ describe("openAIResponseToAnthropicMessage", () => {
         usage: { input_tokens: 120, output_tokens: 30 },
       },
     });
-  });
-
-  it("maps a function call to a tool_use block with its parsed arguments, and stops for tool use", () => {
-    const reply = openAIResponseToAnthropicMessage({
-      model: "gpt-6-luna",
-      output: [
-        { type: "message", content: [{ type: "output_text", text: "turning" }] },
-        { type: "function_call", id: "fc_1", call_id: "call_1", name: "rotate_model", arguments: '{"yawDegrees":-45,"confirmation":"turned it left"}' },
-      ],
-    });
-
-    expect(reply.ok && reply.message.content).toEqual([
-      { type: "text", text: "turning" },
-      { type: "tool_use", id: "call_1", name: "rotate_model", input: { yawDegrees: -45, confirmation: "turned it left" } },
-    ]);
-    expect(reply.ok && reply.message.stop_reason).toBe("tool_use");
-  });
-
-  it("gives a function call whose arguments are not a JSON object an empty input", () => {
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    const reply = openAIResponseToAnthropicMessage({ output: [{ type: "function_call", call_id: "c", name: "zoom", arguments: "{not json" }] });
-
-    expect(reply.ok && reply.message.content).toEqual([{ type: "tool_use", id: "c", name: "zoom", input: {} }]);
   });
 
   it("maps an output limit to max_tokens and a content filter or a refusal to refusal", () => {
@@ -387,52 +337,6 @@ describe("requestBenchOpenAIMessage", () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("network down"); }));
 
     expect(await requestBenchOpenAIMessage(gptOverride(), "/test-route", { messages: [] })).toEqual({ ok: false, status: 502, error: "OpenAI could not be reached" });
-  });
-
-  describe("a route with thinking off", () => {
-    const thinkingOffBody = { thinking: { type: "disabled" }, messages: [{ role: "user", content: "hi" }] };
-    const effortRejected = () => new Response('{"error":{"message":"Unsupported value: \'none\' is not supported with reasoning.effort"}}', { status: 400 });
-
-    it("moves to the next effort when OpenAI rejects the effort, and starts there on the next call", async () => {
-      const fetchMock = stubOpenAI(effortRejected());
-      const override = gptOverride({ model: "gpt-ladder-a" });
-
-      const firstReply = await requestBenchOpenAIMessage(override, "/voice-command", thinkingOffBody);
-      const secondReply = await requestBenchOpenAIMessage(override, "/voice-command", thinkingOffBody);
-
-      expect(firstReply.ok && secondReply.ok).toBe(true);
-      expect(sentBodies(fetchMock).map((body) => body.reasoning.effort)).toEqual(["none", "minimal", "minimal"]);
-    });
-
-    it("gives up at the last effort and reports the error", async () => {
-      vi.spyOn(console, "error").mockImplementation(() => undefined);
-      const fetchMock = stubOpenAI(effortRejected(), effortRejected(), effortRejected());
-
-      const reply = await requestBenchOpenAIMessage(gptOverride({ model: "gpt-ladder-b" }), "/voice-command", thinkingOffBody);
-
-      expect(reply).toMatchObject({ ok: false, status: 400 });
-      expect(sentBodies(fetchMock).map((body) => body.reasoning.effort)).toEqual(["none", "minimal", "low"]);
-    });
-
-    it("does not retry a 400 that is not about the effort", async () => {
-      vi.spyOn(console, "error").mockImplementation(() => undefined);
-      const fetchMock = stubOpenAI(new Response('{"error":{"message":"Invalid schema for function"}}', { status: 400 }));
-
-      const reply = await requestBenchOpenAIMessage(gptOverride({ model: "gpt-ladder-c" }), "/voice-command", thinkingOffBody);
-
-      expect(reply).toMatchObject({ ok: false, status: 400 });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
-    it("does not search when BENCH_EFFORT sets the effort", async () => {
-      vi.spyOn(console, "error").mockImplementation(() => undefined);
-      const fetchMock = stubOpenAI(effortRejected());
-
-      const reply = await requestBenchOpenAIMessage(gptOverride({ model: "gpt-ladder-d", effort: "high" }), "/voice-command", thinkingOffBody);
-
-      expect(reply).toMatchObject({ ok: false, status: 400 });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
   });
 });
 
@@ -685,83 +589,20 @@ describe("anthropicBodyToGeminiChatBody", () => {
     expect(geminiMappedBody({ messages: [{ role: "user", content: "x" }] })).not.toHaveProperty("reasoning_effort");
   });
 
-  it("gives low for thinking off, since Gemini cannot turn thinking off, ahead of the route's effort but behind BENCH_EFFORT", () => {
-    const thinkingOffRequest = { thinking: { type: "disabled" }, output_config: { effort: "high" }, messages: [{ role: "user", content: "x" }] };
-
-    expect(geminiMappedBody(thinkingOffRequest).reasoning_effort).toBe("low");
-    expect(geminiMappedBody(thinkingOffRequest, geminiOverride({ effort: "high" })).reasoning_effort).toBe("high");
-  });
-
-  it("maps tools to function tools with automatic choice, and the tool_use and tool_result turn of /voice-command", () => {
-    const toolSchema = { type: "object", properties: { yawDegrees: { type: "number" }, confirmation: { type: "string" } }, required: ["confirmation"] };
-
-    const body = geminiMappedBody({
-      system: "you are clicky's hands",
-      tool_choice: { type: "auto" },
-      tools: [{ name: "rotate_model", description: "Orbit the camera.", input_schema: toolSchema, cache_control: { type: "ephemeral" } }],
-      messages: [
-        { role: "user", content: 'Learner said: "turn it left"' },
-        {
-          role: "assistant",
-          content: [
-            { type: "text", text: "On it." },
-            { type: "tool_use", id: "call_1", name: "rotate_model", input: { yawDegrees: -45, confirmation: "turned it left" } },
-          ],
-        },
-        { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1", content: "ok: yaw is now -45" }] },
-      ],
-    });
-
-    expect(body.tools).toEqual([{ type: "function", function: { name: "rotate_model", description: "Orbit the camera.", parameters: toolSchema } }]);
-    expect(body.tool_choice).toBe("auto");
-    expect(body.messages).toEqual([
-      { role: "system", content: "you are clicky's hands" },
-      { role: "user", content: [{ type: "text", text: 'Learner said: "turn it left"' }] },
-      {
-        role: "assistant",
-        content: "On it.",
-        tool_calls: [
-          { id: "call_1", type: "function", function: { name: "rotate_model", arguments: '{"yawDegrees":-45,"confirmation":"turned it left"}' } },
-        ],
-      },
-      { role: "tool", tool_call_id: "call_1", name: "rotate_model", content: "ok: yaw is now -45" },
-    ]);
-  });
-
-  it("leaves content out of an assistant message that only calls tools, and puts tool messages before the user's own text", () => {
-    const body = geminiMappedBody({
-      messages: [
-        { role: "user", content: "go" },
-        { role: "assistant", content: [{ type: "tool_use", id: "call_a", name: "pause_video", input: {} }] },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "and then?" },
-            { type: "tool_result", tool_use_id: "call_a", content: [{ type: "text", text: "paused" }], is_error: false },
-          ],
-        },
-      ],
-    });
-
-    expect(body.messages).toEqual([
-      { role: "user", content: [{ type: "text", text: "go" }] },
-      { role: "assistant", tool_calls: [{ id: "call_a", type: "function", function: { name: "pause_video", arguments: "{}" } }] },
-      { role: "tool", tool_call_id: "call_a", name: "pause_video", content: "paused" },
-      { role: "user", content: [{ type: "text", text: "and then?" }] },
-    ]);
-  });
-
-  it("reports a forced tool, an image that is not base64, a tool_result with an image, and other blocks as unsupported", () => {
+  it("reports an image that is not base64, tool blocks, and other blocks as unsupported", () => {
     const userRequest = (content: unknown) => ({ messages: [{ role: "user", content }] });
 
-    expect(anthropicBodyToGeminiChatBody({ tool_choice: { type: "any" }, messages: [] }, geminiOverride())).toEqual({ ok: false, unsupported: "tool_choice any" });
     expect(anthropicBodyToGeminiChatBody(userRequest([{ type: "image", source: { type: "url", url: "https://x" } }]), geminiOverride())).toEqual({
       ok: false,
       unsupported: "an image that is not base64",
     });
+    expect(anthropicBodyToGeminiChatBody(userRequest([{ type: "tool_result", tool_use_id: "t", content: "ok" }]), geminiOverride())).toEqual({
+      ok: false,
+      unsupported: "a tool_result block",
+    });
     expect(
-      anthropicBodyToGeminiChatBody(userRequest([{ type: "tool_result", tool_use_id: "t", content: [{ type: "image", source: {} }] }]), geminiOverride()),
-    ).toEqual({ ok: false, unsupported: "a tool_result with a block that is not text" });
+      anthropicBodyToGeminiChatBody({ messages: [{ role: "assistant", content: [{ type: "tool_use", id: "t", name: "x", input: {} }] }] }, geminiOverride()),
+    ).toEqual({ ok: false, unsupported: "a tool_use block" });
     expect(anthropicBodyToGeminiChatBody(userRequest([{ type: "document" }]), geminiOverride())).toEqual({ ok: false, unsupported: "a document block" });
     expect(
       anthropicBodyToGeminiChatBody({ messages: [{ role: "assistant", content: [{ type: "thinking", thinking: "" }] }] }, geminiOverride()),
@@ -792,33 +633,6 @@ describe("geminiChatCompletionToAnthropicMessage", () => {
         usage: { input_tokens: 900, output_tokens: 40 },
       },
     });
-  });
-
-  it("maps a tool call to a tool_use block with parsed arguments, and stops for tool use even when Gemini says stop", () => {
-    const mapping = geminiChatCompletionToAnthropicMessage(
-      reply({
-        content: null,
-        tool_calls: [{ id: "call_9", type: "function", function: { name: "rotate_model", arguments: '{"yawDegrees":-45,"confirmation":"turned it left"}' } }],
-      }),
-    );
-
-    expect(mapping.ok && mapping.message.content).toEqual([
-      { type: "tool_use", id: "call_9", name: "rotate_model", input: { yawDegrees: -45, confirmation: "turned it left" } },
-    ]);
-    expect(mapping.ok && mapping.message.stop_reason).toBe("tool_use");
-  });
-
-  it("gives a tool call with no id a fresh one, and an argument string that is not an object an empty input", () => {
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const toolCall = (callArguments: string) => ({ type: "function", function: { name: "pause_video", arguments: callArguments } });
-
-    const mapping = geminiChatCompletionToAnthropicMessage(reply({ tool_calls: [toolCall("not json"), toolCall("{}")] }));
-
-    const toolUseIds = mapping.ok ? mapping.message.content.flatMap((block) => (block.type === "tool_use" ? [block.id] : [])) : [];
-    expect(toolUseIds).toHaveLength(2);
-    expect(new Set(toolUseIds).size).toBe(2);
-    expect(toolUseIds.every((toolUseId) => toolUseId.startsWith("gemini_call_"))).toBe(true);
-    expect(mapping.ok && mapping.message.content[0]).toMatchObject({ input: {} });
   });
 
   it("maps length to max_tokens and a content filter or a refusal to refusal", () => {
@@ -883,40 +697,15 @@ describe("requestBenchGeminiMessage", () => {
     });
   });
 
-  it("puts the thought signature of a tool call back on that call when the app sends it in the next turn", async () => {
-    const signature = { google: { thought_signature: "sig-abc" } };
-    const toolCallReply = {
-      model: "gemini-test",
-      choices: [
-        { message: { role: "assistant", tool_calls: [{ id: "call_sig", type: "function", function: { name: "zoom", arguments: "{}" }, extra_content: signature }] }, finish_reason: "tool_calls" },
-      ],
-    };
-    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify(toolCallReply)));
-    vi.stubGlobal("fetch", fetchMock);
-    const firstTurn = await requestBenchGeminiMessage(geminiOverride(), "/voice-command", { messages: [{ role: "user", content: "zoom" }] });
-    const toolUse = firstTurn.ok ? firstTurn.message.content[0] : undefined;
-
-    const mapping = anthropicBodyToGeminiChatBody(
-      {
-        messages: [
-          { role: "user", content: "zoom" },
-          { role: "assistant", content: [toolUse] },
-          { role: "user", content: [{ type: "tool_result", tool_use_id: "call_sig", content: "done" }] },
-        ],
-      },
-      geminiOverride(),
-    );
-
-    expect(mapping.ok && (mapping.body.messages as Array<Record<string, unknown>>)[1]).toMatchObject({ tool_calls: [{ id: "call_sig", extra_content: signature }] });
-  });
-
   it("answers 501 without calling Gemini for a request it cannot port", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const reply = await requestBenchGeminiMessage(geminiOverride(), "/test-route", { tool_choice: { type: "tool", name: "x" }, messages: [] });
+    const reply = await requestBenchGeminiMessage(geminiOverride(), "/test-route", {
+      messages: [{ role: "assistant", content: [{ type: "tool_use", id: "t", name: "x", input: {} }] }],
+    });
 
-    expect(reply).toEqual({ ok: false, status: 501, error: "BENCH_MODEL gemini-test cannot take tool_choice tool" });
+    expect(reply).toEqual({ ok: false, status: 501, error: "BENCH_MODEL gemini-test cannot take a tool_use block" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1073,7 +862,7 @@ describe("forwardChatToGemini", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     expect((await forwardChatToGemini(geminiOverride(), "not json")).status).toBe(400);
-    expect((await forwardChatToGemini(geminiOverride(), JSON.stringify({ tool_choice: { type: "any" }, messages: [] }))).status).toBe(501);
+    expect((await forwardChatToGemini(geminiOverride(), JSON.stringify({ messages: [{ role: "assistant", content: [{ type: "tool_use", id: "t", name: "x", input: {} }] }] }))).status).toBe(501);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

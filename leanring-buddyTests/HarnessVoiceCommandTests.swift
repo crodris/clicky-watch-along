@@ -2,7 +2,7 @@
 //  HarnessVoiceCommandTests.swift
 //  leanring-buddyTests
 //
-//  A voice command on the brain, from the app's side: which approval ID each call carries, which lines the command
+//  A voice command on the brain, from the app's side: which lines the command
 //  writes back to the harness when a hand-off or a push-to-talk press cancels it, how a hand-off ends the command, and
 //  what a call queued behind the passed deadline does. The harness's own rules are tested
 //  in harness/brainloop_test.go.
@@ -28,44 +28,9 @@ private final class HarnessLineRecorder: Sendable {
 struct HarnessVoiceCommandTests {
     private let commandID = UUID(uuidString: "E621E1F8-C36C-495A-93FC-0C247A3E6E5F")!
 
-    private func approvalCall(toolUseID: String, turnIndex: Int?) -> HarnessTaskEvent {
-        .toolCall(HarnessToolCall(toolUseID: toolUseID, toolName: "answer_approval", input: ["approved": .bool(true), "always": .bool(false)], turnIndex: turnIndex))
-    }
-
-    @Test func onlyACallFromTheFirstTurnCarriesTheApprovalIDTheLearnerHadSeenAtThePress() async {
-        let (commandEvents, eventContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
-        eventContinuation.yield(approvalCall(toolUseID: "toolu_first_turn", turnIndex: 0))
-        eventContinuation.yield(approvalCall(toolUseID: "toolu_second_turn", turnIndex: 1))
-        eventContinuation.yield(approvalCall(toolUseID: "toolu_no_turn", turnIndex: nil))
-        eventContinuation.yield(.voiceCommandFinished(spokenLine: "allowed it", gaveUp: false))
-        let recorder = HarnessLineRecorder()
-        let commandLines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in recorder.record(harnessCommand) })
-
-        var approvalIDsTheCallsCarried: [String?] = []
-        let commandEnding = await runTheVoiceCommandEvents(
-            commandEvents,
-            lines: commandLines,
-            approvalWhenTheCommandStarted: ApprovalAtPress(approvalID: "approval-seen-at-the-press", wholeSummaryWasSeen: true),
-            whenNoEventArrivesInTime: {},
-            runTool: { _, approvalTheLearnerIsAnswering in
-                approvalIDsTheCallsCarried.append(approvalTheLearnerIsAnswering?.approvalID)
-                return .changed(state: nil)
-            }
-        )
-
-        #expect(commandEnding == .finished(spokenLine: "allowed it", gaveUp: false))
-        // A later turn has read tool results, which a page or a server may have written, so its yes reaches no request.
-        #expect(approvalIDsTheCallsCarried == ["approval-seen-at-the-press", nil, nil])
-        #expect(recorder.lines == [
-            .voiceToolResult(taskID: commandID, toolUseID: "toolu_first_turn", outcome: .changed(state: nil)),
-            .voiceToolResult(taskID: commandID, toolUseID: "toolu_second_turn", outcome: .changed(state: nil)),
-            .voiceToolResult(taskID: commandID, toolUseID: "toolu_no_turn", outcome: .changed(state: nil)),
-        ])
-    }
-
     @Test func aPopOutWritesOneHandedOffResultAndNoCancel() async {
         let (commandEvents, eventContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
-        eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_pop", toolName: "pop_out", input: [:], turnIndex: 0)))
+        eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_pop", toolName: "pop_out", input: [:])))
         let recorder = HarnessLineRecorder()
         let commandLines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in recorder.record(harnessCommand) })
 
@@ -73,9 +38,8 @@ struct HarnessVoiceCommandTests {
             await runTheVoiceCommandEvents(
                 commandEvents,
                 lines: commandLines,
-                approvalWhenTheCommandStarted: nil,
                 whenNoEventArrivesInTime: {},
-                runTool: { _, _ in
+                runTool: { _ in
                     // What runAppVoiceTool's pop_out branch does: the mark, then respondToTranscript, whose first line
                     // cancels currentResponseTask, which is this command's task, before .handedOff is returned.
                     commandLines.handOffHasStarted()
@@ -92,21 +56,20 @@ struct HarnessVoiceCommandTests {
 
     @Test func aHandOffThatLeavesTheCommandRunningFinishesItWithoutWaitingForTheHarness() async {
         let (commandEvents, eventContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
-        eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_close", toolName: "close_scene", input: [:], turnIndex: 0)))
+        eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_close", toolName: "close_scene", input: [:])))
         let recorder = HarnessLineRecorder()
         let commandLines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in recorder.record(harnessCommand) })
 
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
-            approvalWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.05,
             whenNoEventArrivesInTime: {
                 // A harness that stalls after the result: the fallback must not answer a request close_scene took.
                 eventContinuation.yield(.failed(reason: "the agent harness sent nothing for 10 seconds"))
                 eventContinuation.finish()
             },
-            runTool: { _, _ in
+            runTool: { _ in
                 // close_scene hands off without cancelling the command's task.
                 .handedOff
             }
@@ -143,16 +106,15 @@ struct HarnessVoiceCommandTests {
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
-            approvalWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.05,
             whenNoEventArrivesInTime: {
                 // The harness's call reached the stream just as the wait ran out, ahead of the failure that ends it.
-                eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_rotate", toolName: "rotate_model", input: [:], turnIndex: 0)))
+                eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_rotate", toolName: "rotate_model", input: [:])))
                 commandLines.commandWasCancelled()
                 eventContinuation.yield(.failed(reason: "the agent harness sent nothing for 10 seconds"))
                 eventContinuation.finish()
             },
-            runTool: { _, _ in
+            runTool: { _ in
                 toolCallsThatRan += 1
                 return .changed(state: nil)
             }
@@ -182,11 +144,10 @@ struct HarnessVoiceCommandTests {
         let endingAfterThePlanningLine = await runTheVoiceCommandEvents(
             planningEvents,
             lines: HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in }),
-            approvalWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.05,
             secondsToWaitAfterAPlanningLine: 60,
             whenNoEventArrivesInTime: { waitRanOutAfterThePlanningLine = true },
-            runTool: { _, _ in .changed(state: nil) }
+            runTool: { _ in .changed(state: nil) }
         )
         await sendsTheFinishLater.value
         #expect(endingAfterThePlanningLine == .finished(spokenLine: "jumped to it", gaveUp: false))
@@ -197,14 +158,13 @@ struct HarnessVoiceCommandTests {
         let endingWithNoPlanningLine = await runTheVoiceCommandEvents(
             plainEvents,
             lines: HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in }),
-            approvalWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.05,
             secondsToWaitAfterAPlanningLine: 5,
             whenNoEventArrivesInTime: {
                 plainContinuation.yield(.failed(reason: "the agent harness sent nothing in time"))
                 plainContinuation.finish()
             },
-            runTool: { _, _ in .changed(state: nil) }
+            runTool: { _ in .changed(state: nil) }
         )
         #expect(endingWithNoPlanningLine == .failed(reason: "the agent harness sent nothing in time"))
 
@@ -220,14 +180,13 @@ struct HarnessVoiceCommandTests {
         let endingWhenThePlanningTurnSendsNothing = await runTheVoiceCommandEvents(
             silentPlanningEvents,
             lines: HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in }),
-            approvalWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.05,
             secondsToWaitAfterAPlanningLine: 0.2,
             whenNoEventArrivesInTime: {
                 silentPlanningContinuation.yield(.failed(reason: "the planning wait ran out"))
                 silentPlanningContinuation.finish()
             },
-            runTool: { _, _ in .changed(state: nil) }
+            runTool: { _ in .changed(state: nil) }
         )
         backstop.cancel()
         #expect(endingWhenThePlanningTurnSendsNothing == .failed(reason: "the planning wait ran out"))
@@ -321,7 +280,7 @@ struct HarnessVoiceCommandTests {
             var deadlinesPassed = 0
         }
         let (commandEvents, eventContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
-        eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_play", toolName: "play_video", input: [:], turnIndex: 0)))
+        eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_play", toolName: "play_video", input: [:])))
         let recorder = HarnessLineRecorder()
         let commandLines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in recorder.record(harnessCommand) })
         let deadlineRecord = DeadlineRecord()
@@ -329,7 +288,6 @@ struct HarnessVoiceCommandTests {
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
-            approvalWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.1,
             whenNoEventArrivesInTime: {
                 deadlineRecord.deadlinesPassed += 1
@@ -339,7 +297,7 @@ struct HarnessVoiceCommandTests {
                 eventContinuation.yield(.failed(reason: "the agent harness sent nothing for 10 seconds"))
                 eventContinuation.finish()
             },
-            runTool: { _, _ in
+            runTool: { _ in
                 // play_video checks for about 1.6 seconds, longer than the wait for an event.
                 deadlineRecord.toolIsRunning = true
                 try? await Task.sleep(for: .milliseconds(300))

@@ -10,7 +10,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
-// ---- The tools, ported from toolsForAnthropic's tests in worker/src/voiceCommand.test.ts ----
+// ---- The tools ----
 
 var rotateToolOffer = voiceToolOffer{
 	Name:        "rotate_model",

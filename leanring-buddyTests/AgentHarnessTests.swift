@@ -138,7 +138,7 @@ struct AgentHarnessTests {
 
     // MARK: - Voice commands on the brain
 
-    @Test func aVoiceCommandsFinishedLineAndATurnIndexParse() throws {
+    @Test func aVoiceCommandsFinishedLineParses() throws {
         // The lines harness/brainloop_test.go asserts the harness writes.
         let finishedLine = #"{"type":"voice_command_finished","taskID":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","spokenLine":"turned it left zoomed in","gaveUp":false}"#
         #expect(try HarnessMessage(line: finishedLine) == .voiceCommandFinished(taskID: firstTaskID, spokenLine: "turned it left zoomed in", gaveUp: false))
@@ -147,19 +147,6 @@ struct AgentHarnessTests {
         #expect(throws: HarnessMessage.ParseError.missingField(messageType: "voice_command_finished", fieldName: "gaveUp")) {
             try HarnessMessage(line: #"{"type":"voice_command_finished","taskID":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","spokenLine":""}"#)
         }
-
-        let secondTurnCallLine = #"{"type":"tool_call","taskID":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","toolUseID":"toolu_seek","name":"seek_to_time","input":{"seconds":95},"turnIndex":1}"#
-        #expect(try HarnessMessage(line: secondTurnCallLine) == .toolCall(
-            taskID: firstTaskID,
-            HarnessToolCall(toolUseID: "toolu_seek", toolName: "seek_to_time", input: ["seconds": .number(95)], turnIndex: 1)
-        ))
-        // A task's call carries no turn.
-        let taskCallLine = #"{"type":"tool_call","taskID":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","toolUseID":"toolu_look","name":"look_at_video","input":{}}"#
-        guard case .toolCall(_, let taskCall) = try HarnessMessage(line: taskCallLine) else {
-            Issue.record("the task's call did not parse")
-            return
-        }
-        #expect(taskCall.turnIndex == nil)
     }
 
     @Test func theRouterEndsAVoiceCommandsStreamWithItsFinishedLine() async {

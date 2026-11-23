@@ -42,7 +42,7 @@ struct VoiceCommandEarlyLineTests {
     @Test func theEarlyLineReachesTheAppBeforeTheCallsRun() async {
         let (commandEvents, eventContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
         eventContinuation.yield(.spokenLineIfEveryCallChanges(spokenLine: "turned it left", toolNames: ["rotate_model"]))
-        eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_rotate", toolName: "rotate_model", input: ["yawDegrees": .number(-45)], turnIndex: 0)))
+        eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_rotate", toolName: "rotate_model", input: ["yawDegrees": .number(-45)])))
         eventContinuation.yield(.voiceCommandFinished(spokenLine: "turned it left", gaveUp: false))
         let commandLines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in })
 
@@ -50,10 +50,9 @@ struct VoiceCommandEarlyLineTests {
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
-            approvalWhenTheCommandStarted: nil,
             whenNoEventArrivesInTime: {},
             whenTheLineIfEveryCallChangesArrives: { spokenLine, toolNames in whatHappened.append("fetch \(spokenLine) for \(toolNames.joined(separator: ","))") },
-            runTool: { toolCall, _ in
+            runTool: { toolCall in
                 whatHappened.append("run \(toolCall.name)")
                 return .changed(state: nil)
             }

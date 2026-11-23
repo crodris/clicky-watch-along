@@ -55,7 +55,7 @@ It then uses exactly four H2 sections in this order.
 - [Room art](./room-art.md) covers hanging a store page's wall art on the learner's wall in a live camera panel at its real size, the item kinds the page reader tells apart, and Clicky's loop around the wall spot while it is measured.
 - [Interrupting a reply](./interrupt-reply.md) covers stopping Clicky mid-answer with Escape or a push-to-talk tap.
 - [Let me try it simulation](./simulation.md) covers the science experiment a learner builds with "let me try it": the guess, the trials, the guess check, and the challenge.
-- [Voice commands](./voice-commands.md) covers follow-up commands that change the scene or video on screen through `/voice-command` and the voice tools.
+- [Voice commands](./voice-commands.md) covers follow-up commands that change the scene or video on screen through the brain in the agent harness and the voice tools.
 - [Notion study guide](./study-guide.md) covers writing, revising, and opening a Notion study guide for the YouTube video in front through `/study-guide`.
 - [3D model agent](./three-d-model-agent.md) covers building a 3D model in the background while the video plays, beside other background agents, and showing it when it is ready.
 - [Task agent](./task-agent.md) covers the general background agent that works on any task with web search, the video's captions, and a Notion page.

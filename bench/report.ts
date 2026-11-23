@@ -34,6 +34,7 @@ const caseLabels: Record<string, string> = {
   "simulation-pendulum": "Simulation, pendulum",
   "simulation-dissolving": "Simulation, dissolving",
   "simulation-cooling": "Simulation, cooling",
+  // The /voice-command cases were removed with the route, and the committed results that hold them still draw these labels.
   "voice-command": "Voice command, turn the model",
   "voice-command-seek": "Voice command, seek the video",
   "voice-command-zoom": "Voice command, zoom in",

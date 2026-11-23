@@ -67,21 +67,6 @@ const routeRequests: Array<{ route: string; body: unknown; defaultModel: string;
     defaultURL: anthropicURL,
     body: { request: "something cozy for night" },
   },
-  {
-    route: "/voice-command",
-    defaultModel: "claude-haiku-5-5",
-    defaultURL: anthropicURL,
-    body: {
-      messages: [{ role: "user", content: 'Learner said: "turn it left"' }],
-      tools: [
-        {
-          name: "rotate_model",
-          description: "Orbit the camera.",
-          inputSchema: { type: "object", properties: { yawDegrees: { type: "number" }, pitchDegrees: { type: "number" } }, required: ["yawDegrees"] },
-        },
-      ],
-    },
-  },
 ];
 
 function post(route: string, body: unknown, env: Parameters<typeof worker.fetch>[1]): Promise<Response> {
@@ -255,7 +240,7 @@ describe("with a GPT BENCH_MODEL", () => {
     expect(sentBody(fetchMock)).toMatchObject({ model: "gpt-6-luna", service_tier: "ultrafast" });
   });
 
-  it.each(routeRequests.filter(({ route }) => route !== "/voice-command"))(
+  it.each(routeRequests)(
     "gives $route's real schema to strict mode, which needs every property required",
     async ({ route, body }) => {
       const fetchMock = stubFetch(emptyOpenAIReply);
@@ -296,39 +281,6 @@ describe("with a GPT BENCH_MODEL", () => {
 
     expect(await response.json()).toEqual({ verdict: "correct", spokenReply: "Yes, it pumps blood." });
     expect(console.log).toHaveBeenCalledWith(`[/judge-answer] usage ${JSON.stringify({ model: "gpt-6-luna-2026-11-12", ...usage, service_tier: "ultrafast" })}`);
-  });
-
-  it("answers /voice-command with the function call as a tool_use block", async () => {
-    stubFetch(
-      () =>
-        new Response(
-          JSON.stringify({
-            model: "gpt-6-luna",
-            output: [{ type: "function_call", call_id: "call_1", name: "rotate_model", arguments: '{"yawDegrees":-45,"confirmation":"turned it left"}' }],
-            usage: {},
-          }),
-        ),
-    );
-    const voiceRoute = routeRequests.find(({ route }) => route === "/voice-command");
-
-    const response = await post("/voice-command", voiceRoute?.body, gptEnv);
-
-    expect(await response.json()).toEqual({
-      content: [{ type: "tool_use", id: "call_1", name: "rotate_model", input: { yawDegrees: -45, confirmation: "turned it left" } }],
-      stopReason: "tool_use",
-    });
-  });
-
-  it("sends the voice tools as non-strict functions, since their schemas have optional properties", async () => {
-    const fetchMock = stubFetch(emptyOpenAIReply);
-    const voiceRoute = routeRequests.find(({ route }) => route === "/voice-command");
-
-    await post("/voice-command", voiceRoute?.body, gptEnv);
-
-    const { tools, reasoning } = sentBody(fetchMock);
-    expect(tools[0]).toMatchObject({ type: "function", name: "rotate_model", strict: false });
-    // /voice-command turns thinking off on Haiku, so GPT gets the lowest effort it accepts.
-    expect(reasoning).toEqual({ effort: "none" });
   });
 
   it("streams /chat back as Anthropic events, and sends the app's own request to OpenAI with stream on", async () => {
@@ -372,7 +324,7 @@ describe("with a Gemini BENCH_MODEL", () => {
     expect(sentBody(fetchMock).messages.length).toBeGreaterThan(0);
   });
 
-  it.each(routeRequests.filter(({ route }) => route !== "/voice-command"))("gives $route's schema to response_format as strict json_schema", async ({ route, body }) => {
+  it.each(routeRequests)("gives $route's schema to response_format as strict json_schema", async ({ route, body }) => {
     const fetchMock = stubFetch(emptyGeminiReply);
 
     await post(route, body, geminiEnv);
@@ -411,60 +363,6 @@ describe("with a Gemini BENCH_MODEL", () => {
     expect(console.log).toHaveBeenCalledWith(
       `[/judge-answer] usage ${JSON.stringify({ model: "gemini-4-neon", input_tokens: 300, input_tokens_details: { cached_tokens: 128 }, output_tokens: 20 })}`,
     );
-  });
-
-  it("answers /voice-command with the tool call as a tool_use block", async () => {
-    stubFetch(
-      () =>
-        new Response(
-          JSON.stringify({
-            model: "gemini-4-neon",
-            choices: [
-              {
-                message: {
-                  role: "assistant",
-                  content: null,
-                  tool_calls: [{ id: "call_1", type: "function", function: { name: "rotate_model", arguments: '{"yawDegrees":-45,"confirmation":"turned it left"}' } }],
-                },
-                finish_reason: "tool_calls",
-              },
-            ],
-            usage: {},
-          }),
-        ),
-    );
-    const voiceRoute = routeRequests.find(({ route }) => route === "/voice-command");
-
-    const response = await post("/voice-command", voiceRoute?.body, geminiEnv);
-
-    expect(await response.json()).toEqual({
-      content: [{ type: "tool_use", id: "call_1", name: "rotate_model", input: { yawDegrees: -45, confirmation: "turned it left" } }],
-      stopReason: "tool_use",
-    });
-  });
-
-  it("sends /voice-command's second turn, with the tool call and its result, and the tools as functions", async () => {
-    const fetchMock = stubFetch(emptyGeminiReply);
-    const voiceRoute = routeRequests.find(({ route }) => route === "/voice-command");
-    const secondTurnBody = {
-      tools: (voiceRoute?.body as { tools: unknown }).tools,
-      messages: [
-        { role: "user", content: 'Learner said: "turn it left"' },
-        { role: "assistant", content: [{ type: "tool_use", id: "call_1", name: "rotate_model", input: { yawDegrees: -45 } }] },
-        { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1", content: "that failed" }] },
-      ],
-    };
-
-    const response = await post("/voice-command", secondTurnBody, geminiEnv);
-
-    expect(response.status).toBe(200);
-    const { messages, tools, tool_choice, reasoning_effort } = sentBody(fetchMock);
-    expect(messages.map((message: { role: string }) => message.role)).toEqual(["system", "user", "assistant", "tool"]);
-    expect(messages[3]).toEqual({ role: "tool", tool_call_id: "call_1", name: "rotate_model", content: "that failed" });
-    expect(tools[0]).toMatchObject({ type: "function", function: { name: "rotate_model" } });
-    expect(tool_choice).toBe("auto");
-    // /voice-command turns thinking off on Haiku, and Gemini cannot, so it gets the lowest effort.
-    expect(reasoning_effort).toBe("low");
   });
 
   it("streams /chat back as Anthropic events, and sends the app's own request to Gemini with stream on", async () => {
