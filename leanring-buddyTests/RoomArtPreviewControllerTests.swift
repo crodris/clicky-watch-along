@@ -2220,7 +2220,7 @@ struct RoomArtPreviewControllerTests {
         RoomFurnitureGenerationError.serviceIsNotSetUp(body: ""),
         RoomFurnitureGenerationError.serviceIsOutOfCredit(body: ""),
     ])
-    func aGenerationServiceThatIsNotSetUpDrawsNothingAndIsNotAskedAgain(paintingError: RoomFurnitureGenerationError) async throws {
+    func aCompositeServiceThatCannotAnswerDrawsNothingAndIsNotAskedAgain(paintingError: RoomFurnitureGenerationError) async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)
         let looks = FurnitureLookStub()
