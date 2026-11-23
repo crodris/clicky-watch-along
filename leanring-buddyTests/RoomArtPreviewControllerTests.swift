@@ -1919,6 +1919,7 @@ struct RoomArtPreviewControllerTests {
 
         harness.controller.paintTheShirt()
         try await waitFor("the painting to be sent") { shirtPainting.requests.count == 1 }
+        let linesBeforeGoingBack = harness.spokenLines().count
         harness.controller.goBackToTheLiveShirt()
         #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt"))
 
@@ -1927,7 +1928,9 @@ struct RoomArtPreviewControllerTests {
         await Task.yield()
         #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt"))
         #expect(harness.frameProcessor.paintedStillsShown == 0)
-        #expect(!harness.spokenLines().contains("Here it is on you."))
+        // A cancelled painting is not a failure: nothing is said, and the preview is resumed only by going back.
+        #expect(harness.spokenLines().count == linesBeforeGoingBack)
+        #expect(harness.frameProcessor.resumes == 1)
         harness.controller.close()
     }
 
@@ -1984,12 +1987,13 @@ struct RoomArtPreviewControllerTests {
 
         harness.controller.paintTheShirt()
         try await waitFor("the painting to be sent") { shirtPainting.requests.count == 1 }
+        let linesBeforeTheClose = harness.spokenLines().count
         harness.controller.close()
         await paintingGate.untilAWaitIsCancelled()
         await Task.yield()
         #expect(harness.controller.phase == .closed)
         #expect(harness.frameProcessor.paintedStillsShown == 0)
-        #expect(!harness.spokenLines().contains("Here it is on you."))
+        #expect(harness.spokenLines().count == linesBeforeTheClose)
         #expect(harness.controller.shirtStillVoiceTargets == .none)
     }
 

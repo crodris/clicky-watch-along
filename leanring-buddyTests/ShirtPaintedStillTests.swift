@@ -344,7 +344,7 @@ struct ShirtPaintedStillPasteTests {
         for row in 35..<50 { for column in 94..<104 { #expect(color(column, row) == [128, 128, 128]) } }
         // Without the protection, the paste's growth would have painted it.
         let maskImage = try #require(grayImage(bytes: paintable, width: width, height: height))
-        let unprotected = try #require(furnitureCompositePasted(keyframe: keyframe, generated: painted, mask: maskImage, context: CIContext()))
+        let unprotected = try #require(furnitureCompositePasted(keyframe: keyframe, generated: painted, mask: maskImage, keepsOnlyThePieceTheReplyChanged: false, context: CIContext()))
         let unprotectedPixels = try #require(rgbaBytes(of: unprotected, width: width, height: height))
         #expect(unprotectedPixels[(40 * width + 96) * 4] != 128)
         // Past the growth, the frame is untouched.
@@ -429,6 +429,15 @@ struct ShirtPaintingRequestTests {
         #expect(product.width == 220 && product.height == 330)
         let tiny = RoomArtCorners(topLeft: .zero, topRight: CGPoint(x: 10, y: 0), bottomRight: CGPoint(x: 10, y: 10), bottomLeft: CGPoint(x: 0, y: 10))
         #expect(shirtPaintingProductJPEG(picture: picture, itemCorners: tiny) == nil)
+    }
+
+    @Test func aButtonPressCountsFromARecentClickOrFromWhenItIsHandled() {
+        #expect(shirtButtonPressTime(currentEventIsAMouseClick: true, currentEventTimestamp: 99.8, now: 100) == 99.8)
+        // A VoiceOver press: the current event is the last click, from long before, or not a click at all.
+        #expect(shirtButtonPressTime(currentEventIsAMouseClick: true, currentEventTimestamp: 90, now: 100) == 100)
+        #expect(shirtButtonPressTime(currentEventIsAMouseClick: false, currentEventTimestamp: 99.9, now: 100) == 100)
+        #expect(shirtButtonPressTime(currentEventIsAMouseClick: true, currentEventTimestamp: nil, now: 100) == 100)
+        #expect(shirtButtonPressTime(currentEventIsAMouseClick: true, currentEventTimestamp: 100.5, now: 100) == 100)
     }
 
     @Test func eachFailureHasItsOwnLine() {
