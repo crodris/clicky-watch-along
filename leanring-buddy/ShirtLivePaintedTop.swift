@@ -359,6 +359,15 @@ nonisolated enum ShirtLivePaintedTopReachProblem: Equatable, Sendable {
         case .noTorso, .shouldersChangedSize, .shouldersRolled, .upperArmMoved, .forearmMoved: false
         }
     }
+
+    /// Only a seen elbow or wrist can show this problem, so a frame that misses one can neither find it nor clear it.
+    /// `ShirtLivePaintedTopFollower` holds it until a frame sees every arm part the painting saw.
+    var isAboutTheArms: Bool {
+        switch self {
+        case .upperArmMoved, .forearmMoved: true
+        case .noTorso, .shouldersChangedSize, .shouldersRolled, .turnedSideways, .torsoShortened, .hipsSwayed: false
+        }
+    }
 }
 
 /// Whether the painted top can follow the learner: they stand close enough to how they stood in the painting that a flat
@@ -410,17 +419,25 @@ nonisolated enum ShirtLivePaintedTopReach: Equatable, Sendable {
         }
 
         for (frozenArm, currentArm) in zip(armAngles(of: frozenTorso), armAngles(of: currentTorso)) {
-            // An arm the painting saw must be seen now, since where it went is not known. One the painting never saw is not held to anything.
-            if let frozenUpperArm = frozenArm.upperArm {
-                guard let currentUpperArm = currentArm.upperArm,
-                      abs(degreesTurned(from: frozenUpperArm, to: currentUpperArm)) <= largestUpperArmTurnDegrees * share else { return .outOfReach(.upperArmMoved) }
+            // Only an arm part seen in both the painting and now is held to its limit. An elbow or a wrist Vision does not see
+            // now says nothing about where the arm went (motion blur alone drops its confidence under the floor), so it can
+            // neither find a problem nor clear one (`ShirtLivePaintedTopFollower` holds the last verdict until the arm is seen).
+            if let frozenUpperArm = frozenArm.upperArm, let currentUpperArm = currentArm.upperArm {
+                guard abs(degreesTurned(from: frozenUpperArm, to: currentUpperArm)) <= largestUpperArmTurnDegrees * share else { return .outOfReach(.upperArmMoved) }
             }
-            if followsTheForearms, let frozenForearm = frozenArm.forearm {
-                guard let currentForearm = currentArm.forearm,
-                      abs(degreesTurned(from: frozenForearm, to: currentForearm)) <= largestForearmTurnDegrees * share else { return .outOfReach(.forearmMoved) }
+            if followsTheForearms, let frozenForearm = frozenArm.forearm, let currentForearm = currentArm.forearm {
+                guard abs(degreesTurned(from: frozenForearm, to: currentForearm)) <= largestForearmTurnDegrees * share else { return .outOfReach(.forearmMoved) }
             }
         }
         return .follows
+    }
+
+    /// Whether `currentTorso` sees every arm part `decide` holds to a limit: each elbow the painting saw, and each wrist it
+    /// saw when the forearms count. Only then does a frame that follows clear an arm problem.
+    static func seesEveryArmPartThePaintingSaw(frozenTorso: BodyTorso, currentTorso: BodyTorso, followsTheForearms: Bool) -> Bool {
+        zip(armAngles(of: frozenTorso), armAngles(of: currentTorso)).allSatisfy { frozenArm, currentArm in
+            (frozenArm.upperArm == nil || currentArm.upperArm != nil) && (!followsTheForearms || frozenArm.forearm == nil || currentArm.forearm != nil)
+        }
     }
 
     /// The direction of the line from the image left shoulder to the image right one, in radians.
@@ -500,6 +517,9 @@ nonisolated struct ShirtLivePaintedTopFollower: Sendable {
     /// turn, a bend, or a sway, so the hips' verdict changes only on a frame with real hips and holds through the frames
     /// between, whatever else those frames find.
     private var lastHipProblemSeenOnRealHips: ShirtLivePaintedTopReachProblem?
+    /// The arm problem the last arm check found, nil when the arms were fine. A frame that finds an arm problem records it.
+    /// Only a frame that follows and sees every arm part the painting saw clears it, so it holds through frames that miss one.
+    private var lastArmProblemSeenWithTheArms: ShirtLivePaintedTopReachProblem?
 
     init(top: ShirtLivePaintedTop) {
         self.top = top
@@ -521,12 +541,25 @@ nonisolated struct ShirtLivePaintedTopFollower: Sendable {
             // checked its hips: a hip problem is the new verdict, and following or an arm problem means the hips were fine.
             switch decided {
             case .outOfReach(let problem) where problem.isAboutTheHips: lastHipProblemSeenOnRealHips = problem
-            case .follows, .outOfReach(.upperArmMoved), .outOfReach(.forearmMoved): lastHipProblemSeenOnRealHips = nil
+            case .follows: lastHipProblemSeenOnRealHips = nil
+            case .outOfReach(let problem) where problem.isAboutTheArms: lastHipProblemSeenOnRealHips = nil
             case .outOfReach: break
             }
         }
+        // The same for the arms: an arm problem holds through the frames that do not see the arm. Vision's elbow and wrist
+        // confidence moves around its floor while the learner moves, and the still showed each time it dropped.
+        switch decided {
+        case .outOfReach(let problem) where problem.isAboutTheArms: lastArmProblemSeenWithTheArms = problem
+        case .follows:
+            if let currentTorso, ShirtLivePaintedTopReach.seesEveryArmPartThePaintingSaw(frozenTorso: top.frozenTorso, currentTorso: currentTorso, followsTheForearms: top.followsTheForearms) {
+                lastArmProblemSeenWithTheArms = nil
+            }
+        case .outOfReach: break
+        }
         if decided == .follows, let lastHipProblemSeenOnRealHips {
             reach = .outOfReach(lastHipProblemSeenOnRealHips)
+        } else if decided == .follows, let lastArmProblemSeenWithTheArms {
+            reach = .outOfReach(lastArmProblemSeenWithTheArms)
         } else {
             reach = decided
         }
