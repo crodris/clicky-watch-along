@@ -2,9 +2,10 @@
 //  ThemeStudioPanel.swift
 //  leanring-buddy
 //
-//  The Theme Studio card: a borderless, nonactivating panel next to the cursor that shows three theme ideas. It never
-//  becomes key, so Chrome keeps the keyboard, and it sits one level below the cursor overlay windows, so the real cursor,
-//  which previews the highlighted idea, draws over it. A tile click picks an idea, and Save and Close are buttons. The
+//  The Theme Studio card: a borderless, nonactivating panel next to the cursor, or on the bottom-right corner of the picture
+//  a design reads, that shows three theme ideas. It never becomes key, so Chrome keeps the keyboard, and it sits one level
+//  below the cursor overlay windows, so the real cursor, which previews the highlighted idea, draws over it. While a design
+//  from a picture runs, it rises above them, since the loop around that picture draws in the overlay. A tile click picks an idea, and Save and Close are buttons. The
 //  learner can do all of it by voice too (the router's pick_theme_idea, save_theme, and close_theme_studio tools).
 //
 //  The card is a Tether Card that Glides out of the cursor on the carrier panel and closes back into it. A save stamps the
@@ -27,12 +28,6 @@ final class ThemeStudioPanelController {
     /// Far enough from the mouse that the cursor glyph, which sits 35 points right of the pointer and 25 below it, and the
     /// tool chip above that glyph ("Trying idea 2"), which reaches about 40 points above the pointer, both show clear of the card.
     private static let gapFromTheMouse: CGFloat = 96
-    /// Below the cursor overlay windows (one level above screen saver), so the previewed cursor is never under the card.
-    /// The carrier's moves draw above the cursor, on their own panel.
-    private static let panelLevel = NSWindow.Level.screenSaver
-    /// While ideas are being designed, the cursor loop may be around the picture under the card, and the loop draws in the
-    /// cursor overlay, so the card rises above that overlay until the ideas arrive and the previewed cursor matters again.
-    private static let designingPanelLevel = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
     /// How long the saved tile's stamp shows before its cursor leaves it.
     private static let secondsTheStampShowsBeforeTheCursorFlies = 0.15
 
@@ -50,7 +45,7 @@ final class ThemeStudioPanelController {
     private(set) var openingFlight: CarrierFlight?
     /// The studio whose card this is, which a card that closes plays its move with.
     private weak var studio: ThemeStudioController?
-    /// Raises the card above the cursor overlay while ideas are being designed (`designingPanelLevel`).
+    /// Raises a card opened on a picture above the cursor overlay while ideas are being designed (`themeStudioCardLevel`).
     private var levelFollowsTheDesign: AnyCancellable?
 
     /// The picture the cursor loop is drawn around, in AppKit screen coordinates, or nil. A design from a picture opens the
@@ -73,8 +68,9 @@ final class ThemeStudioPanelController {
         let mouseLocation = NSEvent.mouseLocation
         let screen = screenUnderTheMouseCursor()
         visibleFrame = screen?.visibleFrame ?? .zero
+        let pictureRect = pictureTheLoopIsAround()
         anchorTopLeft = themeStudioCardAnchorTopLeft(
-            pictureRect: pictureTheLoopIsAround(),
+            pictureRect: pictureRect,
             mouseLocation: mouseLocation,
             panelSize: CGSize(width: Self.cardWidth, height: Self.tallestCardHeight),
             visibleFrame: visibleFrame,
@@ -98,15 +94,16 @@ final class ThemeStudioPanelController {
         cardPanel.isOpaque = false
         cardPanel.backgroundColor = .clear
         cardPanel.hasShadow = false
-        cardPanel.level = Self.panelLevel
+        cardPanel.level = themeStudioCardLevel(isDesigning: false, openedOnAPicture: false)
         cardPanel.hidesOnDeactivate = false
         cardPanel.isReleasedWhenClosed = false
         cardPanel.isExcludedFromWindowsMenu = true
         cardPanel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         cardPanel.contentView = hostingView
         panel = cardPanel
+        let openedOnAPicture = pictureRect != nil
         levelFollowsTheDesign = studio.$state.sink { [weak cardPanel] state in
-            cardPanel?.level = state.isDesigning ? Self.designingPanelLevel : Self.panelLevel
+            cardPanel?.level = themeStudioCardLevel(isDesigning: state.isDesigning, openedOnAPicture: openedOnAPicture)
         }
         resizeObserver = keepThePanelOnScreenAsItResizes(cardPanel) { [weak self] in
             (
@@ -847,7 +844,8 @@ struct ThemeStudioButton: View {
 
 /// Where the Theme Studio card opens. A design from a picture hangs the card off that picture's bottom-right corner,
 /// overlapping it by `themeStudioCardOverlapOfThePicture`, so the card reads as about that picture. A picture on another
-/// screen, or a corner spot that would cover the pointer, falls back to the first corner around the mouse.
+/// screen, or a corner spot that would cover the pointer or Clicky's cursor and its ring (`themeStudioPointerArea`), falls
+/// back to the first corner around the mouse.
 func themeStudioCardAnchorTopLeft(
     pictureRect: CGRect?,
     mouseLocation: CGPoint,
@@ -861,7 +859,7 @@ func themeStudioCardAnchorTopLeft(
             y: pictureRect.minY + themeStudioCardOverlapOfThePicture.height
         )
         let panelOrigin = agentListPanelOrigin(anchorTopLeft: atThePicturesBottomRight, panelSize: panelSize, visibleFrame: visibleFrame)
-        if !CGRect(origin: panelOrigin, size: panelSize).contains(mouseLocation) {
+        if !CGRect(origin: panelOrigin, size: panelSize).intersects(themeStudioPointerArea(mouseLocation: mouseLocation)) {
             return atThePicturesBottomRight
         }
     }
@@ -870,3 +868,25 @@ func themeStudioCardAnchorTopLeft(
 
 /// How far the card's top-left corner sits inside the picture's bottom-right corner.
 let themeStudioCardOverlapOfThePicture = CGSize(width: 96, height: 64)
+
+/// The pointer, Clicky's cursor glyph beside it, and the listening ring around that glyph, which a card on the picture's
+/// corner must not cover, since that card sits above the cursor overlay while it designs.
+func themeStudioPointerArea(mouseLocation: CGPoint) -> CGRect {
+    let cursorGlyphPoint = agentTokenServeStartPoint(mouseLocation: mouseLocation)
+    let ringReach: CGFloat = 48
+    return CGRect(
+        x: min(mouseLocation.x, cursorGlyphPoint.x) - ringReach,
+        y: min(mouseLocation.y, cursorGlyphPoint.y) - ringReach,
+        width: abs(cursorGlyphPoint.x - mouseLocation.x) + ringReach * 2,
+        height: abs(cursorGlyphPoint.y - mouseLocation.y) + ringReach * 2
+    )
+}
+
+/// The card's window level. It sits below the cursor overlay windows (one level above screen saver), so the previewed
+/// cursor draws over it, except while a design from a picture runs, when the loop around that picture, drawn in the
+/// overlay, would cross it, so the card rises to the carrier's level until the ideas arrive.
+func themeStudioCardLevel(isDesigning: Bool, openedOnAPicture: Bool) -> NSWindow.Level {
+    isDesigning && openedOnAPicture
+        ? NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
+        : .screenSaver
+}

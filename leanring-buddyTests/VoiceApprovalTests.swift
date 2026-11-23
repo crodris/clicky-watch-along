@@ -7,6 +7,7 @@
 //  (harness/voiceapproval_test.go). The queue's own rules are in AgentHarnessTests.
 //
 
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -144,8 +145,21 @@ struct VoiceApprovalTests {
         let cardFrame = themeStudioCardFrame(pictureRect: duckPhoto, mouseLocation: mouseOnTheCorner)
         #expect(cardFrame == cardFrameAtTheFirstCornerAroundTheMouse(mouseOnTheCorner))
         #expect(!cardFrame.contains(mouseOnTheCorner))
+        // Clicky's cursor 35 points right of the pointer and 25 below would sit under the card, though the pointer would not.
+        let mouseJustLeftOfTheCorner = CGPoint(x: duckPhoto.maxX - themeStudioCardOverlapOfThePicture.width - 20, y: duckPhoto.minY + 40)
+        let cardFrameForThatMouse = themeStudioCardFrame(pictureRect: duckPhoto, mouseLocation: mouseJustLeftOfTheCorner)
+        #expect(cardFrameForThatMouse == cardFrameAtTheFirstCornerAroundTheMouse(mouseJustLeftOfTheCorner))
+        #expect(!cardFrameForThatMouse.contains(agentTokenServeStartPoint(mouseLocation: mouseJustLeftOfTheCorner)))
         // A picture on another screen is not this screen's picture.
         let pictureOnAnotherScreen = duckPhoto.offsetBy(dx: 2000, dy: 0)
         #expect(themeStudioCardFrame(pictureRect: pictureOnAnotherScreen, mouseLocation: mouseNearThePicture) == cardFrameAtTheFirstCornerAroundTheMouse(mouseNearThePicture))
+    }
+
+    @Test func onlyACardOpenedOnAPictureRisesAboveTheCursorOverlayAndOnlyWhileItDesigns() {
+        let cursorOverlayLevel = NSWindow.Level.screenSaver.rawValue + 1
+        #expect(themeStudioCardLevel(isDesigning: true, openedOnAPicture: true).rawValue > cursorOverlayLevel)
+        #expect(themeStudioCardLevel(isDesigning: false, openedOnAPicture: true).rawValue < cursorOverlayLevel)
+        #expect(themeStudioCardLevel(isDesigning: true, openedOnAPicture: false).rawValue < cursorOverlayLevel)
+        #expect(themeStudioCardLevel(isDesigning: false, openedOnAPicture: false).rawValue < cursorOverlayLevel)
     }
 }
