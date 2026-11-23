@@ -56,8 +56,8 @@ nonisolated struct RoomFurniturePaintingOrientation: Equatable, Sendable {
     let facing: RoomFurnitureFacing
     let backAgainstTheWall: Bool
     /// Whether the box's floor footprint reaches the frame's bottom row or lies below it (`roomFurnitureFootprintReachesTheFrameBottom`),
-    /// so the piece's feet and floor shadow are below the picture. Set per painting frame, since the tracker's turn moves
-    /// the box, so the ghost's own orientation leaves it false.
+    /// so the piece's front feet and floor shadow are below the picture, and its back feet may be in it. Set per painting
+    /// frame, since the tracker's turn moves the box, so the ghost's own orientation leaves it false.
     var itemContinuesPastTheFrameBottom = false
 }
 
@@ -101,10 +101,6 @@ nonisolated enum RoomFurniturePaintedComposite {
     /// this share of the footprint's size on each side. A piece painted floating above its footprint, or beside it, stands
     /// where the learner did not put it, even at the right height.
     static let floorContactSlackShare = 0.15
-    /// When the footprint reaches the frame's bottom row or lies below it, the painted piece must reach this share of the
-    /// clamped box outline's height above the frame's bottom row, since its feet are below the picture and the frame cuts
-    /// the piece off at the bottom row.
-    static let bottomBandShareOfTheBoxOutline = 0.1
 
     /// The painted item as keyframe layers, or nil when the painting is not the keyframe's size, the mask does not read, the
     /// painted item is shorter than the box's front face or taller than its outline, each by more than
@@ -158,15 +154,13 @@ nonisolated enum RoomFurniturePaintedComposite {
               paintedRows <= boxOutlineHeight * (1 + mostHeightDifference) else { return (nil, paintedHeightRatio, paintedRowSpan) }
         let floorContact = CGPoint(x: lowestRowMiddleColumn, y: Double(paintedRowSpan.upperBound))
         let footprintInTheFrame = [boxInTheFrame[2], boxInTheFrame[3], boxInTheFrame[6], boxInTheFrame[7]]
-        if roomFurnitureFootprintReachesTheFrameBottom(projectedBox: projectedBox, frameHeight: keyframe.height) {
-            // The clamped footprint is a line on the frame's bottom row, so a painter that leaves its feet a little above the
-            // bottom would fail a vertical check by a fraction of a pixel. The piece must stand across the footprint and run
-            // down to the bottom band, where the frame cuts it off.
-            guard floorContactLandsOnTheFootprint(floorContact, footprint: footprintInTheFrame, checkingOnlyAcrossTheFootprint: true),
-                  paintedRowSpan.upperBound >= Int((Double(keyframe.height - 1) - bottomBandShareOfTheBoxOutline * boxOutlineHeight).rounded(.down))
-            else { return (nil, paintedHeightRatio, paintedRowSpan) }
-        } else {
-            guard floorContactLandsOnTheFootprint(floorContact, footprint: footprintInTheFrame) else { return (nil, paintedHeightRatio, paintedRowSpan) }
+        // The frame clamps a footprint below its bottom row to a line there, whose own height says nothing: the slack comes
+        // from the footprint's height before the cut, and the contact may lie from the top of the part the frame shows down
+        // to the bottom row, where the frame cuts the piece off.
+        let footprintYs = [projectedBox[2], projectedBox[3], projectedBox[6], projectedBox[7]].map(\.y)
+        let footprintHeightBeforeClamping = (footprintYs.max() ?? 0) - (footprintYs.min() ?? 0)
+        guard floorContactLandsOnTheFootprint(floorContact, footprint: footprintInTheFrame, footprintHeightBeforeClamping: footprintHeightBeforeClamping) else {
+            return (nil, paintedHeightRatio, paintedRowSpan)
         }
 
         let itemLayer = paintedImage.applyingFilter("CIBlendWithMask", parameters: [
@@ -189,15 +183,17 @@ nonisolated enum RoomFurniturePaintedComposite {
     }
 
     /// Whether a floor contact point, in y-down keyframe pixels, lies on the footprint's bounding box grown by
-    /// `floorContactSlackShare` of its size on each side. With `checkingOnlyAcrossTheFootprint`, only the horizontal part is
-    /// checked, for a footprint the frame clamped to its bottom row, where its height says nothing.
-    static func floorContactLandsOnTheFootprint(_ floorContact: CGPoint, footprint: [CGPoint], checkingOnlyAcrossTheFootprint: Bool = false) -> Bool {
+    /// `floorContactSlackShare` of its size on each side. `footprint` is what the frame shows of it. When the frame cuts the
+    /// footprint off at its bottom row, the cut footprint is a few rows tall or none, and 15 percent of that is a fraction of
+    /// a row, so `footprintHeightBeforeClamping` gives the height the slack is taken from. The contact may then lie from the
+    /// visible footprint's top, less that slack, down to the bottom row.
+    static func floorContactLandsOnTheFootprint(_ floorContact: CGPoint, footprint: [CGPoint], footprintHeightBeforeClamping: Double? = nil) -> Bool {
         guard let left = footprint.map(\.x).min(), let right = footprint.map(\.x).max(),
               let top = footprint.map(\.y).min(), let bottom = footprint.map(\.y).max() else { return false }
-        let horizontalSlack = (right - left) * floorContactSlackShare, verticalSlack = max(bottom - top, 1) * floorContactSlackShare
-        let landsAcrossTheFootprint = floorContact.x >= left - horizontalSlack && floorContact.x <= right + horizontalSlack
-        if checkingOnlyAcrossTheFootprint { return landsAcrossTheFootprint }
-        return landsAcrossTheFootprint && floorContact.y >= top - verticalSlack && floorContact.y <= bottom + verticalSlack
+        let footprintHeight = footprintHeightBeforeClamping ?? (bottom - top)
+        let horizontalSlack = (right - left) * floorContactSlackShare, verticalSlack = max(footprintHeight, 1) * floorContactSlackShare
+        return floorContact.x >= left - horizontalSlack && floorContact.x <= right + horizontalSlack
+            && floorContact.y >= top - verticalSlack && floorContact.y <= bottom + verticalSlack
     }
 
     /// The rows from the highest to the lowest where the painting changed enough of the pasted region's pixels in that row

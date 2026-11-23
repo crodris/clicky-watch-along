@@ -326,15 +326,18 @@ describe("handleRoomFurnitureComposite", () => {
     );
   });
 
-  it("tells the painter the piece continues past the picture's bottom edge, with no feet or floor shadow above it", async () => {
+  it("tells the painter the piece's front continues past the picture's bottom edge, with its feet and floor shadow only where the floor shows", async () => {
     const fetchMock = stubFetch(async () => new Response(JSON.stringify(goodOpenAIReply), { status: 200 }));
 
     const response = await handleRoomFurnitureComposite(requestWithBody(goodBody({ itemContinuesPastTheFrameBottom: true })), openAIAPIKey);
 
     expect(response.status).toBe(200);
     const sentPrompt: string = JSON.parse(String(fetchMock.mock.calls[0][1].body)).prompt;
-    expect(sentPrompt).toContain("The product continues past the bottom edge of the picture, so the picture's bottom edge cuts off its lower part");
-    expect(sentPrompt).toContain("draw no feet and no shadow on the floor above that edge");
+    expect(sentPrompt).toContain("The front of the product continues past the bottom edge of the picture, so draw it cut off by that edge");
+    // The back feet may be in view, so the feet and the shadow are not banned: they are drawn where the floor shows.
+    expect(sentPrompt).toContain("Draw its feet and its shadow on the floor only where the floor shows inside the picture.");
+    expect(sentPrompt).toContain("a soft, darker contact shadow only where its feet stand on the floor inside the picture");
+    expect(sentPrompt).not.toContain("draw no feet");
     // The sentences that contradict a piece cut off by the frame are gone.
     expect(sentPrompt).not.toContain("its front feet stand on the floor a little above the bottom of the area");
     expect(sentPrompt).not.toContain("contact shadow on the floor under and around its feet");

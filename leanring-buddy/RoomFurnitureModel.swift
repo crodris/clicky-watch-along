@@ -199,9 +199,9 @@ nonisolated func shareOfTheBoxInsideTheFrame(projectedCorners: [CGPoint], frameS
 nonisolated let roomFurnitureLeastShareOfTheFootprintInTheFrameForTheLoop = 0.5
 
 /// Whether the box's floor footprint (its bottom corners, 2, 3, 6, and 7 of `RoomFurniturePlacement.boxCorners`) reaches the
-/// frame's bottom row or lies below it. That is the usual case on a floor inferred from the wall, where a laptop camera sees
-/// no floor: the piece's feet are below the picture, so the frame cuts off its lower part and the footprint's edge on the
-/// picture is only the bottom row.
+/// frame's bottom row or lies below it, so that the frame cuts off the piece's lower part. That is the usual case on a floor
+/// inferred from the wall, where a laptop camera sees little floor: the piece's front feet are below the picture. The back
+/// feet may still be in view, with part of the footprint, when only the lowest corners reach the bottom row.
 nonisolated func roomFurnitureFootprintReachesTheFrameBottom(projectedBox: [CGPoint], frameHeight: Int) -> Bool {
     guard projectedBox.count == 8 else { return false }
     let lowestFootprintRow = [projectedBox[2], projectedBox[3], projectedBox[6], projectedBox[7]].map(\.y).max() ?? 0

@@ -485,24 +485,25 @@ export function furnitureCompositePrompt(
 
 /**
  * How the piece sits in the masked area. Normally its front feet stand a little above the bottom of the area. When the
- * piece continues past the picture's bottom edge (a laptop camera that sees no floor), the picture cuts off its lower
- * part, so it has no feet in view to keep inside the area, and the old sentence told the painter to draw feet and a floor
- * where the picture holds none.
+ * footprint reaches the picture's bottom edge (a laptop camera that sees little floor), the front of the piece continues
+ * past that edge and the picture cuts it off, so the front has no feet in view to keep inside the area. The back feet may
+ * still be in view, so the painter draws feet and floor shadow where the floor shows, and the old sentence is not used,
+ * since it told the painter to stand the front feet above the bottom of the area.
  */
 export function furnitureAreaSentence(itemContinuesPastTheFrameBottom: boolean): string {
   const areaWords =
     "The masked area is the space the product takes up in this room at its real size, seen from this camera, plus a margin for its shadow, so the product is a little smaller than the area.";
   if (itemContinuesPastTheFrameBottom) {
-    return `${areaWords} Keep every part of the product that the picture shows well inside the area, and never wider or taller than it. The product continues past the bottom edge of the picture, so the picture's bottom edge cuts off its lower part: draw no feet and no shadow on the floor above that edge, and let the product reach the bottom edge.`;
+    return `${areaWords} Keep every part of the product that the picture shows well inside the area, and never wider or taller than it. The front of the product continues past the bottom edge of the picture, so draw it cut off by that edge, and let it reach that edge. Draw its feet and its shadow on the floor only where the floor shows inside the picture.`;
   }
   return `${areaWords} Keep every part of the product, its legs and feet included, well inside the area, and never wider or taller than it: its front feet stand on the floor a little above the bottom of the area.`;
 }
 
-/** The lighting sentence, without the contact shadow under feet that a piece cut off by the picture's bottom edge does not show. */
+/** The lighting sentence, with the contact shadow only where the feet and the floor show when the picture cuts the piece off. */
 export function furnitureLightSentence(itemContinuesPastTheFrameBottom: boolean): string {
   const lightWords = "Light it with the room's own light: match the direction, color, and brightness of the light falling in Image 1";
   if (itemContinuesPastTheFrameBottom) {
-    return `${lightWords}.`;
+    return `${lightWords}, and give it a soft, darker contact shadow only where its feet stand on the floor inside the picture.`;
   }
   return `${lightWords}, and give it a soft, darker contact shadow on the floor under and around its feet, inside the area.`;
 }
