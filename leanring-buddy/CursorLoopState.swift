@@ -242,8 +242,8 @@ struct CursorLoopState: Equatable {
     /// An agent started. Its spark joins the line when its work is on the video in front, and it is remembered so that it
     /// can rejoin when a later turn has that video's media in hand again. The line goes around the media it already has,
     /// or a loop's, or else the rect the push-to-talk release read for this turn, which a turn that handed off to nothing
-    /// keeps. With no request loop around the media, that rect in hand is what gives an agent a line of its own, and dropping it would
-    /// limit sparks to a loop a request already drew. `mayJoinTheLine` is false while a scene covers the media, a quiz question
+    /// keeps. With no request loop around the media, that rect in hand is what gives an agent a line of its own, and
+    /// dropping it would limit sparks to a loop a request already drew. `mayJoinTheLine` is false while a scene covers the media, a quiz question
     /// is open, or Show Clicky is off, and the agent is then only remembered.
     mutating func agentStarted(id agentID: UUID, sourceTab: AgentSourceTab, mayJoinTheLine: Bool) {
         guard !runningAgents.contains(where: { $0.id == agentID }) else { return }

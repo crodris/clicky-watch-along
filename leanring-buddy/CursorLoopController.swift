@@ -6,7 +6,7 @@
 //  push-to-talk is released, feeds `CursorLoopState` the events that draw and clear the loop, and while a
 //  loop shows it samples the front tab as the loop starts and once a second after, and clears the loop when anything differs.
 //  It also hears when background agents start and end, so the agents that work on the video in front lap sparks around the
-//  same media, and the same poll watches the agents' line when no request's loop shows.
+//  same media, and the same poll watches the agents' line when no request's loop around the media shows.
 //
 
 import AppKit
