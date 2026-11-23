@@ -3202,7 +3202,8 @@ extension RoomArtPreviewController {
         // temporary folder on 2026-11-23, so neither `tools/swift-check.sh`'s runner nor Xcode's test host writes them.
         guard debugAppKeepsItsPaintings(
             bundleIdentifier: Bundle.main.bundleIdentifier,
-            environment: ProcessInfo.processInfo.environment
+            environment: ProcessInfo.processInfo.environment,
+            xcTestIsLoaded: NSClassFromString("XCTestCase") != nil
         ) else { return }
         let stem = "clicky-room-furniture-painting-\(Int(Date().timeIntervalSince1970 * 1000))"
         let folder = FileManager.default.temporaryDirectory

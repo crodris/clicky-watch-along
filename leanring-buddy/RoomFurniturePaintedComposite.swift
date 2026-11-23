@@ -434,8 +434,9 @@ nonisolated func roomFurnitureFallbackStep(
 
 /// Whether this process is the Debug app itself, which saves each furniture painting it receives for verification,
 /// and not a test run. `tools/swift-check.sh` runs the tests in a runner with another bundle ID, and Xcode's test host
-/// is Clicky.app with `XCTestConfigurationFilePath` set.
-func debugAppKeepsItsPaintings(bundleIdentifier: String?, environment: [String: String]) -> Bool {
+/// is Clicky.app with `XCTestConfigurationFilePath` or `XCTestBundlePath` set and XCTest loaded (`xcTestIsLoaded`, which
+/// the caller reads as `NSClassFromString("XCTestCase") != nil`).
+func debugAppKeepsItsPaintings(bundleIdentifier: String?, environment: [String: String], xcTestIsLoaded: Bool) -> Bool {
     guard let bundleIdentifier, bundleIdentifier.hasPrefix("com.crodris.clicky-watch-along") else { return false }
-    return environment["XCTestConfigurationFilePath"] == nil
+    return environment["XCTestConfigurationFilePath"] == nil && environment["XCTestBundlePath"] == nil && !xcTestIsLoaded
 }
