@@ -308,8 +308,8 @@ func (speakAndFinish) voiceStep()   {}
 func (askTheModelAgain) voiceStep() {}
 func (finishSilently) voiceStep()   {}
 
-// nextVoiceStep decides what follows a turn. The confirmations are spoken only when every tool changed the screen. A lookup or a failure goes back to the model, which then acts on the lookup or says what went
-// wrong.
+// nextVoiceStep decides what follows a turn. The confirmations are spoken only when every tool changed the screen. A
+// lookup or a failure goes back to the model, which then acts on the lookup or says what went wrong.
 func nextVoiceStep(calls []toolCall, outcomes []voiceToolOutcome, replyText string) voiceStep {
 	if slices.Contains(outcomes, voiceToolHandedOff) {
 		return finishSilently{}

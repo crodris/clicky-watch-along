@@ -1,8 +1,7 @@
 # Go one brain: build plan
 
 Written 2026-11-19, against `origin/main` at f213fda (PR #46 merged).
-This is a plan only.
-Nothing in it is built yet.
+Status on 2026-11-22: every PR in this plan is merged, and the old voice command path is deleted.
 Revised 2026-11-20 after a council review (Claude Opus 5.5, Claude Fable 5.2, GPT-6.2 Sol) that checked it against the code.
 
 ## Goal
@@ -584,7 +583,7 @@ New `harness/voiceapproval.go` (the yes check and the offer rule), `harness/brai
 
 **Fallback.** With the harness down, a command takes the router failure fallback (the keyword path), not the old Worker route.
 
-## PR 9: Delete the old path (Chris decides when)
+## PR 9: Delete the old path
 
 Done after the cutover, once the harness brain had run as the default.
 
@@ -649,7 +648,7 @@ Check Haiku 5.5's minimum with the `claude-api` reference before PR 6 relies on 
 2. **Should the brain hear what `answer_with_screen` said?** Today `/chat` keeps its own history, so "say that again" works there, but the brain does not know what was answered.
    Recommendation: wait for an eval case that needs it.
 3. **"Always" scope (PR 1).** One task (recommended), or a narrower per-tool target such as a link's host.
-4. **Deleting the old path (PR 9).** After how many days of use, or keep `/voice-command` as a bench baseline.
+4. **Deleting the old path (PR 9).** Decided on 2026-11-22. PR 9 deleted it, and the brain evals compare Claude models only.
    Deleting it also ends the no-secret fallback and router benchmarks on GPT and Gemini models.
 5. **PR 0's timeout.** Decided on 2026-11-22. Background builds have a 240 second timeout, and a build the learner watches keeps 60 seconds.
    The question was whether to raise the app's `/live-scene` timeout for the background builds if the Sonnet fallback's p95 passed 60 seconds.
