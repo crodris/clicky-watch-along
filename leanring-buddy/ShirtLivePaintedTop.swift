@@ -410,17 +410,25 @@ nonisolated enum ShirtLivePaintedTopReach: Equatable, Sendable {
         }
 
         for (frozenArm, currentArm) in zip(armAngles(of: frozenTorso), armAngles(of: currentTorso)) {
-            // An arm the painting saw must be seen now, since where it went is not known. One the painting never saw is not held to anything.
-            if let frozenUpperArm = frozenArm.upperArm {
-                guard let currentUpperArm = currentArm.upperArm,
-                      abs(degreesTurned(from: frozenUpperArm, to: currentUpperArm)) <= largestUpperArmTurnDegrees * share else { return .outOfReach(.upperArmMoved) }
+            // Only an arm part seen in both the painting and now is held to its limit. An elbow or a wrist Vision does not see
+            // now says nothing about where the arm went (motion blur alone drops its confidence under the floor), so it can
+            // neither find a problem nor clear one (`ShirtLivePaintedTopFollower` holds the last verdict until the arm is seen).
+            if let frozenUpperArm = frozenArm.upperArm, let currentUpperArm = currentArm.upperArm {
+                guard abs(degreesTurned(from: frozenUpperArm, to: currentUpperArm)) <= largestUpperArmTurnDegrees * share else { return .outOfReach(.upperArmMoved) }
             }
-            if followsTheForearms, let frozenForearm = frozenArm.forearm {
-                guard let currentForearm = currentArm.forearm,
-                      abs(degreesTurned(from: frozenForearm, to: currentForearm)) <= largestForearmTurnDegrees * share else { return .outOfReach(.forearmMoved) }
+            if followsTheForearms, let frozenForearm = frozenArm.forearm, let currentForearm = currentArm.forearm {
+                guard abs(degreesTurned(from: frozenForearm, to: currentForearm)) <= largestForearmTurnDegrees * share else { return .outOfReach(.forearmMoved) }
             }
         }
         return .follows
+    }
+
+    /// Whether `currentTorso` sees every arm part `decide` holds to a limit: each elbow the painting saw, and each wrist it
+    /// saw when the forearms count. Only then does a frame that follows clear an arm problem.
+    static func seesEveryArmPartThePaintingSaw(frozenTorso: BodyTorso, currentTorso: BodyTorso, followsTheForearms: Bool) -> Bool {
+        zip(armAngles(of: frozenTorso), armAngles(of: currentTorso)).allSatisfy { frozenArm, currentArm in
+            (frozenArm.upperArm == nil || currentArm.upperArm != nil) && (!followsTheForearms || frozenArm.forearm == nil || currentArm.forearm != nil)
+        }
     }
 
     /// The direction of the line from the image left shoulder to the image right one, in radians.
@@ -500,6 +508,9 @@ nonisolated struct ShirtLivePaintedTopFollower: Sendable {
     /// turn, a bend, or a sway, so the hips' verdict changes only on a frame with real hips and holds through the frames
     /// between, whatever else those frames find.
     private var lastHipProblemSeenOnRealHips: ShirtLivePaintedTopReachProblem?
+    /// The arm verdict of the last frame that saw every arm part the painting saw, held through the frames between in the same
+    /// way, nil when the arms were fine.
+    private var lastArmProblemSeenWithTheArms: ShirtLivePaintedTopReachProblem?
 
     init(top: ShirtLivePaintedTop) {
         self.top = top
@@ -525,8 +536,20 @@ nonisolated struct ShirtLivePaintedTopFollower: Sendable {
             case .outOfReach: break
             }
         }
+        // The same for the arms: an arm problem holds through the frames that do not see the arm, since Vision's elbow and
+        // wrist confidence flickers around its floor while the learner moves, and the still flashed in each time it dipped.
+        switch decided {
+        case .outOfReach(let problem) where problem == .upperArmMoved || problem == .forearmMoved: lastArmProblemSeenWithTheArms = problem
+        case .follows:
+            if let currentTorso, ShirtLivePaintedTopReach.seesEveryArmPartThePaintingSaw(frozenTorso: top.frozenTorso, currentTorso: currentTorso, followsTheForearms: top.followsTheForearms) {
+                lastArmProblemSeenWithTheArms = nil
+            }
+        case .outOfReach: break
+        }
         if decided == .follows, let lastHipProblemSeenOnRealHips {
             reach = .outOfReach(lastHipProblemSeenOnRealHips)
+        } else if decided == .follows, let lastArmProblemSeenWithTheArms {
+            reach = .outOfReach(lastArmProblemSeenWithTheArms)
         } else {
             reach = decided
         }
