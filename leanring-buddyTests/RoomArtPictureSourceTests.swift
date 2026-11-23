@@ -81,6 +81,8 @@ private final class StubbedPictureURLProtocol: URLProtocol, @unchecked Sendable 
     override func stopLoading() {}
 }
 
+// The downloads here get 600 seconds, so a regression that stops one from ending shows as this limit and not as a 10 minute hang.
+@Suite(.timeLimit(.minutes(3)))
 @MainActor
 struct RoomArtPictureSourceTests {
     /// A session whose requests reach the stub, with the cookie and cache settings the real download session has.
@@ -287,7 +289,12 @@ struct RoomArtPictureSourceTests {
                 return RoomArtPicture(jpegData: Data("screen capture".utf8), width: 640, height: 360)
             }
         }
-        try? await Task.sleep(for: .milliseconds(300))
+        // The cancel comes once the stalled download has started, so it ends a wait that is running.
+        let stalledImagePath = stalledImageURL.path
+        for _ in 0..<6000 where !StubbedPictureURLProtocol.startedRequests.withLock({ $0.contains("https://\(stalledImagePath)") }) {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(StubbedPictureURLProtocol.startedRequests.withLock { $0.contains("https://\(stalledImagePath)") })
         roomArtRequest.cancel()
         // Neither the deadline nor the idle timeout passes in 600 seconds, so the request can only end because the cancel
         // ended its wait.

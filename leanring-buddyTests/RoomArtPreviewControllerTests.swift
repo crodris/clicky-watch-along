@@ -258,9 +258,9 @@ private final class WorkerStub {
         principalPoint: SIMD2(320, 180), distanceMeters: 2.4, floorTiltDegrees: 2, planeInlierShare: 0.9
     ))
     var secondsBeforeThePageReplies = 0.0
-    /// Replies for the next page reads, in order, each after its own wait, which a cancel does not cut short, the way a
+    /// Replies for the next page reads, in order, each after its own gate opens, which a cancel does not cut short, the way a
     /// reply already on its way still arrives. The default reply answers at once when the list is empty.
-    var queuedPageReplies: [(seconds: Double, reply: Result<RoomArtPageReading, Error>)] = []
+    var queuedPageReplies: [(gate: TestGate, reply: Result<RoomArtPageReading, Error>)] = []
     /// While set, a wall measurement waits here until the test opens it or the measurement's task is cancelled.
     var wallReplyGate: TestGate?
     /// A page read's wait ended early because its task was cancelled, which a close does.
@@ -275,9 +275,7 @@ private final class WorkerStub {
         pageRequests.append(pageRequest)
         if !queuedPageReplies.isEmpty {
             let queuedReply = queuedPageReplies.removeFirst()
-            await withCheckedContinuation { continuation in
-                DispatchQueue.main.asyncAfter(deadline: .now() + queuedReply.seconds) { continuation.resume() }
-            }
+            await queuedReply.gate.wait()
             return try queuedReply.reply.get()
         }
         if secondsBeforeThePageReplies > 0 {
@@ -417,6 +415,17 @@ private final class TestGate {
 @MainActor
 private func letTheQueuedMainActorWorkRun() async {
     for _ in 0..<20 { await Task.yield() }
+}
+
+/// Waits until the blocks already posted to the main dispatch queue have run, and the main actor jobs they started, such as
+/// a stand-in processor reporting to the controller with `DispatchQueue.main.async`. With `queue`, the blocks already posted
+/// to that queue run first, as a camera's frames do on the processing queue.
+@MainActor
+private func letThePostedQueuesDrain(first queue: DispatchQueue? = nil) async {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        let resumeOnTheMainActor = { DispatchQueue.main.async { Task { @MainActor in continuation.resume() } } }
+        if let queue { queue.async { resumeOnTheMainActor() } } else { resumeOnTheMainActor() }
+    }
 }
 
 /// The furniture's better looks, answered from the test: the store's model, the generation service, and the render.
@@ -585,7 +594,8 @@ private struct RoomArtHarness {
                 readTheFrontTab: { frontTab },
                 capturePicture: {
                     recorder.pictureCaptureStarted = true
-                    // A cancelled capture returns its picture, as the real one does, and the controller drops it.
+                    // A cancelled capture still returns its picture, so a controller that stopped checking for the cancel would
+                    // open the panel. The real capture returns nil when cancelled.
                     try? await pictureCaptureGate?.waitUnlessCancelled()
                     return picture
                 },
@@ -605,7 +615,10 @@ private struct RoomArtHarness {
             )
         // Furniture needs its painting to show, so a test that names no looks gets a service that paints at once.
         (furnitureLooks ?? FurnitureLookStub.thatPaintsAtOnce()).apply(to: &environment)
-        if let furnitureLookDeadline { environment.waitTheLongestForAFurnitureLook = { await furnitureLookDeadline.wait() } }
+        // The production wait for a furniture look is 45 s of wall-clock time. No test gets it: a test that does not pass a
+        // deadline gets one that never opens, so a loaded machine cannot run the wait out while a painting is held.
+        let furnitureLookDeadline = furnitureLookDeadline ?? TestGate()
+        environment.waitTheLongestForAFurnitureLook = { await furnitureLookDeadline.wait() }
         controller = RoomArtPreviewController(environment: environment, frameProcessor: frameProcessor, panelPresenter: panel)
         self.panel = panel
         self.worker = worker
@@ -785,16 +798,23 @@ struct RoomArtPreviewControllerTests {
     @Test func anEarlierRequestsFailedPageReadNeverFailsTheNewerOne() async throws {
         let worker = WorkerStub()
         let firstPageReading = try worker.pageReading.get()
-        // The first read fails late, after the learner asked again, and the second read succeeds.
+        // The first read fails late, after the learner asked again, and the second read succeeds. The test opens each gate
+        // itself, so the order holds however loaded the machine is.
+        let firstReplyGate = TestGate()
+        let secondReplyGate = TestGate()
         worker.queuedPageReplies = [
-            (seconds: 0.4, reply: .failure(URLError(.timedOut))),
-            (seconds: 0.8, reply: .success(firstPageReading)),
+            (gate: firstReplyGate, reply: .failure(URLError(.timedOut))),
+            (gate: secondReplyGate, reply: .success(firstPageReading)),
         ]
         let harness = RoomArtHarness(worker: worker)
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
         try await waitFor("the first page request") { worker.pageRequests.count == 1 }
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the second page request") { worker.pageRequests.count == 2 }
+        firstReplyGate.open()
+        await letTheQueuedMainActorWorkRun()
+        secondReplyGate.open()
         try await waitFor("the art from the second request to show") { harness.artIsShowing() }
 
         #expect(worker.pageRequests.count == 2)
@@ -852,11 +872,13 @@ struct RoomArtPreviewControllerTests {
 
     @Test func escapeWhileThePictureIsCapturedStopsTheRequest() async throws {
         // The capture stays pending until Escape ends it, so a loaded machine cannot finish it first.
-        let harness = RoomArtHarness(holdingThePictureCaptureAt: TestGate())
+        let pictureCaptureGate = TestGate()
+        let harness = RoomArtHarness(holdingThePictureCaptureAt: pictureCaptureGate)
 
         let openingTask = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
         try await waitFor("the picture capture to start") { harness.recorder.pictureCaptureStarted }
         #expect(harness.controller.closeOnEscape())
+        await pictureCaptureGate.untilAWaitIsCancelled()
         await openingTask.value
 
         #expect(harness.panel.timesShown == 0)
@@ -866,12 +888,14 @@ struct RoomArtPreviewControllerTests {
     }
 
     @Test func aPushToTalkPressWhileThePictureIsCapturedStopsTheRequest() async throws {
-        let harness = RoomArtHarness(holdingThePictureCaptureAt: TestGate())
+        let pictureCaptureGate = TestGate()
+        let harness = RoomArtHarness(holdingThePictureCaptureAt: pictureCaptureGate)
 
         // A press cancels the reply task the request runs in.
         let openingTask = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
         try await waitFor("the picture capture to start") { harness.recorder.pictureCaptureStarted }
         openingTask.cancel()
+        await pictureCaptureGate.untilAWaitIsCancelled()
         await openingTask.value
 
         #expect(harness.panel.timesShown == 0)
@@ -892,6 +916,8 @@ struct RoomArtPreviewControllerTests {
         await openingTask.value
 
         #expect(!camera.isDeliveringFrames)
+        // A frame the camera had already posted reaches the controller through the processing queue and the main queue.
+        await letThePostedQueuesDrain(first: harness.frameProcessor.processingQueue)
         await letTheQueuedMainActorWorkRun()
         #expect(harness.worker.wallRequests.isEmpty)
     }
@@ -1666,7 +1692,9 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.phase == .preparingTheShirt(title: "Linen shirt"))
         #expect(harness.statusLine() == "Getting the shirt ready…")
         harness.frameProcessor.settleTheShirtFraming(on: .ready)
-        // The garment is made only now, with the learner already in view.
+        // The controller has heard the learner is in view before the garment is made, which is the order this test pins.
+        await letThePostedQueuesDrain()
+        #expect(harness.controller.phase == .preparingTheShirt(title: "Linen shirt"))
         garmentGate.open()
 
         try await waitFor("the shirt to show on the learner") { harness.controller.phase == .showingTheShirt(title: "Linen shirt") }
@@ -1835,11 +1863,13 @@ struct RoomArtPreviewControllerTests {
     }
 
     @Test func aSecondRequestStopsTheFirstRequestsPictureDownload() async throws {
-        let harness = RoomArtHarness(holdingThePictureCaptureAt: TestGate())
+        let pictureCaptureGate = TestGate()
+        let harness = RoomArtHarness(holdingThePictureCaptureAt: pictureCaptureGate)
         let firstRequest = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
         try await waitFor("the first picture capture to start") { harness.recorder.pictureCaptureStarted }
         let secondRequest = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
         // The capture never ends by itself, so the first request returns only because the second request cancelled it.
+        await pictureCaptureGate.untilAWaitIsCancelled()
         await firstRequest.value
         #expect(harness.controller.closeOnEscape())
         await secondRequest.value
@@ -1847,10 +1877,12 @@ struct RoomArtPreviewControllerTests {
 
     @Test func escapeStopsASlowPictureDownloadAtOnce() async throws {
         // The picture never arrives by itself, and a close that did not cancel it would leave the request waiting for good.
-        let harness = RoomArtHarness(holdingThePictureCaptureAt: TestGate())
+        let pictureCaptureGate = TestGate()
+        let harness = RoomArtHarness(holdingThePictureCaptureAt: pictureCaptureGate)
         let openingTask = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
         try await waitFor("the picture capture to start") { harness.recorder.pictureCaptureStarted }
         #expect(harness.controller.closeOnEscape())
+        await pictureCaptureGate.untilAWaitIsCancelled()
         await openingTask.value
         #expect(harness.panel.timesShown == 0)
         #expect(harness.spokenLines().isEmpty)
@@ -1865,10 +1897,12 @@ struct RoomArtPreviewControllerTests {
         #expect(escapedHarness.recorder.timesTheSpokenLineWasEnded == 1)
 
         // Escape while the picture is still being captured.
-        let openingHarness = RoomArtHarness(holdingThePictureCaptureAt: TestGate())
+        let pictureCaptureGate = TestGate()
+        let openingHarness = RoomArtHarness(holdingThePictureCaptureAt: pictureCaptureGate)
         let openingTask = Task { await openingHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
         try await waitFor("the picture capture to start") { openingHarness.recorder.pictureCaptureStarted }
         #expect(openingHarness.controller.closeOnEscape())
+        await pictureCaptureGate.untilAWaitIsCancelled()
         await openingTask.value
         #expect(openingHarness.recorder.timesTheSpokenLineWasEnded == 1)
 
