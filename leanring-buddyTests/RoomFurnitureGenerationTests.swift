@@ -698,6 +698,14 @@ struct RoomFurnitureGenerationClientTests {
         #expect(pasted.height == 100)
     }
 
+    @Test func a402SaysOpenAIIsOutOfCredit() async {
+        answer("room-furniture-composite", statusCode: 402, body: Data(#"{"error":"OpenAI is out of credit"}"#.utf8))
+
+        await #expect(throws: RoomFurnitureGenerationError.serviceIsOutOfCredit(body: #"{"error":"OpenAI is out of credit"}"#)) {
+            _ = try await paint(using: client())
+        }
+    }
+
     @Test(arguments: ["room-furniture-composite", "try-it-model"])
     func a503SaysTheServiceIsNotSetUp(route: String) async {
         answer(route, statusCode: 503, body: Data(#"{"error":"FAL_KEY is not set"}"#.utf8))

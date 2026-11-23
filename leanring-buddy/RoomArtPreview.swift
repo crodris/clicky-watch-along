@@ -3048,8 +3048,12 @@ extension RoomArtPreviewController {
             } catch {
                 guard !Task.isCancelled, thisOpening == openingNumber else { return nil }
                 print("Room furniture: no painted composite from painting \(attempt): \(error)")
-                // A Worker with no OpenAI key stays that way for this panel, so later placements do not ask again.
-                if case RoomFurnitureGenerationError.serviceIsNotSetUp = error { compositeServiceIsUnavailable = true }
+                // A Worker with no OpenAI key, or an OpenAI account out of credit, stays that way for this panel, so later
+                // placements do not ask again.
+                switch error {
+                case RoomFurnitureGenerationError.serviceIsNotSetUp, RoomFurnitureGenerationError.serviceIsOutOfCredit: compositeServiceIsUnavailable = true
+                default: break
+                }
                 guard roomFurniturePaintingIsWorthAskingForAgain(after: error) else { return nil }
             }
         }
