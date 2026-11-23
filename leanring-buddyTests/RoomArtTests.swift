@@ -812,18 +812,28 @@ struct RoomArtPhaseTests {
     @Test func furnituresFallbackWaitsForThePaintingAndPrefersTheRender() {
         // While the painting may still come, nothing but the loop shows.
         for render in [RoomFurnitureRenderState.coming, .ready, .none] {
-            #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: false, render: render) == .keepWaiting)
+            #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: false, aPaintingRequestIsInFlight: false, render: render) == .keepWaiting)
+            #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: false, aPaintingRequestIsInFlight: true, render: render) == .keepWaiting)
         }
         // No painting can come: the render, else no piece and the line that says so, and a render still being made is
         // waited for.
-        #expect(roomFurnitureFallbackStep(paintingCannotCome: true, theWaitRanOut: false, render: .ready) == .showTheRender)
-        #expect(roomFurnitureFallbackStep(paintingCannotCome: true, theWaitRanOut: false, render: .none) == .sayItCouldNotBeDrawn)
-        #expect(roomFurnitureFallbackStep(paintingCannotCome: true, theWaitRanOut: false, render: .coming) == .keepWaiting)
-        // The 45 second wait ran out: whatever is ready now.
-        #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: true, render: .ready) == .showTheRender)
-        #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: true, render: .none) == .sayItCouldNotBeDrawn)
-        #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: true, render: .coming) == .sayItCouldNotBeDrawn)
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: true, theWaitRanOut: false, aPaintingRequestIsInFlight: false, render: .ready) == .showTheRender)
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: true, theWaitRanOut: false, aPaintingRequestIsInFlight: false, render: .none) == .sayItCouldNotBeDrawn)
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: true, theWaitRanOut: false, aPaintingRequestIsInFlight: false, render: .coming) == .keepWaiting)
+        // The 45 second wait ran out with no request in flight: whatever is ready now.
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: true, aPaintingRequestIsInFlight: false, render: .ready) == .showTheRender)
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: true, aPaintingRequestIsInFlight: false, render: .none) == .sayItCouldNotBeDrawn)
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: true, aPaintingRequestIsInFlight: false, render: .coming) == .sayItCouldNotBeDrawn)
         #expect(roomFurnitureSecondsToWaitForALook == 45)
+    }
+
+    @Test func aWaitThatRanOutNeverGivesUpOnAPaintingRequestStillInFlight() {
+        // A ready render shows, and a later painting crossfades over it.
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: true, aPaintingRequestIsInFlight: true, render: .ready) == .showTheRender)
+        // With no render or one still being made, the request's own timeout decides, and not a line that sent the learner to
+        // click the floor, which cancelled the painting about to arrive.
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: true, aPaintingRequestIsInFlight: true, render: .none) == .keepWaiting)
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: true, aPaintingRequestIsInFlight: true, render: .coming) == .keepWaiting)
     }
 
     @Test func aFloorThatIsNotFoundWaitsForAClickAndTheClickMeasuresAgain() {

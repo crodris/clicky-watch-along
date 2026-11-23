@@ -317,9 +317,10 @@ nonisolated func roomFurniturePaintingIsWorthAskingForAgain(after error: Error) 
     }
 }
 
-/// How long furniture with no look yet waits after its floor is measured before its fallback shows (the model's render,
-/// else the could-not-draw line). A painting takes 15 to 20 seconds, and a second painting after a refused one about as
-/// long again.
+/// How long furniture with no look yet waits after a painting request goes out for its placement before its fallback shows
+/// (the model's render, and only with no request in flight the could-not-draw line). The wait does not count the time the
+/// learner spends out of the way (`aClearFrameForThePainting`). A painting takes 15 to 20 seconds, and a second painting
+/// after a refused one about as long again.
 nonisolated let roomFurnitureSecondsToWaitForALook = 45.0
 
 /// Where furniture's model render stands for one placement: still being made (or the model search still runs), ready, or
@@ -347,11 +348,17 @@ nonisolated let roomFurnitureNotDrawnLine = "I couldn't draw it this time. Click
 /// two paintings were refused, or the request failed) or the wait runs out (`roomFurnitureSecondsToWaitForALook`). The
 /// fallback is the model's render when one is ready, else no piece at all and a line that says so. A painting that cannot
 /// come waits for a render still being made, which takes under a second, and a wait that ran out takes whatever is ready.
-nonisolated func roomFurnitureFallbackStep(paintingCannotCome: Bool, theWaitRanOut: Bool, render: RoomFurnitureRenderState) -> RoomFurnitureFallbackStep {
+///
+/// A painting request still in flight is never given up on for want of a render: the request's own timeout ends it, and
+/// saying "I couldn't draw it" while it is on its way sent the learner to click the floor, which cancelled the painting
+/// about to arrive. Only a ready render shows when the wait ran out under a request in flight.
+nonisolated func roomFurnitureFallbackStep(
+    paintingCannotCome: Bool, theWaitRanOut: Bool, aPaintingRequestIsInFlight: Bool, render: RoomFurnitureRenderState
+) -> RoomFurnitureFallbackStep {
     guard paintingCannotCome || theWaitRanOut else { return .keepWaiting }
     switch render {
     case .ready: return .showTheRender
-    case .none: return .sayItCouldNotBeDrawn
-    case .coming: return theWaitRanOut ? .sayItCouldNotBeDrawn : .keepWaiting
+    case .none: return aPaintingRequestIsInFlight ? .keepWaiting : .sayItCouldNotBeDrawn
+    case .coming: return theWaitRanOut && !aPaintingRequestIsInFlight ? .sayItCouldNotBeDrawn : .keepWaiting
     }
 }

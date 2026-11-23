@@ -1466,7 +1466,7 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
-    @Test func aPaintingThatDoesNotComeWithinTheWaitDrawsNothingAndALatePaintingStillShowsThePiece() async throws {
+    @Test func aWaitThatRunsOutWhileAPaintingRequestIsStillOutAndNothingIsRenderedKeepsWaitingForThePainting() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)
         let looks = FurnitureLookStub()
@@ -1480,19 +1480,152 @@ struct RoomArtPreviewControllerTests {
         try await waitFor("the painting and the wait to start") { paintingGate.timesWaitedOn == 1 && deadline.timesWaitedOn == 1 }
         #expect(!harness.artIsShowing())
 
+        // The 45 seconds are up with the request still out and no render to show. It used to say "I couldn't draw it" and shake,
+        // and the click on the floor it asked for cancelled the painting about to arrive.
         deadline.open()
-        try await waitFor("the line that the piece could not be drawn") { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
-        #expect(harness.recorder.spokenLineFailureFlags == [true])
-        #expect(harness.statusLine() == "I couldn't draw it this time. Click the floor to try again")
-        // The line stays to show where to click, with no glyph lapping it while nothing runs.
-        #expect(!harness.controller.loopState.isHidden && !harness.controller.loopState.tracesTheLine)
+        try await waitFor("the wait to run out") { deadline.timesPassed == 1 }
+        await letTheQueuedMainActorWorkRun()
+        #expect(harness.spokenLines().isEmpty)
+        #expect(harness.statusLine() == "Arranging it in your room…")
+        #expect(harness.controller.loopState.isDrawing)
         #expect(harness.frameProcessor.surfacesShownOn.isEmpty && harness.frameProcessor.furnitureLayersShown.isEmpty)
 
         paintingGate.open()
-        try await waitFor("the late painting") { harness.artIsShowing() }
+        try await waitFor("the painting") { harness.artIsShowing() }
         #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
-        #expect(harness.spokenLines() == [roomFurnitureNotDrawnLine, "Here it is, 21.5 inches wide and 17.5 tall."])
-        #expect(harness.frameProcessor.surfacesShownOn.isEmpty)
+        #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
+        harness.controller.close()
+    }
+
+    @Test func theWaitForAPaintingDoesNotStartWhileTheLearnerIsStillInTheWayAndStartsOnceTheyAreOut() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        // A ready render shows when a wait runs out, so a wait that started too early shows it while the learner is in the way.
+        looks.storeModel = FurnitureLookStub.model(.storeModel)
+        looks.paintedImage = furnitureCutoutImage()
+        let paintingGate = TestGate()
+        looks.paintingGate = paintingGate
+        let deadline = TestGate()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks, furnitureLookDeadline: deadline, placesTheGhostAtOnce: false)
+        harness.frameProcessor.setThePersonsShareOfTheBox(0.4)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
+        try await waitFor("the painting ahead to see the learner") { !harness.frameProcessor.paintingFrameBoxes.isEmpty }
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        try await waitFor("the ask to step aside") { harness.controller.waitingForTheLearnerToStepAside }
+        // Two more looks at the box while the learner covers it: no request is out, so the wait has not started to count.
+        let looksAtTheBoxSoFar = harness.frameProcessor.paintingFrameBoxes.count
+        try await waitFor("two more looks at the box") { harness.frameProcessor.paintingFrameBoxes.count >= looksAtTheBoxSoFar + 2 }
+        // Opening the gate now would run a started wait out. It was started and cancelled at most, so it ends nothing.
+        deadline.open()
+        await letTheQueuedMainActorWorkRun()
+        #expect(harness.spokenLines() == [roomFurnitureStepAsideLine])
+        #expect(!harness.artIsShowing() && harness.controller.waitingForTheLearnerToStepAside)
+        #expect(harness.frameProcessor.furnitureLayersShown.isEmpty)
+
+        harness.frameProcessor.setThePersonsShareOfTheBox(0)
+        try await waitFor("the painting request to go out") { paintingGate.timesWaitedOn == 1 }
+        try await waitFor("the wait to start for the request") { deadline.timesWaitedOn >= 1 }
+        // The open gate stands for the 45 seconds having passed since the request went out, so the ready render shows now, and
+        // the painting crossfades over it when it arrives.
+        try await waitFor("the render once the request's wait ran out") { harness.artIsShowing() }
+        paintingGate.open()
+        try await waitFor("the painting over the render") { harness.frameProcessor.furnitureLayersShown.count == 2 }
+        #expect(harness.spokenLines() == [roomFurnitureStepAsideLine, "Here it is, 21.5 inches wide and 17.5 tall."])
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.storeModel, .paintedComposite])
+        harness.controller.close()
+    }
+
+    @Test func aPickUpKeepsAPaintingRequestAskedAfterTheLearnerSteppedOutOfTheBox() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        let paintingGate = TestGate()
+        looks.paintingGate = paintingGate
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks, placesTheGhostAtOnce: false)
+        // The learner stands in the box while the ghost shows, so nothing is painted ahead.
+        harness.frameProcessor.setThePersonsShareOfTheBox(0.4)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
+        try await waitFor("the painting ahead to see the learner") { !harness.frameProcessor.paintingFrameBoxes.isEmpty }
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        try await waitFor("the ask to step aside") { harness.controller.waitingForTheLearnerToStepAside }
+        harness.frameProcessor.setThePersonsShareOfTheBox(0)
+        try await waitFor("the painting request") { paintingGate.timesWaitedOn == 1 }
+
+        // The learner clicks the piece while that request is out and puts it back where it stood.
+        let ghostCenter = try #require(harness.ghostCenterInTheFrame())
+        harness.controller.pointerPressed(atCameraPixel: ghostCenter)
+        harness.controller.pointerReleased()
+        #expect(harness.controller.phase.furnitureGhostShows)
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        await letTheQueuedMainActorWorkRun()
+
+        paintingGate.open()
+        try await waitFor("the painting") { harness.artIsShowing() }
+        #expect(looks.paintings == 1)
+        harness.controller.close()
+    }
+
+    @Test func aPickUpPlacedAgainInTheSameBoxKeepsThePaintingStillOutAndAsksForNoSecondOne() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        let paintingGate = TestGate()
+        looks.paintingGate = paintingGate
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the painting request") { paintingGate.timesWaitedOn == 1 }
+        #expect(harness.statusLine() == "Arranging it in your room…")
+
+        // The learner clicks the piece while its painting is out and puts it back where it stood.
+        let ghostCenter = try #require(harness.ghostCenterInTheFrame())
+        harness.recorder.ghostPlacer = nil
+        harness.controller.pointerPressed(atCameraPixel: ghostCenter)
+        harness.controller.pointerReleased()
+        #expect(harness.controller.phase.furnitureGhostShows)
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        await letTheQueuedMainActorWorkRun()
+        #expect(harness.statusLine() == "Arranging it in your room…")
+
+        // The request that was out is the one that shows: it was not cancelled and no second one was sent.
+        paintingGate.open()
+        try await waitFor("the painting") { harness.artIsShowing() }
+        #expect(looks.paintings == 1)
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
+        #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
+        harness.controller.close()
+    }
+
+    @Test func aPickUpThatMovesThePieceDropsThePaintingStillOutForTheOldBox() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        let paintingGate = TestGate()
+        looks.paintingGate = paintingGate
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the painting request") { paintingGate.timesWaitedOn == 1 }
+
+        let ghostCenter = try #require(harness.ghostCenterInTheFrame())
+        harness.recorder.ghostPlacer = nil
+        harness.controller.pointerPressed(atCameraPixel: ghostCenter)
+        harness.controller.pointerDragged(toCameraPixel: CGPoint(x: ghostCenter.x + 40, y: ghostCenter.y))
+        harness.controller.pointerReleased()
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        // The moved box needs its own painting, and the old one's request ends cancelled.
+        try await waitFor("the second painting request") { paintingGate.timesWaitedOn == 2 }
+        paintingGate.open()
+        try await waitFor("the painting") { harness.artIsShowing() }
+        #expect(looks.paintings == 2)
         harness.controller.close()
     }
 
@@ -1639,8 +1772,9 @@ struct RoomArtPreviewControllerTests {
         looks.storeModel = FurnitureLookStub.model(.storeModel)
         let renderGate = TestGate()
         looks.renderGate = renderGate
-        looks.paintedImage = furnitureCutoutImage()
-        looks.paintingGate = TestGate()
+        // The painting is refused at once, so no request is in flight when the wait runs out. A request still out would
+        // keep the piece waiting instead (`aWaitThatRunsOutWhileAPaintingRequestIsStillOut...`).
+        looks.paintedImage = nil
         let deadline = TestGate()
         let harness = RoomArtHarness(worker: worker, furnitureLooks: looks, furnitureLookDeadline: deadline)
 

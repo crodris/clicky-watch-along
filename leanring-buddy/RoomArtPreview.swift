@@ -1385,6 +1385,8 @@ final class RoomArtPreviewController: ObservableObject {
     /// wait ran out, and a render is still being made.
     private var furniturePaintingCannotCome = false
     private var furnitureWaitRanOut = false
+    /// A painting request is out for the newest placement, so its fallback never gives up on the painting for want of a render.
+    private var furniturePaintingRequestIsOut = false
     private var furnitureRenderIsRunning = false
     /// The furniture's cutout over white, as a JPEG, which both generation services work from. It is the product cut out of
     /// the page's photo, never the raw page picture, which can hold a cookie banner or the rest of the page.
@@ -2190,20 +2192,13 @@ final class RoomArtPreviewController: ObservableObject {
                 format: "Room furniture: placed facing %@%@%@", ghost.facing.rawValue,
                 ghost.shownPose.isSnappedToTheWall ? ", its back on the wall" : "", floor.inferredFromTheWall ? ", on a floor inferred from the wall" : ""
             ))
-            // The painting is the piece's first look, and the model's render shows only if none comes in time.
+            // The painting is the piece's first look, and the model's render shows only if none comes in time. The wait
+            // for it starts when its request goes out (`startTheLookDeadline`), not here.
             furniturePlacement = (measurementID, furniture, keyframe, floor, ghost)
             furniturePaintingCannotCome = false
             furnitureWaitRanOut = false
             startPaintingTheFurniture()
             startRenderingTheFurnituresModel()
-            let thisOpening = openingNumber
-            let waitTheLongestForAFurnitureLook = environment.waitTheLongestForAFurnitureLook
-            furnitureLookDeadlineTask = Task {
-                await waitTheLongestForAFurnitureLook()
-                guard !Task.isCancelled, thisOpening == openingNumber, furniturePlacement?.measurementID == measurementID else { return }
-                furnitureWaitRanOut = true
-                showTheFurnitureFallbackIfItIsDue()
-            }
         case .couldNotDraw:
             // The loop stays and the camera keeps running, so a click on the floor picks the ghost back up there.
             environment.speak(roomFurnitureNotDrawnLine, true)
@@ -2236,6 +2231,9 @@ final class RoomArtPreviewController: ObservableObject {
     private func stopTheFurnituresLooks() {
         furnitureLookDeadlineTask?.cancel()
         furniturePaintingTask?.cancel()
+        // The request itself is not cancelled: a pick-up that puts the piece back in the same box uses it
+        // (`startPaintingTheFurniture`), and a move, a new measurement, and a close cancel it (`paintingAhead`).
+        furniturePaintingRequestIsOut = false
         furnitureRenderTask?.cancel()
         furnitureRenderIsRunning = false
         furnitureRenderHeldBack = nil
@@ -2369,32 +2367,52 @@ extension RoomArtPreviewController {
     private func startPaintingTheFurniture() {
         guard let placement = furniturePlacement, let boxInTheKeyframe = placement.ghost.keyframeBoxCorners else { return }
         furniturePaintingTask?.cancel()
-        let thisOpening = openingNumber
-        // The painting asked for as the ghost appeared counts only when the piece stands in the box it was asked for.
-        let paintingAheadForThisBox = paintingAhead.flatMap { $0.boxInTheKeyframe == boxInTheKeyframe ? $0.task : nil }
-        if paintingAheadForThisBox == nil { paintingAhead?.task.cancel() }
-        paintingAhead = nil
+        let thisOpening = openingNumber, measurementID = placement.measurementID
+        // A painting request already out for this box counts: the one asked for as the ghost appeared, or the one a pick-up
+        // left running, since a learner who puts the piece back where it stood needs no second request. Any other box
+        // drops it. It stays in `paintingAhead` while it runs, so a pick-up keeps it.
+        let paintingInFlightForThisBox = paintingAhead.flatMap { $0.boxInTheKeyframe == boxInTheKeyframe ? $0.task : nil }
+        if paintingInFlightForThisBox == nil {
+            paintingAhead?.task.cancel()
+            paintingAhead = nil
+        }
         let orientation = placement.ghost.paintingOrientation
         furniturePaintingTask = Task {
             var finishedPainting: RoomFurnitureFinishedPainting?
             var paintingsWereAskedFor = false
-            if let paintingAheadForThisBox {
-                print("Room furniture: the piece stands where Clicky put it, so the painting asked for ahead is used")
-                switch await withTaskCancellationHandler(operation: { await paintingAheadForThisBox.value }, onCancel: { paintingAheadForThisBox.cancel() }) {
+            if let paintingInFlightForThisBox {
+                print("Room furniture: the piece stands where a painting is already asked for, so that painting is used")
+                // The request is out for this placement now, so the wait for it counts from here.
+                startTheLookDeadline(measurementID: measurementID)
+                let outcome = await paintingInFlightForThisBox.value
+                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                switch outcome {
                 case .painted(let paintingAhead): finishedPainting = paintingAhead
                 // Its two paintings were refused or failed, which another two for the same box would likely repeat.
                 case .noPaintingStood: paintingsWereAskedFor = true
-                case .notAsked: break
+                // Nothing was asked, since the learner stood in the box, so the wait starts again once they are out of it.
+                case .notAsked: stopTheLookDeadline()
                 }
             }
             if finishedPainting == nil, !paintingsWereAskedFor, !compositeServiceIsUnavailable,
                let paintingFrame = await aClearFrameForThePainting(boxInTheKeyframe: boxInTheKeyframe, thisOpening: thisOpening) {
-                finishedPainting = await paintTheComposite(
-                    furniture: placement.furniture, paintingFrame: paintingFrame, boxInTheKeyframe: boxInTheKeyframe,
-                    orientation: orientation, keyframeNumber: placement.keyframe.keyframeNumber, thisOpening: thisOpening
-                )
+                let request = Task { () -> RoomFurniturePaintingAheadOutcome in
+                    let painting = await paintTheComposite(
+                        furniture: placement.furniture, paintingFrame: paintingFrame, boxInTheKeyframe: boxInTheKeyframe,
+                        orientation: orientation, keyframeNumber: placement.keyframe.keyframeNumber, thisOpening: thisOpening
+                    )
+                    return painting.map { .painted($0) } ?? .noPaintingStood
+                }
+                paintingAhead = (boxInTheKeyframe, request)
+                startTheLookDeadline(measurementID: measurementID)
+                let outcome = await request.value
+                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                if case .painted(let painting) = outcome { finishedPainting = painting }
             }
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
+            // The request is back, whatever it brought, so nothing is in flight and a finished one is not used again.
+            furniturePaintingRequestIsOut = false
+            paintingAhead = nil
             if let finishedPainting {
                 frameProcessor.showTheFurnitureLayers(finishedPainting.layers, keyframeNumber: finishedPainting.keyframeNumber, layerToKeyframe: finishedPainting.layerToKeyframe)
                 print("Room furniture: showing the painted composite\(placement.floor.inferredFromTheWall ? ", painted on a floor inferred from the wall" : "")")
@@ -2404,6 +2422,31 @@ extension RoomArtPreviewController {
             furniturePaintingCannotCome = true
             showTheFurnitureFallbackIfItIsDue()
         }
+    }
+
+    /// Starts the wait for the newest placement's painting once its request is out, and marks the request as in flight.
+    /// The wait counts only the request's own time: it does not start while the learner stands in the box
+    /// (`aClearFrameForThePainting`), which has no limit of its own. It ends the fallback's patience only for a render, since
+    /// a request in flight has its own timeout (`roomFurnitureFallbackStep`).
+    private func startTheLookDeadline(measurementID: RoomArtMeasurementID) {
+        furniturePaintingRequestIsOut = true
+        furnitureWaitRanOut = false
+        furnitureLookDeadlineTask?.cancel()
+        let thisOpening = openingNumber
+        let waitTheLongestForAFurnitureLook = environment.waitTheLongestForAFurnitureLook
+        furnitureLookDeadlineTask = Task {
+            await waitTheLongestForAFurnitureLook()
+            guard !Task.isCancelled, thisOpening == openingNumber, furniturePlacement?.measurementID == measurementID else { return }
+            furnitureWaitRanOut = true
+            showTheFurnitureFallbackIfItIsDue()
+        }
+    }
+
+    private func stopTheLookDeadline() {
+        furnitureLookDeadlineTask?.cancel()
+        furnitureLookDeadlineTask = nil
+        furniturePaintingRequestIsOut = false
+        furnitureWaitRanOut = false
     }
 
     /// As the ghost first appears, its painting is asked for in the background, for the box it stands in then, since a
@@ -2488,7 +2531,10 @@ extension RoomArtPreviewController {
         guard let furniturePlacement else { return }
         let reason = furnitureWaitRanOut ? "no painting came within \(Int(roomFurnitureSecondsToWaitForALook)) s" : "no painting can come"
         let measurementID = furniturePlacement.measurementID
-        switch roomFurnitureFallbackStep(paintingCannotCome: furniturePaintingCannotCome, theWaitRanOut: furnitureWaitRanOut, render: furnitureRenderState) {
+        switch roomFurnitureFallbackStep(
+            paintingCannotCome: furniturePaintingCannotCome, theWaitRanOut: furnitureWaitRanOut,
+            aPaintingRequestIsInFlight: furniturePaintingRequestIsOut, render: furnitureRenderState
+        ) {
         case .keepWaiting:
             return
         case .showTheRender:
