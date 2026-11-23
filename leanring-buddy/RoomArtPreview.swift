@@ -782,7 +782,11 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
         if let keyframeBasePoint = placedArt.keyframeBasePoint,
            let currentBasePoint = currentPoint(of: keyframeBasePoint, keyframeCorners: placedArt.keyframeCorners, currentCorners: artCorners),
-           roomFurnitureDrawsOverThePerson(itemBaseRow: currentBasePoint.y, personLowestRow: latestPersonLowestRowShare.map { $0 * frameImage.extent.height }) {
+           roomFurnitureDrawsOverThePerson(
+               itemBaseRow: currentBasePoint.y,
+               personLowestRow: latestPersonLowestRowShare.map { $0 * frameImage.extent.height },
+               frameHeight: frameImage.extent.height
+           ) {
             return itemOverTheFrame
         }
         return withThePersonOnTop(of: itemOverTheFrame, frameImage: frameImage, personMask: personMask)
@@ -1171,9 +1175,12 @@ final class RoomArtPreviewController: ObservableObject {
         var renderTheFurniture: (RoomFurnitureRenderRequest) async -> RoomFurnitureKeyframeLayers? = { _ in nil }
         /// Turns a painted keyframe into its item layer (`RoomFurniturePaintedComposite`), off the main actor.
         var paintedItemLayers: (_ painted: CGImage, _ keyframe: CGImage, _ maskPNG: Data, _ projectedBox: [CGPoint]) async -> RoomFurnitureKeyframeLayers? = { _, _, _, _ in nil }
-        /// Returns when furniture has waited long enough for its first look, `roomFurnitureSecondsToWaitForALook` after its
-        /// floor is measured, so the fallback shows instead. A test returns when it chooses.
+        /// Returns when furniture has waited long enough for its first look, `roomFurnitureSecondsToWaitForALook` after a
+        /// painting request for its placement goes out, so the fallback shows instead. A test returns when it chooses.
         var waitTheLongestForAFurnitureLook: () async -> Void = { try? await Task.sleep(for: .seconds(roomFurnitureSecondsToWaitForALook)) }
+        /// The same wait counted from the placement, which covers a placement whose request never goes out, such as while the
+        /// learner covers the box. A test returns when it chooses.
+        var waitTheLongestAfterAFurniturePlacement: () async -> Void = { try? await Task.sleep(for: .seconds(roomFurnitureSecondsToWaitForALook)) }
         /// The masks a painting of the shirt is made with, from Vision's faces and hands in the frozen frame
         /// (`ShirtPaintMask.make`), off the main actor, or nil when the old top cannot be found.
         var makeTheShirtPaintMasks: (ShirtFrozenFrame) async -> ShirtPaintMasks? = { _ in nil }
@@ -1365,9 +1372,12 @@ final class RoomArtPreviewController: ObservableObject {
     private var furniturePaintingTask: Task<Void, Never>?
     /// Renders the newest placement's model, held back as the painting's fallback. A new placement or a close cancels it.
     private var furnitureRenderTask: Task<Void, Never>?
-    /// Shows the fallback once the newest placement has waited `roomFurnitureSecondsToWaitForALook` with no painting. A new
-    /// placement or a close cancels it.
+    /// Shows the fallback once the newest placement's painting request has been out for `roomFurnitureSecondsToWaitForALook`
+    /// with no painting. A new request, a new placement, or a close cancels it.
     private var furnitureLookDeadlineTask: Task<Void, Never>?
+    /// Shows the fallback once `roomFurnitureSecondsToWaitForALook` have passed since the newest placement, request or not,
+    /// since the learner may cover the box for as long as they like. A new placement or a close cancels it.
+    private var furniturePlacementDeadlineTask: Task<Void, Never>?
     /// The keyframe of the measurement that just finished, kept until its result is applied.
     private var keyframeOfTheLatestMeasurement: RoomArtKeyframe?
     /// The newest furniture placement: its measurement, the furniture, the keyframe it was placed on, and the floor it
@@ -1377,10 +1387,15 @@ final class RoomArtPreviewController: ObservableObject {
     /// The model's render for the newest placement, held back while the painting is on its way, since an early look makes
     /// the painting that follows it read as a small change. It shows only as the fallback.
     private var furnitureRenderHeldBack: (measurementID: RoomArtMeasurementID, layers: RoomFurnitureKeyframeLayers)?
-    /// What the newest placement's fallback waits on (`roomFurnitureFallbackStep`): the painting said it cannot come, the
-    /// wait ran out, and a render is still being made.
+    /// What the newest placement's fallback waits on, the inputs of `roomFurnitureFallbackStep`: the painting said it cannot
+    /// come, the wait counted from the painting request ran out (`furnitureWaitRanOut`), the wait counted from the placement
+    /// ran out (`furniturePlacementWaitRanOut`), a painting request is out (`furniturePaintingRequestIsOut`), and where the
+    /// model's render stands (`furnitureRenderState`: held back and ready, still being made or searched for, or none).
     private var furniturePaintingCannotCome = false
     private var furnitureWaitRanOut = false
+    private var furniturePlacementWaitRanOut = false
+    /// A painting request is out for the newest placement, so its fallback never gives up on the painting for want of a render.
+    private var furniturePaintingRequestIsOut = false
     private var furnitureRenderIsRunning = false
     /// The furniture's cutout over white, as a JPEG, which both generation services work from. It is the product cut out of
     /// the page's photo, never the raw page picture, which can hold a cookie banner or the rest of the page.
@@ -1407,7 +1422,7 @@ final class RoomArtPreviewController: ObservableObject {
     private var stepAsideWasSaid = false
     /// The keyframe taken while the page is still read, and the wall measured on it, so the depth service's run overlaps the
     /// page read. The first measurement uses it, and the depth service answers the floor on it from its cache.
-    private var earlyMeasurement: Task<RoomArtEarlyMeasurement?, Never>?
+    private var earlyMeasurement: RoomArtEarlyMeasurement?
 
     /// The loop's line as the panel draws it this moment, in panel points, or nil before there is a keyframe, a torso, or a
     /// camera frame.
@@ -1550,6 +1565,9 @@ final class RoomArtPreviewController: ObservableObject {
         furnitureRenderTask = nil
         furnitureLookDeadlineTask?.cancel()
         furnitureLookDeadlineTask = nil
+        furniturePlacementDeadlineTask?.cancel()
+        furniturePlacementDeadlineTask = nil
+        furniturePaintingRequestIsOut = false
         shirtPaintingTask?.cancel()
         shirtPaintingTask = nil
         aPressCancelledTheCapture = false
@@ -1600,18 +1618,21 @@ final class RoomArtPreviewController: ObservableObject {
     private func startMeasuringEarly() {
         guard earlyMeasurement == nil else { return }
         let frameProcessor = frameProcessor, measureTheWall = environment.measureTheWall
-        earlyMeasurement = Task {
+        let keyframeTask = Task { () -> RoomArtKeyframe? in
             // A shirt read before this task first runs has cancelled it and forgotten the keyframe, so it takes none.
-            guard !Task.isCancelled, let keyframe = await frameProcessor.takeAKeyframe(on: nil, anchorInCameraPixels: nil) else { return nil }
+            guard !Task.isCancelled else { return nil }
+            return await frameProcessor.takeAKeyframe(on: nil, anchorInCameraPixels: nil)
+        }
+        let wallTask = Task { () -> Result<WallPlane, Error>? in
+            guard let keyframe = await keyframeTask.value, !Task.isCancelled else { return nil }
             let wallRequest = RoomWallRequest(
                 keyframeJPEGData: keyframe.measurementRequest.keyframeJPEGData,
                 personMaskPNGData: keyframe.measurementRequest.personMaskPNGData,
                 anchor: keyframe.wallSpotAnchor ?? keyframe.measurementRequest.anchor
             )
-            let wall: Result<WallPlane, Error>
-            do { wall = .success(try await measureTheWall(wallRequest)) } catch { wall = .failure(error) }
-            return RoomArtEarlyMeasurement(keyframe: keyframe, wall: wall)
+            do { return .success(try await measureTheWall(wallRequest)) } catch { return .failure(error) }
         }
+        earlyMeasurement = RoomArtEarlyMeasurement(keyframe: keyframeTask, wall: wallTask)
         print("Room art: took the keyframe while the page is read, and measures its wall now")
     }
 
@@ -2070,44 +2091,57 @@ final class RoomArtPreviewController: ObservableObject {
         self.earlyMeasurement = nil
 
         measurementTask = Task {
-            let early = await earlyMeasurement?.value
-            let keyframeOrNil: RoomArtKeyframe?
-            if let early {
-                keyframeOrNil = early.keyframe
-            } else {
-                keyframeOrNil = await frameProcessor.takeAKeyframe(on: surfaceKind, anchorInCameraPixels: anchorInCameraPixels)
-            }
-            guard let keyframe = keyframeOrNil else {
-                apply(phase.afterTheMeasurementFailed(surfaceKind.cannotPlaceFailure, measurementID: measurementID))
-                return
-            }
-            guard !Task.isCancelled else { return }
-            do {
-                let surface: RoomArtSurface
-                switch surfaceKind {
-                case .wall:
-                    let wall: WallPlane
-                    if let early, let wallSpot = keyframe.wallSpotAnchor {
-                        // The early keyframe's loop went around the floor spot, so it moves to the wall spot it measured.
-                        frameProcessor.outlineTheLoop(around: wallSpot, on: .wall, inKeyframeNumber: keyframe.keyframeNumber)
-                        wall = try early.wall.get()
-                    } else {
-                        wall = try await environment.measureTheWall(keyframe.measurementRequest)
-                    }
-                    print(String(format: "Room art: wall %.2f m away at %.0f degrees, %.0f%% of it fits the plane", wall.distanceMeters, wall.wallAngleDegrees, wall.planeInlierShare * 100))
-                    surface = .wall(wall)
-                case .floor:
-                    let floor = try await measureTheFurnituresFloor(on: keyframe, for: measuringPhase.itemBeingMeasured, anchorWasClicked: anchorInCameraPixels != nil, wallAlreadyMeasured: early?.wall)
-                    print(String(format: "Room art: floor %.2f m away, tilted %.0f degrees, %.0f%% of it fits the plane%@", floor.distanceMeters, floor.floorTiltDegrees, floor.planeInlierShare * 100, floor.inferredFromTheWall ? ", inferred from the wall" : ""))
-                    surface = .floor(floor)
+            // This task now owns the early measurement, so `close()` finds none in `self.earlyMeasurement` to cancel. A close
+            // cancels this task instead, and the cancel goes on to the early keyframe and the early wall's 14 second depth run,
+            // which unstructured tasks never receive from the task that awaits them.
+            await withTaskCancellationHandler {
+                // The keyframe is ready at once. The early wall is awaited separately, since it takes the depth service's 14 seconds.
+                let earlyKeyframe = await earlyMeasurement?.keyframe.value
+                let keyframeOrNil: RoomArtKeyframe?
+                if let earlyKeyframe {
+                    keyframeOrNil = earlyKeyframe
+                } else {
+                    keyframeOrNil = await frameProcessor.takeAKeyframe(on: surfaceKind, anchorInCameraPixels: anchorInCameraPixels)
+                }
+                guard let keyframe = keyframeOrNil else {
+                    apply(phase.afterTheMeasurementFailed(surfaceKind.cannotPlaceFailure, measurementID: measurementID))
+                    return
                 }
                 guard !Task.isCancelled else { return }
-                keyframeOfTheLatestMeasurement = keyframe
-                apply(phase.withTheSurfaceMeasured(surface, measurementID: measurementID))
-            } catch {
-                guard !Task.isCancelled else { return }
-                print("Room art: the \(surfaceKind) was not measured: \(error)")
-                apply(phase.afterTheMeasurementFailed(roomArtFailure(forAFailedMeasurementOf: surfaceKind, error: error), measurementID: measurementID))
+                do {
+                    let surface: RoomArtSurface
+                    switch surfaceKind {
+                    case .wall:
+                        let wall: WallPlane
+                        if earlyKeyframe != nil, let earlyWall = earlyMeasurement?.wall, let wallSpot = keyframe.wallSpotAnchor {
+                            // The early keyframe's loop went around the floor spot, so it moves to the wall spot it measures,
+                            // now and not when the depth service's run is back, since "Measuring your wall…" shows for all of it.
+                            frameProcessor.outlineTheLoop(around: wallSpot, on: .wall, inKeyframeNumber: keyframe.keyframeNumber)
+                            guard let earlyWallResult = await earlyWall.value else { throw CancellationError() }
+                            wall = try earlyWallResult.get()
+                        } else {
+                            wall = try await environment.measureTheWall(keyframe.measurementRequest)
+                        }
+                        print(String(format: "Room art: wall %.2f m away at %.0f degrees, %.0f%% of it fits the plane", wall.distanceMeters, wall.wallAngleDegrees, wall.planeInlierShare * 100))
+                        surface = .wall(wall)
+                    case .floor:
+                        // The floor waits for the early wall's run, and so answers from the depth service's cache: asked while that
+                        // run is in flight, it would start a second 14 second run of the same frame.
+                        let earlyWallResult = await earlyMeasurement?.wall.value
+                        let floor = try await measureTheFurnituresFloor(on: keyframe, for: measuringPhase.itemBeingMeasured, anchorWasClicked: anchorInCameraPixels != nil, wallAlreadyMeasured: earlyWallResult)
+                        print(String(format: "Room art: floor %.2f m away, tilted %.0f degrees, %.0f%% of it fits the plane%@", floor.distanceMeters, floor.floorTiltDegrees, floor.planeInlierShare * 100, floor.inferredFromTheWall ? ", inferred from the wall" : ""))
+                        surface = .floor(floor)
+                    }
+                    guard !Task.isCancelled else { return }
+                    keyframeOfTheLatestMeasurement = keyframe
+                    apply(phase.withTheSurfaceMeasured(surface, measurementID: measurementID))
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    print("Room art: the \(surfaceKind) was not measured: \(error)")
+                    apply(phase.afterTheMeasurementFailed(roomArtFailure(forAFailedMeasurementOf: surfaceKind, error: error), measurementID: measurementID))
+                }
+            } onCancel: {
+                earlyMeasurement?.cancel()
             }
         }
     }
@@ -2132,11 +2166,23 @@ final class RoomArtPreviewController: ObservableObject {
                 guard let keyframeCorners = surface.keyframeCorners(of: item) else { return }
                 frameProcessor.showTheWallArt(artwork.flattenedImage, keyframeCorners: keyframeCorners)
             }
-            sayHereItIsOnce(item.hereItIsLine)
             // Whether the whole piece shows is read from where the learner placed its ghost, not from the spot search.
-            if case .furniture = item, let furnitureGhost, furnitureGhost.shareOfTheBoxInTheFrame < roomFurnitureShareOfTheBoxThatShowsWhole, !stepBackWasSaid {
+            var adviceForACutOffPiece: String?
+            if case .furniture = item, case .floor(let floor) = surface, let furnitureGhost {
+                adviceForACutOffPiece = roomFurnitureAdviceForAPieceTheFrameCutsOff(
+                    shareOfTheBoxInTheFrame: furnitureGhost.shareOfTheBoxInTheFrame, floorIsInferredFromTheWall: floor.inferredFromTheWall
+                )
+            }
+            // "Here it is" and the advice are one line: each line cancels the one waiting before it, so two lines started
+            // in this turn would play only the advice.
+            if !hereItIsWasSaid {
+                hereItIsWasSaid = true
+                stepBackWasSaid = stepBackWasSaid || adviceForACutOffPiece != nil
+                environment.speak([item.hereItIsLine, adviceForACutOffPiece].compactMap { $0 }.joined(separator: " "), false)
+            } else if let adviceForACutOffPiece, !stepBackWasSaid {
+                // A later placement that the frame cuts off, after one that it did not, still gets the advice once.
                 stepBackWasSaid = true
-                environment.speak(roomFurnitureStepBackLine, false)
+                environment.speak(adviceForACutOffPiece, false)
             }
         case .placingTheFurniture(_, let item, let surface):
             stopTheFurnituresLooks()
@@ -2152,6 +2198,8 @@ final class RoomArtPreviewController: ObservableObject {
             furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, tracerStartInThePanel: loopTracerInThePanel())
             furnitureGhost = ghost
             print("Room furniture: the ghost shows\(ghost.shownPose.isSnappedToTheWall ? ", square to the wall" : "")")
+            // Said here and never after a pick-up, which returned above with its ghost already made, so it is once per panel.
+            environment.speak(roomFurnitureGhostLine, false)
             startPaintingAhead(for: ghost, furniture: furniture)
         case .arranging(let measurementID, let item, let surface):
             stopTheFurnituresLooks()
@@ -2162,30 +2210,28 @@ final class RoomArtPreviewController: ObservableObject {
                 apply(phase.afterTheFurnitureCouldNotBeDrawn(measurementID: measurementID))
                 return
             }
-            // While the painting comes, the loop goes around the ghost's footprint, which stays at half opacity.
-            // The loop traces the placed footprint: back left, back right, front right, front left, clockwise on screen.
-            frameProcessor.outlineTheLoop(
-                aroundKeyframeQuadrilateral: RoomArtCorners(clockwiseFromTopLeft: [boxInTheKeyframe[7], boxInTheKeyframe[6], boxInTheKeyframe[2], boxInTheKeyframe[3]]),
-                inKeyframeNumber: keyframe.keyframeNumber
-            )
+            // While the painting comes, the loop goes around the ghost's footprint, which stays at half opacity: back left,
+            // back right, front right, front left, clockwise on screen. A footprint below the frame is drawn off the picture,
+            // so the loop goes around the visible part of the box then (`roomFurnitureLoopQuadrilateral`).
+            // The depth service's principal point is the frame's center.
+            let frameSize = CGSize(width: floor.principalPoint.x * 2, height: floor.principalPoint.y * 2)
+            if let loopQuadrilateral = roomFurnitureLoopQuadrilateral(projectedBox: boxInTheKeyframe, frameSize: frameSize) {
+                frameProcessor.outlineTheLoop(aroundKeyframeQuadrilateral: loopQuadrilateral, inKeyframeNumber: keyframe.keyframeNumber)
+            }
             print(String(
                 format: "Room furniture: placed facing %@%@%@", ghost.facing.rawValue,
                 ghost.shownPose.isSnappedToTheWall ? ", its back on the wall" : "", floor.inferredFromTheWall ? ", on a floor inferred from the wall" : ""
             ))
-            // The painting is the piece's first look, and the model's render shows only if none comes in time.
+            // The painting is the piece's first look, and the model's render shows only if none comes in time. The wait
+            // for the request starts when it goes out (`startTheLookDeadline`), and the wait from the placement starts here,
+            // since no request goes out while the learner covers the box.
             furniturePlacement = (measurementID, furniture, keyframe, floor, ghost)
             furniturePaintingCannotCome = false
             furnitureWaitRanOut = false
+            furniturePlacementWaitRanOut = false
+            startThePlacementDeadline(measurementID: measurementID)
             startPaintingTheFurniture()
             startRenderingTheFurnituresModel()
-            let thisOpening = openingNumber
-            let waitTheLongestForAFurnitureLook = environment.waitTheLongestForAFurnitureLook
-            furnitureLookDeadlineTask = Task {
-                await waitTheLongestForAFurnitureLook()
-                guard !Task.isCancelled, thisOpening == openingNumber, furniturePlacement?.measurementID == measurementID else { return }
-                furnitureWaitRanOut = true
-                showTheFurnitureFallbackIfItIsDue()
-            }
         case .couldNotDraw:
             // The loop stays and the camera keeps running, so a click on the floor picks the ghost back up there.
             environment.speak(roomFurnitureNotDrawnLine, true)
@@ -2217,7 +2263,11 @@ final class RoomArtPreviewController: ObservableObject {
     /// Stops every look on its way for the placement before, for a new placement or a pick-up.
     private func stopTheFurnituresLooks() {
         furnitureLookDeadlineTask?.cancel()
+        furniturePlacementDeadlineTask?.cancel()
         furniturePaintingTask?.cancel()
+        // The request itself is not cancelled: a pick-up that puts the piece back in the same box uses it
+        // (`startPaintingTheFurniture`), and a move, a new measurement, and a close cancel it (`paintingAhead`).
+        furniturePaintingRequestIsOut = false
         furnitureRenderTask?.cancel()
         furnitureRenderIsRunning = false
         furnitureRenderHeldBack = nil
@@ -2237,7 +2287,9 @@ extension RoomArtPreviewController {
 
     /// The floor furniture stands on, measured at the keyframe's anchor and checked against the wall measured on the same
     /// keyframe, which the depth service answers from its cached depth in a fraction of a second. A floor that is not level
-    /// with the wall (a desk or a bed) is not the floor. With no floor, a floor inferred from the wall stands the piece with
+    /// with the wall (a desk or a bed) is not the floor, and neither is a plane less than
+    /// `roomFurnitureLeastFloorHeightBelowTheCameraMeters` below the camera unless the learner clicked it, since a desk is
+    /// level with the wall. With no floor, a floor inferred from the wall stands the piece with
     /// its back on the wall, when at least a third of its box is in the frame. A depth service that is down or refuses the
     /// request fails as it is, with no wall measurement.
     fileprivate func measureTheFurnituresFloor(
@@ -2272,9 +2324,19 @@ extension RoomArtPreviewController {
             wall = nil
         }
         wallOfTheLatestMeasurement = wall
+        // Why no floor could stand the piece, for the error and the log, which differ for each way a measured floor is refused.
+        var whyNoFloorStoodThePiece = "No floor was in view and the wall gave none to stand the piece on"
         if let measuredFloor, let floorForThePiece {
-            guard let wall, !measuredFloor.agrees(withTheWall: wall) else { return floorForThePiece }
-            print("Room furniture: the measured floor is not level with the wall, so it is a desk or a bed, not the floor")
+            if !anchorWasClicked, measuredFloor.heightBelowTheCameraMeters < roomFurnitureLeastFloorHeightBelowTheCameraMeters {
+                // Level with the wall, so the angle check below passes it, but nearer the camera than any floor is.
+                whyNoFloorStoodThePiece = "The measured floor is less than \(roomFurnitureLeastFloorHeightBelowTheCameraMeters) m below the camera"
+                print(String(format: "Room furniture: the measured floor is only %.2f m below the camera, so it is a desk, a bed, or a table, not the floor", measuredFloor.heightBelowTheCameraMeters))
+            } else if let wall, !measuredFloor.agrees(withTheWall: wall) {
+                whyNoFloorStoodThePiece = "The floor is not level with the wall"
+                print("Room furniture: the measured floor is not level with the wall, so it is a desk or a bed, not the floor")
+            } else {
+                return floorForThePiece
+            }
         }
         if let wall, case .furniture(let furniture) = item,
            let inferredFloor = FloorPlane.inferred(fromTheWall: wall, itemDepthMeters: furniture.depthMeters),
@@ -2284,13 +2346,13 @@ extension RoomArtPreviewController {
             print(String(format: "Room furniture: no floor in view, so the floor is inferred from the wall, with %.0f%% of the piece in the frame", shareInTheFrame * 100))
             if shareInTheFrame >= roomFurnitureLeastShareOfTheBoxInTheFrame { return inferredFloor }
         }
-        throw floorError ?? RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"The floor is not level with the wall"}"#)
+        throw floorError ?? RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"\#(whyNoFloorStoodThePiece)"}"#)
     }
 
     /// The floor anchored where the whole piece shows (`roomFurnitureSpotWhereTheWholePieceFits`), since the bare spot it was
     /// measured at is often a corner where the frame cuts the piece off. A click keeps the spot the learner clicked, and a
-    /// piece no spot shows whole is placed where most of it shows. Where the learner places its ghost decides the step back
-    /// line, said once after "Here it is" when the placed piece does not all show.
+    /// piece no spot shows whole is placed where most of it shows. Where the learner places its ghost decides the advice
+    /// that is part of the "Here it is" line, when the placed piece does not all show (`roomFurnitureAdviceForAPieceTheFrameCutsOff`).
     private func floorWhereTheWholePieceShows(_ measuredFloor: FloorPlane, on keyframe: RoomArtKeyframe, for item: RoomArtPlacedItem?, anchorWasClicked: Bool) -> FloorPlane {
         guard !anchorWasClicked, case .furniture(let furniture) = item else { return measuredFloor }
         let spot = roomFurnitureSpotWhereTheWholePieceFits(
@@ -2351,32 +2413,52 @@ extension RoomArtPreviewController {
     private func startPaintingTheFurniture() {
         guard let placement = furniturePlacement, let boxInTheKeyframe = placement.ghost.keyframeBoxCorners else { return }
         furniturePaintingTask?.cancel()
-        let thisOpening = openingNumber
-        // The painting asked for as the ghost appeared counts only when the piece stands in the box it was asked for.
-        let paintingAheadForThisBox = paintingAhead.flatMap { $0.boxInTheKeyframe == boxInTheKeyframe ? $0.task : nil }
-        if paintingAheadForThisBox == nil { paintingAhead?.task.cancel() }
-        paintingAhead = nil
+        let thisOpening = openingNumber, measurementID = placement.measurementID
+        // A painting request already out for this box counts: the one asked for as the ghost appeared, or the one a pick-up
+        // left running, since a learner who puts the piece back where it stood needs no second request. Any other box
+        // drops it. It stays in `paintingAhead` while it runs, so a pick-up keeps it.
+        let paintingInFlightForThisBox = paintingAhead.flatMap { $0.boxInTheKeyframe == boxInTheKeyframe ? $0.task : nil }
+        if paintingInFlightForThisBox == nil {
+            paintingAhead?.task.cancel()
+            paintingAhead = nil
+        }
         let orientation = placement.ghost.paintingOrientation
         furniturePaintingTask = Task {
             var finishedPainting: RoomFurnitureFinishedPainting?
             var paintingsWereAskedFor = false
-            if let paintingAheadForThisBox {
-                print("Room furniture: the piece stands where Clicky put it, so the painting asked for ahead is used")
-                switch await withTaskCancellationHandler(operation: { await paintingAheadForThisBox.value }, onCancel: { paintingAheadForThisBox.cancel() }) {
+            if let paintingInFlightForThisBox {
+                print("Room furniture: the piece stands where a painting is already asked for, so that painting is used")
+                // The request is out for this placement now, so the wait for it counts from here.
+                startTheLookDeadline(measurementID: measurementID)
+                let outcome = await paintingInFlightForThisBox.value
+                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                switch outcome {
                 case .painted(let paintingAhead): finishedPainting = paintingAhead
                 // Its two paintings were refused or failed, which another two for the same box would likely repeat.
                 case .noPaintingStood: paintingsWereAskedFor = true
-                case .notAsked: break
+                // Nothing was asked, since the learner stood in the box, so the wait starts again once they are out of it.
+                case .notAsked: stopTheLookDeadline()
                 }
             }
             if finishedPainting == nil, !paintingsWereAskedFor, !compositeServiceIsUnavailable,
                let paintingFrame = await aClearFrameForThePainting(boxInTheKeyframe: boxInTheKeyframe, thisOpening: thisOpening) {
-                finishedPainting = await paintTheComposite(
-                    furniture: placement.furniture, paintingFrame: paintingFrame, boxInTheKeyframe: boxInTheKeyframe,
-                    orientation: orientation, keyframeNumber: placement.keyframe.keyframeNumber, thisOpening: thisOpening
-                )
+                let request = Task { () -> RoomFurniturePaintingAheadOutcome in
+                    let painting = await paintTheComposite(
+                        furniture: placement.furniture, paintingFrame: paintingFrame, boxInTheKeyframe: boxInTheKeyframe,
+                        orientation: orientation, keyframeNumber: placement.keyframe.keyframeNumber, thisOpening: thisOpening
+                    )
+                    return painting.map { .painted($0) } ?? .noPaintingStood
+                }
+                paintingAhead = (boxInTheKeyframe, request)
+                startTheLookDeadline(measurementID: measurementID)
+                let outcome = await request.value
+                guard !Task.isCancelled, thisOpening == openingNumber else { return }
+                if case .painted(let painting) = outcome { finishedPainting = painting }
             }
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
+            // The request is back, whatever it brought, so nothing is in flight and a finished one is not used again.
+            furniturePaintingRequestIsOut = false
+            paintingAhead = nil
             if let finishedPainting {
                 frameProcessor.showTheFurnitureLayers(finishedPainting.layers, keyframeNumber: finishedPainting.keyframeNumber, layerToKeyframe: finishedPainting.layerToKeyframe)
                 print("Room furniture: showing the painted composite\(placement.floor.inferredFromTheWall ? ", painted on a floor inferred from the wall" : "")")
@@ -2386,6 +2468,46 @@ extension RoomArtPreviewController {
             furniturePaintingCannotCome = true
             showTheFurnitureFallbackIfItIsDue()
         }
+    }
+
+    /// Starts the wait for the newest placement's painting once its request is out, and marks the request as in flight.
+    /// The wait counts only the request's own time: it does not start while the learner stands in the box
+    /// (`aClearFrameForThePainting`), which has no limit of its own. It ends the fallback's patience only for a render, since
+    /// a request in flight has its own timeout (`roomFurnitureFallbackStep`).
+    private func startTheLookDeadline(measurementID: RoomArtMeasurementID) {
+        furniturePaintingRequestIsOut = true
+        furnitureWaitRanOut = false
+        furnitureLookDeadlineTask?.cancel()
+        let thisOpening = openingNumber
+        let waitTheLongestForAFurnitureLook = environment.waitTheLongestForAFurnitureLook
+        furnitureLookDeadlineTask = Task {
+            await waitTheLongestForAFurnitureLook()
+            guard !Task.isCancelled, thisOpening == openingNumber, furniturePlacement?.measurementID == measurementID else { return }
+            furnitureWaitRanOut = true
+            showTheFurnitureFallbackIfItIsDue()
+        }
+    }
+
+    /// Starts the wait counted from the newest placement, which runs whether or not a request goes out. When it runs out it
+    /// shows a ready render, or says the piece could not be drawn once the model search has ended with no render and no
+    /// request is out (`roomFurnitureFallbackStep`).
+    private func startThePlacementDeadline(measurementID: RoomArtMeasurementID) {
+        furniturePlacementDeadlineTask?.cancel()
+        let thisOpening = openingNumber
+        let waitTheLongestAfterAFurniturePlacement = environment.waitTheLongestAfterAFurniturePlacement
+        furniturePlacementDeadlineTask = Task {
+            await waitTheLongestAfterAFurniturePlacement()
+            guard !Task.isCancelled, thisOpening == openingNumber, furniturePlacement?.measurementID == measurementID else { return }
+            furniturePlacementWaitRanOut = true
+            showTheFurnitureFallbackIfItIsDue()
+        }
+    }
+
+    private func stopTheLookDeadline() {
+        furnitureLookDeadlineTask?.cancel()
+        furnitureLookDeadlineTask = nil
+        furniturePaintingRequestIsOut = false
+        furnitureWaitRanOut = false
     }
 
     /// As the ghost first appears, its painting is asked for in the background, for the box it stands in then, since a
@@ -2463,14 +2585,20 @@ extension RoomArtPreviewController {
     }
 
     /// Shows the newest placement's fallback when `roomFurnitureFallbackStep` says it is due: the model's render, else no
-    /// piece and a line that says it could not be drawn, since the flat cutout reads as a sticker. A placement that already
-    /// shows a look changes nothing, a painting that arrives later still crossfades over the render or shows the piece, and
-    /// a render that finishes after the piece could not be drawn still shows it.
+    /// piece and a line that says it could not be drawn, since the flat cutout reads as a sticker. The line never comes while
+    /// a painting request is out, so a painting that arrives after it was said is one that was asked for later, once the
+    /// learner stepped out of the box. A placement that already shows a look changes nothing, a painting that arrives later
+    /// still crossfades over the render or shows the piece, and a render that finishes after the piece could not be drawn
+    /// still shows it.
     private func showTheFurnitureFallbackIfItIsDue() {
         guard let furniturePlacement else { return }
-        let reason = furnitureWaitRanOut ? "no painting came within \(Int(roomFurnitureSecondsToWaitForALook)) s" : "no painting can come"
+        let reason = furnitureWaitRanOut || furniturePlacementWaitRanOut ? "no painting came within \(Int(roomFurnitureSecondsToWaitForALook)) s" : "no painting can come"
         let measurementID = furniturePlacement.measurementID
-        switch roomFurnitureFallbackStep(paintingCannotCome: furniturePaintingCannotCome, theWaitRanOut: furnitureWaitRanOut, render: furnitureRenderState) {
+        switch roomFurnitureFallbackStep(
+            paintingCannotCome: furniturePaintingCannotCome, theWaitRanOut: furnitureWaitRanOut,
+            thePlacementWaitRanOut: furniturePlacementWaitRanOut,
+            aPaintingRequestIsInFlight: furniturePaintingRequestIsOut, render: furnitureRenderState
+        ) {
         case .keepWaiting:
             return
         case .showTheRender:
@@ -2519,6 +2647,9 @@ extension RoomArtPreviewController {
     ) async -> RoomFurnitureFinishedPainting? {
         let projectedBox = paintingFrame.boxInThisFrame(boxInTheKeyframe)
         let frameImage = paintingFrame.image
+        // The tracker's turn moves the box, so whether the frame cuts off its feet is read for this painting frame.
+        var orientation = orientation
+        orientation.itemContinuesPastTheFrameBottom = roomFurnitureFootprintReachesTheFrameBottom(projectedBox: projectedBox, frameHeight: frameImage.height)
         guard let furnitureCutoutJPEG,
               let maskPNG = environment.compositeMaskPNG(projectedBox, frameImage.width, frameImage.height, Self.compositeShadowMarginPixels) else { return nil }
         // The service paints each request afresh, so a painting refused for its height or its footprint, or a failed

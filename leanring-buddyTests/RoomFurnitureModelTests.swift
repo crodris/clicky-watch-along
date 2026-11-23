@@ -187,11 +187,129 @@ struct RoomFurnitureFrameShareTests {
     }
 }
 
+struct RoomFurnitureAdviceForACutOffPieceTests {
+    @Test func aPieceTheFrameCutsOffByMoreThanATenthGetsAdviceAndAWholePieceGetsNone() {
+        #expect(roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: 1, floorIsInferredFromTheWall: false) == nil)
+        // 95 percent is within the margin for a sofa's feet on a desk camera, so it was never worth a line.
+        #expect(roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: 0.95, floorIsInferredFromTheWall: false) == nil)
+        #expect(roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: 0.9, floorIsInferredFromTheWall: false) == nil)
+        #expect(roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: 0.89, floorIsInferredFromTheWall: false) == roomFurnitureStepBackLine)
+    }
+
+    @Test func aLaptopCameraIsToldToTiltTheScreenDownBecauseItCannotStepBackFromTheWall() {
+        #expect(roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: 0.5, floorIsInferredFromTheWall: true) == "Tilt the screen down so I can show the whole piece.")
+        #expect(roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: 0.95, floorIsInferredFromTheWall: true) == nil)
+    }
+}
+
+struct RoomFurnitureFloorHeightTests {
+    private func plane(heightBelowTheCamera: Double, tiltedAbout up: SIMD3<Double> = SIMD3(0, -1, 0)) -> FloorPlane {
+        // A point on the plane that is `heightBelowTheCamera` along its normal from the camera, and 3 m out and to the side
+        // along the plane, which does not change the height.
+        let normal = simd_normalize(up)
+        let alongThePlane = simd_normalize(simd_cross(normal, SIMD3(1, 0, 0))) * 3 + SIMD3(0.5, 0, 0)
+        return FloorPlane(
+            center: -normal * heightBelowTheCamera + alongThePlane, right: SIMD3(1, 0, 0), up: normal, forward: simd_cross(normal, SIMD3(1, 0, 0)),
+            focalLengthPixels: 1100, principalPoint: SIMD2(640, 360), distanceMeters: 3, floorTiltDegrees: 0, planeInlierShare: 1
+        )
+    }
+
+    @Test func theHeightBelowTheCameraIsAlongThePlanesNormalWhateverPointItWasMeasuredAt() {
+        #expect(abs(plane(heightBelowTheCamera: 0.4).heightBelowTheCameraMeters - 0.4) < 1e-9)
+        #expect(abs(plane(heightBelowTheCamera: 1.1).heightBelowTheCameraMeters - 1.1) < 1e-9)
+        // A camera tilted down 16 degrees sees the same floor, with its normal tilted in the camera's space.
+        #expect(abs(plane(heightBelowTheCamera: 1.1, tiltedAbout: SIMD3(0, -0.96, -0.28)).heightBelowTheCameraMeters - 1.1) < 1e-9)
+        #expect(plane(heightBelowTheCamera: 1.1).moved(toAnchorPixel: CGPoint(x: 900, y: 600)).map { abs($0.heightBelowTheCameraMeters - 1.1) < 1e-9 } == true)
+    }
+
+    @Test func aFloorInferredFromTheWallIsAtTheLaptopCamerasHeight() throws {
+        let wall = WallPlane(
+            center: SIMD3(-0.3, -0.2, 4), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 500,
+            principalPoint: SIMD2(320, 180), distanceMeters: 4, wallAngleDegrees: 0, planeInlierShare: 0.9
+        )
+        let floor = try #require(FloorPlane.inferred(fromTheWall: wall, itemDepthMeters: 0.5))
+        #expect(abs(floor.heightBelowTheCameraMeters - roomFurnitureCameraHeightMeters) < 1e-9)
+        #expect(floor.heightBelowTheCameraMeters >= roomFurnitureLeastFloorHeightBelowTheCameraMeters)
+    }
+
+    @Test func aDeskAndABedAreUnderTheLeastFloorHeightAndARealFloorIsNot() {
+        #expect(plane(heightBelowTheCamera: 0.4).heightBelowTheCameraMeters < roomFurnitureLeastFloorHeightBelowTheCameraMeters)
+        #expect(plane(heightBelowTheCamera: 1.1).heightBelowTheCameraMeters >= roomFurnitureLeastFloorHeightBelowTheCameraMeters)
+    }
+}
+
 struct RoomFurnitureOcclusionTests {
     @Test func theLearnerStaysInFrontUnlessThePiecesBaseIsBelowTheirFeet() {
-        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 500, personLowestRow: 719))
-        #expect(roomFurnitureDrawsOverThePerson(itemBaseRow: 650, personLowestRow: 600))
-        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 650, personLowestRow: nil))
+        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 500, personLowestRow: 719, frameHeight: 720))
+        #expect(roomFurnitureDrawsOverThePerson(itemBaseRow: 650, personLowestRow: 600, frameHeight: 720))
+        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 650, personLowestRow: nil, frameHeight: 720))
+    }
+
+    /// A seated learner reaches the frame's bottom row, and on a floor inferred from the wall the piece's base projects
+    /// below the frame. Neither says which is nearer, so the learner stays on top.
+    @Test func aBaseBelowTheFrameNeverDrawsOverALearnerCutOffByTheFrameBottom() {
+        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 880, personLowestRow: 720, frameHeight: 720))
+        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 720, personLowestRow: 700, frameHeight: 720))
+        // Feet in view at row 600 and a base below the frame is still no proof, only a base inside the frame is.
+        #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 900, personLowestRow: 600, frameHeight: 720))
+        #expect(roomFurnitureDrawsOverThePerson(itemBaseRow: 719, personLowestRow: 600, frameHeight: 720))
+    }
+}
+
+/// A laptop camera that sees no floor puts the piece's feet below the picture. The box is the front face (top left, top
+/// right, bottom right, bottom left) and then the back face, as `FloorPlane.keyframeBoxCorners` gives it.
+struct RoomFurnitureFootprintBelowTheFrameTests {
+    private let frameSize = CGSize(width: 1280, height: 720)
+
+    private func box(frontBottomRow: Double, backBottomRow: Double) -> [CGPoint] {
+        [
+            CGPoint(x: 300, y: 500), CGPoint(x: 900, y: 500), CGPoint(x: 900, y: frontBottomRow), CGPoint(x: 300, y: frontBottomRow),
+            CGPoint(x: 400, y: 420), CGPoint(x: 800, y: 420), CGPoint(x: 800, y: backBottomRow), CGPoint(x: 400, y: backBottomRow),
+        ]
+    }
+
+    @Test func aFootprintReachesTheFrameBottomOnceItsLowestCornerIsOnTheBottomRow() {
+        #expect(!roomFurnitureFootprintReachesTheFrameBottom(projectedBox: box(frontBottomRow: 650, backBottomRow: 600), frameHeight: 720))
+        #expect(roomFurnitureFootprintReachesTheFrameBottom(projectedBox: box(frontBottomRow: 719, backBottomRow: 600), frameHeight: 720))
+        #expect(roomFurnitureFootprintReachesTheFrameBottom(projectedBox: box(frontBottomRow: 1020, backBottomRow: 800), frameHeight: 720))
+        // Only a footprint corner counts: a back top corner below the frame is not the feet.
+        var boxWithAHighFootprint = box(frontBottomRow: 650, backBottomRow: 600)
+        boxWithAHighFootprint[4] = CGPoint(x: 400, y: 900)
+        #expect(!roomFurnitureFootprintReachesTheFrameBottom(projectedBox: boxWithAHighFootprint, frameHeight: 720))
+        #expect(!roomFurnitureFootprintReachesTheFrameBottom(projectedBox: [], frameHeight: 720))
+    }
+
+    @Test func theLoopTracesTheFootprintWhileItIsInTheFrame() throws {
+        let projectedBox = box(frontBottomRow: 650, backBottomRow: 600)
+        let loop = try #require(roomFurnitureLoopQuadrilateral(projectedBox: projectedBox, frameSize: frameSize))
+        // Back left, back right, front right, front left.
+        #expect(loop.clockwiseFromTopLeft == [projectedBox[7], projectedBox[6], projectedBox[2], projectedBox[3]])
+    }
+
+    @Test func theLoopKeepsTracingAFootprintThatIsMostlyInTheFrame() throws {
+        // The front corners are 20 rows below the frame, but most of the footprint is in it.
+        let projectedBox = box(frontBottomRow: 740, backBottomRow: 600)
+        let loop = try #require(roomFurnitureLoopQuadrilateral(projectedBox: projectedBox, frameSize: frameSize))
+        #expect(loop.clockwiseFromTopLeft == [projectedBox[7], projectedBox[6], projectedBox[2], projectedBox[3]])
+    }
+
+    @Test func theLoopTracesTheVisiblePartOfTheBoxWhenTheFootprintIsBelowTheFrame() throws {
+        let projectedBox = box(frontBottomRow: 1020, backBottomRow: 800)
+        let loop = try #require(roomFurnitureLoopQuadrilateral(projectedBox: projectedBox, frameSize: frameSize))
+        // The box's outline spans columns 300 to 900 and rows 420 to 1020, and the frame cuts it at row 720.
+        #expect(loop.topLeft == CGPoint(x: 300, y: 420) && loop.bottomRight == CGPoint(x: 900, y: 720))
+        for corner in loop.clockwiseFromTopLeft {
+            #expect(CGRect(origin: .zero, size: frameSize).contains(corner) || corner.y == frameSize.height)
+        }
+    }
+
+    @Test func theLoopFallsBackToTheFootprintWhenNoPartOfTheBoxIsInTheFrame() throws {
+        let projectedBox = [
+            CGPoint(x: 300, y: 800), CGPoint(x: 900, y: 800), CGPoint(x: 900, y: 1020), CGPoint(x: 300, y: 1020),
+            CGPoint(x: 400, y: 790), CGPoint(x: 800, y: 790), CGPoint(x: 800, y: 900), CGPoint(x: 400, y: 900),
+        ]
+        let loop = try #require(roomFurnitureLoopQuadrilateral(projectedBox: projectedBox, frameSize: frameSize))
+        #expect(loop.clockwiseFromTopLeft == [projectedBox[7], projectedBox[6], projectedBox[2], projectedBox[3]])
     }
 }
 

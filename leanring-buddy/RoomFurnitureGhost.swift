@@ -379,9 +379,10 @@ nonisolated enum RoomFurnitureNudgeDirection: String, CaseIterable, Sendable {
 
 /// How far a nudge moves the piece when the learner names no distance.
 nonisolated let roomFurnitureDefaultNudgeCentimeters = 30.0
-/// The share of the box in the frame above which the whole piece counts as showing, which leaves room for the clipping's
-/// rounding, so Clicky asks the learner to step back only for a piece the frame cuts off.
-nonisolated let roomFurnitureShareOfTheBoxThatShowsWhole = 0.99
+/// The share of the box in the frame above which the whole piece counts as showing. The last tenth is a margin for the
+/// clipping's rounding and for a piece only a little past an edge, since a laptop camera on a desk usually cuts off a
+/// sofa's feet and Clicky should advise the learner only when the cut is large.
+nonisolated let roomFurnitureShareOfTheBoxThatShowsWhole = 0.9
 /// Why a spoken nudge left the ghost where it was, in words the router's model reads back to the learner.
 nonisolated enum RoomFurnitureNudgeRefusal: Equatable, Sendable {
     case noGhost
@@ -638,6 +639,10 @@ nonisolated struct RoomArtPaintingFrame: @unchecked Sendable {
 /// A painting waits for the learner to step aside while they cover more than this share of the box: the painter would
 /// draw the piece through them, or paint them out.
 nonisolated let roomFurnitureMostOfTheBoxThePersonMayCover = 0.03
+/// What Clicky says once per panel when the ghost first appears, so the learner knows they place the piece and how. The
+/// status line says the same in fewer words, and nothing was spoken at this point, which left a quiet panel for the seconds
+/// the learner takes to read it.
+nonisolated let roomFurnitureGhostLine = "Here's where it would go. Drag it, or say right there."
 /// What Clicky says once when the learner stands where the piece is about to be painted.
 nonisolated let roomFurnitureStepAsideLine = "Step aside for a second."
 
@@ -706,8 +711,17 @@ nonisolated enum RoomFurniturePaintingAheadOutcome: Sendable {
     case notAsked
 }
 
-/// The keyframe taken while the page was still read, and the wall measured on it then.
+/// The keyframe taken while the page was still read, and the wall measured on it then. They are two tasks because the
+/// keyframe is ready at once while the wall takes the depth service's one run of about 14 seconds, and the loop must move
+/// to the wall spot as soon as the keyframe exists, not when the wall is back.
 nonisolated struct RoomArtEarlyMeasurement: Sendable {
-    let keyframe: RoomArtKeyframe
-    let wall: Result<WallPlane, Error>
+    /// Nil when no keyframe could be taken, or a shirt read cancelled it first.
+    let keyframe: Task<RoomArtKeyframe?, Never>
+    /// The wall measured on that keyframe, nil when there was no keyframe or the measurement was cancelled.
+    let wall: Task<Result<WallPlane, Error>?, Never>
+
+    func cancel() {
+        keyframe.cancel()
+        wall.cancel()
+    }
 }

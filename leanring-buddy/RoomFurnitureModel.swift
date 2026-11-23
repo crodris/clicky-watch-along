@@ -154,6 +154,13 @@ extension FloorPlane {
         return floor
     }
 
+    /// How far below the camera the plane is, in meters, along its own normal. A laptop on a desk holds its camera about
+    /// `roomFurnitureCameraHeightMeters` above the real floor, and a desk, a bed, or a table top is much nearer.
+    var heightBelowTheCameraMeters: Double {
+        guard simd_length(up) > 1e-6 else { return 0 }
+        return -simd_dot(center, simd_normalize(up))
+    }
+
     /// Whether the measured floor is level with the wall: a desk, a bed, or a sofa seat measured in its place tilts away from
     /// the wall's up when its fit is poor, and a real floor is square to a real wall.
     func agrees(withTheWall wall: WallPlane, withinDegrees maximumDegrees: Double = roomFurnitureFloorAndWallMostDegreesApart) -> Bool {
@@ -167,6 +174,10 @@ extension FloorPlane {
 nonisolated let roomFurnitureCameraHeightMeters = 1.05
 /// A measured floor whose normal is further than this from the wall's up is a desk or a bed, not the floor.
 nonisolated let roomFurnitureFloorAndWallMostDegreesApart = 20.0
+/// A plane measured at the bare spot that is less than this far below the camera is the desk, bed, or table the camera
+/// looks over, not the floor: it is level with the wall, so the angle check keeps it, and a sofa then stands on the desk.
+/// A camera that low would be 60 cm off the floor, lower than a laptop on any desk. A floor the learner clicked is kept.
+nonisolated let roomFurnitureLeastFloorHeightBelowTheCameraMeters = 0.6
 /// A floor inferred from the wall stands the item only when at least this share of its box is inside the frame, since a
 /// piece mostly off screen tells the learner nothing.
 nonisolated let roomFurnitureLeastShareOfTheBoxInTheFrame = 1.0 / 3.0
@@ -182,6 +193,37 @@ nonisolated func shareOfTheBoxInsideTheFrame(projectedCorners: [CGPoint], frameS
     guard outline.count >= 3, outlineArea > 1e-9 else { return 0 }
     let insideTheFrame = clipped(outline, toRectangle: CGRect(origin: .zero, size: frameSize))
     return min(1, max(0, polygonArea(insideTheFrame) / outlineArea))
+}
+
+/// The loop traces the floor footprint while at least this share of it is in the frame, and the box's visible part below that.
+nonisolated let roomFurnitureLeastShareOfTheFootprintInTheFrameForTheLoop = 0.5
+
+/// Whether the box's floor footprint (its bottom corners, 2, 3, 6, and 7 of `RoomFurniturePlacement.boxCorners`) reaches the
+/// frame's bottom row or lies below it, so that the frame cuts off the piece's lower part. That is the usual case on a floor
+/// inferred from the wall, where a laptop camera sees little floor: the piece's front feet are below the picture. The back
+/// feet may still be in view, with part of the footprint, when only the lowest corners reach the bottom row.
+nonisolated func roomFurnitureFootprintReachesTheFrameBottom(projectedBox: [CGPoint], frameHeight: Int) -> Bool {
+    guard projectedBox.count == 8 else { return false }
+    let lowestFootprintRow = [projectedBox[2], projectedBox[3], projectedBox[6], projectedBox[7]].map(\.y).max() ?? 0
+    return lowestFootprintRow >= Double(frameHeight - 1)
+}
+
+/// What the loop traces while the piece is arranged: the floor footprint (back left, back right, front right, front left,
+/// clockwise on screen), or, when less than `roomFurnitureLeastShareOfTheFootprintInTheFrameForTheLoop` of the footprint is
+/// in the frame, the visible part of the box, since a line around a footprint that is mostly below the picture is drawn
+/// off it. The visible part is the rectangle around the box's outline clipped to the frame, and the footprint again when
+/// none of the box is in the frame.
+nonisolated func roomFurnitureLoopQuadrilateral(projectedBox: [CGPoint], frameSize: CGSize) -> RoomArtCorners? {
+    guard projectedBox.count == 8 else { return nil }
+    let footprint = RoomArtCorners(clockwiseFromTopLeft: [projectedBox[7], projectedBox[6], projectedBox[2], projectedBox[3]])
+    guard shareOfTheBoxInsideTheFrame(projectedCorners: footprint.clockwiseFromTopLeft, frameSize: frameSize) < roomFurnitureLeastShareOfTheFootprintInTheFrameForTheLoop else { return footprint }
+    let visibleOutline = clipped(convexHull(of: projectedBox), toRectangle: CGRect(origin: .zero, size: frameSize))
+    guard visibleOutline.count >= 3 else { return footprint }
+    let rectangleAroundTheVisibleOutline = visibleOutline.reduce(CGRect.null) { $0.union(CGRect(origin: $1, size: .zero)) }
+    return RoomArtCorners(rect: CGRect(
+        x: rectangleAroundTheVisibleOutline.minX, y: rectangleAroundTheVisibleOutline.minY,
+        width: max(rectangleAroundTheVisibleOutline.width, 1), height: max(rectangleAroundTheVisibleOutline.height, 1)
+    ))
 }
 
 /// The polygon's area by the shoelace formula, whichever way it winds.
@@ -351,8 +393,12 @@ nonisolated struct RoomFurnitureModelFit: Equatable, Sendable {
 /// on top, but when the piece's base is lower in the frame than the learner's lowest masked row (their feet, or the bottom
 /// of the frame for a learner cut off by it), the piece stands nearer the camera than they do. `personLowestRow` is nil
 /// when no person is in the mask.
-nonisolated func roomFurnitureDrawsOverThePerson(itemBaseRow: Double, personLowestRow: Double?) -> Bool {
-    guard let personLowestRow else { return false }
+///
+/// A base at or below the frame's bottom row proves nothing about depth: a seated learner reaches the bottom row, and on a
+/// floor inferred from the wall the piece's front-bottom edge projects below the frame, so comparing the two would draw the
+/// piece over the learner's chest. The learner stays on top then.
+nonisolated func roomFurnitureDrawsOverThePerson(itemBaseRow: Double, personLowestRow: Double?, frameHeight: Double) -> Bool {
+    guard let personLowestRow, itemBaseRow < frameHeight else { return false }
     return itemBaseRow > personLowestRow
 }
 
@@ -436,8 +482,19 @@ nonisolated struct RoomFurnitureSpot: Equatable, Sendable {
 nonisolated let roomFurnitureFrameMarginShare = 0.04
 /// A furniture spot may lie this much farther along the floor than the measured one, which a measuring difference covers.
 nonisolated let farthestBeyondTheMeasuredSpotMeters = 0.1
-/// What Clicky says once when no spot on the floor shows the whole piece.
+/// What Clicky adds to "Here it is" when the frame cuts off the placed piece and the floor was measured.
 nonisolated let roomFurnitureStepBackLine = "Step back so I can show the whole piece."
+/// What Clicky adds instead on a floor inferred from the wall: a laptop camera sees no floor, and stepping back from it
+/// changes nothing about how the frame cuts off the piece, while tilting the screen down shows more of the floor.
+nonisolated let roomFurnitureTiltTheScreenDownLine = "Tilt the screen down so I can show the whole piece."
+
+/// The advice that follows "Here it is" when more of the placed piece's box than `roomFurnitureShareOfTheBoxThatShowsWhole`
+/// allows is outside the frame, or nil when the whole piece shows. It is said in the same line as "Here it is", since a
+/// second line started in the same turn cancels the first before it plays.
+nonisolated func roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: Double, floorIsInferredFromTheWall: Bool) -> String? {
+    guard shareOfTheBoxInTheFrame < roomFurnitureShareOfTheBoxThatShowsWhole else { return nil }
+    return floorIsInferredFromTheWall ? roomFurnitureTiltTheScreenDownLine : roomFurnitureStepBackLine
+}
 
 /// The spot on the measured floor where the piece stands: of the floor points whose whole box (footprint and full height,
 /// from the page's size) fits inside the frame with `roomFurnitureFrameMarginShare` to spare, the one nearest the lower

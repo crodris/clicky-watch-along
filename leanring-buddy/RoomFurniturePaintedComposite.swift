@@ -49,10 +49,16 @@ extension RoomFurnitureGenerating {
     }
 }
 
-/// Which way the painted piece faces, from the ghost the learner placed: the Worker turns it into its own words.
+/// How the painter draws the piece, which the mask alone cannot say: which way it faces, from the ghost the learner placed
+/// (a convex area looks the same turned 180 degrees), and whether the frame cuts off its lower part. The Worker turns each
+/// into its own words.
 nonisolated struct RoomFurniturePaintingOrientation: Equatable, Sendable {
     let facing: RoomFurnitureFacing
     let backAgainstTheWall: Bool
+    /// Whether the box's floor footprint reaches the frame's bottom row or lies below it (`roomFurnitureFootprintReachesTheFrameBottom`),
+    /// so the piece's front feet and floor shadow are below the picture, and its back feet may be in it. Set per painting
+    /// frame, since the tracker's turn moves the box, so the ghost's own orientation leaves it false.
+    var itemContinuesPastTheFrameBottom = false
 }
 
 extension RoomFurnitureGenerationClient: RoomFurnitureGenerating {}
@@ -98,8 +104,13 @@ nonisolated enum RoomFurniturePaintedComposite {
 
     /// The painted item as keyframe layers, or nil when the painting is not the keyframe's size, the mask does not read, the
     /// painted item is shorter than the box's front face or taller than its outline, each by more than
-    /// `mostHeightDifference`, or the item reached past the pasted region's top, where the paste cut it off. Also returns the painted height as a share of the box's outline and the painted rows' span
-    /// (top and bottom in y-down keyframe pixels) for the log, each nil when nothing was painted.
+    /// `mostHeightDifference`, the item reached past the pasted region's top, where the paste cut it off, or its floor
+    /// contact (the middle of its lowest painted row) is off the box's footprint grown by `floorContactSlackShare`
+    /// (`floorContactLandsOnTheFootprint`). When the frame cuts the footprint off at its bottom row, the slack is taken from
+    /// the footprint's height before the cut, so the contact may lie anywhere from the top of the visible footprint down to
+    /// the bottom row, and a piece that floats above the visible footprint is refused. Also returns the painted height as a
+    /// share of the box's outline and the painted rows' span (top and bottom in y-down keyframe pixels) for the log, each nil
+    /// when nothing was painted.
     static func itemLayers(
         painted: CGImage,
         keyframe: CGImage,
@@ -146,9 +157,16 @@ nonisolated enum RoomFurniturePaintedComposite {
         guard shareChangedAlongTheRegionsTop < mostOfTheRegionsTopThatMayChange else { return (nil, paintedHeightRatio, paintedRowSpan) }
         guard paintedRows >= frontFaceHeight * (1 - mostHeightDifference),
               paintedRows <= boxOutlineHeight * (1 + mostHeightDifference) else { return (nil, paintedHeightRatio, paintedRowSpan) }
-        guard floorContactLandsOnTheFootprint(
-            CGPoint(x: lowestRowMiddleColumn, y: Double(paintedRowSpan.upperBound)), footprint: [boxInTheFrame[2], boxInTheFrame[3], boxInTheFrame[6], boxInTheFrame[7]]
-        ) else { return (nil, paintedHeightRatio, paintedRowSpan) }
+        let floorContact = CGPoint(x: lowestRowMiddleColumn, y: Double(paintedRowSpan.upperBound))
+        let footprintInTheFrame = [boxInTheFrame[2], boxInTheFrame[3], boxInTheFrame[6], boxInTheFrame[7]]
+        // The frame clamps a footprint below its bottom row to a line there, whose own height says nothing: the slack comes
+        // from the footprint's height before the cut, and the contact may lie from the top of the part the frame shows down
+        // to the bottom row, where the frame cuts the piece off.
+        let footprintYs = [projectedBox[2], projectedBox[3], projectedBox[6], projectedBox[7]].map(\.y)
+        let footprintHeightBeforeClamping = (footprintYs.max() ?? 0) - (footprintYs.min() ?? 0)
+        guard floorContactLandsOnTheFootprint(floorContact, footprint: footprintInTheFrame, footprintHeightBeforeClamping: footprintHeightBeforeClamping) else {
+            return (nil, paintedHeightRatio, paintedRowSpan)
+        }
 
         let itemLayer = paintedImage.applyingFilter("CIBlendWithMask", parameters: [
             kCIInputBackgroundImageKey: CIImage.empty(),
@@ -170,11 +188,15 @@ nonisolated enum RoomFurniturePaintedComposite {
     }
 
     /// Whether a floor contact point, in y-down keyframe pixels, lies on the footprint's bounding box grown by
-    /// `floorContactSlackShare` of its size on each side.
-    static func floorContactLandsOnTheFootprint(_ floorContact: CGPoint, footprint: [CGPoint]) -> Bool {
+    /// `floorContactSlackShare` of its size on each side. `footprint` is what the frame shows of it. When the frame cuts the
+    /// footprint off at its bottom row, the cut footprint is a few rows tall or none, and 15 percent of that is a fraction of
+    /// a row, so `footprintHeightBeforeClamping` gives the height the slack is taken from. The contact may then lie from the
+    /// visible footprint's top, less that slack, down to the bottom row.
+    static func floorContactLandsOnTheFootprint(_ floorContact: CGPoint, footprint: [CGPoint], footprintHeightBeforeClamping: Double? = nil) -> Bool {
         guard let left = footprint.map(\.x).min(), let right = footprint.map(\.x).max(),
               let top = footprint.map(\.y).min(), let bottom = footprint.map(\.y).max() else { return false }
-        let horizontalSlack = (right - left) * floorContactSlackShare, verticalSlack = max(bottom - top, 1) * floorContactSlackShare
+        let footprintHeight = footprintHeightBeforeClamping ?? (bottom - top)
+        let horizontalSlack = (right - left) * floorContactSlackShare, verticalSlack = max(footprintHeight, 1) * floorContactSlackShare
         return floorContact.x >= left - horizontalSlack && floorContact.x <= right + horizontalSlack
             && floorContact.y >= top - verticalSlack && floorContact.y <= bottom + verticalSlack
     }
@@ -286,19 +308,25 @@ nonisolated func roomFurnitureCompositeMaskPNG(projectedBox: [CGPoint], frameWid
 }
 
 /// Whether a painting request that failed may succeed when asked for again: not for a service with no key (503), a wrong
-/// app secret (401), or a request the Worker refused (400), which fail the same way every time.
+/// app secret (401), or a request the Worker refused (400), which fail the same way every time. Not after the app's own
+/// request timeout (`RoomFurnitureGenerationClient.timeoutSeconds`, 150 seconds) either: a second request would take as long,
+/// and with no render to show the learner would watch "Arranging it in your room…" for about 5 minutes. A 502 or a 504 from
+/// the Worker arrives sooner, and a request that stopped for another network reason fails fast, so those are asked again.
 nonisolated func roomFurniturePaintingIsWorthAskingForAgain(after error: Error) -> Bool {
     switch error {
     case RoomFurnitureGenerationError.serviceIsNotSetUp: return false
     case RoomFurnitureGenerationError.workerReturned(let statusCode, _): return statusCode != 400 && statusCode != 401
     case RoomFurnitureGenerationError.inputCouldNotBeRead: return false
+    case let urlError as URLError: return urlError.code != .timedOut
     default: return true
     }
 }
 
-/// How long furniture with no look yet waits after its floor is measured before its fallback shows (the model's render,
-/// else the could-not-draw line). A painting takes 15 to 20 seconds, and a second painting after a refused one about as
-/// long again.
+/// How long furniture with no look yet waits before its fallback shows (the model's render, and only with no request in
+/// flight the could-not-draw line). It is counted twice: from the moment a painting request goes out for the placement, which
+/// leaves out the time the learner spends out of the way (`aClearFrameForThePainting`), and from the placement itself, since
+/// that time has no limit of its own and no request goes out at all while a learner covers the box. A painting takes 15 to
+/// 20 seconds, and a second painting after a refused one about as long again.
 nonisolated let roomFurnitureSecondsToWaitForALook = 45.0
 
 /// Where furniture's model render stands for one placement: still being made (or the model search still runs), ready, or
@@ -323,14 +351,26 @@ nonisolated enum RoomFurnitureFallbackStep: Equatable, Sendable {
 nonisolated let roomFurnitureNotDrawnLine = "I couldn't draw it this time. Click the floor to try again."
 
 /// The painting is the only first look, so the fallback waits for it until it cannot come (the service is not set up,
-/// two paintings were refused, or the request failed) or the wait runs out (`roomFurnitureSecondsToWaitForALook`). The
+/// two paintings were refused, or the request failed) or a wait runs out (`roomFurnitureSecondsToWaitForALook`): the wait
+/// counted from the painting request going out (`theWaitRanOut`), or from the placement (`thePlacementWaitRanOut`). The
 /// fallback is the model's render when one is ready, else no piece at all and a line that says so. A painting that cannot
 /// come waits for a render still being made, which takes under a second, and a wait that ran out takes whatever is ready.
-nonisolated func roomFurnitureFallbackStep(paintingCannotCome: Bool, theWaitRanOut: Bool, render: RoomFurnitureRenderState) -> RoomFurnitureFallbackStep {
-    guard paintingCannotCome || theWaitRanOut else { return .keepWaiting }
+///
+/// A painting request still in flight is never given up on for want of a render: the request's own timeout ends it, and
+/// saying "I couldn't draw it" while it is on its way sent the learner to click the floor, which cancelled the painting
+/// about to arrive. Only a ready render shows when a wait ran out under a request in flight.
+///
+/// The placement's wait covers a placement whose request has not gone out, such as a learner covering the box who is asked
+/// to step aside: a ready render shows then, and the line that the piece could not be drawn comes only once the model search
+/// has ended with no render (`.none`), since a render still coming may show. The request's wait, which only a request
+/// that went out starts, says it with a render still coming too.
+nonisolated func roomFurnitureFallbackStep(
+    paintingCannotCome: Bool, theWaitRanOut: Bool, thePlacementWaitRanOut: Bool, aPaintingRequestIsInFlight: Bool, render: RoomFurnitureRenderState
+) -> RoomFurnitureFallbackStep {
+    guard paintingCannotCome || theWaitRanOut || thePlacementWaitRanOut else { return .keepWaiting }
     switch render {
     case .ready: return .showTheRender
-    case .none: return .sayItCouldNotBeDrawn
-    case .coming: return theWaitRanOut ? .sayItCouldNotBeDrawn : .keepWaiting
+    case .none: return aPaintingRequestIsInFlight ? .keepWaiting : .sayItCouldNotBeDrawn
+    case .coming: return theWaitRanOut && !aPaintingRequestIsInFlight ? .sayItCouldNotBeDrawn : .keepWaiting
     }
 }
