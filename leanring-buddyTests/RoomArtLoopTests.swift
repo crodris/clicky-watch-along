@@ -85,7 +85,8 @@ struct RoomArtLoopStateTests {
         #expect(!fadingStill.tracesTheLine)
         let arranging = RoomArtPhase.arranging(id: RoomArtMeasurementID(number: 3), item: loopTestItem(), surface: .wall(loopTestWall()))
         #expect(fadingStill.after(phaseChangedTo: arranging, at: 44) == .drawing(beganAt: 44))
-        // The ghost appearing fades a tracing loop whole and still, since its glyph leaves for the ghost, so one glyph shows.
+        // The ghost appearing after the first trace fades the whole line still, since its glyph leaves for the ghost, so one
+        // glyph shows.
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: placing, at: 41) == .fadingOut(beganAt: 10, tracesTheLine: false))
         // A ghost that appears during the loop's first trace keeps only the part already drawn, with no glyph finishing it.
         let fadingMidTrace = RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: placing, at: 10.5)

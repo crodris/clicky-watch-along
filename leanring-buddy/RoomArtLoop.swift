@@ -48,7 +48,7 @@ enum RoomArtLoopState: Equatable {
             if let beganAt { return .waitingForAClick(beganAt: beganAt) }
             return .waitingForAClick(beganAt: now)
         // The ghost appearing takes over from the loop: the theme's glyph leaves the loop's line for the ghost's lines, so
-        // the loop fades whole and still, with no second glyph lapping it.
+        // the loop fades still, with no second glyph lapping it, keeping the share of the line already drawn.
         case .placingTheFurniture:
             switch self {
             case .drawing(let beganAt):
