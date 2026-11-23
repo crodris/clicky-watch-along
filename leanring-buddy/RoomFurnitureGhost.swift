@@ -451,9 +451,9 @@ nonisolated func voiceCommandFurnitureGhostState(_ ghost: RoomFurnitureGhost) ->
 
 // MARK: - Drawing it line by line
 
-/// The ghost draws itself the first time it appears and each time a placed piece is picked back up, like the loop's spark
-/// drawing its line: a white spark leaves the measuring loop's line (`handoff`), traces the footprint, rides up each dashed
-/// corner post in turn, then draws the top outline, and the fill, the shadow, and the size pill come in last. Every part is
+/// The ghost draws itself the first time it appears and each time a placed piece is picked back up, the way the theme's
+/// cursor glyph draws the loop: the glyph leaves the measuring loop's line (`handoff`), traces the footprint, rides up each
+/// dashed corner post in turn, then draws the top outline, and the fill, the shadow, and the size pill come in last. Every part is
 /// a pure function of the time since the draw began, so a test reads any moment.
 nonisolated enum RoomFurnitureGhostDrawTimeline {
     static let handoffSeconds = 0.2
@@ -463,14 +463,14 @@ nonisolated enum RoomFurnitureGhostDrawTimeline {
     static let fillSeconds = 0.2
     static let postCount = 4
 
-    /// Where the spark is.
-    enum Spark: Equatable {
+    /// Where the tracer, the theme's cursor glyph, is.
+    enum Tracer: Equatable {
         /// Flying from the loop's line to the footprint's first corner, 0 at the line and 1 at the corner.
         case leavingTheLoop(share: Double)
         case onTheFootprint(share: Double)
         case onAPost(index: Int, share: Double)
         case onTheTop(share: Double)
-        /// The lines are drawn, and the spark is gone.
+        /// The lines are drawn, and the tracer is gone.
         case gone
     }
 
@@ -482,9 +482,9 @@ nonisolated enum RoomFurnitureGhostDrawTimeline {
         /// The fill and the contact shadow's opacity, as a share of their full opacity.
         let fillShare: Double
         let pillIsShown: Bool
-        let spark: Spark
+        let tracer: Tracer
 
-        static let whole = Frame(footprintShare: 1, postShares: Array(repeating: 1, count: postCount), topShare: 1, fillShare: 1, pillIsShown: true, spark: .gone)
+        static let whole = Frame(footprintShare: 1, postShares: Array(repeating: 1, count: postCount), topShare: 1, fillShare: 1, pillIsShown: true, tracer: .gone)
     }
 
     /// The whole draw's length: about 1.3 seconds, or 1.5 with the handoff from the loop.
@@ -492,7 +492,7 @@ nonisolated enum RoomFurnitureGhostDrawTimeline {
         (startsFromTheLoop ? handoffSeconds : 0) + footprintSeconds + secondsPerPost * Double(postCount) + topSeconds + fillSeconds
     }
 
-    /// The draw `secondsSinceBegan` in. `startsFromTheLoop` says the spark leaves the measuring loop's line first, which a
+    /// The draw `secondsSinceBegan` in. `startsFromTheLoop` says the tracer leaves the measuring loop's line first, which a
     /// pick-up, with no loop, skips.
     static func frame(secondsSinceBegan: Double, startsFromTheLoop: Bool) -> Frame {
         var seconds = max(0, secondsSinceBegan)
@@ -501,13 +501,13 @@ nonisolated enum RoomFurnitureGhostDrawTimeline {
 
         if startsFromTheLoop {
             if seconds < handoffSeconds {
-                return Frame(footprintShare: 0, postShares: noPosts, topShare: 0, fillShare: 0, pillIsShown: false, spark: .leavingTheLoop(share: share(of: handoffSeconds)))
+                return Frame(footprintShare: 0, postShares: noPosts, topShare: 0, fillShare: 0, pillIsShown: false, tracer: .leavingTheLoop(share: share(of: handoffSeconds)))
             }
             seconds -= handoffSeconds
         }
         if seconds < footprintSeconds {
             let footprintShare = share(of: footprintSeconds)
-            return Frame(footprintShare: footprintShare, postShares: noPosts, topShare: 0, fillShare: 0, pillIsShown: false, spark: .onTheFootprint(share: footprintShare))
+            return Frame(footprintShare: footprintShare, postShares: noPosts, topShare: 0, fillShare: 0, pillIsShown: false, tracer: .onTheFootprint(share: footprintShare))
         }
         seconds -= footprintSeconds
         let postsSeconds = secondsPerPost * Double(postCount)
@@ -515,16 +515,16 @@ nonisolated enum RoomFurnitureGhostDrawTimeline {
             let postIndex = min(postCount - 1, Int(seconds / secondsPerPost))
             let growingShare = min(1, (seconds - Double(postIndex) * secondsPerPost) / secondsPerPost)
             let postShares = (0..<postCount).map { index in index < postIndex ? 1 : (index == postIndex ? growingShare : 0) }
-            return Frame(footprintShare: 1, postShares: postShares, topShare: 0, fillShare: 0, pillIsShown: false, spark: .onAPost(index: postIndex, share: growingShare))
+            return Frame(footprintShare: 1, postShares: postShares, topShare: 0, fillShare: 0, pillIsShown: false, tracer: .onAPost(index: postIndex, share: growingShare))
         }
         seconds -= postsSeconds
         let allPosts = Array(repeating: 1.0, count: postCount)
         if seconds < topSeconds {
             let topShare = share(of: topSeconds)
-            return Frame(footprintShare: 1, postShares: allPosts, topShare: topShare, fillShare: 0, pillIsShown: false, spark: .onTheTop(share: topShare))
+            return Frame(footprintShare: 1, postShares: allPosts, topShare: topShare, fillShare: 0, pillIsShown: false, tracer: .onTheTop(share: topShare))
         }
         seconds -= topSeconds
-        return Frame(footprintShare: 1, postShares: allPosts, topShare: 1, fillShare: share(of: fillSeconds), pillIsShown: true, spark: .gone)
+        return Frame(footprintShare: 1, postShares: allPosts, topShare: 1, fillShare: share(of: fillSeconds), pillIsShown: true, tracer: .gone)
     }
 }
 
@@ -545,7 +545,7 @@ nonisolated enum RoomFurnitureGhostGlow {
 /// The ghost's lines in the panel's points this moment: the box's corners go from the keyframe through the tracker's turn
 /// to the current frame, then into the panel. The footprint runs front left, front right, back right, back left; the posts
 /// rise from those corners in that order; and the top starts above the back left corner, where the last post ends, so the
-/// spark's path never jumps there.
+/// tracer's path never jumps there.
 nonisolated struct RoomFurnitureGhostLines: Equatable, Sendable {
     /// Closed, front left first.
     let footprint: [CGPoint]
@@ -682,11 +682,11 @@ nonisolated func shareOfTheOutlineThePersonCovers(personMask: CVPixelBuffer, out
 
 // MARK: - What the controller keeps
 
-/// When the ghost began drawing itself, and where its spark leaves from in the panel: the measuring loop's spark the first
+/// When the ghost began drawing itself, and where its tracer leaves from in the panel: the measuring loop's tracer the first
 /// time, or nowhere for a pick-up, which starts on the footprint.
 nonisolated struct RoomFurnitureGhostDraw: Equatable, Sendable {
     let beganAt: TimeInterval
-    let sparkStartInThePanel: CGPoint?
+    let tracerStartInThePanel: CGPoint?
 }
 
 /// A painting that stood at the measured size and on its footprint, ready to show, in the keyframe's space.

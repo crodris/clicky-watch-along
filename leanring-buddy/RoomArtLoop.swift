@@ -3,8 +3,9 @@
 //  leanring-buddy
 //
 //  Clicky's loop around the spot the room art panel measures: the wall spot for wall art, and the floor spot for furniture.
-//  It is the cursor loop's own line and spark (`CursorLoopOutline`, `CursorLoopTimeline`, `CursorLoopDrawing`) in the
-//  theme's accent, drawn around the window `bareWallSpot` or `bareFloorSpot` scored, and it follows the room as the camera
+//  It is the cursor loop's own line (`CursorLoopOutline`, `CursorLoopTimeline`, `CursorLoopDrawing`) in the theme's accent,
+//  drawn by the theme's own cursor glyph (`CursorLoopTracerGlyph`), which traces it and keeps lapping it while the work
+//  runs, around the window `bareWallSpot` or `bareFloorSpot` scored, and it follows the room as the camera
 //  turns: the window's four corners go through the tracker's current warp each frame, and the line is bent onto the mapped
 //  corners. It starts when the keyframe is taken and leaves with a fade when the item shows or the measurement fails. For a
 //  shirt it traces the learner's torso instead, from the moment the panel knows it is a shirt until the shirt first shows.
@@ -19,26 +20,39 @@ import simd
 // MARK: - When the loop shows
 
 /// The loop as the panel draws it. `beganAt` is `ProcessInfo.systemUptime` when the measurement began, which is when the
-/// keyframe is taken, so the spark's timeline starts there.
+/// keyframe is taken, so the glyph's timeline starts there.
 enum RoomArtLoopState: Equatable {
     case hidden
     case drawing(beganAt: TimeInterval)
-    case fadingOut(beganAt: TimeInterval)
+    /// The whole line stays where a click arranges the item again, with no glyph lapping it, since no work runs until the
+    /// learner clicks.
+    case waitingForAClick(beganAt: TimeInterval)
+    /// `tracesTheLine` is the state it left: a lapping glyph keeps lapping while the line fades, and a still line fades with
+    /// no glyph appearing on it.
+    case fadingOut(beganAt: TimeInterval, tracesTheLine: Bool)
 
     /// The panel's phase changed. The loop starts with a measurement, a first one or a click's, and with a shirt being
-    /// prepared, and keeps its clock while the work goes on: while furniture waits for its first look around the footprint
-    /// where it will stand, after the furniture could not be drawn (where a click arranges it again), and when the garment
-    /// is ready before the learner stands in view. The item or the shirt showing, a floor that was not found, or a failure
-    /// fades it, and a panel that closes or is still reading the page has no loop at all.
+    /// prepared, and keeps its clock while the work goes on: while placed furniture waits for its painting around its ghost's
+    /// footprint, and when the garment is ready before the learner stands in view. After the furniture could not be drawn,
+    /// the line stays still until a press picks the ghost back up. The ghost appearing, the item or the shirt showing, a
+    /// floor that was not found, or a failure fades it, and a panel that closes or is still reading the page has no loop at
+    /// all.
     func after(phaseChangedTo phase: RoomArtPhase, at now: TimeInterval) -> RoomArtLoopState {
         switch phase {
-        case .measuring, .moving, .arranging, .couldNotDraw, .preparingTheShirt, .waitingToSeeTheLearner:
+        case .measuring, .moving, .arranging, .preparingTheShirt, .waitingToSeeTheLearner:
             if case .drawing = self { return self }
             return .drawing(beganAt: now)
-        // The ghost appearing takes over from the loop: its spark leaves the loop's line as the loop fades.
+        case .couldNotDraw:
+            if let beganAt { return .waitingForAClick(beganAt: beganAt) }
+            return .waitingForAClick(beganAt: now)
+        // The ghost appearing takes over from the loop: the theme's glyph leaves the loop's line for the ghost's lines as
+        // the loop fades.
         case .showing, .placingTheFurniture, .waitingForAFloorClick, .showingTheShirt, .failed:
-            if case .drawing(let beganAt) = self { return .fadingOut(beganAt: beganAt) }
-            return self
+            switch self {
+            case .drawing(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: true)
+            case .waitingForAClick(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)
+            case .hidden, .fadingOut: return self
+            }
         case .closed, .readingThePage, .waitingForTheCamera:
             return .hidden
         }
@@ -57,10 +71,20 @@ enum RoomArtLoopState: Equatable {
 
     var isHidden: Bool { self == .hidden }
 
+    /// Whether the theme's glyph traces and laps the line. A loop waiting for a click, and the fade that follows it, show the
+    /// whole line still.
+    var tracesTheLine: Bool {
+        switch self {
+        case .waitingForAClick: return false
+        case .fadingOut(_, let tracesTheLine): return tracesTheLine
+        case .hidden, .drawing: return true
+        }
+    }
+
     var beganAt: TimeInterval? {
         switch self {
         case .hidden: return nil
-        case .drawing(let beganAt), .fadingOut(let beganAt): return beganAt
+        case .drawing(let beganAt), .waitingForAClick(let beganAt), .fadingOut(let beganAt, _): return beganAt
         }
     }
 }
@@ -235,53 +259,67 @@ enum RoomArtLoopOutline {
 
 // MARK: - Timing
 
-/// What one moment of the loop draws: how much of the line, where the spark is, and whether there is a spark at all.
+/// What one moment of the loop draws: how much of the line, where the glyph is, and whether there is a glyph at all.
 struct RoomArtLoopDrawingPlan: Equatable {
     let frame: CursorLoopTimeline.Frame
-    let showsTheSpark: Bool
+    let showsTheTracer: Bool
 
-    /// The cursor loop's own timeline, so the two loops move alike. With Reduce Motion on, the whole line shows at once with
-    /// no spark, and the view fades it in.
-    static func at(secondsSinceTheLoopBegan: TimeInterval, reduceMotionIsOn: Bool) -> RoomArtLoopDrawingPlan {
-        if reduceMotionIsOn {
-            return RoomArtLoopDrawingPlan(frame: CursorLoopTimeline.Frame(drawnShare: 1, spark: .onTheLoop(share: 0)), showsTheSpark: false)
+    /// The glyph traces the line from the loop's first moment and keeps lapping it, since the panel has no cursor to fly in.
+    /// With Reduce Motion on, the whole line shows at once with no glyph, and the view fades it in.
+    static func at(secondsSinceTheLoopBegan: TimeInterval, reduceMotionIsOn: Bool, tracesTheLine: Bool) -> RoomArtLoopDrawingPlan {
+        if reduceMotionIsOn || !tracesTheLine {
+            return RoomArtLoopDrawingPlan(frame: CursorLoopTimeline.Frame(drawnShare: 1, tracer: .lapping(lapShare: 0)), showsTheTracer: false)
         }
         return RoomArtLoopDrawingPlan(
-            frame: CursorLoopTimeline.frame(secondsSinceTheLoopBegan: secondsSinceTheLoopBegan, secondsWhenTheSparkSlows: nil),
-            showsTheSpark: true
+            frame: CursorLoopTimeline.lappingFrame(secondsSinceTheLoopBegan: secondsSinceTheLoopBegan),
+            showsTheTracer: true
         )
     }
 }
 
 // MARK: - Drawing
 
-/// One frame of the loop: the line, and the spark unless Reduce Motion is on. Reads nothing but its arguments, so a test
-/// renders it at a known time.
+/// One frame of the loop: the line, and the theme's cursor glyph tracing it unless Reduce Motion is on or no look was given.
+/// Reads nothing but its arguments, so a test renders it at a known time.
 struct RoomArtLoopCanvas: View {
     let outline: Path?
     let frame: CursorLoopTimeline.Frame
     let color: Color
-    let showsTheSpark: Bool
+    let tracerLook: CursorLoopTracerLook?
+    let showsTheTracer: Bool
 
     var body: some View {
-        Canvas { context, _ in
-            guard let outline else { return }
-            if showsTheSpark {
-                // There is no cursor in the panel, so the spark starts on the line instead of flying in.
-                CursorLoopDrawing.drawTheLineAndTheSpark(outline, frame: frame, color: color, cursorPosition: nil, in: &context)
-            } else {
-                CursorLoopDrawing.drawTheLine(outline, share: frame.drawnShare, color: color, in: &context)
+        let line = outline.map(CursorLoopLine.init(outline:))
+        ZStack {
+            Canvas { context, _ in
+                guard let line else { return }
+                CursorLoopDrawing.drawTheInk(of: line, upToShare: frame.drawnShare, color: color, in: &context)
+            }
+            if showsTheTracer, let line, let tracerLook {
+                CursorLoopTracerGlyph(
+                    look: tracerLook,
+                    placement: CursorLoopTracerPlacement(on: line, atShare: Self.shareOfTheLine(for: frame.tracer, on: line), cursorFacing: tracerLook.theme.cursorFacing)
+                )
             }
         }
         .allowsHitTesting(false)
     }
+
+    static func shareOfTheLine(for tracerPlace: CursorLoopTimeline.TracerPlace, on line: CursorLoopLine) -> Double {
+        switch tracerPlace {
+        case .tracing(let share): return share
+        case .lapping(let lapShare): return line.shareOfTheLine(atLapShare: lapShare)
+        }
+    }
 }
 
 /// The loop over the camera view, redrawn every frame from the processor's newest snapshot. With Reduce Motion on, the
-/// line fades in whole with no spark, as the cursor loop's does.
+/// line fades in whole with no glyph, as the cursor loop's does.
 struct RoomArtLoopView: View {
     let state: RoomArtLoopState
     let color: Color
+    /// The theme's cursor, which traces the line. Nil draws the line with no tracer.
+    var tracerLook: CursorLoopTracerLook? = nil
     /// The line's path for this moment, in the panel's points, or nil when there is nothing to draw yet.
     let outlineProvider: () -> Path?
     /// Called once the fade-out has run, so the panel stops redrawing.
@@ -294,8 +332,8 @@ struct RoomArtLoopView: View {
             // The frame is worked out here, outside the Canvas, because SwiftUI redraws a Canvas only when a value its
             // closure captured changes, and the clock and the tracker are not such values.
             let secondsSinceTheLoopBegan = state.beganAt.map { ProcessInfo.processInfo.systemUptime - $0 } ?? 0
-            let plan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: secondsSinceTheLoopBegan, reduceMotionIsOn: reduceMotion)
-            RoomArtLoopCanvas(outline: outlineProvider(), frame: plan.frame, color: color, showsTheSpark: plan.showsTheSpark)
+            let plan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: secondsSinceTheLoopBegan, reduceMotionIsOn: reduceMotion, tracesTheLine: state.tracesTheLine)
+            RoomArtLoopCanvas(outline: outlineProvider(), frame: plan.frame, color: color, tracerLook: tracerLook, showsTheTracer: plan.showsTheTracer)
         }
         .opacity(state.isFadingOut || (reduceMotion && !hasAppeared) ? 0 : 1)
         .animation(.easeOut(duration: CursorLoopState.fadeOutSeconds), value: state.isFadingOut)

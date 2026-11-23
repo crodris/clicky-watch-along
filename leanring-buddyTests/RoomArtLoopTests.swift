@@ -47,26 +47,49 @@ struct RoomArtLoopStateTests {
 
         #expect(RoomArtLoopState.hidden.after(phaseChangedTo: moving, at: 30) == .drawing(beganAt: 30))
         // A loop still fading from the item that showed before starts over instead of finishing its fade.
-        #expect(RoomArtLoopState.fadingOut(beganAt: 10).after(phaseChangedTo: moving, at: 30) == .drawing(beganAt: 30))
+        #expect(RoomArtLoopState.fadingOut(beganAt: 10, tracesTheLine: true).after(phaseChangedTo: moving, at: 30) == .drawing(beganAt: 30))
     }
 
     @Test func theItemOrTheShirtShowingFadesTheLoopWhereItsClockWas() {
         let showing = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: nil)
 
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showing, at: 24) == .fadingOut(beganAt: 10))
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .showingTheShirt(title: "Tee"), at: 24) == .fadingOut(beganAt: 10))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showing, at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .showingTheShirt(title: "Tee"), at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
     }
 
     @Test func aFailedMeasurementAFailedMoveAndAFloorNotFoundFadeTheLoop() {
         let failed = RoomArtPhase.failed(.wallNotMeasured)
         let showingAfterAFailedMove = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: .wallNotMeasured)
 
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: failed, at: 24) == .fadingOut(beganAt: 10))
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showingAfterAFailedMove, at: 24) == .fadingOut(beganAt: 10))
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .waitingForAFloorClick(loopTestItem()), at: 24) == .fadingOut(beganAt: 10))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: failed, at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showingAfterAFailedMove, at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .waitingForAFloorClick(loopTestItem()), at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
         // Furniture waiting for its painting keeps the loop and its clock around the footprint.
         let arrangingPhase = RoomArtPhase.arranging(id: RoomArtMeasurementID(number: 1), item: loopTestItem(), surface: .wall(loopTestWall()))
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: arrangingPhase, at: 24) == .drawing(beganAt: 10))
+    }
+
+    @Test func aPieceThatCouldNotBeDrawnKeepsItsLineStillUntilAPickUpAndItsNextPlacementTracesItAgain() {
+        let couldNotDraw = RoomArtPhase.couldNotDraw(id: RoomArtMeasurementID(number: 1), item: loopTestItem(), surface: .wall(loopTestWall()))
+        let waiting = RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: couldNotDraw, at: 24)
+        #expect(waiting == .waitingForAClick(beganAt: 10))
+        #expect(!waiting.tracesTheLine)
+        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: couldNotDraw, at: 24) == .waitingForAClick(beganAt: 24))
+        let plan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 0.5, reduceMotionIsOn: false, tracesTheLine: waiting.tracesTheLine)
+        #expect(!plan.showsTheTracer)
+        #expect(plan.frame.drawnShare == 1)
+        // A press picks the ghost back up: the still line fades with no glyph, and the next placement traces a fresh loop.
+        let placing = RoomArtPhase.placingTheFurniture(id: RoomArtMeasurementID(number: 2), item: loopTestItem(), surface: .wall(loopTestWall()))
+        let fadingStill = waiting.after(phaseChangedTo: placing, at: 40)
+        #expect(fadingStill == .fadingOut(beganAt: 10, tracesTheLine: false))
+        #expect(!fadingStill.tracesTheLine)
+        let arranging = RoomArtPhase.arranging(id: RoomArtMeasurementID(number: 3), item: loopTestItem(), surface: .wall(loopTestWall()))
+        #expect(fadingStill.after(phaseChangedTo: arranging, at: 44) == .drawing(beganAt: 44))
+        // The ghost appearing fades a tracing loop with its glyph still lapping, and the piece showing fades a still line.
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: placing, at: 41) == .fadingOut(beganAt: 10, tracesTheLine: true))
+        let showing = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: nil)
+        #expect(waiting.after(phaseChangedTo: showing, at: 41) == .fadingOut(beganAt: 10, tracesTheLine: false))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showing, at: 41).tracesTheLine)
     }
 
     @Test func aPhaseWithNoMeasurementShowsNoLoopAndStartsNone() {
@@ -74,18 +97,18 @@ struct RoomArtLoopStateTests {
 
         #expect(RoomArtLoopState.hidden.after(phaseChangedTo: showing, at: 5) == .hidden)
         #expect(RoomArtLoopState.hidden.after(phaseChangedTo: .failed(.noCamera), at: 5) == .hidden)
-        #expect(RoomArtLoopState.fadingOut(beganAt: 1).after(phaseChangedTo: showing, at: 5) == .fadingOut(beganAt: 1))
+        #expect(RoomArtLoopState.fadingOut(beganAt: 1, tracesTheLine: true).after(phaseChangedTo: showing, at: 5) == .fadingOut(beganAt: 1, tracesTheLine: true))
     }
 
     @Test func closingThePanelOrReadingThePageRemovesTheLoopAtOnce() {
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .closed, at: 11) == .hidden)
-        #expect(RoomArtLoopState.fadingOut(beganAt: 10).after(phaseChangedTo: .closed, at: 11) == .hidden)
+        #expect(RoomArtLoopState.fadingOut(beganAt: 10, tracesTheLine: true).after(phaseChangedTo: .closed, at: 11) == .hidden)
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .readingThePage, at: 11) == .hidden)
         #expect(RoomArtLoopState.hidden.after(phaseChangedTo: .waitingForTheCamera(loopTestItem()), at: 11) == .hidden)
     }
 
     @Test func onlyAFadingLoopLeavesWhenTheFadeFinishes() {
-        #expect(RoomArtLoopState.fadingOut(beganAt: 10).afterTheFadeFinished() == .hidden)
+        #expect(RoomArtLoopState.fadingOut(beganAt: 10, tracesTheLine: true).afterTheFadeFinished() == .hidden)
         #expect(RoomArtLoopState.drawing(beganAt: 10).afterTheFadeFinished() == .drawing(beganAt: 10))
         #expect(RoomArtLoopState.hidden.afterTheFadeFinished() == .hidden)
     }
@@ -233,21 +256,31 @@ struct RoomArtLoopOutlineTests {
         #expect(RoomArtLoopOutline.path(for: degenerate, fit: RoomArtVideoFit(cameraSize: cameraFrame, viewSize: panelSize)) == nil)
     }
 
-    @Test func theLoopUsesTheCursorLoopsTimelineAndReduceMotionDrawsTheWholeLineWithNoSpark() {
-        let normal = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 0.65, reduceMotionIsOn: false)
-        #expect(normal.showsTheSpark)
-        #expect(abs(normal.frame.drawnShare - 0.35) < 1e-9)
+    @Test func theGlyphTracesTheLineFromTheLoopsStartThenLapsItAndReduceMotionDrawsTheWholeLineWithNoGlyph() {
+        let tracing = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 0.5, reduceMotionIsOn: false, tracesTheLine: true)
+        #expect(tracing.showsTheTracer)
+        #expect(tracing.frame == CursorLoopTimeline.Frame(drawnShare: 0.5, tracer: .tracing(share: 0.5)))
+
+        let lapping = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 1 + 1.1, reduceMotionIsOn: false, tracesTheLine: true)
+        #expect(lapping.showsTheTracer)
+        #expect(lapping.frame.drawnShare == 1)
+        guard case .lapping(let lapShare) = lapping.frame.tracer else {
+            Issue.record("the glyph should lap the finished line")
+            return
+        }
+        #expect(abs(lapShare - 0.5) < 1e-9)
 
         for seconds in [0.0, 0.65, 9] {
-            let reduced = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: seconds, reduceMotionIsOn: true)
-            #expect(!reduced.showsTheSpark)
+            let reduced = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: seconds, reduceMotionIsOn: true, tracesTheLine: true)
+            #expect(!reduced.showsTheTracer)
             #expect(reduced.frame.drawnShare == 1)
         }
     }
 }
 
-/// The loop's renders at 2x. Only the render runs on the main actor, as `ImageRenderer` needs. Every scan of its 2 million
-/// pixels runs on a detached task, since a scan on the main actor holds every other main actor test back on a loaded Mac.
+/// The loop's renders at 2x. Only the render runs on the main actor, as `ImageRenderer` needs, and every scan of its 2 million
+/// pixels runs on a detached task. A scan on the main actor held it for a minute on a loaded Mac, and every main actor test that
+/// waited on it hit its time limit, the cursor loop suites among them.
 @MainActor
 struct RoomArtLoopRenderTests {
     private static let cameraFrame = CGSize(width: 1280, height: 720)
@@ -262,22 +295,31 @@ struct RoomArtLoopRenderTests {
         let lineBoundsInPoints: CGRect
     }
 
-    private static func renderedLoop(showsTheSpark: Bool) async throws -> Render {
+    private static func loopPath() throws -> Path {
         let keyframe = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 640, y: 250), frameSize: cameraFrame, on: .wall)
         let snapshot = RoomArtLoopSnapshot(keyframeCorners: keyframe, currentCorners: keyframe)
-        let path = try #require(RoomArtLoopOutline.path(for: snapshot, fit: RoomArtVideoFit(cameraSize: cameraFrame, viewSize: panelSize)))
+        return try #require(RoomArtLoopOutline.path(for: snapshot, fit: RoomArtVideoFit(cameraSize: cameraFrame, viewSize: panelSize)))
+    }
+
+    private static func renderedImage(tracerLook: CursorLoopTracerLook?, tracer: CursorLoopTimeline.TracerPlace, showsTheTracer: Bool) throws -> CGImage {
         let canvas = RoomArtLoopCanvas(
-            outline: path,
-            frame: CursorLoopTimeline.Frame(drawnShare: 1, spark: .onTheLoop(share: 0.5)),
+            outline: try loopPath(),
+            frame: CursorLoopTimeline.Frame(drawnShare: 1, tracer: tracer),
             color: Color(hex: "#F97316"),
-            showsTheSpark: showsTheSpark
+            tracerLook: tracerLook,
+            showsTheTracer: showsTheTracer
         )
         let renderer = ImageRenderer(content: canvas.frame(width: panelSize.width, height: panelSize.height))
         renderer.scale = 2
+        return try #require(renderer.cgImage)
+    }
+
+    private static func renderedLoop(tracerLook: CursorLoopTracerLook? = nil, tracer: CursorLoopTimeline.TracerPlace = .lapping(lapShare: 0.5), showsTheTracer: Bool = true) async throws -> Render {
+        let image = try renderedImage(tracerLook: tracerLook, tracer: tracer, showsTheTracer: showsTheTracer)
+        let lineBoundsInPoints = try loopPath().boundingRect
         // A CGImage never changes after the render, so the detached task may read it.
-        nonisolated(unsafe) let image = try #require(renderer.cgImage)
-        let lineBoundsInPoints = path.boundingRect
-        let bytes = try #require(await Task.detached { rgbaBytes(of: image) }.value)
+        nonisolated(unsafe) let imageToRead = image
+        let bytes = try #require(await Task.detached { rgbaBytes(of: imageToRead) }.value)
         return Render(bytes: bytes, width: image.width, height: image.height, lineBoundsInPoints: lineBoundsInPoints)
     }
 
@@ -302,19 +344,17 @@ struct RoomArtLoopRenderTests {
         return abs(Int(bytes[offset]) - accentRGB.red) < 14 && abs(Int(bytes[offset + 1]) - accentRGB.green) < 14 && abs(Int(bytes[offset + 2]) - accentRGB.blue) < 14
     }
 
-    /// What a render holds: where anything is drawn, how many pixels are the accent or white, and whether anything touches the
+    /// What the line's render holds: where anything is drawn, how many pixels are the accent, and whether anything touches the
     /// panel's two outermost pixels.
-    struct Scan: Sendable {
+    struct LineScan: Sendable {
         let drawnBounds: CGRect
         let accentPixelCount: Int
-        let whitePixelCount: Int
         let anythingDrawnAtTheEdge: Bool
     }
 
-    nonisolated private static func scan(_ render: Render) async -> Scan {
+    nonisolated private static func scanTheLine(_ render: Render) async -> LineScan {
         await Task.detached {
             var accentPixelCount = 0
-            var whitePixelCount = 0
             var drawnBounds = CGRect.null
             var anythingDrawnAtTheEdge = false
             for row in 0..<render.height {
@@ -325,24 +365,21 @@ struct RoomArtLoopRenderTests {
                         drawnBounds = drawnBounds.union(CGRect(x: column, y: row, width: 1, height: 1))
                     }
                     if isTheAccent(render.bytes, at: offset) { accentPixelCount += 1 }
-                    if render.bytes[offset] > 240 && render.bytes[offset + 1] > 240 && render.bytes[offset + 2] > 240 && render.bytes[offset + 3] > 240 {
-                        whitePixelCount += 1
-                    }
                 }
             }
-            return Scan(drawnBounds: drawnBounds, accentPixelCount: accentPixelCount, whitePixelCount: whitePixelCount, anythingDrawnAtTheEdge: anythingDrawnAtTheEdge)
+            return LineScan(drawnBounds: drawnBounds, accentPixelCount: accentPixelCount, anythingDrawnAtTheEdge: anythingDrawnAtTheEdge)
         }.value
     }
 
     @Test func theLineIsDrawnInTheAccentColorAndStaysInsideThePanel() async throws {
-        let render = try await Self.renderedLoop(showsTheSpark: true)
+        let render = try await Self.renderedLoop()
         #expect(render.width == 1920 && render.height == 1080)
-        let scan = await Self.scan(render)
+        let scan = await Self.scanTheLine(render)
         // Nothing is drawn on the two outermost pixels of the panel.
         #expect(!scan.anythingDrawnAtTheEdge)
         // A 3 point line is 6 pixels wide at 2x and the line is over 700 points long.
         #expect(scan.accentPixelCount > 3_000)
-        // The drawing covers the line's own box, with room for its width and the spark's glow, and nothing beyond.
+        // The drawing covers the line's own box, with room for its width, and nothing beyond.
         let line = render.lineBoundsInPoints
         let pathBoundsInPixels = CGRect(x: line.minX * 2, y: line.minY * 2, width: line.width * 2, height: line.height * 2)
         #expect(scan.drawnBounds.minX >= pathBoundsInPixels.minX - 30 && scan.drawnBounds.maxX <= pathBoundsInPixels.maxX + 30)
@@ -350,8 +387,68 @@ struct RoomArtLoopRenderTests {
         #expect(scan.drawnBounds.minX <= pathBoundsInPixels.minX + 10 && scan.drawnBounds.maxX >= pathBoundsInPixels.maxX - 10)
     }
 
-    @Test func theSparkIsAWhiteDotWithAnAccentOutlineAndReduceMotionDrawsNone() async throws {
-        #expect(await Self.scan(try await Self.renderedLoop(showsTheSpark: true)).whitePixelCount > 50)
-        #expect(await Self.scan(try await Self.renderedLoop(showsTheSpark: false)).whitePixelCount == 0)
+    /// What the tracer drew: the pixels that differ between a render with it and one without.
+    struct TracerScan: Sendable {
+        let bounds: CGRect
+        let seamPixelCount: Int
+        let accentBluePixelCount: Int
+        let whitePixelCount: Int
+    }
+
+    nonisolated private static func scanTheTracer(in render: Render, comparedWith lineOnly: Render) async -> TracerScan {
+        await Task.detached {
+            var bounds = CGRect.null
+            var seamPixelCount = 0
+            var accentBluePixelCount = 0
+            var whitePixelCount = 0
+            for row in 0..<render.height {
+                for column in 0..<render.width {
+                    let offset = (row * render.width + column) * 4
+                    let red = Int(render.bytes[offset]), green = Int(render.bytes[offset + 1]), blue = Int(render.bytes[offset + 2]), alpha = Int(render.bytes[offset + 3])
+                    if red > 240 && green > 240 && blue > 240 && alpha > 240 { whitePixelCount += 1 }
+                    var differs = false
+                    for channel in 0..<4 where abs(Int(render.bytes[offset + channel]) - Int(lineOnly.bytes[offset + channel])) > 24 { differs = true }
+                    guard differs else { continue }
+                    bounds = bounds.union(CGRect(x: column, y: row, width: 1, height: 1))
+                    // A school's volleyball has dark seams, opaque and near black, which no triangle has.
+                    if alpha >= 250 && red < 60 && green < 60 && blue < 60 { seamPixelCount += 1 }
+                    if alpha >= 250 && blue > red + 80 && blue > green + 30 { accentBluePixelCount += 1 }
+                }
+            }
+            return TracerScan(bounds: bounds, seamPixelCount: seamPixelCount, accentBluePixelCount: accentBluePixelCount, whitePixelCount: whitePixelCount)
+        }.value
+    }
+
+    @Test func theTracerIsTheThemesCursorGlyphOnTheLineAndThereIsNoWhiteSpark() async throws {
+        let lineOnly = try await Self.renderedLoop(showsTheTracer: false)
+        let line = CursorLoopLine(outline: try Self.loopPath())
+        let tracerShare = 0.5
+
+        // Under a school theme the tracer is its volleyball, centered on the ink, with the ball's dark seams.
+        let karasuno = CursorLoopTracerLook(theme: bundledTheme("school-karasuno"), picture: nil)
+        let volleyball = await Self.scanTheTracer(in: try await Self.renderedLoop(tracerLook: karasuno, tracer: .tracing(share: tracerShare)), comparedWith: lineOnly)
+        let ballPlacement = CursorLoopTracerPlacement(on: line, atShare: tracerShare, cursorFacing: karasuno.theme.cursorFacing)
+        #expect(abs(volleyball.bounds.midX / 2 - ballPlacement.glyphCenter.x) < 4)
+        #expect(abs(volleyball.bounds.midY / 2 - ballPlacement.glyphCenter.y) < 6)
+        // The 24 point ball with its glow and contact shadow, and nothing the size of a 9 point spark.
+        #expect(volleyball.bounds.width / 2 > 22 && volleyball.bounds.width / 2 < 60)
+        #expect(volleyball.seamPixelCount > 20)
+        #expect(volleyball.whitePixelCount == 0)
+
+        // Under Clicky blue it is the blue triangle, with no seams, beside the line with its tip on the ink.
+        let clickyBlue = CursorLoopTracerLook(theme: clickyBlueTheme, picture: nil)
+        let triangle = await Self.scanTheTracer(in: try await Self.renderedLoop(tracerLook: clickyBlue, tracer: .tracing(share: tracerShare)), comparedWith: lineOnly)
+        let trianglePlacement = CursorLoopTracerPlacement(on: line, atShare: tracerShare, cursorFacing: clickyBlue.theme.cursorFacing)
+        #expect(abs(triangle.bounds.midX / 2 - trianglePlacement.glyphCenter.x) < 4)
+        #expect(abs(triangle.bounds.midY / 2 - trianglePlacement.glyphCenter.y) < 6)
+        #expect(triangle.seamPixelCount == 0)
+        #expect(triangle.accentBluePixelCount > 40)
+        #expect(triangle.whitePixelCount == 0)
+    }
+
+    @Test func reduceMotionDrawsNoTracer() async throws {
+        let lineOnly = try await Self.renderedLoop(showsTheTracer: false)
+        let reduced = try await Self.renderedLoop(tracerLook: CursorLoopTracerLook(theme: bundledTheme("school-karasuno"), picture: nil), showsTheTracer: false)
+        #expect(await Self.scanTheTracer(in: reduced, comparedWith: lineOnly).bounds.isNull)
     }
 }

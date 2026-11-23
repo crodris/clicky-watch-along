@@ -797,7 +797,8 @@ struct RoomArtPhaseTests {
         #expect(couldNotDraw.statusLine == "I couldn't draw it this time. Click the floor to try again")
         #expect(couldNotDraw.statusLineIsAFailure(theSurfaceIsLost: false))
         #expect(couldNotDraw.theItemIsPlacedByClicking)
-        #expect(RoomArtLoopState.drawing(beganAt: 3).after(phaseChangedTo: couldNotDraw, at: 9) == .drawing(beganAt: 3))
+        // The loop stays on its clock with its whole line still, since nothing runs until the learner clicks.
+        #expect(RoomArtLoopState.drawing(beganAt: 3).after(phaseChangedTo: couldNotDraw, at: 9) == .waitingForAClick(beganAt: 3))
         // A painting that still arrives for this placement shows the piece, and one for another does nothing.
         #expect(couldNotDraw.withTheFurnitureShowing(measurementID: secondMeasurement) == .showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil))
         #expect(couldNotDraw.withTheFurnitureShowing(measurementID: firstMeasurement) == couldNotDraw)

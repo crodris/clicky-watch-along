@@ -105,7 +105,32 @@ final class CursorLoopController: ObservableObject {
 
     var isShowingTheLoop: Bool { state.loopIsShowing }
 
-    /// Whether the loop shows on the screen with this frame. The cursor's cue asks per screen, since the loop's spark
+    /// The buddy that is away drawing the loop, from its flight to the line's start until it is back at the mouse: its screen,
+    /// and the token its draw was given. The loop draws only on the screen that holds the media, and the mouse may be on another,
+    /// so every other screen hides its buddy meanwhile, the way a pointing on another display hides it.
+    struct BuddyAwayForTheLoop: Equatable {
+        let screenFrame: CGRect
+        let token: UUID
+    }
+    @Published private(set) var buddyAwayForTheLoop: BuddyAwayForTheLoop?
+
+    var screenFrameWhereTheBuddyDrawsTheLoop: CGRect? { buddyAwayForTheLoop?.screenFrame }
+
+    /// Returns the token that ends this draw. A newer draw replaces an older one.
+    func theBuddyStartedDrawingTheLoop(onScreenWithFrame screenFrame: CGRect) -> UUID {
+        let token = UUID()
+        buddyAwayForTheLoop = BuddyAwayForTheLoop(screenFrame: screenFrame, token: token)
+        return token
+    }
+
+    /// Only the draw with this token ends, so an old overlay's late close never ends a newer draw, and a display whose frame
+    /// changed mid-draw still ends its own.
+    func theBuddyFinishedDrawingTheLoop(token: UUID) {
+        guard buddyAwayForTheLoop?.token == token else { return }
+        buddyAwayForTheLoop = nil
+    }
+
+    /// Whether the loop shows on the screen with this frame. The cursor's cue asks per screen, since the loop's shimmer
     /// lights the thinking only where the loop is, and the screen under the cursor needs the dots when it has none.
     func isShowingTheLoop(onScreenWithFrame screenFrame: CGRect) -> Bool {
         state.loopIsShowing && loopToDraw(onScreenWithFrame: screenFrame) != nil
@@ -250,7 +275,7 @@ final class CursorLoopController: ObservableObject {
             lineRect: lineRect,
             seed: CursorLoopOutline.seed(for: mediaRect),
             beganAt: loopOnTheMedia.since,
-            sparkSlowsAt: loopOnTheMedia.sparkSlowsAt,
+            shimmerSlowsAt: loopOnTheMedia.shimmerSlowsAt,
             isFadingOut: loopOnTheMedia.isFadingOut
         )
     }

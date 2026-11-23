@@ -5,8 +5,8 @@
 //  Draws the furniture's ghost over the room art panel's video: a footprint that glows on the floor like a rug, a 4 point
 //  line in the theme's accent with a brighter front edge, dashed posts rising from its corners, a faint outline of the
 //  top at the piece's height, a soft contact shadow, and a pill with its size. The first time it appears, and after a
-//  pick-up, the loop's spark draws it line by line (`RoomFurnitureGhostDrawTimeline`), and with Reduce Motion on it fades
-//  in whole. The lines come from the controller each frame, through the tracker's turn, so the ghost stays planted as the
+//  pick-up, the theme's cursor glyph draws it line by line (`RoomFurnitureGhostDrawTimeline`, `CursorLoopTracerGlyph`, the
+//  loop's own tracer), and with Reduce Motion on it fades in whole. The lines come from the controller each frame, through the tracker's turn, so the ghost stays planted as the
 //  camera turns. The pure rules live in `RoomFurnitureGhost.swift`.
 //
 
@@ -15,6 +15,8 @@ import SwiftUI
 struct RoomFurnitureGhostView: View {
     let draw: RoomFurnitureGhostDraw
     let color: Color
+    /// The theme's cursor, which draws the lines. Nil draws them with no tracer.
+    var tracerLook: CursorLoopTracerLook? = nil
     let sizePillText: String
     /// The ghost's lines for this moment in the panel's points, or nil while the room is lost.
     let linesProvider: () -> RoomFurnitureGhostLines?
@@ -27,24 +29,27 @@ struct RoomFurnitureGhostView: View {
             let secondsSinceBegan = ProcessInfo.processInfo.systemUptime - draw.beganAt
             let frame = reduceMotion
                 ? RoomFurnitureGhostDrawTimeline.Frame.whole
-                : RoomFurnitureGhostDrawTimeline.frame(secondsSinceBegan: secondsSinceBegan, startsFromTheLoop: draw.sparkStartInThePanel != nil)
-            let secondsSinceDrawn = secondsSinceBegan - RoomFurnitureGhostDrawTimeline.totalSeconds(startsFromTheLoop: draw.sparkStartInThePanel != nil)
+                : RoomFurnitureGhostDrawTimeline.frame(secondsSinceBegan: secondsSinceBegan, startsFromTheLoop: draw.tracerStartInThePanel != nil)
+            let secondsSinceDrawn = secondsSinceBegan - RoomFurnitureGhostDrawTimeline.totalSeconds(startsFromTheLoop: draw.tracerStartInThePanel != nil)
             let lines = linesProvider()
             ZStack(alignment: .topLeading) {
                 RoomFurnitureGhostCanvas(
                     lines: lines,
                     frame: frame,
                     color: color,
-                    fillOpacity: RoomFurnitureGhostGlow.fillOpacity(secondsSinceDrawn: secondsSinceDrawn, reduceMotionIsOn: reduceMotion),
-                    sparkStart: draw.sparkStartInThePanel
+                    fillOpacity: RoomFurnitureGhostGlow.fillOpacity(secondsSinceDrawn: secondsSinceDrawn, reduceMotionIsOn: reduceMotion)
                 )
+                if let lines, let tracerLook,
+                   let placement = RoomFurnitureGhostCanvas.tracerPlacement(for: frame.tracer, lines: lines, tracerStart: draw.tracerStartInThePanel, cursorFacing: tracerLook.theme.cursorFacing) {
+                    CursorLoopTracerGlyph(look: tracerLook, placement: placement)
+                }
                 if let lines {
                     RoomFurnitureGhostSizePill(text: sizePillText, isShown: frame.pillIsShown, reduceMotion: reduceMotion)
                         .position(lines.pillCenter)
                 }
             }
         }
-        // With Reduce Motion on, the whole ghost fades in over the fade move's time, with no spark.
+        // With Reduce Motion on, the whole ghost fades in over the fade move's time, with no tracer.
         .opacity(reduceMotion && !hasAppeared ? 0 : 1)
         .animation(.easeIn(duration: DS.Move.fadeSeconds), value: hasAppeared)
         .allowsHitTesting(false)
@@ -79,7 +84,6 @@ struct RoomFurnitureGhostCanvas: View {
     let frame: RoomFurnitureGhostDrawTimeline.Frame
     let color: Color
     let fillOpacity: Double
-    let sparkStart: CGPoint?
 
     private static let footprintLineWidth: CGFloat = 4
     private static let frontEdgeLineWidth: CGFloat = 5.5
@@ -144,9 +148,6 @@ struct RoomFurnitureGhostCanvas: View {
                 context.stroke(topPath, with: .color(color.opacity(0.45)), style: StrokeStyle(lineWidth: Self.topLineWidth, lineCap: .round, lineJoin: .round))
             }
 
-            if let sparkCenter = Self.sparkCenter(for: frame.spark, lines: lines, sparkStart: sparkStart, footprintPath: footprintPath) {
-                CursorLoopDrawing.drawTheSpark(at: sparkCenter, color: color, in: &context)
-            }
         }
         .allowsHitTesting(false)
     }
@@ -171,18 +172,26 @@ struct RoomFurnitureGhostCanvas: View {
         return totalLength > 0 ? edgeLengths[0] / totalLength : 1
     }
 
-    private static func sparkCenter(for spark: RoomFurnitureGhostDrawTimeline.Spark, lines: RoomFurnitureGhostLines, sparkStart: CGPoint?, footprintPath: Path) -> CGPoint? {
-        switch spark {
+    /// Where the theme's cursor glyph sits on the ghost's lines for this moment of the draw, and which way it faces, or nil
+    /// once the lines are drawn. It flies straight from the loop's line to the footprint's first corner, then follows each
+    /// line the way the loop's tracer follows the loop (`CursorLoopTracerPlacement`).
+    static func tracerPlacement(for tracer: RoomFurnitureGhostDrawTimeline.Tracer, lines: RoomFurnitureGhostLines, tracerStart: CGPoint?, cursorFacing: CursorFacing) -> CursorLoopTracerPlacement? {
+        func placement(along points: [CGPoint], closed: Bool, atShare share: Double) -> CursorLoopTracerPlacement {
+            var path = Path()
+            path.move(to: points[0])
+            for point in points.dropFirst() { path.addLine(to: point) }
+            let line = closed ? CursorLoopLine(closedThrough: points) : CursorLoopLine(outline: path)
+            return CursorLoopTracerPlacement(on: line, atShare: min(max(share, 0), 1), cursorFacing: cursorFacing)
+        }
+        switch tracer {
         case .leavingTheLoop(let share):
-            let start = sparkStart ?? lines.footprint[0], end = lines.footprint[0]
-            return CGPoint(x: start.x + (end.x - start.x) * share, y: start.y + (end.y - start.y) * share)
+            return placement(along: [tracerStart ?? lines.footprint[0], lines.footprint[0]], closed: false, atShare: share)
         case .onTheFootprint(let share):
-            return footprintPath.trimmedPath(from: 0, to: max(share, 0.0005)).currentPoint
+            return placement(along: lines.footprint, closed: true, atShare: share)
         case .onAPost(let index, let share):
-            let post = lines.posts[index]
-            return CGPoint(x: post.bottom.x + (post.top.x - post.bottom.x) * share, y: post.bottom.y + (post.top.y - post.bottom.y) * share)
+            return placement(along: [lines.posts[index].bottom, lines.posts[index].top], closed: false, atShare: share)
         case .onTheTop(let share):
-            return closedPath(through: lines.top).trimmedPath(from: 0, to: max(share, 0.0005)).currentPoint
+            return placement(along: lines.top, closed: true, atShare: share)
         case .gone:
             return nil
         }

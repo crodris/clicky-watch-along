@@ -915,6 +915,8 @@ final class RoomArtPreviewController: ObservableObject {
         var speak: (_ line: String, _ isAFailure: Bool) -> Void
         /// The theme's accent, which Clicky's loop is drawn in. Read each time the panel draws it.
         var loopAccentColor: () -> Color
+        /// The theme's cursor, which traces Clicky's loop in the panel. Read each time the panel draws it.
+        var loopTracerLook: () -> CursorLoopTracerLook? = { nil }
         /// Runs on every close, from Escape, the Close button, or a new request, so a line about this panel that is
         /// still waiting or playing ends with it.
         var endTheSpokenLine: () -> Void
@@ -944,6 +946,7 @@ final class RoomArtPreviewController: ObservableObject {
             clearTheLiveScene: @escaping () -> Void,
             speak: @escaping (String, Bool) -> Void,
             loopAccentColor: @escaping () -> Color,
+            loopTracerLook: @escaping () -> CursorLoopTracerLook?,
             endTheSpokenLine: @escaping () -> Void
         ) -> Environment {
             let roomArtClient = RoomArtClient(workerBaseURL: workerBaseURL)
@@ -973,6 +976,7 @@ final class RoomArtPreviewController: ObservableObject {
                 clearTheLiveScene: clearTheLiveScene,
                 speak: speak,
                 loopAccentColor: loopAccentColor,
+                loopTracerLook: loopTracerLook,
                 endTheSpokenLine: endTheSpokenLine,
                 findTheStoreModel: { pageURL in await RoomFurnitureModelLoading.findTheStoreModel(onThePageAt: pageURL) },
                 furnitureGeneration: RoomFurnitureGenerationClient(workerBaseURL: workerBaseURL),
@@ -1068,6 +1072,9 @@ final class RoomArtPreviewController: ObservableObject {
     /// The theme's accent, which the panel draws the loop in.
     var loopAccentColor: Color { environment.loopAccentColor() }
 
+    /// The theme's cursor, which traces the loop in the panel.
+    var loopTracerLook: CursorLoopTracerLook? { environment.loopTracerLook() }
+
     // MARK: The furniture's looks
 
     /// Where the search for a model of the furniture stands: the store's model, else a generated one, else none. A model is
@@ -1112,7 +1119,7 @@ final class RoomArtPreviewController: ObservableObject {
     /// The furniture's ghost while the learner places it, and the pose it was placed in afterward, which a pick-up starts
     /// from. Nil until the floor is measured, and after a new measurement starts.
     @Published private(set) var furnitureGhost: RoomFurnitureGhost?
-    /// When the ghost began drawing itself, and where the loop's spark was then (`RoomFurnitureGhostDrawTimeline`).
+    /// When the ghost began drawing itself, and where the loop's tracer was then (`RoomFurnitureGhostDrawTimeline`).
     @Published private(set) var furnitureGhostDraw: RoomFurnitureGhostDraw?
     /// The learner stands where the piece is about to be painted, so the status line asks them to step aside.
     @Published private(set) var waitingForTheLearnerToStepAside = false
@@ -1433,7 +1440,7 @@ final class RoomArtPreviewController: ObservableObject {
         stopTheFurnituresLooks()
         frameProcessor.hideTheItem()
         furnitureGhost = RoomFurnitureGhost(pickedUpFrom: placedGhost)
-        furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, sparkStartInThePanel: nil)
+        furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, tracerStartInThePanel: nil)
         print("Room furniture: picked the piece back up as its ghost")
         apply(pickedUpPhase)
     }
@@ -1451,13 +1458,14 @@ final class RoomArtPreviewController: ObservableObject {
         return RoomFurnitureGhostLines(keyframeBoxCorners: boxCorners, keyframeToCurrent: trackedWarp.keyframeToCurrent, fit: RoomArtVideoFit(cameraSize: cameraSize, viewSize: panelSize), cameraSize: cameraSize)
     }
 
-    /// Where the loop's spark is in the panel now, which the ghost's spark leaves from, so the two read as one stroke.
-    private func loopSparkInThePanel() -> CGPoint? {
+    /// Where the loop's tracer is in the panel now, which the ghost's tracer leaves from, so the theme's glyph moves on from
+    /// one line to the other.
+    private func loopTracerInThePanel() -> CGPoint? {
         guard let beganAt = loopState.beganAt,
               let outline = currentLoopOutline(cameraSize: frameProcessor.metalLayer.drawableSize, panelSize: RoomArtPanelController.panelSize) else { return nil }
-        let plan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: ProcessInfo.processInfo.systemUptime - beganAt, reduceMotionIsOn: false)
-        guard case .onTheLoop(let share) = plan.frame.spark else { return outline.trimmedPath(from: 0, to: 0.0005).currentPoint }
-        return outline.trimmedPath(from: 0, to: max(share, 0.0005)).currentPoint
+        let plan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: ProcessInfo.processInfo.systemUptime - beganAt, reduceMotionIsOn: false, tracesTheLine: loopState.tracesTheLine)
+        let line = CursorLoopLine(outline: outline)
+        return line.point(atShare: RoomArtLoopCanvas.shareOfTheLine(for: plan.frame.tracer, on: line))
     }
 
     /// Forgets the ghost and everything asked for it, for a close or a new measurement.
@@ -1684,7 +1692,7 @@ final class RoomArtPreviewController: ObservableObject {
         case .placingTheFurniture(_, let item, let surface):
             stopTheFurnituresLooks()
             // A pick-up made its ghost already. The first time, the ghost stands where the spot search put the piece, and its
-            // spark leaves the measuring loop's line.
+            // tracer leaves the measuring loop's line.
             guard furnitureGhost == nil else { return }
             guard case .furniture(let furniture) = item, case .floor(let floor) = surface,
                   let ghost = RoomFurnitureGhost(standingOn: floor, wall: wallOfTheLatestMeasurement, widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters) else {
@@ -1692,7 +1700,7 @@ final class RoomArtPreviewController: ObservableObject {
                 apply(phase.afterTheGhostCouldNotStand())
                 return
             }
-            furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, sparkStartInThePanel: loopSparkInThePanel())
+            furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, tracerStartInThePanel: loopTracerInThePanel())
             furnitureGhost = ghost
             print("Room furniture: the ghost shows\(ghost.shownPose.isSnappedToTheWall ? ", square to the wall" : "")")
             startPaintingAhead(for: ghost, furniture: furniture)
@@ -2260,6 +2268,7 @@ private struct RoomArtPanelView: View {
                 RoomArtLoopView(
                     state: previewController.loopState,
                     color: previewController.loopAccentColor,
+                    tracerLook: previewController.loopTracerLook,
                     outlineProvider: {
                         previewController.currentLoopOutline(cameraSize: metalLayer.drawableSize, panelSize: RoomArtPanelController.panelSize)
                     },
@@ -2270,6 +2279,7 @@ private struct RoomArtPanelView: View {
                 RoomFurnitureGhostView(
                     draw: ghostDraw,
                     color: previewController.loopAccentColor,
+                    tracerLook: previewController.loopTracerLook,
                     sizePillText: roomFurnitureGhostSizePillText(widthMeters: ghost.widthMeters, heightMeters: ghost.heightMeters),
                     linesProvider: {
                         previewController.currentGhostLines(cameraSize: metalLayer.drawableSize, panelSize: RoomArtPanelController.panelSize)

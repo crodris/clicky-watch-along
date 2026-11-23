@@ -7,7 +7,7 @@
 //  ring, because the speech Callout brightens its words with the voice. A status line's Callout sits above the cursor and
 //  does not hide the ring, so the ring keeps showing, and while it shows the dots orbit closer in (17 points instead of
 //  24), so a dot at the top of its orbit stays under the Callout's body and crosses only its tail. While a loop shows
-//  around the media Clicky is looking at, the loop's spark is the thinking light instead, and the dots stay away.
+//  around the media Clicky is looking at, the loop's shimmer is the thinking light instead, and the dots stay away.
 //
 //  The cues hand off to one another instead of cutting: on release the ticks shrink into the dots (0.3 s), and when speech
 //  starts the dots fly into the speech Callout's tail (0.38 s). Reduce Motion crossfades every cue change.
@@ -16,14 +16,14 @@
 import CoreGraphics
 import SwiftUI
 
-/// What is moving at the cursor. One cue at a time: ticks while listening, the dots or the loop's spark
+/// What is moving at the cursor. One cue at a time: ticks while listening, the dots or the loop's shimmer
 /// while thinking, and the speech Callout while speaking.
 enum CursorCue: Equatable {
     /// Nothing moves at the cursor.
     case idle
     case listening
     case thinkingWithDots
-    /// The loop's spark is the thinking light, so the ring shows nothing.
+    /// The loop's shimmer is the thinking light, so the ring shows nothing.
     case thinkingWithLoop
     case speaking
 }

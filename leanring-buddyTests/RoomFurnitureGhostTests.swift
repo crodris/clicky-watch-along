@@ -423,18 +423,18 @@ struct RoomFurnitureGhostDrawTimelineTests {
         #expect((1.2...1.5).contains(Timeline.totalSeconds(startsFromTheLoop: false)))
     }
 
-    @Test func theSparkLeavesTheLoopFirst() {
+    @Test func theTracerLeavesTheLoopFirst() {
         let frame = Timeline.frame(secondsSinceBegan: Timeline.handoffSeconds / 2, startsFromTheLoop: true)
-        #expect(frame.spark == .leavingTheLoop(share: 0.5))
+        #expect(frame.tracer == .leavingTheLoop(share: 0.5))
         #expect(frame.footprintShare == 0)
         // A pick-up has no loop, so it starts on the footprint.
-        #expect(Timeline.frame(secondsSinceBegan: 0, startsFromTheLoop: false).spark == .onTheFootprint(share: 0))
+        #expect(Timeline.frame(secondsSinceBegan: 0, startsFromTheLoop: false).tracer == .onTheFootprint(share: 0))
     }
 
     @Test func theFootprintDrawsBeforeAnyPost() {
         let midFootprint = Timeline.frame(secondsSinceBegan: Timeline.footprintSeconds * 0.4, startsFromTheLoop: false)
         #expect(abs(midFootprint.footprintShare - 0.4) < 1e-9)
-        #expect(midFootprint.spark == .onTheFootprint(share: midFootprint.footprintShare))
+        #expect(midFootprint.tracer == .onTheFootprint(share: midFootprint.footprintShare))
         #expect(midFootprint.postShares == [0, 0, 0, 0])
         #expect(midFootprint.fillShare == 0 && !midFootprint.pillIsShown)
     }
@@ -447,8 +447,8 @@ struct RoomFurnitureGhostDrawTimelineTests {
         #expect(abs(frame.postShares[1] - 0.5) < 1e-9)
         #expect(frame.postShares[2] == 0 && frame.postShares[3] == 0)
         #expect(frame.topShare == 0)
-        guard case .onAPost(let index, let share) = frame.spark else {
-            Issue.record("the spark should ride the second post")
+        guard case .onAPost(let index, let share) = frame.tracer else {
+            Issue.record("the tracer should ride the second post")
             return
         }
         #expect(index == 1 && abs(share - 0.5) < 1e-9)
@@ -464,7 +464,7 @@ struct RoomFurnitureGhostDrawTimelineTests {
         #expect(midFill.topShare == 1)
         #expect(abs(midFill.fillShare - 0.5) < 1e-9)
         #expect(midFill.pillIsShown)
-        #expect(midFill.spark == .gone)
+        #expect(midFill.tracer == .gone)
         #expect(Timeline.frame(secondsSinceBegan: 10, startsFromTheLoop: true) == .whole)
     }
 
@@ -485,11 +485,36 @@ struct RoomFurnitureGhostLinesTests {
         // Front left bottom is corner 3, shifted by the warp and scaled by 0.75 into the panel.
         #expect(abs(lines.footprint[0].x - (corners[3].x + 20) * 0.75) < 1e-9)
         #expect(abs(lines.footprint[0].y - (corners[3].y - 10) * 0.75) < 1e-9)
-        // The last post ends where the top starts, so the spark never jumps there.
+        // The last post ends where the top starts, so the tracer never jumps there.
         #expect(lines.posts[3].top == lines.top[0])
         // Each post rises from its footprint corner.
         for (post, footprintCorner) in zip(lines.posts, lines.footprint) { #expect(post.bottom == footprintCorner) }
         #expect(lines.pillCenter.y < (lines.top.map(\.y).min() ?? 0))
+    }
+
+    @Test func theThemesGlyphTracesEachLineAndLeavesWhenTheyAreDrawn() throws {
+        let ghost = try sofaGhost(wall: nil)
+        let fit = RoomArtVideoFit(cameraSize: CGSize(width: 1280, height: 720), viewSize: CGSize(width: 960, height: 540))
+        let boxCorners = try #require(ghost.keyframeBoxCorners)
+        let lines = try #require(RoomFurnitureGhostLines(keyframeBoxCorners: boxCorners, keyframeToCurrent: .identity, fit: fit, cameraSize: CGSize(width: 1280, height: 720)))
+        func ink(_ tracer: RoomFurnitureGhostDrawTimeline.Tracer, from tracerStart: CGPoint? = nil) -> CGPoint? {
+            RoomFurnitureGhostCanvas.tracerPlacement(for: tracer, lines: lines, tracerStart: tracerStart, cursorFacing: .followsMouseMovement)?.inkPoint
+        }
+        func isNear(_ point: CGPoint?, _ expected: CGPoint) -> Bool { point.map { hypot($0.x - expected.x, $0.y - expected.y) < 0.5 } ?? false }
+        // It leaves the loop's tracer and flies to the footprint's first corner.
+        let loopTracer = CGPoint(x: 10, y: 20)
+        #expect(isNear(ink(.leavingTheLoop(share: 0), from: loopTracer), loopTracer))
+        #expect(isNear(ink(.leavingTheLoop(share: 1), from: loopTracer), lines.footprint[0]))
+        // It goes around the footprint from that corner, up each post, and around the top.
+        #expect(isNear(ink(.onTheFootprint(share: 0)), lines.footprint[0]))
+        let post = lines.posts[1]
+        #expect(isNear(ink(.onAPost(index: 1, share: 0.5)), CGPoint(x: (post.bottom.x + post.top.x) / 2, y: (post.bottom.y + post.top.y) / 2)))
+        #expect(isNear(ink(.onTheTop(share: 0)), lines.top[0]))
+        // A volleyball faces up a post, the way the line runs, and the glyph is gone once the lines are drawn.
+        let onThePost = try #require(RoomFurnitureGhostCanvas.tracerPlacement(for: .onAPost(index: 1, share: 0.5), lines: lines, tracerStart: nil, cursorFacing: .followsMouseMovement))
+        let postHeading = atan2(Double(post.top.y - post.bottom.y), Double(post.top.x - post.bottom.x)) * 180 / .pi + 90
+        #expect(abs(onThePost.rotationDegrees - postHeading) < 1)
+        #expect(ink(.gone) == nil)
     }
 
     @Test func thePillStaysOverTheVisiblePartOfATopThatRunsOffTheFrame() throws {
