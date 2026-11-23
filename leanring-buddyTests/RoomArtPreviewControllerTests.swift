@@ -1192,7 +1192,7 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
 
         try await waitFor("the panel to fail on an item that cannot be tried") { harness.controller.phase == .failed(.notSomethingToTry) }
-        #expect(harness.spokenLines() == ["That doesn't look like wall art, furniture, or a shirt."])
+        #expect(harness.spokenLines() == ["That isn't something I can place in your room or try on."])
         #expect(worker.wallRequests.isEmpty && worker.floorRequests.isEmpty)
         harness.controller.close()
     }

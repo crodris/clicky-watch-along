@@ -698,7 +698,7 @@ struct RoomArtReadingPlanTests {
 
     @Test func anythingElseCannotBeTried() {
         #expect(roomArtReadingPlan(for: .other(title: "Brass lamp")) == .fail(.notSomethingToTry))
-        #expect(RoomArtFailure.notSomethingToTry.spokenLine == "That doesn't look like wall art, furniture, or a shirt.")
+        #expect(RoomArtFailure.notSomethingToTry.spokenLine == "That isn't something I can place in your room or try on.")
         #expect(RoomArtFailure.shirtPhotoNeitherFlatNorOnAModel.spokenLine == "I can only try on a shirt from a photo of it laid flat or worn by a model.")
     }
 }

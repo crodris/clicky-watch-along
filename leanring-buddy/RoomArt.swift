@@ -142,7 +142,7 @@ nonisolated enum RoomArtPageReading: Equatable, Sendable {
     case sizeNotOnThePage(title: String)
     case furniture(RoomArtFurnitureReading)
     case clothing(RoomArtClothingReading)
-    /// Anything else, such as a lamp or a rug.
+    /// Anything else, such as a rug or a phone case.
     case other(title: String)
 }
 
@@ -787,7 +787,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
     case pageNotHTTPS
     case cameraAccessDenied
     case noCamera
-    /// The item is neither wall art, furniture, nor clothing, such as a lamp.
+    /// The item is neither wall art, furniture, nor clothing, such as a rug.
     case notSomethingToTry
     /// The page text could not be read or was empty, or `POST /try-it-item` failed.
     case pageNotRead
@@ -822,7 +822,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .pageNotHTTPS: return "I can only read store pages served over https."
         case .cameraAccessDenied: return "I need camera access for that. You can turn it on in System Settings."
         case .noCamera: return "I couldn't find a camera to show your room."
-        case .notSomethingToTry: return "That doesn't look like wall art, furniture, or a shirt."
+        case .notSomethingToTry: return "That isn't something I can place in your room or try on."
         case .pageNotRead: return "I couldn't read that page."
         case .sizeNotOnThePage: return "I couldn't find the size on that page."
         case .depthServiceUnavailable: return "I couldn't measure your room. Is the depth service running?"
@@ -844,7 +844,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .pageNotHTTPS: return "The page is not served over https"
         case .cameraAccessDenied: return "Camera access is off. Turn it on in System Settings, Privacy & Security, Camera."
         case .noCamera: return "No camera found"
-        case .notSomethingToTry: return "That doesn't look like wall art, furniture, or a shirt"
+        case .notSomethingToTry: return "That isn't something I can place in your room or try on"
         case .pageNotRead: return "Couldn't read the page"
         case .sizeNotOnThePage: return "Couldn't find the size on the page"
         case .depthServiceUnavailable: return "Couldn't measure the room. Is the depth service running?"

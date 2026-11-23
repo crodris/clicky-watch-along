@@ -199,10 +199,10 @@ const tryItItemJSONSchema = objectJSONSchema({
 });
 
 const tryItItemSystemPrompt = [
-  "You read a store page and its product photos for something the learner wants to try in their own space: art on their wall, furniture on their floor, or a shirt on their body.",
+  "You read a store page and its product photos for something the learner wants to try in their own space: art on their wall, furniture or another object on their floor, or a shirt on their body.",
   "Picture 0 is the page's largest product photo. Pictures 1 and up, when there are any, are the page's other large product photos, in the page's order.",
   "Reply with JSON only.",
-  "item.kind is wallArt for something that hangs on a wall, furniture for something that stands on the floor, clothing for something worn on the body, and other for anything else, such as a lamp, a rug, or a phone case.",
+  "item.kind is wallArt for something that hangs on a wall, furniture for any object that stands on the floor or on a surface, such as a chair, a table, a lamp, a plant, a toy, a plush animal, or a figurine, clothing for something worn on the body, and other for anything else, such as a rug, a phone case, or a gift card.",
   "For kind other, item holds only the kind, and the reply still needs title, whyThisSize, and itemCorners.",
   "When the page shows several items, use the item the learner means in learner_request, else the item the photo shows most.",
   "When the page offers several sizes, choose the one the page shows as selected or default, else the smallest, and list the rest in otherSizes.",
