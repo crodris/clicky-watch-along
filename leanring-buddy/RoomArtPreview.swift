@@ -1271,9 +1271,13 @@ nonisolated struct RoomArtFrontTab: Equatable, Sendable {
 /// first opens those sections (`roomArtExpandTheSizeSectionsScript`) and waits a moment for them to fill, and the text then
 /// adds the page's structured data that names a dimension (`roomArtPageTextScript`). The scripts have no double quotes or
 /// backslashes, since they run inside an AppleScript string.
+/// `beforeTheSectionsOpen` runs first, so the picture is read from the page as the learner sees it: IKEA opens its Product
+/// details section as a side sheet whose construction cutaway is the largest picture once it shows, and the KIVIK sofa was
+/// painted from that beige cutaway instead of its black product photo.
 @MainActor
-func readTheFrontTabForRoomArt() async -> RoomArtFrontTab? {
+func readTheFrontTabForRoomArt(beforeTheSectionsOpen: @MainActor () -> Void = {}) async -> RoomArtFrontTab? {
     guard let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow() else { return nil }
+    beforeTheSectionsOpen()
     let sectionsOpened = (try? ChromeVideoTab.runJavaScript(roomArtExpandTheSizeSectionsScript, in: frontTab)).flatMap { Int($0) } ?? 0
     if sectionsOpened > 0 {
         print("Room art: opened \(sectionsOpened) collapsed sections of the page before reading it")
@@ -1368,6 +1372,7 @@ final class RoomArtPreviewController: ObservableObject {
         static func live(
             workerBaseURL: String,
             capturePicture: @escaping () async -> RoomArtPicture?,
+            readThePictureBeforeThePageSectionsOpen: @escaping @MainActor () -> Void,
             clearTheLiveScene: @escaping () -> Void,
             speak: @escaping (String, Bool) -> Void,
             loopAccentColor: @escaping () -> Color,
@@ -1379,7 +1384,7 @@ final class RoomArtPreviewController: ObservableObject {
             let shirtPaintingClient = ShirtPaintingClient(workerBaseURL: workerBaseURL)
             return Environment(
                 appSecretIsSet: { ClickyAppSecret.isSet() },
-                readTheFrontTab: readTheFrontTabForRoomArt,
+                readTheFrontTab: { await readTheFrontTabForRoomArt(beforeTheSectionsOpen: readThePictureBeforeThePageSectionsOpen) },
                 capturePicture: capturePicture,
                 readThePage: { pageRequest in try await roomArtClient.readThePage(pageRequest) },
                 measureTheWall: { wallRequest in try await roomArtClient.measureTheWall(wallRequest) },
