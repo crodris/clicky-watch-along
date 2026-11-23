@@ -339,6 +339,56 @@ nonisolated func cellsWithEnclosedGapsFilled(_ cells: [Float], columns: Int, row
     return cells.enumerated().map { cellIndex, cell in reachedFromTheBorder[cellIndex] ? 0 : 1 }
 }
 
+/// The closed cells with only the connected piece (4-connected) that holds the most of `strongCells`, the rest cleared.
+/// Nil `strongCells`, or none in any piece, keeps the cells as they are.
+nonisolated func cellsOfThePieceWithTheMostStrongChange(_ cells: [Float], strongCells: [Bool], columns: Int, rows: Int) -> [Float] {
+    var pieceOfCell = [Int](repeating: -1, count: cells.count)
+    var strongCellCountOfPiece: [Int] = []
+    for startIndex in cells.indices where cells[startIndex] > 0 && pieceOfCell[startIndex] < 0 {
+        let piece = strongCellCountOfPiece.count
+        strongCellCountOfPiece.append(0)
+        pieceOfCell[startIndex] = piece
+        var cellsToVisit = [startIndex]
+        while let cellIndex = cellsToVisit.popLast() {
+            if strongCells[cellIndex] { strongCellCountOfPiece[piece] += 1 }
+            let column = cellIndex % columns, row = cellIndex / columns
+            for (neighborColumn, neighborRow) in [(column - 1, row), (column + 1, row), (column, row - 1), (column, row + 1)]
+            where neighborColumn >= 0 && neighborColumn < columns && neighborRow >= 0 && neighborRow < rows {
+                let neighborIndex = neighborRow * columns + neighborColumn
+                guard cells[neighborIndex] > 0, pieceOfCell[neighborIndex] < 0 else { continue }
+                pieceOfCell[neighborIndex] = piece
+                cellsToVisit.append(neighborIndex)
+            }
+        }
+    }
+    guard let strongestPiece = strongCellCountOfPiece.indices.max(by: { strongCellCountOfPiece[$0] < strongCellCountOfPiece[$1] }),
+          strongCellCountOfPiece[strongestPiece] > 0 else { return cells }
+    return pieceOfCell.map { $0 == strongestPiece ? 1 : 0 }
+}
+
+/// A cell changed by more than this many levels on average is strong change, which only the piece itself reaches.
+nonisolated let furniturePieceStrongChangeLevels: Float = 42
+
+/// How `furniturePieceWeights` tells the piece from the room: the change a cell must pass, how its cells are closed, and
+/// whether only the connected piece with the most strong change is kept.
+nonisolated struct FurniturePieceShape: Equatable {
+    let changeThresholdLevels: Float
+    let closingGrowCells: Int
+    let closingShrinkCells: Int
+    let keepsOnlyTheStrongestPiece: Bool
+
+    /// The paste's own piece, with the margin `furniturePieceClosingGrowCells` and `furniturePieceClosingShrinkCells` leave.
+    static let paste = FurniturePieceShape(
+        changeThresholdLevels: furniturePieceChangeThresholdLevels, closingGrowCells: furniturePieceClosingGrowCells,
+        closingShrinkCells: furniturePieceClosingShrinkCells, keepsOnlyTheStrongestPiece: false
+    )
+    /// The fit's piece, which is moved, so any room it holds lands in the wrong place. The plush astronaut's painter relit the
+    /// room around it by 14 to 20 levels (the door frame beside it and the carpet to its left), which joined the piece at the
+    /// paste's 14 and came along shrunk, while its contact shadow changed the carpet by 21 to 55 levels and the plush itself
+    /// by over 63. The cells are closed with no margin, since a margin held a shrunk copy of the door's bottom edge.
+    static let fit = FurniturePieceShape(changeThresholdLevels: 21, closingGrowCells: 2, closingShrinkCells: 2, keepsOnlyTheStrongestPiece: true)
+}
+
 /// How much of the reply each pixel keeps, 0 to 1: 1 on and around the piece, 0 on the room the edit only repainted.
 /// A cell is part of the piece when the reply, after the tone fit, differs strongly from the keyframe in it
 /// (`furniturePieceChangeThresholdLevels`). That shape is closed, filled where it encloses a gap, and softened as the
@@ -346,7 +396,10 @@ nonisolated func cellsWithEnclosedGapsFilled(_ cells: [Float], columns: Int, row
 /// Only pixels the paste takes at all (`pasteWeights`, one byte per pixel, 0 where the paste keeps the keyframe) count as
 /// changed. The edit re-renders the whole frame, so a window or a person elsewhere in it can differ by more than the
 /// threshold, and such a cell must not join the piece and enclose room that is inside the paste.
-nonisolated func furniturePieceWeights(keyframePixels: [UInt8], correctedReplyPixels: [UInt8], pasteWeights: [UInt8], width: Int, height: Int) -> [Float] {
+/// `shape` says how the piece is told from the room (`FurniturePieceShape`), the paste's by default.
+nonisolated func furniturePieceWeights(
+    keyframePixels: [UInt8], correctedReplyPixels: [UInt8], pasteWeights: [UInt8], width: Int, height: Int, shape: FurniturePieceShape = .paste
+) -> [Float] {
     let cellPixels = furniturePieceCellPixels
     let cellColumns = (width + cellPixels - 1) / cellPixels
     let cellRows = (height + cellPixels - 1) / cellPixels
@@ -377,6 +430,7 @@ nonisolated func furniturePieceWeights(keyframePixels: [UInt8], correctedReplyPi
     // and neither is a cell it only grazes (under half of the cell), since a few pixels of the feather's faint tail would
     // then decide it.
     var changedCells = [Float](repeating: 0, count: cellColumns * cellRows)
+    var strongCells = [Bool](repeating: false, count: cellColumns * cellRows)
     for cellRow in 0..<cellRows {
         let pixelRows = min(cellPixels, height - cellRow * cellPixels)
         for cellColumn in 0..<cellColumns {
@@ -384,12 +438,16 @@ nonisolated func furniturePieceWeights(keyframePixels: [UInt8], correctedReplyPi
             let pixelsInTheCell = pixelRows * min(cellPixels, width - cellColumn * cellPixels)
             guard pastedPixelCounts[cellIndex] * 2 >= pixelsInTheCell else { continue }
             let averageChange = changeSums[cellIndex] / Float(pastedPixelCounts[cellIndex])
-            changedCells[cellIndex] = averageChange > furniturePieceChangeThresholdLevels ? 1 : 0
+            changedCells[cellIndex] = averageChange > shape.changeThresholdLevels ? 1 : 0
+            strongCells[cellIndex] = averageChange > furniturePieceStrongChangeLevels
         }
     }
-    let grownCells = binaryWindowFiltered(changedCells, width: cellColumns, height: cellRows, radius: furniturePieceClosingGrowCells, keepsAnyHit: true)
-    let closedCells = binaryWindowFiltered(grownCells, width: cellColumns, height: cellRows, radius: furniturePieceClosingShrinkCells, keepsAnyHit: false)
-    let solidCells = cellsWithEnclosedGapsFilled(closedCells, columns: cellColumns, rows: cellRows)
+    let grownCells = binaryWindowFiltered(changedCells, width: cellColumns, height: cellRows, radius: shape.closingGrowCells, keepsAnyHit: true)
+    let closedCells = binaryWindowFiltered(grownCells, width: cellColumns, height: cellRows, radius: shape.closingShrinkCells, keepsAnyHit: false)
+    let pieceCells = shape.keepsOnlyTheStrongestPiece
+        ? cellsOfThePieceWithTheMostStrongChange(closedCells, strongCells: strongCells, columns: cellColumns, rows: cellRows)
+        : closedCells
+    let solidCells = cellsWithEnclosedGapsFilled(pieceCells, columns: cellColumns, rows: cellRows)
     var softenedCells = solidCells
     for _ in 0..<furniturePieceEdgeSofteningPasses { softenedCells = boxAveraged(softenedCells, width: cellColumns, height: cellRows, radius: furniturePieceEdgeSoftnessCells) }
 
@@ -418,6 +476,153 @@ nonisolated func furniturePieceWeights(keyframePixels: [UInt8], correctedReplyPi
     return pieceWeights
 }
 
+// MARK: - Fitting a painting drawn too big
+
+// OpenAI's image edit takes the mask and the size words only as guidance, and it draws a small item too big: on 2026-11-23
+// it drew an 11 inch plush astronaut 373 rows tall in a box 234 rows tall, 1.6 times its size, so the paste cut its head off
+// along the region's top and every painting was refused. Its shape, light, and shadow were right, so the client shrinks
+// the painted piece to the box's height about the box's floor point instead of throwing it away.
+
+/// The fit shrinks a piece at most to this share. A piece drawn over twice the box's height is more likely something other
+/// than the product, so it is pasted as it came and the judge refuses it.
+nonisolated let furniturePaintingLeastFitScale = 0.5
+/// Rows with no painted change that may sit inside the piece, such as a pale band between a helmet and a collar, before the
+/// walk up the piece stops at its top.
+nonisolated let furniturePaintingFitGapRows = 8
+
+/// How to shrink a painted piece back into its box: by `scale`, about `anchor`, the box's lowest point on the floor below
+/// the footprint's middle, in y-down keyframe pixels. `paintedTopRow` is where the painter put the piece's top.
+nonisolated struct FurniturePaintingFit: Equatable {
+    let scale: Double
+    let anchor: CGPoint
+    let paintedTopRow: Int
+    /// The rectangle the piece was looked for in, in y-down keyframe pixels, which the fit reads the piece from.
+    let searchRectangle: CGRect
+}
+
+/// The fit for a painting whose piece rises above its box by more than the paste takes (`furnitureCompositePasteSlackPixels`)
+/// or than the judge allows (`RoomFurniturePaintedComposite.mostHeightDifference`), or nil when it needs none or cannot be
+/// measured. The piece's top is found by walking up from the box's floor through the rows where the reply's luminance
+/// changed by more than the judge's `paintedLuminanceChange` in at least the judge's share of a row, within the box's
+/// columns widened by half its width on each side, until `furniturePaintingFitGapRows` rows in a row show no change. The
+/// fit brings the piece to the middle of the box's front face height and its outline height, the range the judge keeps.
+/// Only a box wholly inside the frame is fitted, since a piece the frame cuts off has no top or floor point to measure.
+nonisolated func furniturePaintingFit(keyframePixels: [UInt8], correctedReplyPixels: [UInt8], width: Int, height: Int, projectedBox: [CGPoint]) -> FurniturePaintingFit? {
+    guard projectedBox.count == 8,
+          projectedBox.allSatisfy({ $0.x >= 0 && $0.y >= 0 && $0.x <= Double(width - 1) && $0.y <= Double(height - 1) }) else { return nil }
+    let boxLeft = projectedBox.map(\.x).min() ?? 0, boxRight = projectedBox.map(\.x).max() ?? 0
+    let boxTop = projectedBox.map(\.y).min() ?? 0, boxBottom = projectedBox.map(\.y).max() ?? 0
+    let outlineHeight = boxBottom - boxTop
+    let frontFaceYs = projectedBox.prefix(4).map(\.y)
+    let frontFaceHeight = (frontFaceYs.max() ?? 0) - (frontFaceYs.min() ?? 0)
+    guard outlineHeight >= 1, boxRight > boxLeft else { return nil }
+    let boxWidth = boxRight - boxLeft
+    let searchLeft = max(0, Int(boxLeft - boxWidth / 2)), searchRight = min(width - 1, Int(boxRight + boxWidth / 2))
+    let bottomRow = Int(boxBottom.rounded(.down))
+    let searchTop = max(0, Int(boxBottom - outlineHeight / furniturePaintingLeastFitScale - furnitureCompositePasteSlackPixels))
+    let searchColumnCount = searchRight - searchLeft + 1
+    let changedPixelsForARow = max(
+        RoomFurniturePaintedComposite.fewestChangedPixelsInARow,
+        Int((Double(searchColumnCount) * RoomFurniturePaintedComposite.shareOfARowThatMustChange).rounded(.up))
+    )
+    let luminanceChangeThreshold = RoomFurniturePaintedComposite.paintedLuminanceChange * 255
+    func rowIsPainted(_ row: Int) -> Bool {
+        var changedPixels = 0
+        for column in searchLeft...searchRight {
+            let byteIndex = (row * width + column) * 4
+            let redChange = abs(Double(correctedReplyPixels[byteIndex]) - Double(keyframePixels[byteIndex]))
+            let greenChange = abs(Double(correctedReplyPixels[byteIndex + 1]) - Double(keyframePixels[byteIndex + 1]))
+            let blueChange = abs(Double(correctedReplyPixels[byteIndex + 2]) - Double(keyframePixels[byteIndex + 2]))
+            // The judge reads the same luminance of the difference (Rec. 709 weights).
+            if 0.2126 * redChange + 0.7152 * greenChange + 0.0722 * blueChange > luminanceChangeThreshold { changedPixels += 1 }
+        }
+        return changedPixels >= changedPixelsForARow
+    }
+    var paintedTopRow: Int?
+    var row = bottomRow
+    while row >= searchTop {
+        if rowIsPainted(row) {
+            paintedTopRow = row
+        } else if let paintedTopRow, paintedTopRow - row > furniturePaintingFitGapRows {
+            break
+        }
+        row -= 1
+    }
+    // A piece that runs to the search's top, or the frame's, has a top the walk did not reach.
+    guard let paintedTopRow, paintedTopRow > searchTop + furniturePaintingFitGapRows else { return nil }
+    let paintedHeight = boxBottom - Double(paintedTopRow)
+    let mostHeightThePasteAndTheJudgeKeep = min(
+        outlineHeight + furnitureCompositePasteSlackPixels,
+        outlineHeight * (1 + RoomFurniturePaintedComposite.mostHeightDifference)
+    )
+    guard paintedHeight > mostHeightThePasteAndTheJudgeKeep else { return nil }
+    let scale = (frontFaceHeight + outlineHeight) / 2 / paintedHeight
+    guard scale >= furniturePaintingLeastFitScale else { return nil }
+    let footprintXs = [projectedBox[2], projectedBox[3], projectedBox[6], projectedBox[7]].map(\.x)
+    let anchor = CGPoint(x: footprintXs.reduce(0, +) / 4, y: boxBottom)
+    let searchBottom = min(height - 1, bottomRow + Int(furnitureCompositePasteSlackPixels * 2))
+    return FurniturePaintingFit(
+        scale: scale, anchor: anchor, paintedTopRow: paintedTopRow,
+        searchRectangle: CGRect(x: searchLeft, y: searchTop, width: searchColumnCount, height: searchBottom - searchTop + 1)
+    )
+}
+
+/// The keyframe with the painted piece shrunk by `fit` and laid over it. The piece is what the reply, corrected by
+/// `toneFits`, changed strongly in the fit's search rectangle (`furniturePieceWeights` with the fit's shape, its shadow
+/// included), and each output pixel reads the reply and that weight back through the shrink with a bilinear read, so the
+/// room the oversized piece covered shows as filmed.
+nonisolated func furniturePiecePastedAfterTheFit(
+    keyframePixels: [UInt8], replyPixels: [UInt8], toneFits: [ChannelToneFit], width: Int, height: Int, fit: FurniturePaintingFit
+) -> [UInt8] {
+    let search = fit.searchRectangle
+    let searchLeft = Int(search.minX), searchTop = Int(search.minY), searchRight = Int(search.maxX) - 1, searchBottom = Int(search.maxY) - 1
+    // The piece is worked out on the search rectangle alone, an eighth of a 1920 by 1080 frame for the plush astronaut, since
+    // the whole frame took about 3 seconds more in a Debug build.
+    let searchWidth = searchRight - searchLeft + 1, searchHeight = searchBottom - searchTop + 1
+    var keyframeInTheSearch = [UInt8](repeating: 0, count: searchWidth * searchHeight * 4)
+    var replyInTheSearch = keyframeInTheSearch
+    for row in searchTop...searchBottom {
+        let frameStart = (row * width + searchLeft) * 4, searchStart = (row - searchTop) * searchWidth * 4
+        keyframeInTheSearch[searchStart..<(searchStart + searchWidth * 4)] = keyframePixels[frameStart..<(frameStart + searchWidth * 4)]
+        replyInTheSearch[searchStart..<(searchStart + searchWidth * 4)] = replyPixels[frameStart..<(frameStart + searchWidth * 4)]
+    }
+    // Only the search rectangle is read, so only it is corrected.
+    replyInTheSearch = toneCorrectedPixels(replyInTheSearch, by: toneFits)
+    let pieceWeightsInTheSearch = furniturePieceWeights(
+        keyframePixels: keyframeInTheSearch, correctedReplyPixels: replyInTheSearch,
+        pasteWeights: [UInt8](repeating: 255, count: searchWidth * searchHeight), width: searchWidth, height: searchHeight, shape: .fit
+    )
+    var pastedPixels = keyframePixels
+    func readBilinear(_ x: Double, _ y: Double, _ value: (Int, Int) -> Float) -> Float {
+        let left = Int(x.rounded(.down)), top = Int(y.rounded(.down))
+        let columnShare = Float(x - Double(left)), rowShare = Float(y - Double(top))
+        let right = min(searchRight, left + 1), bottom = min(searchBottom, top + 1)
+        let upper = value(left, top) * (1 - columnShare) + value(right, top) * columnShare
+        let lower = value(left, bottom) * (1 - columnShare) + value(right, bottom) * columnShare
+        return upper * (1 - rowShare) + lower * rowShare
+    }
+    for row in searchTop...searchBottom {
+        for column in searchLeft...searchRight {
+            // The output pixel reads the reply where the shrink took it from.
+            let sourceX = fit.anchor.x + (Double(column) - fit.anchor.x) / fit.scale
+            let sourceY = fit.anchor.y + (Double(row) - fit.anchor.y) / fit.scale
+            guard sourceX >= Double(searchLeft), sourceX <= Double(searchRight), sourceY >= Double(searchTop), sourceY <= Double(searchBottom) else { continue }
+            let weight = readBilinear(sourceX, sourceY) { sourceColumn, sourceRow in
+                pieceWeightsInTheSearch[(sourceRow - searchTop) * searchWidth + sourceColumn - searchLeft]
+            }
+            guard weight > 0 else { continue }
+            for channel in 0..<3 {
+                let value = readBilinear(sourceX, sourceY) { sourceColumn, sourceRow in
+                    Float(replyInTheSearch[((sourceRow - searchTop) * searchWidth + sourceColumn - searchLeft) * 4 + channel])
+                }
+                let byteIndex = (row * width + column) * 4 + channel
+                pastedPixels[byteIndex] = UInt8((Float(keyframePixels[byteIndex]) * (1 - weight) + value * weight).rounded())
+            }
+        }
+    }
+    return pastedPixels
+}
+
 /// The keyframe with `generated` pasted in only where the mask, grown by `slackPixels` and feathered by
 /// `featherPixels`, allows. The edit re-renders the whole frame, and pixels away from the piece come back slightly changed
 /// (a window's view, the light on a wall), so everything past the grown mask stays exactly as filmed. Before the paste,
@@ -427,7 +632,8 @@ nonisolated func furniturePieceWeights(keyframePixels: [UInt8], correctedReplyPi
 /// follow, keeps the keyframe's own pixels (`furniturePieceWeights`). `keepsOnlyThePieceTheReplyChanged` false pastes
 /// the whole grown region instead, for a painting that must replace everything in its mask, as the shirt's must cover
 /// the learner's own top even where the new one is close to its color. A `generated` of another size, which the Worker
-/// returns for a keyframe size OpenAI does not take, is scaled to the keyframe first.
+/// returns for a keyframe size OpenAI does not take, is scaled to the keyframe first. With `projectedBox`, a piece drawn
+/// taller than that box allows is shrunk back into it about the box's floor point instead (`furniturePaintingFit`).
 nonisolated func furnitureCompositePasted(
     keyframe: CGImage,
     generated: CGImage,
@@ -436,6 +642,7 @@ nonisolated func furnitureCompositePasted(
     featherPixels: Double = furnitureCompositePasteFeatherPixels,
     toneMatchBandPixels: Double = furnitureCompositeToneMatchBandPixels,
     keepsOnlyThePieceTheReplyChanged: Bool = true,
+    projectedBox: [CGPoint]? = nil,
     context: CIContext
 ) -> CGImage? {
     let width = keyframe.width
@@ -454,15 +661,27 @@ nonisolated func furnitureCompositePasted(
     }
     let toneFits = toneFitsMatchingTheReplyToTheKeyframe(keyframePixels: keyframePixels, replyPixels: replyPixels, sampleIsInTheRing: sampleIsInTheRing)
 
-    var correctedReplyPixels = replyPixels
-    correctedReplyPixels.withUnsafeMutableBufferPointer { correctedBytes in
-        for pixelIndex in 0..<(width * height) {
-            for channel in 0..<3 {
-                let byteIndex = pixelIndex * 4 + channel
-                let corrected = toneFits[channel].gain * Double(correctedBytes[byteIndex]) + toneFits[channel].offset
-                correctedBytes[byteIndex] = UInt8(min(255, max(0, corrected)).rounded())
+    let correctedReplyPixels = toneCorrectedPixels(replyPixels, by: toneFits)
+    if let projectedBox, keepsOnlyThePieceTheReplyChanged,
+       let fit = furniturePaintingFit(keyframePixels: keyframePixels, correctedReplyPixels: correctedReplyPixels, width: width, height: height, projectedBox: projectedBox) {
+        print(String(format: "Room furniture: the painting's top is row %d, above its box's top, so it is shrunk to %.0f%% about its floor point", fit.paintedTopRow, fit.scale * 100))
+        // A piece drawn this big reaches into the ring around the paste, so the tone is matched again on a ring around the
+        // whole rectangle the fit reads the piece from.
+        let band = Int(toneMatchBandPixels)
+        let searchColumns = Int(fit.searchRectangle.minX)..<Int(fit.searchRectangle.maxX)
+        let searchRows = Int(fit.searchRectangle.minY)..<Int(fit.searchRectangle.maxY)
+        var ringAroundTheSearch = [Bool](repeating: false, count: width * height)
+        for row in max(0, searchRows.lowerBound - band)..<min(height, searchRows.upperBound + band) {
+            for column in max(0, searchColumns.lowerBound - band)..<min(width, searchColumns.upperBound + band)
+            where !(searchRows.contains(row) && searchColumns.contains(column)) {
+                ringAroundTheSearch[row * width + column] = true
             }
         }
+        let searchToneFits = toneFitsMatchingTheReplyToTheKeyframe(keyframePixels: keyframePixels, replyPixels: replyPixels, sampleIsInTheRing: ringAroundTheSearch)
+        let fittedPixels = furniturePiecePastedAfterTheFit(
+            keyframePixels: keyframePixels, replyPixels: replyPixels, toneFits: searchToneFits, width: width, height: height, fit: fit
+        )
+        return rgbaImage(fittedPixels, width: width, height: height)
     }
     let pieceWeights = keepsOnlyThePieceTheReplyChanged
         ? furniturePieceWeights(keyframePixels: keyframePixels, correctedReplyPixels: correctedReplyPixels, pasteWeights: pasteWeights, width: width, height: height)
@@ -487,8 +706,28 @@ nonisolated func furnitureCompositePasted(
         }
     }
 
+    return rgbaImage(pastedPixels, width: width, height: height)
+}
+
+/// RGBA bytes with each color channel's tone fit applied, clamped to bytes.
+nonisolated func toneCorrectedPixels(_ pixels: [UInt8], by toneFits: [ChannelToneFit]) -> [UInt8] {
+    var correctedPixels = pixels
+    correctedPixels.withUnsafeMutableBufferPointer { correctedBytes in
+        for pixelIndex in 0..<(correctedBytes.count / 4) {
+            for channel in 0..<3 {
+                let byteIndex = pixelIndex * 4 + channel
+                let corrected = toneFits[channel].gain * Double(correctedBytes[byteIndex]) + toneFits[channel].offset
+                correctedBytes[byteIndex] = UInt8(min(255, max(0, corrected)).rounded())
+            }
+        }
+    }
+    return correctedPixels
+}
+
+/// An sRGB image of RGBA bytes, with the first row the top.
+nonisolated func rgbaImage(_ pixels: [UInt8], width: Int, height: Int) -> CGImage? {
     guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-          let pixelProvider = CGDataProvider(data: Data(pastedPixels) as CFData) else { return nil }
+          let pixelProvider = CGDataProvider(data: Data(pixels) as CFData) else { return nil }
     return CGImage(
         width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4, space: colorSpace,
         bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: pixelProvider,
@@ -637,7 +876,8 @@ final class RoomFurnitureGenerationClient {
         maskPNG: Data,
         itemTitle: String,
         itemSizeWords: String,
-        orientation: RoomFurniturePaintingOrientation?
+        orientation: RoomFurniturePaintingOrientation?,
+        projectedBox: [CGPoint]? = nil
     ) async throws -> CGImage {
         guard let keyframe = decodedImage(from: keyframeJPEG) else {
             throw RoomFurnitureGenerationError.inputCouldNotBeRead(reason: "the keyframe is not an image")
@@ -676,7 +916,7 @@ final class RoomFurnitureGenerationClient {
         // The paste walks every pixel of the frame, so it runs off the main actor, where the panel draws.
         let pasteContext = ciContext
         let pastedOrNil = await Task.detached(priority: .userInitiated) {
-            furnitureCompositePasted(keyframe: keyframe, generated: generated, mask: mask, context: pasteContext)
+            furnitureCompositePasted(keyframe: keyframe, generated: generated, mask: mask, projectedBox: projectedBox, context: pasteContext)
         }.value
         guard let pasted = pastedOrNil else {
             throw RoomFurnitureGenerationError.replyCouldNotBeRead(reason: "the drawn piece could not be pasted into the keyframe")

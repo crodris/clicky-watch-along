@@ -810,6 +810,9 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
     /// How many paintings reached the height and footprint check, which a dropped painting never does.
     private(set) var paintingsChecked = 0
     private(set) var orientationsSent: [RoomFurniturePaintingOrientation?] = []
+    /// The box each painting was sent, which a piece drawn too big is shrunk into, and the box each was judged against.
+    private(set) var projectedBoxesSent: [[CGPoint]?] = []
+    private(set) var boxesJudged: [[CGPoint]] = []
     private(set) var keyframeJPEGsSent: [Data] = []
     private(set) var renders: [RoomFurnitureLook] = []
     /// The product image each generation service was sent, which must be the furniture's cutout and never the page picture.
@@ -827,10 +830,11 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
 
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data, keyframeWidth: Int, keyframeHeight: Int, productJPEG: Data, maskPNG: Data, itemTitle: String, itemSizeWords: String,
-        orientation: RoomFurniturePaintingOrientation?
+        orientation: RoomFurniturePaintingOrientation?, projectedBox: [CGPoint]?
     ) async throws -> CGImage {
         productJPEGsSent.append(productJPEG)
         orientationsSent.append(orientation)
+        projectedBoxesSent.append(projectedBox)
         keyframeJPEGsSent.append(keyframeJPEG)
         paintings += 1
         if let paintingGate { await paintingGate.wait() }
@@ -867,8 +871,9 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
             if let renderGate = self.renderGate { await renderGate.wait() }
             return self.renderSucceeds ? Self.layers(renderRequest.look) : nil
         }
-        environment.paintedItemLayers = { _, _, _, _ in
+        environment.paintedItemLayers = { _, _, _, projectedBox in
             self.paintingsChecked += 1
+            self.boxesJudged.append(projectedBox)
             guard let firstKeptPainting = self.firstKeptPainting, self.paintings >= firstKeptPainting else { return nil }
             return Self.layers(.paintedComposite)
         }
@@ -3115,6 +3120,9 @@ struct RoomArtPreviewControllerTests {
         #expect(looks.orientationsSent == [RoomFurniturePaintingOrientation(facing: .camera, backAgainstTheWall: false)])
         paintingGate.open()
         try await waitFor("the painting asked for ahead to be checked") { looks.paintingsChecked == 1 }
+        // The painting is sent the box it is judged against, so a piece drawn too big is shrunk into that box.
+        #expect(looks.projectedBoxesSent.count == 1 && looks.projectedBoxesSent.first == looks.boxesJudged.first)
+        #expect(looks.boxesJudged.first?.count == 8)
         await letTheQueuedMainActorWorkRun()
         #expect(harness.controller.phase.furnitureGhostShows)
         #expect(harness.frameProcessor.furnitureLayersShown.isEmpty)

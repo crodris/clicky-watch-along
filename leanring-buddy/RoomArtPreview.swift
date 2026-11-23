@@ -1620,6 +1620,7 @@ final class RoomArtPreviewController: ObservableObject {
                         if let ratio = composite.paintedHeightRatio, let rows = composite.paintedRows {
                             print(String(format: "Room furniture: the painted item is %.0f%% of the measured box's outline (%@)", ratio * 100, roomFurniturePaintedRowsAgainstTheBox(rows, projectedBox)))
                         }
+                        if let refusal = composite.refusal { print("Room furniture: the painting is refused, since \(refusal)") }
                         return composite.layers
                     }.value
                 },
@@ -3163,7 +3164,8 @@ extension RoomArtPreviewController {
                     maskPNG: maskPNG,
                     itemTitle: furniture.title,
                     itemSizeWords: furniture.sizeInWords,
-                    orientation: orientation
+                    orientation: orientation,
+                    projectedBox: projectedBox
                 )
                 guard !Task.isCancelled, thisOpening == openingNumber else { return nil }
                 #if DEBUG

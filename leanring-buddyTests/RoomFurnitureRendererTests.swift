@@ -165,7 +165,7 @@ struct RoomFurniturePaintedCompositeTests {
         return try #require(context.makeImage())
     }
 
-    private func layers(paintedFromRow topRow: Int) throws -> (layers: RoomFurnitureKeyframeLayers?, paintedHeightRatio: Double?, paintedRows: ClosedRange<Int>?) {
+    private func layers(paintedFromRow topRow: Int) throws -> RoomFurniturePaintingJudgement {
         let keyframe = try #require(roomFurnitureTestKeyframe())
         let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: projectedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
         return RoomFurniturePaintedComposite.itemLayers(painted: try painting(topRow: topRow, over: keyframe), keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
