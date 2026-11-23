@@ -220,6 +220,31 @@ struct ShirtLivePaintedTopFollowerTests {
         return ShirtLivePaintedTopFollower(top: ShirtLivePaintedTop(layer: clearImage, still: clearImage, paintedArea: clearImage, frozenTorso: frozenTorso(), followsTheForearms: followsTheForearms))
     }
 
+    @Test func aTorsoOutOfReachForItsHipsStaysOutWhileTheHipsFlickerToEstimated() {
+        var follower = follower()
+        let bent = replacingTheHips(of: frozenTorso(), leftHip: CGPoint(x: 230, y: 420), rightHip: CGPoint(x: 370, y: 420), hipsWereEstimated: false)
+        let bentWithEstimatedHips = replacingTheHips(of: frozenTorso(), leftHip: CGPoint(x: 230, y: 420), rightHip: CGPoint(x: 370, y: 420), hipsWereEstimated: true)
+        _ = follower.advance(currentTorso: frozenTorso(), at: 0)
+        _ = follower.advance(currentTorso: frozenTorso(), at: 0.1)
+        _ = follower.advance(currentTorso: bent, at: 0.2)
+        #expect(follower.reach == .outOfReach(.torsoShortened))
+        // The hips flip between seen and estimated every pose run, and the top stays on the still the whole time.
+        for step in 3...12 {
+            _ = follower.advance(currentTorso: step.isMultiple(of: 2) ? bent : bentWithEstimatedHips, at: Double(step) / 10)
+            #expect(follower.reach == .outOfReach(.torsoShortened))
+        }
+        #expect(follower.visibility == 0 && follower.hintIsShowing)
+        // Standing as in the painting with seen hips brings it back.
+        _ = follower.advance(currentTorso: frozenTorso(), at: 1.3)
+        #expect(follower.reach == .follows)
+        // A problem estimated hips can see, such as a raised arm, is cleared by them as usual.
+        let armRaised = replacingTheLeftElbow(of: frozenTorso(), with: turned(CGPoint(x: 185, y: 350), about: CGPoint(x: 200, y: 200), degrees: 40))
+        _ = follower.advance(currentTorso: armRaised, at: 1.4)
+        #expect(follower.reach == .outOfReach(.upperArmMoved))
+        _ = follower.advance(currentTorso: replacingTheHips(of: frozenTorso(), leftHip: CGPoint(x: 230, y: 500), rightHip: CGPoint(x: 370, y: 500), hipsWereEstimated: true), at: 1.5)
+        #expect(follower.reach == .follows)
+    }
+
     @Test func itStartsOnThePaintedStillWithNoHintAndNoStepTaken() {
         let follower = follower()
         #expect(follower.visibility == 0 && !follower.hintIsShowing && !follower.hasStarted)
@@ -566,7 +591,7 @@ struct ShirtLivePaintedTopCompositeTests {
         #expect(middle.red > 45 && middle.red < 195 && middle.green > 45 && middle.green < 195)
     }
 
-    @Test func theMotionCarriesTheFrozenShouldersAndHipsOntoTheCurrentOnes() {
+    @Test func aRigidMoveOfTheTorsoCarriesItsShouldersAndHipsAlike() {
         let top = ShirtLivePaintedTop(layer: CIImage(color: .clear), still: CIImage(color: .clear), paintedArea: CIImage(color: .clear), frozenTorso: frozenTorso(), followsTheForearms: false)
         // A shift, a turn of 8 degrees, and a scale of 0.9, about the shoulders' middle.
         let motion = turnAndScale(about: CGPoint(x: 300, y: 200), degrees: 8, scale: 0.9).concatenating(CGAffineTransform(translationX: 30, y: -12))

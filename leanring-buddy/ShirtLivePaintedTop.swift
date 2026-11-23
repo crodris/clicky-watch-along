@@ -259,9 +259,9 @@ nonisolated struct ShirtLivePaintedTop: @unchecked Sendable {
     }
 
     /// The frame with the layer moved by `transform` (y down) drawn over it, its band past the paint mask clipped to the live
-    /// person mask, dissolved with the painted still by `visibility`: 0 is the still, 1 is the live top. `personMask` is white where the person is, at any
-    /// size, read as its values are (made with no color space), as the renderer reads it. The still is returned as it is at
-    /// 0, and the live image alone at 1, so neither pays for the other.
+    /// person mask, dissolved with the painted still by `visibility`: 0 is the still, 1 is the live top. `personMask` is
+    /// white where the person is, at any size, read as its values are (made with no color space), as the renderer reads it.
+    /// The still is returned as it is at 0, and the live image alone at 1, so neither pays for the other.
     func composite(frame: CIImage, personMask: CIImage, transform: CGAffineTransform, visibility: Double) -> CIImage {
         guard visibility > 0 else { return still }
         let frameExtent = frame.extent
@@ -350,6 +350,14 @@ nonisolated enum ShirtLivePaintedTopReachProblem: Equatable, Sendable {
     case upperArmMoved
     /// A forearm moved from where it hung in the painting, which matters only under a long sleeve.
     case forearmMoved
+
+    /// The problem is one only real hips can show, so estimated hips can neither find it nor clear it.
+    var isAboutTheHips: Bool {
+        switch self {
+        case .turnedSideways, .torsoShortened, .hipsSwayed: true
+        case .noTorso, .shouldersChangedSize, .shouldersRolled, .upperArmMoved, .forearmMoved: false
+        }
+    }
 }
 
 /// Whether the painted top can follow the learner: they stand close enough to how they stood in the painting that a flat
@@ -499,9 +507,17 @@ nonisolated struct ShirtLivePaintedTopFollower: Sendable {
     mutating func advance(currentTorso: BodyTorso?, at time: TimeInterval) -> Bool? {
         let secondsSinceTheLastStep = lastStepAt.map { min(max(time - $0, 0), Self.longestStepSeconds) } ?? 0
         lastStepAt = time
-        reach = ShirtLivePaintedTopReach.decide(
+        let decided = ShirtLivePaintedTopReach.decide(
             frozenTorso: top.frozenTorso, currentTorso: currentTorso, followsTheForearms: top.followsTheForearms, wasFollowing: reach == .follows
         )
+        // The hip checks run only on real hips, and a hip's confidence near the floor flips the hips between seen and
+        // estimated from one pose run to the next, so a torso out of reach for its hips stays out while they are estimated,
+        // instead of dissolving back and forth between the live top and the still.
+        if decided == .follows, currentTorso?.hipsWereEstimated == true, case .outOfReach(let problem) = reach, problem.isAboutTheHips {
+            reach = .outOfReach(problem)
+        } else {
+            reach = decided
+        }
         if reach == .follows, let currentTorso { followingTransform = top.transform(to: currentTorso) }
         let targetVisibility = reach == .follows ? 1.0 : 0.0
         let fadeStep = secondsSinceTheLastStep / Self.fadeSeconds
