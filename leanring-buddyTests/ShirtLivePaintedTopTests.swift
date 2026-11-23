@@ -247,6 +247,12 @@ struct ShirtLivePaintedTopFollowerTests {
         _ = follower.advance(currentTorso: nil, at: 1.33)
         _ = follower.advance(currentTorso: bentWithEstimatedHips, at: 1.34)
         #expect(follower.reach == .outOfReach(.torsoShortened))
+        // A frame with real hips whose shoulders fail first never reached the hip checks, so it keeps the verdict too.
+        let bentAndRolled = moved(bent, by: turnAndScale(about: CGPoint(x: 300, y: 200), degrees: 30))
+        _ = follower.advance(currentTorso: bentAndRolled, at: 1.341)
+        #expect(follower.reach == .outOfReach(.shouldersRolled))
+        _ = follower.advance(currentTorso: bentWithEstimatedHips, at: 1.342)
+        #expect(follower.reach == .outOfReach(.torsoShortened))
         _ = follower.advance(currentTorso: frozenTorso(), at: 1.35)
         #expect(follower.reach == .follows)
         // Bent again, then a frame with real hips standing straight clears the hips' verdict even when it finds an arm
