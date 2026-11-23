@@ -1212,7 +1212,7 @@ struct RoomArtPreviewControllerTests {
         looks.paintingGate = nil
         looks.paintedImage = nil
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
-        try await waitFor("the line that the piece could not be drawn", seconds: 10) { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
+        try await waitFor("the line that the piece could not be drawn") { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
         renderGate.open()
         harness.controller.close()
     }
@@ -1278,8 +1278,9 @@ struct RoomArtPreviewControllerTests {
         harness.frameProcessor.handOutKeyframesThatCannotBeDecoded()
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
-        // The wait takes the suite's long limit like every other, since a loaded Mac outlasted 10 s here. No render and no
-        // painting is what says the line came at once.
+        // The deadline gate never opens, so the line can only come from the painting and the render ending at once. The wait
+        // takes the suite's long limit, since a loaded Mac outlasted 10 s here. The empty counts show the undecodable keyframe
+        // was never sent to either.
         try await waitFor("the line that the piece could not be drawn") { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
         #expect(looks.renders.isEmpty && looks.paintings == 0)
         harness.controller.close()
