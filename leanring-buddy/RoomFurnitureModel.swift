@@ -38,8 +38,6 @@ nonisolated struct RoomFurniturePlacement: Equatable, Sendable {
     /// front, so a model is never mirrored. Nil for a size that is not a positive number (a depth of 0 is the flat cutout),
     /// or when the camera is straight above the anchor, so no direction toward it is level.
     init?(floor: FloorPlane, widthMeters: Double, heightMeters: Double, depthMeters: Double) {
-        guard widthMeters.isFinite, heightMeters.isFinite, depthMeters.isFinite,
-              widthMeters > 0, heightMeters > 0, depthMeters >= 0 else { return nil }
         let frontDirectionBeforeNormalizing: SIMD3<Double>
         if floor.inferredFromTheWall {
             frontDirectionBeforeNormalizing = -floor.forward
@@ -48,15 +46,36 @@ nonisolated struct RoomFurniturePlacement: Equatable, Sendable {
             let towardTheCamera = -floor.center
             frontDirectionBeforeNormalizing = towardTheCamera - floor.up * simd_dot(towardTheCamera, floor.up)
         }
-        guard simd_length(frontDirectionBeforeNormalizing) > 1e-6 else { return nil }
-        let frontDirection = simd_normalize(frontDirectionBeforeNormalizing)
-        frontBottomCenter = floor.center
-        upDirection = floor.up
+        self.init(frontBottomCenter: floor.center, upDirection: floor.up, towardTheFront: frontDirectionBeforeNormalizing, widthMeters: widthMeters, heightMeters: heightMeters, depthMeters: depthMeters)
+    }
+
+    /// The box with its front facing `towardTheFront`, which is made level with the floor, such as a ghost the learner
+    /// turned or snapped square to a wall (`RoomFurnitureGhost`). Nil for a size that is not a positive number, or a front
+    /// direction with nothing left once it is made level.
+    init?(frontBottomCenter: SIMD3<Double>, upDirection: SIMD3<Double>, towardTheFront: SIMD3<Double>, widthMeters: Double, heightMeters: Double, depthMeters: Double) {
+        guard widthMeters.isFinite, heightMeters.isFinite, depthMeters.isFinite,
+              widthMeters > 0, heightMeters > 0, depthMeters >= 0, simd_length(upDirection) > 1e-6 else { return nil }
+        let up = simd_normalize(upDirection)
+        let levelFront = towardTheFront - up * simd_dot(towardTheFront, up)
+        guard simd_length(levelFront) > 1e-6 else { return nil }
+        let frontDirection = simd_normalize(levelFront)
+        self.frontBottomCenter = frontBottomCenter
+        self.upDirection = up
         towardTheFrontDirection = frontDirection
-        rightDirection = simd_normalize(simd_cross(floor.up, frontDirection))
+        rightDirection = simd_normalize(simd_cross(up, frontDirection))
         self.widthMeters = widthMeters
         self.heightMeters = heightMeters
         self.depthMeters = depthMeters
+    }
+
+    /// The box's eight corners in keyframe pixels, in `boxCorners` order, or nil when a corner is behind the camera.
+    func keyframeBoxCorners(focalLengthPixels: Double, principalPoint: SIMD2<Double>) -> [CGPoint]? {
+        var projectedCorners: [CGPoint] = []
+        for corner in boxCorners {
+            guard let projectedCorner = pinholeProjection(of: corner, focalLengthPixels: focalLengthPixels, principalPoint: principalPoint) else { return nil }
+            projectedCorners.append(projectedCorner)
+        }
+        return projectedCorners
     }
 
     /// The center of the box's footprint, on the floor half its depth behind the front.
@@ -102,12 +121,7 @@ extension FloorPlane {
     /// stand here or a corner is behind the camera.
     func keyframeBoxCorners(widthMeters: Double, heightMeters: Double, depthMeters: Double) -> [CGPoint]? {
         guard let placement = RoomFurniturePlacement(floor: self, widthMeters: widthMeters, heightMeters: heightMeters, depthMeters: depthMeters) else { return nil }
-        var projectedCorners: [CGPoint] = []
-        for corner in placement.boxCorners {
-            guard let projectedCorner = pinholeProjection(of: corner, focalLengthPixels: focalLengthPixels, principalPoint: principalPoint) else { return nil }
-            projectedCorners.append(projectedCorner)
-        }
-        return projectedCorners
+        return placement.keyframeBoxCorners(focalLengthPixels: focalLengthPixels, principalPoint: principalPoint)
     }
 
     /// The floor under a wall when the camera sees no floor: a laptop camera often shows only the wall behind the learner.

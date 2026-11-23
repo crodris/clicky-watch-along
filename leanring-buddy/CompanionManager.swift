@@ -395,7 +395,8 @@ final class CompanionManager: ObservableObject {
             self.map { CursorLoopTracerLook(theme: $0.themeSettings.shownTheme, picture: $0.themeSettings.shownThemePicture) }
         },
         endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() },
-        // A painting or a return to the preview, by voice or by a click, is this request's own, so its line is not dropped.
+        // A painting or a return to the preview, by voice or by its button, or the furniture placed by voice or the Place
+        // button or moved by voice, is this request's own, so its line is not dropped.
         theLearnerAskedThePanel: { [weak self] in
             guard let self else { return }
             self.roomArtRequest.continued(atPushToTalkPressCount: self.pushToTalkPressCount)
@@ -1748,6 +1749,10 @@ final class CompanionManager: ObservableObject {
             handleVideoQuizVoiceCommand(videoQuizCommand)
         case .putTheSceneBack:
             respondToTranscript(transcript: transcript, requestedSceneKind: nil)
+        case .confirmTheRoomArt:
+            // "Right there" places the ghost with no model call, so the confirm never depends on the router.
+            print("Room furniture: placed by voice")
+            roomArtPreviewController.placeTheFurnitureWhereItsGhostStands()
         case .replayTheExplanation:
             // "Show me again" replays the recorded stops with no model call, so it never builds a paid scene.
             print("Instant replay: replaying on request")
@@ -1956,6 +1961,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentIsRunning: backgroundAgentStore.anAgentIsRunning,
             backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused,
             replayStopsAreRecorded: replayStopsAreRecordedForTheSceneOnScreen,
+            furnitureGhostShows: roomArtPreviewController.phase.furnitureGhostShows,
             shirtStillVoiceTargets: roomArtPreviewController.shirtStillVoiceTargets
         )
     }
@@ -3630,7 +3636,8 @@ final class CompanionManager: ObservableObject {
             backgroundAgentIsRunning: backgroundAgentStore.anAgentIsRunning,
             backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused,
             replayStopsAreRecorded: replayStopsAreRecordedForTheSceneOnScreen,
-            replayIsOpen: replayStopsAreRecordedForTheSceneOnScreen && instantReplay.isOpen
+            replayIsOpen: replayStopsAreRecordedForTheSceneOnScreen && instantReplay.isOpen,
+            furnitureGhostShows: roomArtPreviewController.phase.furnitureGhostShows
         )
     }
 
@@ -4034,6 +4041,25 @@ final class CompanionManager: ObservableObject {
                     self.respondToTranscript(transcript: "what does the \(requestedLabel) do?", requestedSceneKind: nil)
                 }
             }
+        case .placeFurniture:
+            guard roomArtPreviewController.placeTheFurnitureWhereItsGhostStands() else {
+                return .outcome(.failed(error: "No furniture is being placed", state: nil))
+            }
+            return .outcome(.changed(state: nil))
+        case .moveFurniture:
+            let directionWord = input["direction"]?.stringValue
+            let direction = directionWord.flatMap(RoomFurnitureNudgeDirection.init(rawValue:))
+            guard directionWord == nil || direction != nil else {
+                return .outcome(.failed(error: "direction must be left, right, closer, or farther", state: nil))
+            }
+            let turnDegrees = input["turnDegrees"]?.numberValue
+            guard direction != nil || (turnDegrees ?? 0) != 0 else {
+                return .outcome(.failed(error: "Give a direction, a turn, or both", state: nil))
+            }
+            if let refusal = roomArtPreviewController.nudgeTheFurniture(direction, distanceCentimeters: input["distanceCentimeters"]?.numberValue, turnDegrees: turnDegrees) {
+                return .outcome(.failed(error: refusal.toolError, state: nil))
+            }
+            return .outcome(.changed(state: nil))
         case .replayExplanation:
             return .handOff { self.instantReplay.playFromTheStart() }
         case .replayStep:
@@ -5455,6 +5481,9 @@ final class CompanionManager: ObservableObject {
         }
         if let themeStudioState = voiceCommandThemeStudioState(themeStudioController.state) {
             sceneStateFields["themeStudio"] = themeStudioState
+        }
+        if roomArtPreviewController.phase.furnitureGhostShows, let furnitureGhost = roomArtPreviewController.furnitureGhost {
+            sceneStateFields["furnitureGhost"] = voiceCommandFurnitureGhostState(furnitureGhost)
         }
         sceneStateFields = sceneStateFieldsAddingBackgroundAgents(
             to: sceneStateFields,

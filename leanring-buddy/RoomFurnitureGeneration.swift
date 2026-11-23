@@ -633,7 +633,8 @@ final class RoomFurnitureGenerationClient {
         productJPEG: Data,
         maskPNG: Data,
         itemTitle: String,
-        itemSizeWords: String
+        itemSizeWords: String,
+        orientation: RoomFurniturePaintingOrientation?
     ) async throws -> CGImage {
         guard let keyframe = decodedImage(from: keyframeJPEG) else {
             throw RoomFurnitureGenerationError.inputCouldNotBeRead(reason: "the keyframe is not an image")
@@ -641,7 +642,7 @@ final class RoomFurnitureGenerationClient {
         guard let mask = decodedImage(from: maskPNG) else {
             throw RoomFurnitureGenerationError.inputCouldNotBeRead(reason: "the mask is not an image")
         }
-        let responseData = try await post([
+        var requestBody: [String: Any] = [
             "keyframeJPEGBase64": keyframeJPEG.base64EncodedString(),
             "keyframeWidth": keyframeWidth,
             "keyframeHeight": keyframeHeight,
@@ -649,7 +650,12 @@ final class RoomFurnitureGenerationClient {
             "maskPNGBase64": maskPNG.base64EncodedString(),
             "itemTitle": roomFurnitureTitleForTheWorker(itemTitle),
             "itemSizeWords": itemSizeWords,
-        ], to: compositeURL)
+        ]
+        if let orientation {
+            requestBody["itemFacing"] = orientation.facing.rawValue
+            requestBody["backAgainstTheWall"] = orientation.backAgainstTheWall
+        }
+        let responseData = try await post(requestBody, to: compositeURL)
 
         guard let reply = try? JSONDecoder().decode(RoomFurnitureCompositeReply.self, from: responseData),
               let generatedJPEG = Data(base64Encoded: reply.imageJPEGBase64),
