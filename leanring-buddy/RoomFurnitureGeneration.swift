@@ -653,7 +653,7 @@ nonisolated func furniturePaintingFit(
     let searchColumns = furniturePieceSearchColumns(projectedBox: projectedBox, width: width)
     let searchLeft = searchColumns.lowerBound, searchRight = searchColumns.upperBound
     let searchTop = max(0, Int(boxBottom - outlineHeight / furniturePaintingLeastFitScale - furnitureCompositePasteSlackPixels))
-    let searchBottom = min(height - 1, lowestItemRow + Int(furnitureCompositePasteSlackPixels * 2))
+    let searchBottom = furniturePieceSearchBottomRow(projectedBox: projectedBox, height: height)
     let searchWidth = searchRight - searchLeft + 1, searchHeight = searchBottom - searchTop + 1
 
     let searchCrops = furnitureSearchCrops(
@@ -821,6 +821,17 @@ nonisolated func furnitureSearchCrops(
     )
 }
 
+/// The lowest row the painted piece is looked for down to: as far below the box's lowest corner as the box is tall, and at
+/// least as far as the grown mask reaches there (the 24 pixel shadow margin and the paste's slack). A seated piece's feet
+/// run toward the camera, down the frame, past a box whose depth the page does not state. Reading to the frame's bottom
+/// instead would let a re-rendered learner who overlaps the box join the piece all the way down.
+/// `furniturePaintingFit` and `furniturePiecePastTheGrownMask` share it.
+nonisolated func furniturePieceSearchBottomRow(projectedBox: [CGPoint], height: Int) -> Int {
+    let boxTop = projectedBox.map(\.y).min() ?? 0, boxBottom = projectedBox.map(\.y).max() ?? 0
+    let rowsBelowTheBox = max(boxBottom - boxTop, furnitureCompositePasteSlackPixels * 2)
+    return min(height - 1, max(0, Int(boxBottom.rounded(.up) + rowsBelowTheBox)))
+}
+
 /// The columns the painted piece is looked for in: the box's columns widened by half its width on each side, inside the
 /// frame. `furniturePaintingFit` and `furniturePiecePastTheGrownMask` share them.
 nonisolated func furniturePieceSearchColumns(projectedBox: [CGPoint], width: Int) -> ClosedRange<Int> {
@@ -835,9 +846,9 @@ nonisolated func furniturePieceSearchColumns(projectedBox: [CGPoint], width: Int
 /// to 40 pixels past the mask, since a box whose depth the page does not state is shallower than a seated plush's legs,
 /// and the paste cut the soles off along a straight line 24 pixels out.
 /// The piece is read in the fit's columns (`furniturePieceSearchColumns`) from `furnitureCompositePasteSlackPixels` above the
-/// box's top, where the grown mask already reaches, down to the frame's bottom, since a seated piece's feet run toward the
-/// camera, down the frame, and the grown mask of a box that faces the camera ends in a level row. A piece drawn taller than
-/// its box is the fit's work, so nothing above that is read. Only the parts that changed strongly and reach into the box's
+/// box's top, where the grown mask already reaches, down to `furniturePieceSearchBottomRow`, since a seated piece's feet
+/// run toward the camera, down the frame, and the grown mask of a box that faces the camera ends in a level row. A piece
+/// drawn taller than its box is the fit's work, so nothing above that is read. Only the parts that changed strongly and reach into the box's
 /// outline count (`furniturePiece` with `FurniturePieceShape.pastTheGrownMask`), so a learner, a window, a door's edge, or
 /// relit carpet beside the box keeps the keyframe. A pixel counts by the smaller of its changes before and after the reply's
 /// tone fit (`furnitureSearchCrops`), so room the painter relit or re-exposed, which one of the two explains, never joins the
@@ -854,7 +865,7 @@ nonisolated func furniturePiecePastTheGrownMask(
     let boxTop = projectedBox.map(\.y).min() ?? 0
     let columns = furniturePieceSearchColumns(projectedBox: projectedBox, width: width)
     let searchTop = min(height - 1, max(0, Int(boxTop - furnitureCompositePasteSlackPixels)))
-    let searchBottom = height - 1
+    let searchBottom = furniturePieceSearchBottomRow(projectedBox: projectedBox, height: height)
     guard searchBottom > searchTop, columns.count > 1 else { return nil }
     let searchLeft = columns.lowerBound, searchWidth = columns.count, searchHeight = searchBottom - searchTop + 1
 
@@ -924,14 +935,13 @@ nonisolated func furnitureCompositePasted(
 /// filmed, except the piece itself where the painter drew it past the grown mask (`furniturePiecePastTheGrownMask`, with
 /// `projectedBox` only). Before the paste, the reply's tone is matched to the keyframe on a ring `toneMatchBandPixels`
 /// wide just outside the paste (`toneFitsMatchingTheReplyToTheKeyframe`), so the pasted region does not show as a
-/// lighter or darker patch. Inside the
-/// region, only the piece keeps the reply: the room the edit repainted a few levels lighter, which one global fit cannot
-/// follow, keeps the keyframe's own pixels (`furniturePieceWeights`). `keepsOnlyThePieceTheReplyChanged` false pastes
-/// the whole grown region instead, for a painting that must replace everything in its mask, as the shirt's must cover
-/// the learner's own top even where the new one is close to its color. A `generated` of another size, which the Worker
-/// returns for a keyframe size OpenAI does not take, is scaled to the keyframe first. With `projectedBox`, a piece drawn
-/// taller than that box allows is shrunk back into it about the row it stands on instead (`furniturePaintingFit`), and
-/// its region holds the shrunk piece too.
+/// lighter or darker patch. Inside the region, only the piece keeps the reply: the room the edit repainted a few levels
+/// lighter, which one global fit cannot follow, keeps the keyframe's own pixels (`furniturePieceWeights`).
+/// `keepsOnlyThePieceTheReplyChanged` false pastes the whole grown region instead, for a painting that must replace
+/// everything in its mask, as the shirt's must cover the learner's own top even where the new one is close to its color.
+/// A `generated` of another size, which the Worker returns for a keyframe size OpenAI does not take, is scaled to the
+/// keyframe first. With `projectedBox`, a piece drawn taller than that box allows is shrunk back into it about the row it
+/// stands on instead (`furniturePaintingFit`), and its region holds the shrunk piece too.
 nonisolated func furnitureCompositePastedWithItsRegion(
     keyframe: CGImage,
     generated: CGImage,

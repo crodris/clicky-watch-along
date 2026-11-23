@@ -505,6 +505,32 @@ extension CPUHeavyTests {
             #expect(armEnd != (try pixel(keyframe, 985, 680)), "\(armEnd)")
         }
 
+        @Test func aLearnerOverlappingTheBoxIsPastedNoLowerThanTheBoxIsTall() throws {
+            let keyframe = try keyframe()
+            // A learner the edit re-rendered overlaps the box's lower left and runs to the frame's bottom. The box is 234 rows
+            // tall and ends at row 822, so the piece is looked for down to row 1056 and no lower.
+            let plush = PaintedPart(columns: 760..<940, rows: 600..<800)
+            let learner = PaintedPart(columns: 690..<780, rows: 760..<1080)
+            let painting = try reply(parts: [plush, learner], drawsTheShadow: false, over: keyframe)
+            let (pasted, _, region) = try pastedWithItsRegion(painting, over: keyframe)
+            #expect(region[1070 * Self.frameWidth + 730] == 0)
+            #expect(try pixel(pasted.image, 730, 1070) == pixel(keyframe, 730, 1070))
+        }
+
+        @Test func aFittedPiecesFeetBelowTheBoxArePasted() throws {
+            let keyframe = try keyframe()
+            // The plush drawn 1.6 times its box, with feet drawn down the frame to row 920, 98 rows below the box. The fit stands it
+            // on row 822 and shrinks it to 0.70, so its feet end at about row 891.
+            let plush = PaintedPart(columns: Self.plushColumns, rows: 488..<822)
+            let feet = PaintedPart(columns: 800..<880, rows: 822..<920)
+            let painting = try reply(parts: [plush, feet], drawsTheShadow: false, over: keyframe)
+            let fit = try #require(try fit(of: painting, over: keyframe))
+            let soleRow = Int(rowAfterThe(fit, 900).rounded()), soleColumn = Int((fit.anchor.x + (840 - fit.anchor.x) * fit.scale).rounded())
+            let (pasted, _, region) = try pastedWithItsRegion(painting, over: keyframe)
+            #expect(try pixel(pasted.image, soleColumn, soleRow) != pixel(keyframe, soleColumn, soleRow), "sole at (\(soleColumn), \(soleRow))")
+            #expect(region[soleRow * Self.frameWidth + soleColumn] > 200)
+        }
+
         @Test func aLearnerBesideTheBoxStaysAsFilmedPastTheGrownMask() throws {
             let keyframe = try keyframe()
             // A narrow plush with a foot drawn out to column 1034, past the grown mask, and the learner the edit re-rendered
