@@ -6,12 +6,15 @@
 //  when they say "right there", too close for the framing (`ShirtFraming.assess` would say stand back), so the panel no
 //  longer freezes at once. "Right there" and Paint it arm a capture, Clicky says to step back and hold still, and the
 //  capture freezes the first frame where the debounced framing has settled on ready and the torso has held still for
-//  `secondsToHoldStill`, with a 3-2-1 countdown on the panel (one number per third of the hold). Moving, or leaving the
-//  ready framing, restarts the hold. A capture that has not frozen within `secondsBeforeGivingUp` disarms.
+//  `secondsToHoldStill`, with a 3-2-1 countdown on the panel (one number per half second of the hold, and a soft tick as
+//  each number appears). No hold starts in the first `secondsBeforeAHoldMayStart` after arming, so a learner already in
+//  frame at the keyboard does not freeze while Clicky still says to step back. Moving, or leaving the ready framing,
+//  restarts the hold. A capture that has not frozen within `secondsBeforeGivingUp` disarms.
 //
 //  Everything here is pure: the caller passes each frame's time, so a test steps the capture by hand and never sleeps.
 //
 
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -21,6 +24,39 @@ import Foundation
 nonisolated let roomArtShirtStepBackLine = "Step back and hold still."
 /// What Clicky says when the capture gave up. Not a failure, so the cursor does not shake.
 nonisolated let roomArtShirtStepBackTimeoutLine = "I can't see your shoulders yet. Say right there when you're ready."
+
+// MARK: - The sounds
+
+/// The two short sounds of the countdown, macOS system sounds that no bundled theme uses for done, correct, or needs your
+/// OK, so under those themes a countdown is not mistaken for an agent finishing or a quiz answer. A saved theme may pick
+/// any system sound, these two included. The countdown itself is on screen and is not spoken.
+nonisolated enum ShirtCountdownSound: Equatable, Sendable {
+    /// A soft tick as each number appears.
+    case tick
+    /// A short sound when the frame freezes.
+    case freeze
+
+    var systemSoundName: String {
+        switch self {
+        case .tick: "Morse"
+        case .freeze: "Bottle"
+        }
+    }
+
+    func play() {
+        NSSound(named: NSSound.Name(systemSoundName))?.play()
+    }
+}
+
+/// The sound an event of the armed capture makes, if any: a tick when a number appears, a different sound when the frame
+/// freezes. A hold restarting (no number), and a time out, are silent.
+nonisolated func shirtCountdownSound(for event: ShirtCaptureEvent) -> ShirtCountdownSound? {
+    switch event {
+    case .countdown(let number): number == nil ? nil : .tick
+    case .frozen: .freeze
+    case .timedOut: nil
+    }
+}
 
 // MARK: - What the frame processor reports
 
@@ -38,11 +74,15 @@ nonisolated enum ShirtCaptureEvent: Sendable {
 
 nonisolated struct ShirtStepBackCapture: Equatable, Sendable {
     /// How long the torso must stay still in the ready framing before the frame freezes. The countdown shows
-    /// `countdownNumbers` numbers over it, one per third of a second.
-    static let secondsToHoldStill = 1.0
+    /// `countdownNumbers` numbers over it, one per half second, which reads as a countdown on video and not as a flash.
+    static let secondsToHoldStill = 1.5
     static let countdownNumbers = 3
+    /// No hold starts in this long after the capture is armed, since a learner already in frame at the keyboard would
+    /// otherwise freeze while Clicky still says "Step back and hold still."
+    static let secondsBeforeAHoldMayStart = 0.75
     /// An armed capture that has not frozen within this long disarms, unless a hold is under way, which finishes first.
-    static let secondsBeforeGivingUp = 10.0
+    /// Standing up from a desk and backing away takes most of ten seconds, so it is longer.
+    static let secondsBeforeGivingUp = 18.0
     /// The torso is still while its shoulder midpoint and its shoulder width stay within this many shoulder widths of where
     /// the hold began. Pose estimates jitter by a fraction of that, and a learner stepping back moves far more.
     static let stillnessInShoulderWidths = 0.04
@@ -97,6 +137,7 @@ nonisolated struct ShirtStepBackCapture: Equatable, Sendable {
         // No hold is under way, or the torso moved or left the ready framing, which restarts it.
         hold = nil
         if time - armedAt >= Self.secondsBeforeGivingUp { return .giveUp }
+        guard time - armedAt >= Self.secondsBeforeAHoldMayStart else { return .keepWaiting }
         guard let torsoInTheReadyFraming, torsoInTheReadyFraming.shoulderWidth > 0 else { return .keepWaiting }
         hold = Hold(torso: torsoInTheReadyFraming, startedAt: time)
         return .counting(number: Self.countdownNumbers)
@@ -107,7 +148,7 @@ nonisolated struct ShirtStepBackCapture: Equatable, Sendable {
         hold = nil
     }
 
-    /// 3 at the start of the hold, then 2 after a third of a second, then 1 after two thirds.
+    /// 3 at the start of the hold, then 2 after half a second, then 1 after a whole second.
     static func countdownNumber(afterHolding secondsHeld: TimeInterval) -> Int {
         let secondsPerNumber = secondsToHoldStill / Double(countdownNumbers)
         let numbersAlreadyShown = Int((secondsHeld / secondsPerNumber).rounded(.down))

@@ -26,35 +26,46 @@ struct ShirtStepBackCaptureTests {
     @Test func theCountdownRunsThreeTwoOneAndFreezesAfterTheWholeHold() {
         var capture = capture()
         #expect(capture.advance(framingKind: .ready, torso: torso(), at: 1.0) == .counting(number: 3))
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 1.2) == .counting(number: 3))
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 1.4) == .counting(number: 2))
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 1.6) == .counting(number: 2))
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 1.8) == .counting(number: 1))
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 1.99) == .counting(number: 1))
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 2.0) == .freezeNow)
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 1.4) == .counting(number: 3))
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 1.5) == .counting(number: 2))
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 1.9) == .counting(number: 2))
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 2.0) == .counting(number: 1))
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 2.49) == .counting(number: 1))
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 2.5) == .freezeNow)
     }
 
-    @Test func theHoldIsOneSecondAndTheCountdownHasThreeNumbers() {
-        #expect(ShirtStepBackCapture.secondsToHoldStill == 1.0 && ShirtStepBackCapture.countdownNumbers == 3)
+    @Test func theHoldIsOneAndAHalfSecondsWithHalfASecondPerNumber() {
+        #expect(ShirtStepBackCapture.secondsToHoldStill == 1.5 && ShirtStepBackCapture.countdownNumbers == 3)
         #expect(ShirtStepBackCapture.countdownNumber(afterHolding: 0) == 3)
-        #expect(ShirtStepBackCapture.countdownNumber(afterHolding: 0.3) == 3)
-        #expect(ShirtStepBackCapture.countdownNumber(afterHolding: 0.4) == 2)
-        #expect(ShirtStepBackCapture.countdownNumber(afterHolding: 0.7) == 1)
+        #expect(ShirtStepBackCapture.countdownNumber(afterHolding: 0.49) == 3)
+        #expect(ShirtStepBackCapture.countdownNumber(afterHolding: 0.5) == 2)
+        #expect(ShirtStepBackCapture.countdownNumber(afterHolding: 1.0) == 1)
         #expect(ShirtStepBackCapture.countdownNumber(afterHolding: 5) == 1)
+    }
+
+    @Test func noHoldStartsInTheFirstThreeQuartersOfASecondAfterArming() {
+        var capture = capture(armedAt: 5)
+        #expect(ShirtStepBackCapture.secondsBeforeAHoldMayStart == 0.75)
+        // A learner already in the ready framing at the keyboard does not start a hold while Clicky still says to step back.
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 5.0) == .keepWaiting)
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 5.74) == .keepWaiting)
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 5.75) == .counting(number: 3))
+        // The hold counts from the frame it started on, not from the arming.
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 7.25) == .freezeNow)
     }
 
     @Test func leavingTheReadyFramingRestartsTheHold() {
         var capture = capture()
         #expect(capture.advance(framingKind: .ready, torso: torso(), at: 1.0) == .counting(number: 3))
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 1.8) == .counting(number: 1))
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 2.0) == .counting(number: 1))
         // A learner who leans in again is judged too close, whatever the torso says.
-        #expect(capture.advance(framingKind: .standBack, torso: torso(), at: 1.9) == .keepWaiting)
-        #expect(capture.advance(framingKind: .noPerson, torso: nil, at: 2.0) == .keepWaiting)
-        #expect(capture.advance(framingKind: nil, torso: torso(), at: 2.1) == .keepWaiting)
-        // Back in the ready framing, the hold starts over from 3 and needs its whole second again.
+        #expect(capture.advance(framingKind: .standBack, torso: torso(), at: 2.1) == .keepWaiting)
+        #expect(capture.advance(framingKind: .noPerson, torso: nil, at: 2.2) == .keepWaiting)
+        #expect(capture.advance(framingKind: nil, torso: torso(), at: 2.3) == .keepWaiting)
+        // Back in the ready framing, the hold starts over from 3 and needs its whole 1.5 seconds again.
         #expect(capture.advance(framingKind: .ready, torso: torso(), at: 2.5) == .counting(number: 3))
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 3.4) == .counting(number: 1))
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 3.5) == .freezeNow)
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 3.9) == .counting(number: 1))
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 4.0) == .freezeNow)
     }
 
     @Test func aTorsoWithNoTorsoInTheReadyFramingNeverCounts() {
@@ -74,8 +85,8 @@ struct ShirtStepBackCaptureTests {
         #expect(capture.advance(framingKind: .ready, torso: torso(centerX: 323), at: 1.25) == .counting(number: 3))
         // 11 pixels is 0.11 shoulder widths, past the limit: the hold starts over at the new place.
         #expect(capture.advance(framingKind: .ready, torso: torso(centerX: 331), at: 1.5) == .counting(number: 3))
-        #expect(capture.advance(framingKind: .ready, torso: torso(centerX: 331), at: 2.4) == .counting(number: 1))
-        #expect(capture.advance(framingKind: .ready, torso: torso(centerX: 331), at: 2.5) == .freezeNow)
+        #expect(capture.advance(framingKind: .ready, torso: torso(centerX: 331), at: 2.9) == .counting(number: 1))
+        #expect(capture.advance(framingKind: .ready, torso: torso(centerX: 331), at: 3.0) == .freezeNow)
     }
 
     @Test func movingUpAndDownRestartsTheHoldToo() {
@@ -96,35 +107,50 @@ struct ShirtStepBackCaptureTests {
         _ = capture.advance(framingKind: .ready, torso: torso(centerX: 320), at: 1.0)
         // Each step is 1.5 pixels, under the limit from the frame before, but 4.5 pixels from the start is over it.
         #expect(capture.advance(framingKind: .ready, torso: torso(centerX: 321.5), at: 1.2) == .counting(number: 3))
-        #expect(capture.advance(framingKind: .ready, torso: torso(centerX: 323), at: 1.4) == .counting(number: 2))
+        #expect(capture.advance(framingKind: .ready, torso: torso(centerX: 323), at: 1.5) == .counting(number: 2))
         #expect(capture.advance(framingKind: .ready, torso: torso(centerX: 324.5), at: 1.6) == .counting(number: 3))
     }
 
-    @Test func aCaptureGivesUpAfterTenSecondsWithNoHold() {
+    @Test func aCaptureGivesUpAfterEighteenSecondsWithNoHold() {
         var capture = capture(armedAt: 5)
-        #expect(capture.advance(framingKind: .standBack, torso: torso(), at: 14.9) == .keepWaiting)
-        #expect(capture.advance(framingKind: .standBack, torso: torso(), at: 15.0) == .giveUp)
+        #expect(capture.advance(framingKind: .standBack, torso: torso(), at: 22.9) == .keepWaiting)
+        #expect(capture.advance(framingKind: .standBack, torso: torso(), at: 23.0) == .giveUp)
     }
 
     @Test func aHoldUnderWayFinishesBeforeTheCaptureGivesUp() {
         var capture = capture(armedAt: 0)
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 9.75) == .counting(number: 3))
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 10.25) == .counting(number: 2))
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 10.75) == .freezeNow)
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 17.5) == .counting(number: 3))
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 18.0) == .counting(number: 2))
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 19.0) == .freezeNow)
     }
 
     @Test func aMoveAfterTheLimitGivesUpInsteadOfStartingANewHold() {
         var capture = capture(armedAt: 0)
-        _ = capture.advance(framingKind: .ready, torso: torso(centerX: 320), at: 9.9)
-        #expect(capture.advance(framingKind: .ready, torso: torso(centerX: 380), at: 10.1) == .giveUp)
+        _ = capture.advance(framingKind: .ready, torso: torso(centerX: 320), at: 17.9)
+        #expect(capture.advance(framingKind: .ready, torso: torso(centerX: 380), at: 18.1) == .giveUp)
     }
 
     @Test func aFreezeThatFoundNothingStartsTheHoldOver() {
         var capture = capture()
         _ = capture.advance(framingKind: .ready, torso: torso(), at: 1.0)
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 2.0) == .freezeNow)
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 2.5) == .freezeNow)
         capture.restartTheHold()
-        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 2.1) == .counting(number: 3))
+        #expect(capture.advance(framingKind: .ready, torso: torso(), at: 2.6) == .counting(number: 3))
+    }
+
+    @Test func eachNumberTicksTheFreezeHasItsOwnSoundAndARestartOrATimeOutIsSilent() {
+        #expect(shirtCountdownSound(for: .countdown(3)) == .tick)
+        #expect(shirtCountdownSound(for: .countdown(1)) == .tick)
+        #expect(shirtCountdownSound(for: .countdown(nil)) == nil)
+        #expect(shirtCountdownSound(for: .timedOut) == nil)
+        #expect(ShirtCountdownSound.tick.systemSoundName != ShirtCountdownSound.freeze.systemSoundName)
+    }
+
+    @Test func theCountdownSoundsAreNotTheThemesDoneCorrectOrNeedsYourOKSounds() {
+        // The bundled themes play Tink, Glass, and Pop for those, so the countdown never sounds like an agent finishing.
+        let themeSoundNames: Set<String> = ["Tink", "Glass", "Pop"]
+        #expect(!themeSoundNames.contains(ShirtCountdownSound.tick.systemSoundName))
+        #expect(!themeSoundNames.contains(ShirtCountdownSound.freeze.systemSoundName))
     }
 
     @Test func reduceMotionShowsTheNumbersWithNoScaleAnimation() {

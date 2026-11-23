@@ -745,6 +745,8 @@ private final class HarnessRecorder {
     var ghostPlacer: AnyCancellable?
     /// How many times the learner asked the open panel for a painting or a return to the preview.
     var timesTheLearnerAskedThePanel = 0
+    /// The step-back countdown's sounds, in the order the controller played them.
+    var countdownSounds: [ShirtCountdownSound] = []
 }
 
 @MainActor
@@ -809,6 +811,7 @@ private struct RoomArtHarness {
         environment.waitTheLongestForAFurnitureLook = { try? await furnitureLookDeadline.waitUnlessCancelled() }
         shirtPainting?.apply(to: &environment)
         environment.theLearnerAskedThePanel = { recorder.timesTheLearnerAskedThePanel += 1 }
+        environment.playTheShirtCountdownSound = { recorder.countdownSounds.append($0) }
         let controller = RoomArtPreviewController(environment: environment, frameProcessor: frameProcessor, panelPresenter: panel)
         self.controller = controller
         if placesTheGhostAtOnce {
@@ -827,6 +830,7 @@ private struct RoomArtHarness {
     }
 
     func spokenLines() -> [String] { recorder.spokenLines }
+    func countdownSounds() -> [ShirtCountdownSound] { recorder.countdownSounds }
 
     func artIsShowing() -> Bool {
         if case .showing = controller.phase { return true }
@@ -2356,6 +2360,28 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
+    @Test func eachCountdownNumberTicksAndTheFreezeMakesItsOwnSoundWhileARestartIsSilent() async throws {
+        let harness = try await harnessShowingTheLiveShirt(shirtPainting: ShirtPaintingStub())
+        harness.controller.paintTheShirt()
+        #expect(harness.countdownSounds().isEmpty)
+
+        for number in [3, 2, 1] {
+            harness.frameProcessor.reportTheCapture(.countdown(number))
+            try await waitFor("the number \(number)") { harness.controller.shirtCaptureCountdownNumber == number }
+        }
+        #expect(harness.countdownSounds() == [.tick, .tick, .tick])
+
+        // A restart shows no number, so it makes no sound.
+        harness.frameProcessor.reportTheCapture(.countdown(nil))
+        try await waitFor("the number to clear") { harness.controller.shirtCaptureCountdownNumber == nil }
+        #expect(harness.countdownSounds() == [.tick, .tick, .tick])
+
+        harness.frameProcessor.freezeTheFrame()
+        try await waitFor("the painting to start") { harness.controller.shirtStillVoiceTargets == .paintedStill }
+        #expect(harness.countdownSounds() == [.tick, .tick, .tick, .freeze])
+        harness.controller.close()
+    }
+
     @Test func aSecondRightThereRestartsTheCaptureAndTheOldCapturesEventsChangeNothing() async throws {
         let shirtPainting = ShirtPaintingStub()
         shirtPainting.paintingGate = TestGate()
@@ -2386,6 +2412,8 @@ struct RoomArtPreviewControllerTests {
         harness.frameProcessor.reportTheCapture(.countdown(1), fromArming: 0)
         await untilTheCaptureEventsSentSoFarAreHandled()
         #expect(shirtPainting.requests.isEmpty && harness.controller.shirtCaptureCountdownNumber == 3)
+        // Only the two countdown numbers that were shown ticked; the first capture's late freeze and number made no sound.
+        #expect(harness.countdownSounds() == [.tick, .tick])
         #expect(harness.controller.phase == .waitingForTheLearnerToStepBack(title: "Linen shirt", id: secondID))
 
         // The second capture's own frozen frame starts the painting.
