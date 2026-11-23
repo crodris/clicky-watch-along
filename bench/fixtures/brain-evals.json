@@ -1577,6 +1577,21 @@
       "why": "Only an explicit wish to stop using the picture drops it."
     },
     {
+      "id": "theme-picture-use-another-picture",
+      "context": "themeStudioIdeasFromAPicture",
+      "say": "use this other picture instead",
+      "accept": [
+        "design_theme"
+      ],
+      "input": {
+        "design_theme": {
+          "fromPicture": true,
+          "basedOnIdea": null
+        }
+      },
+      "why": "A new picture for the whole card, with no idea named, captures the picture again, and the app keeps the card's picture only for a change to one idea."
+    },
+    {
       "id": "planning-find-seek-pop-out",
       "inputContains": { "seek_to_moment": { "query": ["swim", "bladder"] } },
       "inputOmits": { "seek_to_moment": { "query": ["pop"] } },

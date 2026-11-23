@@ -307,15 +307,22 @@ nonisolated func voiceCommandThemeStudioState(_ state: ThemeStudioState) -> JSON
     guard let ideasOnTheCard = state.ideasOnTheCard else {
         return state.isDesigning ? .object(["ideas": .array([]), "designing": .bool(true)]) : nil
     }
-    var fields: [String: JSONValue] = [
+    var themeStudioStateFields: [String: JSONValue] = [
         "ideas": .array(ideasOnTheCard.ideas.map { .string($0.name) }),
         "highlighted": .number(Double(ideasOnTheCard.highlightedIdeaIndex + 1)),
         "designing": .bool(state.isDesigning),
     ]
     if ideasOnTheCard.picture != nil {
-        fields["fromAPicture"] = .bool(true)
+        themeStudioStateFields["fromAPicture"] = .bool(true)
     }
-    return .object(fields)
+    return .object(themeStudioStateFields)
+}
+
+/// Whether a design changes one idea on a card whose ideas came from a picture. `basedOnIdea` counts from 1, and a number
+/// with no idea on the card changes none, since `ThemeIdeasRequest` drops it too, so the design is not a change to one idea.
+nonisolated func changesAnIdeaOnACardWithAPicture(basedOnIdea: Int?, state: ThemeStudioState) -> Bool {
+    guard let basedOnIdea, let ideasOnTheCard = state.ideasOnTheCard, ideasOnTheCard.picture != nil else { return false }
+    return ideasOnTheCard.ideas.indices.contains(basedOnIdea - 1)
 }
 
 // MARK: - POST /theme-ideas
@@ -403,9 +410,10 @@ final class ThemeIdeasClient {
     private let themeIdeasURL: URL
     private let session: URLSession
 
-    /// Sonnet writes three whole themes in about 5 to 15 seconds, longer with a picture to read. Past this the studio says
-    /// it could not design the ideas.
-    private static let timeoutSeconds: TimeInterval = 40
+    /// Sonnet writes three whole themes in about 5 to 15 seconds, longer with a picture to read: on 2026-11-23 one attempt
+    /// with a picture took 6 to 16 seconds, and a reply the Worker asked for again took 29.5. The Worker may ask twice, so
+    /// this covers two of the slowest attempts with room to spare. Past it the studio says it could not design the ideas.
+    private static let timeoutSeconds: TimeInterval = 60
 
     init(workerBaseURL: String) {
         guard let themeIdeasURL = URL(string: "\(workerBaseURL)/theme-ideas") else {

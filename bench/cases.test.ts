@@ -89,9 +89,12 @@ describe("the /theme-ideas cases", () => {
     assert.equal(check("theme-ideas-words", themeReply(idea({ cursor: arcCursor }), idea(), idea())).passed, false);
   });
 
-  it("passes the picture case only when at least one idea uses the picture, in a version 2 or a version 1 idea", () => {
-    assert.equal(check("theme-ideas-picture", themeReply(idea({ agents: { ring: "accent", colors: [], faces: { kind: "picture" } } }), idea(), idea())).passed, true);
-    assert.equal(check("theme-ideas-picture", themeReply(idea({ agents: undefined, agentColors: ["#7DD3FC", "#C4B5FD", "#FDE68A"], usesPicture: true }), idea(), idea())).passed, true);
+  it("passes the picture case only when every idea uses the picture, in a version 2 or a version 1 idea", () => {
+    const pictureFaces = idea({ agents: { ring: "accent", colors: [], faces: { kind: "picture" } } });
+    const pictureCursor = idea({ cursor: { kind: "picture", shapes: [], picture: { fit: "whole", outline: "#FFFFFF", tint: null, tintStrength: 0 } } });
+    const versionOneIdea = idea({ agents: undefined, agentColors: ["#7DD3FC", "#C4B5FD", "#FDE68A"], usesPicture: true });
+    assert.equal(check("theme-ideas-picture", themeReply(pictureFaces, pictureCursor, versionOneIdea)).passed, true);
+    assert.equal(check("theme-ideas-picture", themeReply(pictureFaces, pictureCursor, idea())).passed, false);
     assert.equal(check("theme-ideas-words", themeReply(idea({ agents: { ring: "perAgent", colors: ["#7dd3fc"], faces: { kind: "triangle" } } }), idea(), idea())).passed, false);
     assert.equal(check("theme-ideas-picture", themeReply(idea(), idea(), idea())).passed, false);
     assert.equal(check("theme-ideas-picture", "not json").passed, false);

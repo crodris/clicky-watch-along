@@ -4191,7 +4191,7 @@ final class CompanionManager: ObservableObject {
         let pictureChoice = themePictureChoice(
             requested: requestedPictureChoice,
             aRegionWasCircled: circledRegion != nil,
-            changesAnIdeaOnACardWithAPicture: basedOnIdea != nil && themeStudioController.state.ideasOnTheCard?.picture != nil
+            changesAnIdeaOnACardWithAPicture: changesAnIdeaOnACardWithAPicture(basedOnIdea: basedOnIdea, state: themeStudioController.state)
         )
         // The request that started this design already pressed push-to-talk, so only a later press is the learner's next request.
         pushToTalkPressCountWhenTheThemeDesignStarted = pushToTalkPressCount

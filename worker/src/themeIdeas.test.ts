@@ -65,8 +65,9 @@ function replyWithPictureFields(pictureOverrides: Partial<NonNullable<ModelIdea[
   return replyWithAPictureCursor({ picture: { ...goodPictureCursor.picture, ...pictureOverrides } });
 }
 
-function rejectionReason(modelReply: CheckedModelReply, requestHadAPicture = false): string {
-  const check = checkThemeIdeas(modelReply, requestHadAPicture);
+/** requestIsAFirstDesign is false by default, so a test about one idea's rule is not also about the first design's picture rule. */
+function rejectionReason(modelReply: CheckedModelReply, requestHadAPicture = false, requestIsAFirstDesign = false): string {
+  const check = checkThemeIdeas(modelReply, requestHadAPicture, requestIsAFirstDesign);
   if (check.accepted) throw new Error("expected the reply to be rejected");
   return check.reason;
 }
@@ -79,7 +80,7 @@ describe("checkThemeIdeas", () => {
       agents: { ring: "perAgent", colors: ["#7dd3fc", "#c4b5fd", "#fde68a"], faces: { kind: "triangle" } },
       cursor: { kind: "shapes", shapes: [{ d: goodPath, fill: "#7dd3fc", stroke: null, strokeWidth: 0 }], picture: null },
     });
-    const check = checkThemeIdeas(goodReply({ ideas: [lowercaseIdea, goodIdea(), goodIdea()] }), false);
+    const check = checkThemeIdeas(goodReply({ ideas: [lowercaseIdea, goodIdea(), goodIdea()] }), false, false);
 
     expect(check).toMatchObject({ accepted: true });
     if (!check.accepted) return;
@@ -167,18 +168,18 @@ describe("checkThemeIdeas", () => {
   it("allows an agent color that is red or green in hue but washed out, and the oranges and teals next to them", () => {
     const washedOutAndNeighbors = ["#C9B8B8", "#B8C9B8", "#FDBA74", "#2DD4BF"];
 
-    expect(checkThemeIdeas(replyWithFirstIdea(withAgentColors(washedOutAndNeighbors)), false)).toMatchObject({ accepted: true });
+    expect(checkThemeIdeas(replyWithFirstIdea(withAgentColors(washedOutAndNeighbors)), false, false)).toMatchObject({ accepted: true });
   });
 
   it("allows a light pink agent color, which has a red hue but never reads as the failed red", () => {
     // Both colors came from real replies to "something cozy for night" on 2026-11-20, and each one failed the whole design.
     const lightPinks = ["#7DD3FC", "#F4A6C0", "#F2A0B8"];
 
-    expect(checkThemeIdeas(replyWithFirstIdea(withAgentColors(lightPinks)), false)).toMatchObject({ accepted: true });
+    expect(checkThemeIdeas(replyWithFirstIdea(withAgentColors(lightPinks)), false, false)).toMatchObject({ accepted: true });
   });
 
   it("drops one agent color that breaks a rule when 3 good ones remain, instead of asking the model again", () => {
-    const check = checkThemeIdeas(replyWithFirstIdea(withAgentColors(["#7DD3FC", "#F87171", "#C4B5FD", "#FDE68A"])), false);
+    const check = checkThemeIdeas(replyWithFirstIdea(withAgentColors(["#7DD3FC", "#F87171", "#C4B5FD", "#FDE68A"])), false, false);
 
     expect(check.accepted && check.reply.ideas[0].agents.colors).toEqual(["#7DD3FC", "#C4B5FD", "#FDE68A"]);
   });
@@ -196,7 +197,7 @@ describe("checkThemeIdeas", () => {
 
   it("refuses a shape with no fill and a stroke width of 0, since it draws nothing, and allows a zero width under a fill", () => {
     expect(rejectionReason(replyWithFirstShape({ fill: null, strokeWidth: 0 }))).toContain("has no fill and a strokeWidth of 0");
-    expect(checkThemeIdeas(replyWithFirstShape({ strokeWidth: 0 }), false)).toMatchObject({ accepted: true });
+    expect(checkThemeIdeas(replyWithFirstShape({ strokeWidth: 0 }), false, false)).toMatchObject({ accepted: true });
   });
 
   it("refuses a stroke width over 3 or under 0", () => {
@@ -225,11 +226,11 @@ describe("checkThemeIdeas", () => {
   it("refuses picture faces when the request had no picture, and allows them when it had one", () => {
     const pictureFaces = withAgents({ faces: { kind: "picture" } });
     expect(rejectionReason(replyWithFirstIdea(pictureFaces), false)).toContain("agents.faces.kind is picture, but the request had no picture");
-    expect(checkThemeIdeas(replyWithFirstIdea(pictureFaces), true)).toMatchObject({ accepted: true });
+    expect(checkThemeIdeas(replyWithFirstIdea(pictureFaces), true, false)).toMatchObject({ accepted: true });
   });
 
   it("accepts an accent ring with no colors and skips the agent color rules, since every agent wears the accent", () => {
-    const check = checkThemeIdeas(replyWithFirstIdea(withAgents({ ring: "accent", colors: [] })), false);
+    const check = checkThemeIdeas(replyWithFirstIdea(withAgents({ ring: "accent", colors: [] })), false, false);
     expect(check).toMatchObject({ accepted: true });
     expect(check.accepted && check.reply.ideas[0].agents).toEqual({ ring: "accent", colors: [], faces: { kind: "triangle" } });
   });
@@ -246,7 +247,7 @@ describe("springs", () => {
 
   it("keeps an idea's springs when they are inside the limits, and writes none for an idea with none or a null", () => {
     const nullSprings = goodIdea({ motion: { ...goodIdea().motion, springs: null } });
-    const check = checkThemeIdeas(goodReply({ ideas: [goodIdea({ motion: { ...goodIdea().motion, springs: bouncySprings } }), goodIdea(), nullSprings] }), false);
+    const check = checkThemeIdeas(goodReply({ ideas: [goodIdea({ motion: { ...goodIdea().motion, springs: bouncySprings } }), goodIdea(), nullSprings] }), false, false);
 
     expect(check).toMatchObject({ accepted: true });
     if (!check.accepted) return;
@@ -257,7 +258,7 @@ describe("springs", () => {
 
   for (const springCase of springLimitsFixture.cases) {
     it(`clamps like the app does: ${springCase.name}`, () => {
-      const check = checkThemeIdeas(replyWithFirstIdea({ motion: { ...goodIdea().motion, springs: springCase.input } }), false);
+      const check = checkThemeIdeas(replyWithFirstIdea({ motion: { ...goodIdea().motion, springs: springCase.input } }), false, false);
 
       expect(check).toMatchObject({ accepted: true });
       if (!check.accepted) return;
@@ -299,7 +300,7 @@ describe("springs", () => {
 
 describe("checkThemeIdeas on a picture cursor", () => {
   it("accepts a picture cursor when the request had a picture, and uppercases its colors", () => {
-    const check = checkThemeIdeas(replyWithAPictureCursor({}), true);
+    const check = checkThemeIdeas(replyWithAPictureCursor({}), true, false);
 
     expect(check).toMatchObject({ accepted: true });
     if (!check.accepted) return;
@@ -311,7 +312,7 @@ describe("checkThemeIdeas on a picture cursor", () => {
   });
 
   it("accepts a picture cursor with no tint, and a circle fit", () => {
-    expect(checkThemeIdeas(replyWithPictureFields({ tint: null, tintStrength: 0, fit: "circle" }), true)).toMatchObject({ accepted: true });
+    expect(checkThemeIdeas(replyWithPictureFields({ tint: null, tintStrength: 0, fit: "circle" }), true, false)).toMatchObject({ accepted: true });
   });
 
   it("refuses a picture cursor when the request had no picture", () => {
@@ -354,7 +355,7 @@ describe("checkThemeIdeas on a picture cursor", () => {
   });
 
   it("accepts a picture cursor whose agents keep the triangle face", () => {
-    expect(checkThemeIdeas(replyWithAPictureCursor({}, withAgents({ faces: { kind: "triangle" } })), true)).toMatchObject({ accepted: true });
+    expect(checkThemeIdeas(replyWithAPictureCursor({}, withAgents({ faces: { kind: "triangle" } })), true, false)).toMatchObject({ accepted: true });
   });
 });
 
@@ -365,7 +366,7 @@ describe("checkThemeIdeas on the cursor's source", () => {
     const pictureIdea = goodIdea({ cursorSource: "thePicture", cursor: goodPictureCursor });
     const ideas = [pictureIdea, goodIdea({ ...tracedIdea, name: "Traced" }), goodIdea({ name: "Star" })];
 
-    expect(checkThemeIdeas(goodReply({ ideas }), true)).toMatchObject({ accepted: true });
+    expect(checkThemeIdeas(goodReply({ ideas }), true, false)).toMatchObject({ accepted: true });
   });
 
   it("refuses a new shape with a picture, so a generic shape that only shares the picture's motif is asked for again", () => {
@@ -375,7 +376,7 @@ describe("checkThemeIdeas on the cursor's source", () => {
   });
 
   it("accepts a new shape without a picture, and refuses a traced shape without one", () => {
-    expect(checkThemeIdeas(replyWithFirstIdea({ cursorSource: "aNewShape" }), false)).toMatchObject({ accepted: true });
+    expect(checkThemeIdeas(replyWithFirstIdea({ cursorSource: "aNewShape" }), false, false)).toMatchObject({ accepted: true });
     expect(rejectionReason(replyWithFirstIdea(tracedIdea), false)).toContain("cursorSource is tracedFromThePicture, but the request had no picture");
   });
 
@@ -393,15 +394,55 @@ describe("checkThemeIdeas on the cursor's source", () => {
 
     await handleThemeIdeas(requestWithBody({ ...handlerRequest, picture: pictureRequest }), "key");
 
-    const ideaSchema = (sentBodies(fetchMock)[0].output_config as { format: { schema: { properties: { ideas: { items: { properties: object; required: string[] } } } } } })
-      .format.schema.properties.ideas.items;
+    type SentIdeaSchema = { properties: object; required: string[] };
+    type SentBody = { output_config: { format: { schema: { properties: { ideas: { items: SentIdeaSchema } } } } } };
+    const sentBody: SentBody = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    const ideaSchema = sentBody.output_config.format.schema.properties.ideas.items;
     expect(Object.keys(ideaSchema.properties)[0]).toBe("cursorSource");
     expect(ideaSchema.properties).toMatchObject({ cursorSource: { enum: ["thePicture", "tracedFromThePicture", "aShapeTheLearnerNamed", "aNewShape"] } });
     expect(ideaSchema.required).toContain("cursorSource");
   });
 
+  it("refuses a first design from a picture with no idea from the picture, and asks for one only", () => {
+    const namedShapes = goodReply();
+    const oneTracedAndTwoStars = goodReply({ ideas: [goodIdea({ cursorSource: "tracedFromThePicture" }), goodIdea({ name: "Star" }), goodIdea({ name: "Star two" })] });
+    const onePictureCursor = goodReply({ ideas: [goodIdea({ cursorSource: "thePicture", cursor: goodPictureCursor }), goodIdea(), goodIdea()] });
+
+    expect(rejectionReason(namedShapes, true, true)).toBe(
+      "No idea comes from the picture. A first design from a picture needs at least one idea whose cursorSource is thePicture or tracedFromThePicture.",
+    );
+    expect(checkThemeIdeas(oneTracedAndTwoStars, true, true)).toMatchObject({ accepted: true });
+    expect(checkThemeIdeas(onePictureCursor, true, true)).toMatchObject({ accepted: true });
+    // A refinement and a design with no picture have no such rule.
+    expect(checkThemeIdeas(namedShapes, true, false)).toMatchObject({ accepted: true });
+    expect(checkThemeIdeas(namedShapes, false, true)).toMatchObject({ accepted: true });
+  });
+
+  it("retries a first design from a picture that has no idea from the picture, with the rule named", async () => {
+    const fetchMock = stubFetch(sonnetReply(goodReply()), sonnetReply(goodReply({ ideas: [goodIdea({ cursorSource: "tracedFromThePicture" }), goodIdea(), goodIdea()] })));
+
+    const response = await handleThemeIdeas(requestWithBody({ ...handlerRequest, picture: pictureRequest }), "key");
+
+    expect(response.status).toBe(200);
+    expect(sentBodies(fetchMock)[1].messages[0].content[1].text).toContain("Your last reply broke a rule: No idea comes from the picture.");
+  });
+
+  it("changes a picture idea into new shapes when a refinement drops the picture", async () => {
+    const pictureIdea = goodIdea({ cursorSource: "thePicture", cursor: goodPictureCursor, agents: { ring: "perAgent", colors: ["#7DD3FC", "#C4B5FD", "#FDE68A"], faces: { kind: "picture" } } });
+    const newShapes = goodReply({ ideas: [goodIdea({ cursorSource: "aNewShape" }), goodIdea({ cursorSource: "aNewShape" }), goodIdea({ cursorSource: "aNewShape" })] });
+    const fetchMock = stubFetch(sonnetReply(newShapes));
+
+    const response = await handleThemeIdeas(requestWithBody({ request: "forget the picture, make it ocean themed", currentIdeas: [pictureIdea], basedOnIdea: 1 }), "key");
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    type SentBody = { system: { text: string }[] };
+    const sentBody: SentBody = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(sentBody.system.map((block) => block.text).join("\n")).toContain("With basedOnIdea and no picture attached, the learner dropped the picture");
+  });
+
   it("leaves the source out of the reply, so the app's ideas keep their shape", () => {
-    const check = checkThemeIdeas(goodReply(), true);
+    const check = checkThemeIdeas(goodReply(), true, false);
 
     expect(check).toMatchObject({ accepted: true });
     if (!check.accepted) return;

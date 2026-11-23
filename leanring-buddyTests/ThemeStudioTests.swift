@@ -309,6 +309,19 @@ struct ThemeStudioRouterStateTests {
         #expect(voiceCommandThemeStudioState(.designing(previousIdeas: nil))?.compactJSONText == #"{"designing":true,"ideas":[]}"#)
     }
 
+    @Test func aDesignChangesAnIdeaOnACardWithAPictureOnlyForAnIdeaTheCardShows() throws {
+        let ideasFromAPicture = try threeStudioIdeas(picture: sampleStudioPicture)
+        let ideasFromWords = try threeStudioIdeas()
+        #expect(changesAnIdeaOnACardWithAPicture(basedOnIdea: 1, state: .showingIdeas(ideasFromAPicture)))
+        #expect(changesAnIdeaOnACardWithAPicture(basedOnIdea: 3, state: .designing(previousIdeas: ideasFromAPicture)))
+        // A number the card has no idea for is dropped from the request, so it changes no idea.
+        #expect(!changesAnIdeaOnACardWithAPicture(basedOnIdea: 4, state: .showingIdeas(ideasFromAPicture)))
+        #expect(!changesAnIdeaOnACardWithAPicture(basedOnIdea: 0, state: .showingIdeas(ideasFromAPicture)))
+        #expect(!changesAnIdeaOnACardWithAPicture(basedOnIdea: nil, state: .showingIdeas(ideasFromAPicture)))
+        #expect(!changesAnIdeaOnACardWithAPicture(basedOnIdea: 1, state: .showingIdeas(ideasFromWords)))
+        #expect(!changesAnIdeaOnACardWithAPicture(basedOnIdea: 1, state: .closed))
+    }
+
     @Test func aCardWhoseIdeasCameFromAPictureSaysSo() throws {
         let ideasFromAPicture = try threeStudioIdeas(picture: sampleStudioPicture)
         #expect(voiceCommandThemeStudioState(.showingIdeas(ideasFromAPicture))?.compactJSONText
