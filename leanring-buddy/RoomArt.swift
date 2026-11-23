@@ -1251,17 +1251,6 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         }
     }
 
-    /// Which preview the shirt shows, nil before it is chosen and for anything that is not a shirt.
-    var shirtPreview: ShirtPreviewKind? {
-        switch self {
-        case .waitingToSeeTheLearner(_, let preview), .showingTheShirt(_, let preview), .waitingForTheLearnerToStepBack(_, _, let preview),
-             .paintingTheShirt(_, _, let preview), .showingThePaintedShirt(_, let preview):
-            return preview
-        default:
-            return nil
-        }
-    }
-
     /// The camera could not start. It starts while the page is read, so this can come in any open phase before a frame.
     func afterTheCameraFailed(_ failure: RoomArtFailure) -> RoomArtPhase {
         switch self {

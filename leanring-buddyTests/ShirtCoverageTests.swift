@@ -127,16 +127,17 @@ struct ShirtCoverageTests {
         #expect(!covered(60, 190) && !covered(340, 190))
     }
 
-    @Test func aWristThePoseDidNotSeeIsOneUpperArmOnFromTheElbow() {
+    @Test func aWristThePoseDidNotSeeIsMostOfAnUpperArmOnFromTheElbow() {
         let noWrists = BodyTorso(
             imageLeftShoulder: standingTorso.imageLeftShoulder, imageRightShoulder: standingTorso.imageRightShoulder,
             imageLeftHip: standingTorso.imageLeftHip, imageRightHip: standingTorso.imageRightHip, hipsWereEstimated: false, shouldersAreSeen: true,
             imageLeftElbow: standingTorso.imageLeftElbow, imageRightElbow: standingTorso.imageRightElbow
         )
         let covered = coveredPixels(ShirtCoverage(sleeves: .long, length: .hip), torso: noWrists)
-        // The elbow is (120, 190), so the wrist is taken at (90, 280).
-        #expect(covered(100, 250) && covered(92, 275))
-        #expect(!covered(80, 330))
+        // The elbow is (120, 190) and the upper arm runs (-30, 90), so the wrist is taken 0.8 of it on, at (96, 262), and the
+        // sleeve stops there instead of reaching over the hand a full upper arm on.
+        #expect(covered(100, 250) && covered(97, 258))
+        #expect(!covered(92, 280) && !covered(80, 330))
     }
 
     @Test func withNoArmJointSeenAnArmHangsDownTheBodysSide() {

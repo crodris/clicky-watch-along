@@ -351,6 +351,17 @@ describe("checkTryItItem for clothing", () => {
     expect(checkedReply.accepted).toBe(true);
   });
 
+  it("accepts a hat the reader says cannot be drawn on the learner even with bad corners, an over-long label, and a tiny box", () => {
+    const hat = goodClothing({
+      // Not convex, and covering far under 4 percent of the picture.
+      itemCorners: { topLeft: { x: 10, y: 10 }, topRight: { x: 12, y: 10 }, bottomRight: { x: 10, y: 12 }, bottomLeft: { x: 12, y: 12 } },
+      clothing: { ...goodClothing().clothing, garment: "other", canBeDrawnOnTheLearner: false, chosenSizeLabel: "x".repeat(61) },
+    });
+    expect(checked(hat).accepted).toBe(true);
+    // The same corners on a garment that can be drawn are still refused.
+    expectRejectedFor(goodClothing({ itemCorners: hat.itemCorners }), "itemCorners must be the four corners of a convex quadrilateral");
+  });
+
   it.each(["length", "canBeDrawnOnTheLearner"] as const)("refuses a clothing reply with no %s", async (missingField) => {
     const clothing: Record<string, unknown> = { ...goodClothing().clothing };
     delete clothing[missingField];

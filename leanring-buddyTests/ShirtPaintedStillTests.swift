@@ -173,7 +173,15 @@ private struct MadeUpPerson {
         imageLeftWrist: CGPoint(x: 82, y: 203), imageRightWrist: CGPoint(x: 238, y: 203)
     )
 
-    static func frame(oldTopColor: (UInt8, UInt8, UInt8) = (30, 40, 80), hasABeard: Bool = false, torso: BodyTorso = torso) -> ShirtFrozenFrame {
+    /// A bare forearm lying across the belly, over the old top and away from both sleeves.
+    static func isTheBellyForearm(column: Int, row: Int) -> Bool { (135..<185).contains(column) && (150..<162).contains(row) }
+
+    /// `previewCoversTheTorso` false leaves the preview's garment coverage empty, as a ghost outline does, so only the new
+    /// garment's own area (`ShirtCoverage`) decides what the painting may cover.
+    static func frame(
+        oldTopColor: (UInt8, UInt8, UInt8) = (30, 40, 80), hasABeard: Bool = false, torso: BodyTorso = torso,
+        hasABareForearmAcrossTheBelly: Bool = false, previewCoversTheTorso: Bool = true
+    ) -> ShirtFrozenFrame {
         var rgba = [UInt8](repeating: 255, count: width * height * 4)
         var person = [UInt8](repeating: 0, count: width * height)
         var coverage = [UInt8](repeating: 0, count: width * height)
@@ -181,7 +189,7 @@ private struct MadeUpPerson {
             for column in 0..<width {
                 let index = row * width + column
                 let color: (UInt8, UInt8, UInt8)
-                switch region(column: column, row: row) {
+                switch hasABareForearmAcrossTheBelly && isTheBellyForearm(column: column, row: row) ? Region.skin : region(column: column, row: row) {
                 case .wall: color = (150, 150, 150)
                 case .skin: color = (200, 150, 120)
                 case .oldTop: color = oldTopColor
@@ -193,7 +201,7 @@ private struct MadeUpPerson {
                 rgba[index * 4] = colorHere.0; rgba[index * 4 + 1] = colorHere.1; rgba[index * 4 + 2] = colorHere.2
                 if region(column: column, row: row) != .wall { person[index] = 255 }
                 // The new top is narrower and shorter than the old one, with no sleeves past the torso.
-                if (110..<210).contains(column), (76..<196).contains(row) { coverage[index] = 255 }
+                if previewCoversTheTorso, (110..<210).contains(column), (76..<196).contains(row) { coverage[index] = 255 }
             }
         }
         let image = rgbImage(bytes: rgba, width: width, height: height)!
@@ -274,6 +282,23 @@ extension CPUHeavyTests {
             #expect(longSleeves.protected[35 * MadeUpPerson.width + 160] == 255 && longSleeves.protected[62 * MadeUpPerson.width + 160] == 255)
             // The room beside the arm stays the room.
             #expect(!paintsLong(20, 170) && !paintsLong(300, 170))
+        }
+
+        @Test func aBareForearmAcrossTheBellyStaysAsFilmedWhateverTheSleevesAndForearmsUnderLongSleevesArePainted() throws {
+            // A ghost outline preview (no preview coverage), so only the new garment's own area is in play.
+            let frame = MadeUpPerson.frame(torso: MadeUpPerson.torsoWithWrists, hasABareForearmAcrossTheBelly: true, previewCoversTheTorso: false)
+            func paints(_ masks: ShirtPaintMasks, _ column: Int, _ row: Int) -> Bool { masks.paintable[row * MadeUpPerson.width + column] > 127 }
+            let short = try #require(ShirtPaintMask.make(frame: frame, bodyParts: MadeUpPerson.bodyParts, coverage: shortTopToTheHip))
+            let long = try #require(ShirtPaintMask.make(frame: frame, bodyParts: MadeUpPerson.bodyParts, coverage: ShirtCoverage(sleeves: .long, length: .hip)))
+            for masks in [short, long] {
+                // The forearm across the belly is inside the new garment's torso, which does not cover it, so it stays as filmed,
+                // while the old top around it is painted.
+                #expect(!paints(masks, 160, 156) && !paints(masks, 140, 152))
+                #expect(paints(masks, 160, 175) && paints(masks, 160, 140))
+            }
+            // Under short sleeves the hanging forearms stay as filmed, and under long sleeves they are painted.
+            #expect(!paints(short, 82, 175) && !paints(short, 238, 175))
+            #expect(paints(long, 82, 175) && paints(long, 238, 175))
         }
 
         @Test func aLongerHemPaintsTheLegsItCoversAndNothingPastThePerson() throws {
@@ -529,7 +554,7 @@ struct ShirtPaintingRequestTests {
     @Test func aCornersBoxLargerThanTheGarmentStillMeasuresTheCloth() throws {
         // The reader's corners are a box around the garment, so the band can take in the backdrop. Pixels that match the
         // picture's own edge are left out while enough of the band is cloth.
-        let garmentBox = CGRect(x: 85, y: 40, width: 30, height: 190)
+        let garmentBox = CGRect(x: 80, y: 40, width: 40, height: 190)
         let picture = pictureWithAGarment(garmentColor: (24, 24, 26), garmentBox: garmentBox)
         let wholePicture = RoomArtCorners(rect: CGRect(x: 0, y: 0, width: 200, height: 260))
 
@@ -546,13 +571,43 @@ struct ShirtPaintingRequestTests {
         #expect(color.allSatisfy { $0 > 220 }, "the white cloth measured \(color)")
     }
 
-    @Test func aColorIsEncodedOnceAndCornersTooSmallToMeasureGiveNothing() throws {
+    @Test func anOpenDarkCoatOverAWhiteShirtMeasuresDark() throws {
+        // A coat worn open by a model: the middle of the garment's box is the white shirt underneath, and the coat's own dark
+        // cloth is on each side. The middle third alone read as white, so the painter drew a white coat.
+        let width = 200, height = 260
+        let garmentBox = CGRect(x: 40, y: 40, width: 120, height: 190)
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for row in 0..<height {
+            for column in 0..<width {
+                let color: (UInt8, UInt8, UInt8)
+                if !garmentBox.contains(CGPoint(x: column, y: row)) { color = (232, 232, 235) }
+                else if (82..<118).contains(column) { color = (255, 255, 255) }
+                else { color = (30, 30, 32) }
+                bytes[(row * width + column) * 4] = color.0; bytes[(row * width + column) * 4 + 1] = color.1; bytes[(row * width + column) * 4 + 2] = color.2
+            }
+        }
+        let picture = rgbImage(bytes: bytes, width: width, height: height)!
+        let color = channels(ofHex: try #require(shirtBaseColorHex(picture: picture, itemCorners: RoomArtCorners(rect: garmentBox))))
+        #expect(color.allSatisfy { $0 < 60 }, "the open coat measured \(color)")
+    }
+
+    @Test func aColorIsEncodedOnce() throws {
         let garmentBox = CGRect(x: 40, y: 40, width: 120, height: 190)
         let picture = pictureWithAGarment(garmentColor: (200, 40, 40), garmentBox: garmentBox)
 
         let color = channels(ofHex: try #require(shirtBaseColorHex(picture: picture, itemCorners: RoomArtCorners(rect: garmentBox))))
         #expect(zip(color, [200, 40, 40]).allSatisfy { abs($0 - $1) <= 1 }, "the red cloth measured \(color)")
-        #expect(shirtBaseColorHex(picture: picture, itemCorners: RoomArtCorners(rect: CGRect(x: 40, y: 40, width: 4, height: 4))) == nil)
+    }
+
+    @Test func theColorMeasureNeverRefusesAGarmentWhileThePictureHasPixels() throws {
+        let garmentBox = CGRect(x: 40, y: 40, width: 120, height: 190)
+        let picture = pictureWithAGarment(garmentColor: (200, 40, 40), garmentBox: garmentBox)
+        // Corners too small for a band still give the item box's median color, here the red cloth.
+        let tinyOnTheCloth = channels(ofHex: try #require(shirtBaseColorHex(picture: picture, itemCorners: RoomArtCorners(rect: CGRect(x: 60, y: 60, width: 4, height: 4)))))
+        #expect(zip(tinyOnTheCloth, [200, 40, 40]).allSatisfy { abs($0 - $1) <= 1 }, "the tiny box measured \(tinyOnTheCloth)")
+        // Corners with no pixel of the picture inside them fall back to the whole picture's median, the backdrop.
+        let offThePicture = channels(ofHex: try #require(shirtBaseColorHex(picture: picture, itemCorners: RoomArtCorners(rect: CGRect(x: 500, y: 500, width: 40, height: 40)))))
+        #expect(offThePicture.allSatisfy { abs($0 - 233) <= 3 }, "the off-picture corners measured \(offThePicture)")
     }
 
     @Test func theProductIsThePicturesCropAtItsOwnResolution() throws {

@@ -29,7 +29,7 @@ nonisolated struct ShirtTorsoSmoother: Equatable, Sendable {
     private(set) var smoothedTorso: BodyTorso?
     private var lastAdvanceTime: TimeInterval?
     private var lastResultTime: TimeInterval?
-    /// When each elbow was last in a result. Vision's elbow confidence flickers around its floor from run to run, and a
+    /// When each elbow or wrist was last in a result. Vision's elbow confidence flickers around its floor from run to run, and a
     /// sleeve that came and went with it would jump between lying along the arm and not, so an elbow missing from a result
     /// keeps its last place for as long as a missing torso does. A wrist, which a long sleeve's area follows, is held the same
     /// way.
@@ -62,19 +62,19 @@ nonisolated struct ShirtTorsoSmoother: Equatable, Sendable {
         let share = 1 - exp(-max(0, min(time - lastAdvanceTime, 0.2)) / Self.timeConstantSeconds)
         func moved(_ from: CGPoint, _ to: CGPoint) -> CGPoint { CGPoint(x: from.x + (to.x - from.x) * share, y: from.y + (to.y - from.y) * share) }
         // An elbow or wrist in the result moves toward it, or appears there; one missing from it holds while it was seen recently.
-        func elbow(current currentElbow: CGPoint?, latest latestElbow: CGPoint?, seenAt: TimeInterval?) -> CGPoint? {
-            if let latestElbow { return currentElbow.map { moved($0, latestElbow) } ?? latestElbow }
+        func smoothedJoint(current currentJoint: CGPoint?, latest latestJoint: CGPoint?, seenAt: TimeInterval?) -> CGPoint? {
+            if let latestJoint { return currentJoint.map { moved($0, latestJoint) } ?? latestJoint }
             guard let seenAt, time - seenAt <= Self.secondsBeforeTheTorsoIsLost else { return nil }
-            return currentElbow
+            return currentJoint
         }
         let smoothed = BodyTorso(
             imageLeftShoulder: moved(current.imageLeftShoulder, latestResult.imageLeftShoulder), imageRightShoulder: moved(current.imageRightShoulder, latestResult.imageRightShoulder),
             imageLeftHip: moved(current.imageLeftHip, latestResult.imageLeftHip), imageRightHip: moved(current.imageRightHip, latestResult.imageRightHip),
             hipsWereEstimated: latestResult.hipsWereEstimated, shouldersAreSeen: latestResult.shouldersAreSeen,
-            imageLeftElbow: elbow(current: current.imageLeftElbow, latest: latestResult.imageLeftElbow, seenAt: imageLeftElbowSeenAt),
-            imageRightElbow: elbow(current: current.imageRightElbow, latest: latestResult.imageRightElbow, seenAt: imageRightElbowSeenAt),
-            imageLeftWrist: elbow(current: current.imageLeftWrist, latest: latestResult.imageLeftWrist, seenAt: imageLeftWristSeenAt),
-            imageRightWrist: elbow(current: current.imageRightWrist, latest: latestResult.imageRightWrist, seenAt: imageRightWristSeenAt)
+            imageLeftElbow: smoothedJoint(current: current.imageLeftElbow, latest: latestResult.imageLeftElbow, seenAt: imageLeftElbowSeenAt),
+            imageRightElbow: smoothedJoint(current: current.imageRightElbow, latest: latestResult.imageRightElbow, seenAt: imageRightElbowSeenAt),
+            imageLeftWrist: smoothedJoint(current: current.imageLeftWrist, latest: latestResult.imageLeftWrist, seenAt: imageLeftWristSeenAt),
+            imageRightWrist: smoothedJoint(current: current.imageRightWrist, latest: latestResult.imageRightWrist, seenAt: imageRightWristSeenAt)
         )
         smoothedTorso = smoothed
         return smoothed

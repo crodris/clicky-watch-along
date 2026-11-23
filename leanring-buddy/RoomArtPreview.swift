@@ -6,10 +6,11 @@
 //  reads the page's picture, opens the panel, starts the camera, and asks the Worker what the page shows
 //  (`POST /try-it-item`) at once. The item's kind picks the rest: wall art is measured on the wall (`POST /room-wall`) and
 //  furniture on the floor (`POST /room-floor`), each from a keyframe taken on the first frame with a person mask, with
-//  Clicky's loop around the spot while it waits, and a top laid flat or worn by a model is cut out of its photo and drawn over the learner's
-//  own shirt with no measurement. `RoomArtFrameProcessor` handles every camera frame on its own queue: it finds the person,
+//  Clicky's loop around the spot while it waits, and a garment the page reader says can be drawn on the learner is tried
+//  on with no measurement: the live preview draws a garment `shirtLiveGarmentMayWork` allows, cut out of its photo, over
+//  the learner's own top, and any other garment shows a ghost outline of the area it will cover. `RoomArtFrameProcessor` handles every camera frame on its own queue: it finds the person,
 //  tracks the room against the keyframe, and draws the frame with the item on its surface and the learner in front of it,
-//  or, for a shirt, finds the learner's torso and draws the shirt on them.
+//  or, for a garment, finds the learner's torso and draws the preview on them.
 //
 //  Display path: each frame is composed with Core Image and rendered straight into a CAMetalLayer drawable on the processing
 //  queue, so the frame never leaves the GPU and never waits for the main thread. Setting a CGImage as CALayer contents would
@@ -1906,6 +1907,8 @@ final class RoomArtPreviewController: ObservableObject {
             let frontPicture = clothingReading.frontPictureIndex == 0 ? pictureImage : pageRequest.picture.picture(numbered: clothingReading.frontPictureIndex).flatMap { picture in
                 CGImageSourceCreateWithData(picture.jpegData as CFData, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
             }
+            // The color measure falls back from the cloth band to the item box to the whole picture, so it is nil only for a
+            // picture with no pixels, which is a front picture that could not be read at all.
             guard let frontPicture, let baseColorHex = shirtBaseColorHex(picture: frontPicture, itemCorners: clothingReading.itemCorners) else {
                 apply(phase.afterTheShirtsPictureCouldNotBeRead())
                 return

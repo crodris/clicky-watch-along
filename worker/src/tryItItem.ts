@@ -359,6 +359,15 @@ function pageStatesNoSize(item: Item): boolean {
   }
 }
 
+/**
+ * True for clothing the reader says cannot be drawn on the learner, such as a hat or a bag. The app only says so and places
+ * nothing, so its label, corners, and area are not checked: a retry over a hat's corners would end in a 422 and the app would
+ * say the page could not be read instead of that the item cannot be drawn on the learner.
+ */
+function cannotBeDrawnOnTheLearner(item: Item): boolean {
+  return item.kind === "clothing" && !item.clothing.canBeDrawnOnTheLearner;
+}
+
 export type CheckedTryItItem = { accepted: true; reply: TryItItem } | { accepted: false; reason: string };
 
 /**
@@ -366,8 +375,9 @@ export type CheckedTryItItem = { accepted: true; reply: TryItItem } | { accepted
  * app relies on: a garment's front picture is one that was sent, the size range of the kind (wall art 5 to
  * 1000 centimeters, furniture 2 to 600 in width and height and 1 to 600 in depth), short labels and print text, and corners that form a convex
  * quadrilateral covering at least 4 percent of the picture, since the app cuts that quadrilateral out of the photo.
- * An item of kind other, and wall art or furniture whose page states no size (`sizeFoundOnPage` false), pass with their
- * corners clamped and no other rule, because the app only says so and never places them. Wall art and furniture whose
+ * An item of kind other, clothing that cannot be drawn on the learner (`canBeDrawnOnTheLearner` false), and wall art or
+ * furniture whose page states no size (`sizeFoundOnPage` false), pass with their corners clamped and no other rule, because
+ * the app only says so and never places them. Wall art and furniture whose
  * page does state a size need a size label that is not empty, since the app refuses an empty one.
  */
 export function checkTryItItem(
@@ -403,7 +413,7 @@ export function checkTryItItem(
   };
   const item = withTheOtherSizesCut(modelReply.item);
   const cleanedReply: TryItItem = { title: modelReply.title, whyThisSize: modelReply.whyThisSize, itemCorners, item };
-  if (item.kind === "other" || pageStatesNoSize(item)) {
+  if (item.kind === "other" || pageStatesNoSize(item) || cannotBeDrawnOnTheLearner(item)) {
     return { accepted: true, reply: cleanedReply };
   }
 

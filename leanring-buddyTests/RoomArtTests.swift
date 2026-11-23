@@ -156,6 +156,19 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             itemCorners: pictureCorners(20, 80, 280, 560),
             frontPictureIndex: 1
         ))
+    case "clothing that cannot be drawn on the learner":
+        return .clothing(RoomArtClothingReading(
+            title: "Linen jumpsuit",
+            garment: .jumpsuit,
+            sleeves: .none,
+            length: .ankle,
+            canBeDrawnOnTheLearner: false,
+            chosenSizeLabel: "M",
+            photoShows: .onModel,
+            printDescription: "",
+            whyThisSize: "The page has size M selected.",
+            itemCorners: pictureCorners(60, 20, 340, 480)
+        ))
     case "other":
         return .other(title: "Wool rug")
     default:
@@ -176,6 +189,10 @@ struct RoomArtTryItReplyFixtureTests {
             )
 
             #expect(reading == expectedReading(ofFixtureCaseNamed: fixtureCase.name), "the \(fixtureCase.name) reply read as \(reading)")
+            // The garment the reader says cannot be drawn on the learner fails whatever its kind, sleeves, and length.
+            if fixtureCase.name == "clothing that cannot be drawn on the learner" {
+                #expect(roomArtReadingPlan(for: reading) == .fail(.cannotBeDrawnOnYou))
+            }
         }
     }
 }
@@ -994,9 +1011,7 @@ struct RoomArtPhaseTests {
         #expect(waiting == .waitingToSeeTheLearner(title: "Coat", preview: .ghostOutline))
         let showing = waiting.afterTheLearnerStoodInFrame()
         #expect(showing == .showingTheShirt(title: "Coat", preview: .ghostOutline))
-        #expect(showing.shirtPreview == .ghostOutline)
         #expect(showing.statusLine == "Where it will go · say right there")
-        #expect(preparing.shirtPreview == nil && RoomArtPhase.readingThePage.shirtPreview == nil)
         // The preview is carried through the capture, the painting, and the painted still, and comes back after each.
         let id = ShirtPaintingID(number: 1)
         let armed = showing.armingTheShirtCapture(id: id)

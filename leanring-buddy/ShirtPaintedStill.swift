@@ -388,7 +388,9 @@ nonisolated enum ShirtPaintMask {
         let torsoQuad = ShirtTryOnRenderer.bodyTorsoCorners(of: torso).map { SIMD2(Double($0.x), Double($0.y)) }
         let growthRadius = max(1, Int((outlineGrowthInShoulderWidths * shoulderWidth).rounded()))
         let personNearby = dilated(personMask.map { $0 > 127 }, width: width, height: height, radius: growthRadius)
-        let newGarmentCovers = coverage?.area(for: torso).mask(width: width, height: height) ?? [Bool](repeating: false, count: width * height)
+        let newGarmentArea = coverage?.area(for: torso)
+        let newGarmentCovers = newGarmentArea?.mask(width: width, height: height) ?? [Bool](repeating: false, count: width * height)
+        let newSleevesCover = newGarmentArea?.sleeveMask(width: width, height: height) ?? [Bool](repeating: false, count: width * height)
         var paintable = [Bool](repeating: false, count: width * height)
         for index in 0..<(width * height) {
             if oldShirt[index] || previewGarmentCoverage[index] > 127 || (newGarmentCovers[index] && personNearby[index]) { paintable[index] = true; continue }
@@ -404,9 +406,11 @@ nonisolated enum ShirtPaintMask {
 
         // Bare skin the new top does not cover is taken away here. The hands, the face, and the neck's skin are taken away
         // at the frame's size, where their edges are exact. The mask never reaches above the neck's base, so the neck cut
-        // only decides what the paste puts back. Skin the new garment covers, a forearm under a long sleeve, is painted.
+        // only decides what the paste puts back. Only skin under a new long sleeve, a forearm, is painted. Skin inside the
+        // new garment's body (a forearm across the belly under a short sleeve, an inner upper arm beside a vest) is not
+        // covered by it, so it is taken away like any other bare skin.
         for index in 0..<(width * height) where paintable[index] {
-            guard personMask[index] > 127, previewGarmentCoverage[index] <= 127, !oldShirt[index], !newGarmentCovers[index] else { continue }
+            guard personMask[index] > 127, previewGarmentCoverage[index] <= 127, !oldShirt[index], !newSleevesCover[index] else { continue }
             if looksLikeSkin(red: rgba[index * 4], green: rgba[index * 4 + 1], blue: rgba[index * 4 + 2]) { paintable[index] = false }
         }
         paintable = withoutSmallPieces(paintable, width: width, height: height, smallestPieceSize: Int(smallestPieceShare * Double(width * height)))
@@ -779,51 +783,94 @@ nonisolated func sRGBHex(ofLinear color: ShirtRGB) -> String {
     return String(format: "#%02X%02X%02X", encoded(color.red), encoded(color.green), encoded(color.blue))
 }
 
+/// The numbers `shirtBaseColorHex` measures the cloth with.
+private enum ShirtBaseColorMeasure {
+    /// The picture is scaled down to this long side first, so the measure costs the same for any photo.
+    static let longestSideInPixels = 256
+    /// A pixel is cloth, not backdrop, when one channel is at least this many levels from the backdrop's median color.
+    static let backdropDistanceInLevels = 14
+    /// The cloth pixels that are far from the backdrop must be at least this share of the band, or nearly the whole band
+    /// matches the backdrop (a white shirt on white) and nothing is left out.
+    static let leastShareAwayFromTheBackdrop = 0.2
+    /// A pixel is the band's cloth when every channel is within this many levels of the band's median color.
+    static let nearTheMedianDistanceInLevels = 48
+    /// The band below the middle of the garment, where a print rarely reaches, as shares of the item box's height.
+    static let bandRowShares = 0.55...0.9
+    /// The band across the item box, as shares of its width: three columns measured together, the garment's left side
+    /// (15 to 35 percent), its middle (35 to 65), and its right side (65 to 85). The middle alone, as it once was, is the
+    /// outfit underneath on an open coat or blazer worn by a model, while the two sides are the coat's own cloth, so the cloth
+    /// that dominates the three together wins.
+    static let bandColumnShares = 0.15...0.85
+}
+
 /// The garment's main cloth color as "#RRGGBB" in sRGB, measured from the page picture that shows its front, inside the
 /// item's corners, so it needs no cutout and serves the ghost outline, which has none, as well as the live garment. It is the
-/// mean in linear light of a band below the middle of the garment, where a print rarely reaches, leaving out pixels that match
-/// the picture's backdrop (its outer ring) unless nearly the whole band does, as on a white shirt against white, and pixels far
-/// from the band's median color. Nil when the corners enclose less than 8 pixels on a side.
+/// mean in linear light of a band below the middle of the garment, where a print rarely reaches (`ShirtBaseColorMeasure`),
+/// leaving out pixels that match the picture's backdrop (its outer ring) unless nearly the whole band does, as on a white
+/// shirt against white, and pixels far from the band's median color.
+///
+/// It never refuses a garment the page reader approved: with no pixels in the band (corners that are tiny or off the picture)
+/// it takes the median color of the whole item box, then of the whole picture. Nil only when the picture has no pixels.
 nonisolated func shirtBaseColorHex(picture: CGImage, itemCorners: RoomArtCorners) -> String? {
-    let longestSide = 256
-    guard let small = ShirtGarment.scaledDown(picture, toLongestSide: longestSide), let pixels = ShirtGarment.rgbaPixels(of: small) else { return nil }
-    let scale = Double(small.width) / Double(picture.width)
+    typealias Color = [Int]
+    guard let scaledPicture = ShirtGarment.scaledDown(picture, toLongestSide: ShirtBaseColorMeasure.longestSideInPixels),
+          let pixels = ShirtGarment.rgbaPixels(of: scaledPicture), scaledPicture.width > 0, scaledPicture.height > 0 else { return nil }
+    let pictureWidth = scaledPicture.width, pictureHeight = scaledPicture.height
+    func colorAt(row: Int, column: Int) -> Color { (0..<3).map { Int(pixels[(row * pictureWidth + column) * 4 + $0]) } }
+    func medianColor(of colors: [Color]) -> Color { (0..<3).map { channel in colors.map { $0[channel] }.sorted()[colors.count / 2] } }
+    func hex(ofMeanInLinearLightOf colors: [Color]) -> String {
+        let linearMeans = (0..<3).map { channel in
+            colors.reduce(Float(0)) { $0 + ShirtGarment.linearValueOfEachByte[$1[channel]] } / Float(colors.count)
+        }
+        return sRGBHex(ofLinear: ShirtRGB(red: linearMeans[0], green: linearMeans[1], blue: linearMeans[2]))
+    }
+
+    let scale = Double(pictureWidth) / Double(picture.width)
     let corners = itemCorners.clockwiseFromTopLeft.map { SIMD2(Double($0.x) * scale, Double($0.y) * scale) }
-    guard let minX = corners.map(\.x).min(), let maxX = corners.map(\.x).max(), let minY = corners.map(\.y).min(), let maxY = corners.map(\.y).max(),
-          maxX - minX >= 8, maxY - minY >= 8 else { return nil }
+    let cornerXValues = corners.map(\.x), cornerYValues = corners.map(\.y)
+    var itemBoxColors: [Color] = []
+    var bandColors: [Color] = []
+    if let leftEdge = cornerXValues.min(), let rightEdge = cornerXValues.max(), let topEdge = cornerYValues.min(), let bottomEdge = cornerYValues.max(),
+       [leftEdge, rightEdge, topEdge, bottomEdge].allSatisfy(\.isFinite) {
+        let boxWidth = rightEdge - leftEdge, boxHeight = bottomEdge - topEdge
+        let firstBoxColumn = max(0, Int(leftEdge.rounded())), lastBoxColumn = min(pictureWidth - 1, Int(rightEdge.rounded()))
+        let firstBoxRow = max(0, Int(topEdge.rounded())), lastBoxRow = min(pictureHeight - 1, Int(bottomEdge.rounded()))
+        let firstBandColumn = Int((leftEdge + ShirtBaseColorMeasure.bandColumnShares.lowerBound * boxWidth).rounded())
+        let lastBandColumn = Int((leftEdge + ShirtBaseColorMeasure.bandColumnShares.upperBound * boxWidth).rounded())
+        let firstBandRow = Int((topEdge + ShirtBaseColorMeasure.bandRowShares.lowerBound * boxHeight).rounded())
+        let lastBandRow = Int((topEdge + ShirtBaseColorMeasure.bandRowShares.upperBound * boxHeight).rounded())
+        if firstBoxColumn <= lastBoxColumn, firstBoxRow <= lastBoxRow {
+            for row in firstBoxRow...lastBoxRow {
+                for column in firstBoxColumn...lastBoxColumn where ShirtPaintMask.isInside(SIMD2(Double(column) + 0.5, Double(row) + 0.5), convexQuad: corners) {
+                    let color = colorAt(row: row, column: column)
+                    itemBoxColors.append(color)
+                    if (firstBandColumn...lastBandColumn).contains(column), (firstBandRow...lastBandRow).contains(row) { bandColors.append(color) }
+                }
+            }
+        }
+    }
 
     // The backdrop is the median color of the picture's outer ring.
-    var ringChannels: [[UInt8]] = [[], [], []]
-    for row in 0..<small.height {
-        for column in 0..<small.width where row < 2 || column < 2 || row >= small.height - 2 || column >= small.width - 2 {
-            for channel in 0..<3 { ringChannels[channel].append(pixels[(row * small.width + column) * 4 + channel]) }
+    var ringColors: [Color] = []
+    for row in 0..<pictureHeight {
+        for column in 0..<pictureWidth where row < 2 || column < 2 || row >= pictureHeight - 2 || column >= pictureWidth - 2 {
+            ringColors.append(colorAt(row: row, column: column))
         }
     }
-    let backdrop = ringChannels.map { Int($0.sorted()[$0.count / 2]) }
+    let backdrop = medianColor(of: ringColors)
 
-    var bandPixels: [[Int]] = []
-    var awayFromTheBackdrop: [[Int]] = []
-    let firstColumn = max(0, Int((minX + 0.35 * (maxX - minX)).rounded())), lastColumn = min(small.width - 1, Int((minX + 0.65 * (maxX - minX)).rounded()))
-    let firstRow = max(0, Int((minY + 0.55 * (maxY - minY)).rounded())), lastRow = min(small.height - 1, Int((minY + 0.9 * (maxY - minY)).rounded()))
-    guard firstColumn <= lastColumn, firstRow <= lastRow else { return nil }
-    for row in firstRow...lastRow {
-        for column in firstColumn...lastColumn where ShirtPaintMask.isInside(SIMD2(Double(column) + 0.5, Double(row) + 0.5), convexQuad: corners) {
-            let color = (0..<3).map { Int(pixels[(row * small.width + column) * 4 + $0]) }
-            bandPixels.append(color)
-            if (0..<3).contains(where: { abs(color[$0] - backdrop[$0]) >= 14 }) { awayFromTheBackdrop.append(color) }
-        }
+    guard !bandColors.isEmpty else {
+        // No band to measure, so the item box's median, then the whole picture's.
+        if !itemBoxColors.isEmpty { return hex(ofMeanInLinearLightOf: [medianColor(of: itemBoxColors)]) }
+        return hex(ofMeanInLinearLightOf: [medianColor(of: (0..<pictureHeight).flatMap { row in (0..<pictureWidth).map { colorAt(row: row, column: $0) } })])
     }
-    let measuredBand = awayFromTheBackdrop.count * 5 >= bandPixels.count ? awayFromTheBackdrop : bandPixels
-    guard !measuredBand.isEmpty else { return nil }
+    let awayFromTheBackdrop = bandColors.filter { color in (0..<3).contains { abs(color[$0] - backdrop[$0]) >= ShirtBaseColorMeasure.backdropDistanceInLevels } }
+    let measuredBand = Double(awayFromTheBackdrop.count) >= ShirtBaseColorMeasure.leastShareAwayFromTheBackdrop * Double(bandColors.count) ? awayFromTheBackdrop : bandColors
     // Only the cloth that is near the band's median is averaged, so a pixel on the garment's anti-aliased edge, halfway to the
     // backdrop, or a button, does not lift a near-black cloth.
-    let medianColor = (0..<3).map { channel in measuredBand.map { $0[channel] }.sorted()[measuredBand.count / 2] }
-    let nearTheMedian = measuredBand.filter { color in (0..<3).allSatisfy { abs(color[$0] - medianColor[$0]) <= 48 } }
-    let measured = nearTheMedian.isEmpty ? measuredBand : nearTheMedian
-    let linearMeans = (0..<3).map { channel in
-        measured.reduce(Float(0)) { $0 + ShirtGarment.linearValueOfEachByte[$1[channel]] } / Float(measured.count)
-    }
-    return sRGBHex(ofLinear: ShirtRGB(red: linearMeans[0], green: linearMeans[1], blue: linearMeans[2]))
+    let bandMedian = medianColor(of: measuredBand)
+    let nearTheMedian = measuredBand.filter { color in (0..<3).allSatisfy { abs(color[$0] - bandMedian[$0]) <= ShirtBaseColorMeasure.nearTheMedianDistanceInLevels } }
+    return hex(ofMeanInLinearLightOf: nearTheMedian.isEmpty ? measuredBand : nearTheMedian)
 }
 
 /// The product photo the Worker is sent: the page picture that shows the garment's front, cropped to its corners with a 5 percent margin, at

@@ -92,6 +92,10 @@ nonisolated struct ShirtCoverage: Equatable, Sendable {
     static let armHalfWidthInShoulderWidths = 0.16
     /// With neither elbow nor wrist seen, the arm hangs straight down this many torso lengths from the shoulder.
     static let armWithNoJointsInTorsoLengths = 1.1
+    /// A wrist the pose did not see is taken this share of the upper arm's length on from the elbow. A forearm is about as long
+    /// as the upper arm, but the wrist then sits on the hand's edge, so a full upper arm would reach over the hand, which the
+    /// paint mask must keep as filmed. Short of the wrist, the sleeve's cuff still covers most of the bare forearm.
+    static let unseenWristShareOfTheUpperArm = 0.8
 
     init(sleeves: RoomArtSleeves, length: RoomArtGarmentLength) {
         self.sleeves = sleeves
@@ -118,9 +122,9 @@ nonisolated struct ShirtCoverage: Equatable, Sendable {
 
         // Down to the hip each side keeps to the line from its shoulder to its hip, and below it each side runs straight down,
         // since a hem lower than the hips is not narrower than them.
-        let hemLengths = Self.hemInTorsoLengths(for: length)
+        let hemInTorsoLengths = Self.hemInTorsoLengths(for: length)
         func hemPoint(shoulder: SIMD2<Double>, hip: SIMD2<Double>) -> SIMD2<Double> {
-            hemLengths <= 1 ? shoulder + (hip - shoulder) * hemLengths : hip + downTheTorso * (hemLengths - 1) * torsoLength
+            hemInTorsoLengths <= 1 ? shoulder + (hip - shoulder) * hemInTorsoLengths : hip + downTheTorso * (hemInTorsoLengths - 1) * torsoLength
         }
         let sideMargin = Self.sideMarginInShoulderWidths * shoulderWidth
         let torsoPiece = [
@@ -129,7 +133,8 @@ nonisolated struct ShirtCoverage: Equatable, Sendable {
             hemPoint(shoulder: rightShoulder, hip: rightHip) + acrossTheShoulders * sideMargin,
             hemPoint(shoulder: leftShoulder, hip: leftHip) - acrossTheShoulders * sideMargin,
         ].map(point)
-        var pieces = [torsoPiece]
+        let bodyPieces = [torsoPiece]
+        var sleevePieces: [[CGPoint]] = []
 
         if sleeves == .long {
             let armHalfWidth = Self.armHalfWidthInShoulderWidths * shoulderWidth
@@ -138,12 +143,12 @@ nonisolated struct ShirtCoverage: Equatable, Sendable {
                 (shoulder: rightShoulder, elbow: torso.imageRightElbow.map(vector), wrist: torso.imageRightWrist.map(vector)),
             ]
             for arm in arms {
-                // The arm's joints in order. A wrist the pose did not see is one upper arm's length on from the elbow, and with
-                // no joint at all the arm hangs down the body's side.
+                // The arm's joints in order. A wrist the pose did not see is most of an upper arm's length on from the elbow
+                // (`unseenWristShareOfTheUpperArm`), and with no joint at all the arm hangs down the body's side.
                 var joints = [arm.shoulder]
                 switch (arm.elbow, arm.wrist) {
                 case (let elbow?, let wrist?): joints += [elbow, wrist]
-                case (let elbow?, nil): joints += [elbow, elbow + (elbow - arm.shoulder)]
+                case (let elbow?, nil): joints += [elbow, elbow + (elbow - arm.shoulder) * Self.unseenWristShareOfTheUpperArm]
                 case (nil, let wrist?): joints += [wrist]
                 case (nil, nil): joints += [arm.shoulder + downTheTorso * Self.armWithNoJointsInTorsoLengths * torsoLength]
                 }
@@ -152,30 +157,43 @@ nonisolated struct ShirtCoverage: Equatable, Sendable {
                     guard simd_length(segment) > 1 else { continue }
                     let direction = simd_normalize(segment)
                     let sideways = SIMD2(-direction.y, direction.x) * armHalfWidth
-                    pieces.append([start + sideways, end + sideways, end - sideways, start - sideways].map(point))
+                    sleevePieces.append([start + sideways, end + sideways, end - sideways, start - sideways].map(point))
                 }
                 // A square at each bend between two segments, which fills the notch their two pieces leave on the outside.
                 if joints.count == 3 {
                     let elbow = joints[1]
-                    pieces.append([
+                    sleevePieces.append([
                         elbow + SIMD2(-armHalfWidth, -armHalfWidth), elbow + SIMD2(armHalfWidth, -armHalfWidth),
                         elbow + SIMD2(armHalfWidth, armHalfWidth), elbow + SIMD2(-armHalfWidth, armHalfWidth),
                     ].map(point))
                 }
             }
         }
-        return ShirtCoverageArea(pieces: pieces)
+        return ShirtCoverageArea(bodyPieces: bodyPieces, sleevePieces: sleevePieces)
     }
 }
 
-/// The area a garment covers: convex pieces in camera pixels whose union is the area. It is not clipped to the frame, since a
-/// coat's hem is below it, and its mask is, because a mask only has the frame's pixels.
+/// The area a garment covers: convex pieces in camera pixels whose union is the area, kept in two groups. The body pieces are
+/// the torso down to the hem. The sleeve pieces are the arms of a long sleeve, and only they stand where bare skin is
+/// legitimately painted over (a forearm under a long sleeve), so the paint mask's skin rule exempts the sleeve mask and no
+/// more. It is not clipped to the frame, since a coat's hem is below it, and its masks are, because a mask only has the
+/// frame's pixels.
 nonisolated struct ShirtCoverageArea: Equatable, Sendable {
-    let pieces: [[CGPoint]]
+    let bodyPieces: [[CGPoint]]
+    let sleevePieces: [[CGPoint]]
 
-    /// Which pixels of a `width` by `height` frame the area covers, first row at the top, a pixel counting when its center is
-    /// inside a piece.
+    /// Which pixels of a `width` by `height` frame the whole area covers, body and sleeves, first row at the top, a pixel
+    /// counting when its center is inside a piece.
     func mask(width: Int, height: Int) -> [Bool] {
+        Self.mask(of: bodyPieces + sleevePieces, width: width, height: height)
+    }
+
+    /// Which pixels the sleeve pieces alone cover, in the same layout as `mask(width:height:)`.
+    func sleeveMask(width: Int, height: Int) -> [Bool] {
+        Self.mask(of: sleevePieces, width: width, height: height)
+    }
+
+    private static func mask(of pieces: [[CGPoint]], width: Int, height: Int) -> [Bool] {
         var covered = [Bool](repeating: false, count: max(width, 0) * max(height, 0))
         guard width > 0, height > 0 else { return covered }
         for piece in pieces {
