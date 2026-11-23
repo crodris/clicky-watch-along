@@ -4,8 +4,8 @@
 //
 //  Draws the sparks background agents lap around the loop: one spark for each agent working on the video in front,
 //  in the agent's color, lapping faster as its progress grows and finishing with a full lap. Under a request's loop
-//  around the media the sparks ride the same line. With no such loop, a quiet track of the loop's outline carries them. Reduce Motion
-//  has no spark: each agent is a still arc along the line, as long as its progress.
+//  around the media the sparks ride the same line. With no such loop, a quiet track of the loop's outline carries
+//  them. Reduce Motion has no spark: each agent is a still arc along the line, as long as its progress.
 //
 
 import SwiftUI
