@@ -768,7 +768,7 @@ nonisolated func sRGBHex(ofLinear color: ShirtRGB) -> String {
     return String(format: "#%02X%02X%02X", encoded(color.red), encoded(color.green), encoded(color.blue))
 }
 
-/// The product photo the Worker is sent: the page's picture cropped to the garment's corners with a 5 percent margin, at
+/// The product photo the Worker is sent: the page picture that shows the garment's front, cropped to its corners with a 5 percent margin, at
 /// the picture's own resolution, since every pixel of a print's letters helps the painting copy them. Nil when the crop is
 /// under 32 pixels on a side.
 nonisolated func shirtPaintingProductJPEG(picture: CGImage, itemCorners: RoomArtCorners) -> Data? {

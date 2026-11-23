@@ -137,6 +137,32 @@ struct RoomArtPictureSourceTests {
         return (picture, screenWasCaptured)
     }
 
+    @Test func thePagesOtherProductPhotosComeAlongInThePagesOrderAndOneThatFailsIsLeftOut() async throws {
+        let mainURL = stubbedImageURL(answeringWith: .image(pngData(width: 800, height: 1000)))
+        let otherURLs = [
+            stubbedImageURL(answeringWith: .image(pngData(width: 600, height: 900))),
+            stubbedImageURL(answeringWith: .status(404, body: pngData(width: 500, height: 500))),
+            stubbedImageURL(answeringWith: .image(pngData(width: 700, height: 700))),
+        ]
+        // The main file listed again among the others, or another file listed twice, is downloaded once.
+        let picture = try #require(await RoomArtPictureSource.picture(imageFileURL: mainURL, otherImageFileURLs: [otherURLs[0], mainURL, otherURLs[0], otherURLs[1], otherURLs[2]], session: stubbedSession()) {
+            screenCapture
+        })
+
+        #expect(picture.width == 800 && picture.height == 1000)
+        #expect(picture.otherPictures.map(\.width) == [600, 700])
+        #expect(picture.picture(numbered: 2)?.height == 700)
+        #expect(picture.picture(numbered: 3) == nil)
+    }
+
+    @Test func aScreenCaptureCarriesNoOtherPhotos() async throws {
+        let otherURL = stubbedImageURL(answeringWith: .image(pngData(width: 600, height: 900)))
+        let picture = await RoomArtPictureSource.picture(imageFileURL: nil, otherImageFileURLs: [otherURL], session: stubbedSession()) { screenCapture }
+
+        #expect(picture == screenCapture)
+        #expect(picture?.otherPictures.isEmpty == true)
+    }
+
     @Test func theImageFileIsScaledToALongSideOf1280AndTheScreenIsNeverCaptured() async throws {
         let result = await pictureAndWhetherTheScreenWasCaptured(
             imageFileURL: stubbedImageURL(answeringWith: .image(pngData(width: 2560, height: 1280)))

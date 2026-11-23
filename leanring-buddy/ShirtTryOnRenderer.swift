@@ -112,7 +112,11 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     /// shirt's hem 8 percent of a torso below the hips.
     static let garmentBottomInTorsoLengths = 1.08
     /// The analysis masks are blurred by this many of their own pixels once scaled up, which turns their steps into curves.
-    static let analysisMaskSmoothingInSmallPixels = 0.8
+    /// At 0.8 the fill's edge along the tops of the shoulders kept the masks' stairs, one analysis pixel (about 4.5 camera
+    /// pixels) apart, and the old shirt showed between them as dark teeth along the shoulder's outline; at 2.4 the look check
+    /// counts under half as many (`shoulderEdgeTeethPixelsPerShoulderWidth`, at most 0.26 per shoulder width on the flat lays,
+    /// from 0.49).
+    static let analysisMaskSmoothingInSmallPixels = 2.4
     /// The base color fill is closed (grown by twice this, then shrunk by this many analysis pixels), which fills holes a
     /// few pixels wide where a fold read as not the old shirt, and leaves it grown by this much under the garment's edge,
     /// so the two meet with no gap.
@@ -236,6 +240,11 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     private var smoothedHipWideningInShoulderWidths = [0.0, 0.0]
     /// Each old sleeve, image left first, in shoulder widths.
     private var smoothedOldSleevesInShoulderWidths: [ShirtOldSleeveExtent?] = [nil, nil]
+    /// Where the garment and its fill covered the last frame drawn, 0 to 1 in the red channel (the composition's
+    /// `totalAlpha`), nil before a frame is drawn and after `reset()`. The painted still of the shirt reads it as the area
+    /// to paint the shirt inside, so the painting lands where the live preview showed it. Read it on the queue that calls
+    /// `composite`.
+    private(set) var lastDrawnGarmentArea: CIImage?
     private var lastFrameDrewTheSleevesApart = false
     private var lastFrameLaidTheSleevesAlongTheArms = false
 
@@ -264,6 +273,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         smoothedOldSleevesInShoulderWidths = [nil, nil]
         lastFrameDrewTheSleevesApart = false
         lastFrameLaidTheSleevesAlongTheArms = false
+        lastDrawnGarmentArea = nil
     }
 
     /// `frame` with `garment` drawn over the person's shirt. `personMask` is white where the person is (any size, it is scaled
@@ -349,7 +359,8 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
             // The sleeves go under the torso, which covers their tucked-in strip at the seam.
             let sleevesUnderneath = sleeveLayers.reduce(clearFrame) { layers, sleeve in sleeve.image.composited(over: layers) }
             warpedGarment = warpedTorso.composited(over: sleevesUnderneath).cropped(to: frameExtent)
-            drawnSleeves = sleeveLayers.map { ShirtDrawnSleeve(side: $0.side, landing: $0.landing, liesAlongTheArm: !sleevesHoldTheArms) }
+            // A sleeve from a photo on a model keeps the angle it hung at off the model's arm, the way a whole garment's does.
+            drawnSleeves = sleeveLayers.map { ShirtDrawnSleeve(side: $0.side, landing: $0.landing, liesAlongTheArm: garment.modelPose == nil && !sleevesHoldTheArms) }
         } else {
             guard let warpedWhole = Self.warped(preScaled(garment.cutout), lyingIn: wholeGarmentBox, by: homography, frameExtent: frameExtent) else { return nil }
             warpedGarment = warpedWhole.composited(over: clearFrame).cropped(to: frameExtent)
@@ -430,6 +441,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         let image = worn
             .applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: underneath, kCIInputMaskImageKey: totalAlpha])
             .cropped(to: frameExtent)
+        lastDrawnGarmentArea = totalAlpha
         lastFrameDrewTheSleevesApart = !drawnSleeves.isEmpty
         lastFrameLaidTheSleevesAlongTheArms = drawnSleeves.contains(where: \.liesAlongTheArm)
         return ShirtTryOnComposition(
@@ -772,8 +784,9 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     }
 
     /// Each sleeve drawn on its own, image left first: laid along its arm (`alongTheArms`), or at the whole garment's angle
-    /// and lengthened to cover the old sleeve. Nil when the garment has no sleeves apart, an elbow is not seen, or a sleeve
-    /// cannot be mapped, when the garment is drawn in one piece. Each half of a sleeve takes the affine map of its own
+    /// and lengthened to cover the old sleeve, or for a photo on a model carried from the model's arm to the learner's. Nil
+    /// when the garment has no sleeves apart, an elbow is not seen, or a sleeve cannot be mapped, when the garment is drawn
+    /// in one piece. Each half of a sleeve takes the affine map of its own
     /// triangle (see `ShirtGarmentSleeve`), and the inner half is drawn over the outer half's strip past the diagonal.
     private func warpedSleeves(
         of garment: ShirtGarment, torso: BodyTorso, torsoHomography: simd_double3x3, shoulderHomography: simd_double3x3,
@@ -793,7 +806,10 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
             }
             let shoulder = isImageLeft ? torso.imageLeftShoulder : torso.imageRightShoulder, elbow = isImageLeft ? imageLeftElbow : imageRightElbow
             let landingResult: [CGPoint]?
-            if alongTheArms {
+            if let modelPose = garment.modelPose {
+                // A photo on a model: the sleeve is carried from the model's arm to the learner's (ShirtOnModel.swift).
+                landingResult = ShirtOnModelSleeveLanding.landing(of: sleeve.geometry, modelPose: modelPose, torso: torso, torsoHomography: torsoHomography, oldSleeve: oldSleeve)
+            } else if alongTheArms {
                 // Covering the old sleeve's inner side can push the opening's inner end under the torso, which would turn the
                 // sleeve's inner triangle over, so the landing tries the whole cover, then the cover without its inner side,
                 // then the sleeve as the product shows it.
@@ -811,12 +827,12 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
             guard var landing = landingResult else { return nil }
             // The seam's top lands where the torso's shoulder does (`shoulderHomography`), so the two meet at the shoulder.
             landing[0] = applyingPerspective(shoulderHomography, to: sleeve.geometry.seamTop)
-            let geometry = sleeve.geometry
-            guard let outerMap = Self.affineTransform(from: [geometry.seamTop, geometry.openingOuter, geometry.openingInner], to: [landing[0], landing[1], landing[2]]),
-                  let innerMap = Self.affineTransform(from: [geometry.seamTop, geometry.openingInner, geometry.seamBottom], to: [landing[0], landing[2], landing[3]]) else { return nil }
-            let outerHalf = sleeve.outerHalf.transformed(by: Self.coreImageTransform(ofPhotoBox: sleeve.boundingBox, mappedBy: outerMap, frameExtent: frameExtent))
-            let innerHalf = sleeve.innerHalf.transformed(by: Self.coreImageTransform(ofPhotoBox: sleeve.boundingBox, mappedBy: innerMap, frameExtent: frameExtent))
-            layers.append((geometry.side, landing, innerHalf.composited(over: outerHalf)))
+            let source = sleeve.geometry.quadrilateral, triangles = sleeve.geometry.triangleIndices
+            guard let firstMap = Self.affineTransform(from: triangles.first.map { source[$0] }, to: triangles.first.map { landing[$0] }),
+                  let secondMap = Self.affineTransform(from: triangles.second.map { source[$0] }, to: triangles.second.map { landing[$0] }) else { return nil }
+            let firstHalf = sleeve.firstHalf.transformed(by: Self.coreImageTransform(ofPhotoBox: sleeve.boundingBox, mappedBy: firstMap, frameExtent: frameExtent))
+            let secondHalf = sleeve.secondHalf.transformed(by: Self.coreImageTransform(ofPhotoBox: sleeve.boundingBox, mappedBy: secondMap, frameExtent: frameExtent))
+            layers.append((sleeve.geometry.side, landing, secondHalf.composited(over: firstHalf)))
         }
         return layers
     }

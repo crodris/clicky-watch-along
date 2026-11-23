@@ -30,25 +30,43 @@ enum RoomArtPictureSource {
     ]
 
     /// The picture room art uses: the page's image file when the front tab's largest picture names an https URL that
-    /// downloads and decodes, else the screen capture, else nil. The log says which one was used.
+    /// downloads and decodes, else the screen capture, else nil. The log says which one was used. With the page's file, the
+    /// page's other large product photos (`otherImageFileURLs`, at most `RoomArtPicture.mostOtherPictures` of them) are
+    /// downloaded beside it the same way and kept in its `otherPictures`, so the page reader can find a garment's front among
+    /// them. One that does not download is left out.
     static func picture(
         imageFileURL: URL?,
+        otherImageFileURLs: [URL] = [],
         session: URLSession = PageImageAnimation.downloadSession,
         downloadDeadlineSeconds: TimeInterval = RoomArtPictureSource.downloadDeadlineSeconds,
         downloadTimeoutSeconds: TimeInterval = RoomArtPictureSource.downloadTimeoutSeconds,
         captureTheScreen: () async -> RoomArtPicture?
     ) async -> RoomArtPicture? {
         var pictureFromTheImageFile: RoomArtPicture?
+        var otherPictures: [RoomArtPicture] = []
         if let imageFileURL {
-            pictureFromTheImageFile = await downloadedPicture(
-                atImageURL: imageFileURL,
-                session: session,
-                deadlineSeconds: downloadDeadlineSeconds,
-                requestTimeoutSeconds: downloadTimeoutSeconds
-            )
+            // Every file downloads at once, so the other photos cost no more time than the main one.
+            // Each file once, in the page's order. The page's own script makes the list, and the page can change how it runs.
+            var fileURLs = [imageFileURL]
+            for otherImageFileURL in otherImageFileURLs where !fileURLs.contains(otherImageFileURL) && fileURLs.count <= RoomArtPicture.mostOtherPictures {
+                fileURLs.append(otherImageFileURL)
+            }
+            let downloadedPictures = await withTaskGroup(of: (Int, RoomArtPicture?).self) { group in
+                for (fileIndex, fileURL) in fileURLs.enumerated() {
+                    group.addTask {
+                        (fileIndex, await downloadedPicture(atImageURL: fileURL, session: session, deadlineSeconds: downloadDeadlineSeconds, requestTimeoutSeconds: downloadTimeoutSeconds))
+                    }
+                }
+                var picturesInPageOrder = [RoomArtPicture?](repeating: nil, count: fileURLs.count)
+                for await (fileIndex, pictureFromThisFile) in group { picturesInPageOrder[fileIndex] = pictureFromThisFile }
+                return picturesInPageOrder
+            }
+            pictureFromTheImageFile = downloadedPictures[0]
+            otherPictures = downloadedPictures.dropFirst().compactMap { $0 }
         }
-        if let pictureFromTheImageFile {
-            print("Room art: used the page's image file (\(pictureFromTheImageFile.width)x\(pictureFromTheImageFile.height)) from \(imageFileURL?.host ?? "its page")")
+        if var pictureFromTheImageFile {
+            pictureFromTheImageFile.otherPictures = otherPictures
+            print("Room art: used the page's image file (\(pictureFromTheImageFile.width)x\(pictureFromTheImageFile.height)) from \(imageFileURL?.host ?? "its page"), with \(otherPictures.count) other product photos")
             return pictureFromTheImageFile
         }
         // Escape or a push-to-talk press cancelled the request, so nothing more is captured, and no log line says it was.

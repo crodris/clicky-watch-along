@@ -75,6 +75,16 @@ struct ShirtLookMetrics: Codable {
     var haloInsideWorstRimRatio = 0.0
     /// Where that sector points from the garment's center, in degrees, 0 to the image right and 90 down.
     var haloInsideWorstSectorDegrees = 0.0
+    /// The same ratio with the rim counted only where the person mask is confident (230 or more), away from the person's soft
+    /// outline. There the camera blends the person with the wall, and the renderer shows the room in place of the old shirt's
+    /// dark blend, so a dark garment's rim against a light wall is brighter than its own cloth by design. A light rim from the
+    /// product photo's background or a soft garment mask still shows here.
+    var haloInsideWorstRimRatioOnThePerson = 0.0
+    var haloInsideWorstSectorDegreesOnThePerson = 0.0
+    /// For each shoulder, image left first, the dark teeth along its top where it meets the room: the pixels of a dark line
+    /// just outside the cloth (the rule of `darkOutlinePixelsPerShoulderWidth`) from the neck's side to the shoulder's tip,
+    /// per pixel of shoulder width. The old shirt's edge left beside the cloth shows there as teeth one analysis pixel apart.
+    var shoulderEdgeTeethPixelsPerShoulderWidth: [Double] = []
     /// The share of the old shirt's pixels in the torso that the composite left showing: nothing was drawn over them (the
     /// drawn coverage is under one half) and they are as they were. A navy stripe drawn over a navy shirt changes a pixel
     /// little but covers it.
@@ -128,6 +138,7 @@ enum ShirtLookLimits {
     static let oldShirtAtTheSleevesShare = 0.03
     static let fillRowStep = 6.0
     static let darkOutlinePixelsPerShoulderWidth = 3.0
+    static let shoulderEdgeTeethPixelsPerShoulderWidth = 0.3
     static let frontNecklineBelowTheNeckline = -0.1...0.06
     static let darkNecklinePixelsPerShoulderWidth = 0.25
     static let insideOfTheBackDrawnShare = 0.02
@@ -153,7 +164,7 @@ private func cieLab(linearRed: Double, linearGreen: Double, linearBlue: Double) 
 }
 
 /// An image read back as RGBA bytes, top row first.
-private struct LookPixels {
+struct LookPixels {
     let width: Int
     let height: Int
     let bytes: [UInt8]
@@ -181,7 +192,7 @@ private struct LookPixels {
 }
 
 /// `mask` grown (`grow` true) or shrunk by `radius` pixels with a square, as two passes along the rows and the columns.
-private func squareMorphology(_ mask: [Bool], width: Int, height: Int, radius: Int, grow: Bool) -> [Bool] {
+func squareMorphology(_ mask: [Bool], width: Int, height: Int, radius: Int, grow: Bool) -> [Bool] {
     var alongTheRows = [Bool](repeating: !grow, count: mask.count)
     for row in 0..<height {
         for column in 0..<width {
@@ -212,7 +223,7 @@ private func squareMorphology(_ mask: [Bool], width: Int, height: Int, radius: I
 
 /// The mean of `values` over the pixels in `included` within a square of `radius` around each pixel, through summed area
 /// tables. Pixels with nothing included around them get nan.
-private func includedBoxMean(_ values: [Double], included: [Bool], width: Int, height: Int, radius: Int) -> [Double] {
+func includedBoxMean(_ values: [Double], included: [Bool], width: Int, height: Int, radius: Int) -> [Double] {
     var valueSums = [Double](repeating: 0, count: (width + 1) * (height + 1))
     var countSums = [Double](repeating: 0, count: (width + 1) * (height + 1))
     for row in 0..<height {
@@ -238,7 +249,7 @@ private func includedBoxMean(_ values: [Double], included: [Bool], width: Int, h
     return means
 }
 
-private func median(_ values: [Double]) -> Double {
+func median(_ values: [Double]) -> Double {
     guard !values.isEmpty else { return .nan }
     let sorted = values.sorted()
     return sorted[sorted.count / 2]
@@ -250,7 +261,7 @@ private func percentile(_ values: [Double], _ share: Double) -> Double {
     return sorted[min(sorted.count - 1, Int(share * Double(sorted.count)))]
 }
 
-private func isInside(_ point: CGPoint, polygon: [CGPoint]) -> Bool {
+func isInside(_ point: CGPoint, polygon: [CGPoint]) -> Bool {
     var inside = false
     var previous = polygon[polygon.count - 1]
     for current in polygon {
@@ -288,7 +299,7 @@ private func roomWhiteAndIlluminant(original: LookPixels, personAt: (Int) -> Boo
 
 /// The product photo's white, linear: the median of its outer 20 pixel border, raised to the garment's 98th percentile of
 /// luminance when the garment is brighter than its background (a white shirt on a light gray sweep).
-private func productPhotoWhite(productPhoto: CGImage, garment: ShirtGarment, context: CIContext) -> SIMD3<Double> {
+func productPhotoWhite(productPhoto: CGImage, garment: ShirtGarment, context: CIContext) -> SIMD3<Double> {
     let photo = LookPixels(CIImage(cgImage: productPhoto), extent: CGRect(x: 0, y: 0, width: productPhoto.width, height: productPhoto.height), context: context, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
     var borderChannels: [[Double]] = [[], [], []]
     for row in 0..<photo.height {
@@ -307,7 +318,7 @@ private func productPhotoWhite(productPhoto: CGImage, garment: ShirtGarment, con
 
 // MARK: - The measurements
 
-private struct LookInputs {
+struct LookInputs {
     let original: LookPixels
     let composite: LookPixels
     let person: LookPixels
@@ -325,7 +336,7 @@ private struct LookInputs {
     let photoWhite: SIMD3<Double>
 }
 
-private func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetrics {
+func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetrics {
     let width = inputs.original.width, height = inputs.original.height, pixelCount = width * height
     var metrics = ShirtLookMetrics()
     metrics.shirtName = shirtName
@@ -439,6 +450,7 @@ private func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetric
     let sectorCount = 16
     var rimSums = [Double](repeating: 0, count: sectorCount), rimClothSums = [Double](repeating: 0, count: sectorCount), rimCounts = [Int](repeating: 0, count: sectorCount)
     var interiorSums = [Double](repeating: 0, count: sectorCount), interiorClothSums = [Double](repeating: 0, count: sectorCount), interiorCounts = [Int](repeating: 0, count: sectorCount)
+    var personRimSums = [Double](repeating: 0, count: sectorCount), personRimClothSums = [Double](repeating: 0, count: sectorCount), personRimCounts = [Int](repeating: 0, count: sectorCount)
     for pixel in 0..<pixelCount where isCloth[pixel] {
         let isRim = !shrunkBy4[pixel], isInterior = shrunkBy6[pixel] && !shrunkBy16[pixel]
         guard isRim || isInterior else { continue }
@@ -446,19 +458,25 @@ private func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetric
         let sector = min(sectorCount - 1, Int((angle + .pi) / (2 * .pi) * Double(sectorCount)))
         let drawn = inputs.composite.luminance(at: pixel), cloth = inputs.warpedGarment.luminance(at: pixel)
         if isRim { rimSums[sector] += drawn; rimClothSums[sector] += cloth; rimCounts[sector] += 1 }
+        if isRim, inputs.person.channel(0, at: pixel) >= 230 { personRimSums[sector] += drawn; personRimClothSums[sector] += cloth; personRimCounts[sector] += 1 }
         if isInterior { interiorSums[sector] += drawn; interiorClothSums[sector] += cloth; interiorCounts[sector] += 1 }
     }
-    var worstRimRatio = 0.0
-    for sector in 0..<sectorCount where rimCounts[sector] >= 200 && interiorCounts[sector] >= 200 {
-        let rimLight = rimSums[sector] / max(rimClothSums[sector], 1e-6)
-        let interiorLight = interiorSums[sector] / max(interiorClothSums[sector], 1e-6)
-        let ratio = rimLight / max(interiorLight, 1e-6)
-        if ratio > worstRimRatio {
-            worstRimRatio = ratio
-            metrics.haloInsideWorstSectorDegrees = (Double(sector) + 0.5) / Double(sectorCount) * 360 - 180
+    func worstRatio(rimSums: [Double], rimClothSums: [Double], rimCounts: [Int]) -> (ratio: Double, sectorDegrees: Double) {
+        var worst = (ratio: 0.0, sectorDegrees: 0.0)
+        for sector in 0..<sectorCount where rimCounts[sector] >= 200 && interiorCounts[sector] >= 200 {
+            let rimLight = rimSums[sector] / max(rimClothSums[sector], 1e-6)
+            let interiorLight = interiorSums[sector] / max(interiorClothSums[sector], 1e-6)
+            let ratio = rimLight / max(interiorLight, 1e-6)
+            if ratio > worst.ratio { worst = (ratio, (Double(sector) + 0.5) / Double(sectorCount) * 360 - 180) }
         }
+        return worst
     }
-    metrics.haloInsideWorstRimRatio = worstRimRatio
+    let worstRim = worstRatio(rimSums: rimSums, rimClothSums: rimClothSums, rimCounts: rimCounts)
+    metrics.haloInsideWorstRimRatio = worstRim.ratio
+    metrics.haloInsideWorstSectorDegrees = worstRim.sectorDegrees
+    let worstRimOnThePerson = worstRatio(rimSums: personRimSums, rimClothSums: personRimClothSums, rimCounts: personRimCounts)
+    metrics.haloInsideWorstRimRatioOnThePerson = worstRimOnThePerson.ratio
+    metrics.haloInsideWorstSectorDegreesOnThePerson = worstRimOnThePerson.sectorDegrees
 
     // The old shirt left showing inside the torso.
     var torsoOldShirtCount = 0, stillShowingCount = 0
@@ -575,6 +593,20 @@ private func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetric
     }
     metrics.darkOutlinePixelsPerShoulderWidth = Double(darkOutlineCount) / shoulderWidth
 
+    // The same dark pixels along the tops of the shoulders, from 0.15 to 0.6 shoulder widths out from the middle and from
+    // 0.35 shoulder widths above the shoulders to 0.1 below, image left first, the neck's sides included. There the old
+    // shirt's edge, left where the renderer's small analysis masks stop short of the person's outline, shows as dark teeth
+    // spaced one analysis pixel apart.
+    var shoulderTeethCounts = [0, 0]
+    for pixel in 0..<pixelCount where justOutsideTheCloth[pixel] && !roomChannels[0][pixel].isNaN && !clothBeside[pixel].isNaN {
+        let row = Double(pixel / width), across = Double(pixel % width) - Double(shoulderMiddle.x)
+        guard abs(across) >= 0.15 * shoulderWidth, abs(across) <= 0.6 * shoulderWidth,
+              row >= Double(shoulderMiddle.y) - 0.35 * shoulderWidth, row <= Double(shoulderMiddle.y) + 0.1 * shoulderWidth else { continue }
+        let roomLuminance = 0.2126 * roomChannels[0][pixel] + 0.7152 * roomChannels[1][pixel] + 0.0722 * roomChannels[2][pixel]
+        if compositeLuminances[pixel] < 0.7 * min(roomLuminance, clothBeside[pixel]) { shoulderTeethCounts[across < 0 ? 0 : 1] += 1 }
+    }
+    metrics.shoulderEdgeTeethPixelsPerShoulderWidth = shoulderTeethCounts.map { Double($0) / shoulderWidth }
+
     // The same dark line along the neckline, which the outline check leaves out: within 0.3 shoulder widths of the middle,
     // from 0.45 shoulder widths above the shoulders to 0.1 below, a person's pixel within 6 pixels outside the cloth is part
     // of it when it is darker than 0.7 times both the neck's own skin, the median of the person's pixels there that are
@@ -666,12 +698,54 @@ private func quadraticFitResidual(_ points: [(across: Double, down: Double)]) ->
 
 // MARK: - The check
 
-private func loadImage(at url: URL) throws -> CGImage {
+/// The standing photo, its pose and person mask, read once and shared by every shirt.
+struct ShirtLookScene {
+    let frame: CIImage
+    let frameExtent: CGRect
+    let torso: BodyTorso
+    let personMask: CIImage
+    let original: LookPixels
+    let person: LookPixels
+    let fullSizeFrame: ShirtSmallFrame
+    let oldShirtColor: SIMD3<Float>
+
+    init(photosFolder: URL, context: CIContext) throws {
+        let sRGB = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let standingPhoto = try loadImage(at: photosFolder.appendingPathComponent("standing.jpg"))
+        frame = CIImage(cgImage: standingPhoto)
+        frameExtent = frame.extent
+        var frameBuffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, standingPhoto.width, standingPhoto.height, kCVPixelFormatType_32BGRA, [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &frameBuffer)
+        let cameraFrame = try #require(frameBuffer)
+        context.render(frame, to: cameraFrame, bounds: frameExtent, colorSpace: sRGB)
+        torso = try #require(ShirtPoseTracker.detectTorso(in: cameraFrame))
+        let segmentation = VNGeneratePersonSegmentationRequest()
+        segmentation.qualityLevel = .balanced
+        segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
+        try VNImageRequestHandler(cvPixelBuffer: cameraFrame, orientation: .up).perform([segmentation])
+        personMask = CIImage(cvPixelBuffer: try #require(segmentation.results?.first?.pixelBuffer), options: [.colorSpace: NSNull()])
+        let personMaskExtent = personMask.extent
+        let personMaskAtFrameSize = personMask
+            .transformed(by: CGAffineTransform(scaleX: frameExtent.width / personMaskExtent.width, y: frameExtent.height / personMaskExtent.height))
+            .cropped(to: frameExtent)
+        original = LookPixels(frame, extent: frameExtent, context: context, colorSpace: sRGB)
+        person = LookPixels(personMaskAtFrameSize, extent: frameExtent, context: context, colorSpace: nil)
+        let original = original, person = person
+        fullSizeFrame = ShirtSmallFrame(
+            width: original.width, height: original.height, rgba: original.bytes,
+            personMask: (0..<(original.width * original.height)).map { person.channel(0, at: $0) }, torso: torso
+        )
+        oldShirtColor = try #require(fullSizeFrame.measureOldShirtColor())
+    }
+}
+
+
+func loadImage(at url: URL) throws -> CGImage {
     let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
     return try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
 }
 
-private func savePNG(_ image: CGImage, to url: URL) throws {
+func savePNG(_ image: CGImage, to url: URL) throws {
     let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
     CGImageDestinationAddImage(destination, image, nil)
     #expect(CGImageDestinationFinalize(destination))
@@ -686,28 +760,9 @@ struct ShirtLookCheckTests {
         let context = CIContext()
         let sRGB = try #require(CGColorSpace(name: CGColorSpace.sRGB))
 
-        let standingPhoto = try loadImage(at: photosFolder.appendingPathComponent("standing.jpg"))
-        let frame = CIImage(cgImage: standingPhoto)
-        let frameExtent = frame.extent
-        var frameBuffer: CVPixelBuffer?
-        CVPixelBufferCreate(nil, standingPhoto.width, standingPhoto.height, kCVPixelFormatType_32BGRA, [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &frameBuffer)
-        let cameraFrame = try #require(frameBuffer)
-        context.render(frame, to: cameraFrame, bounds: frameExtent, colorSpace: sRGB)
-        let torso = try #require(ShirtPoseTracker.detectTorso(in: cameraFrame))
-        let segmentation = VNGeneratePersonSegmentationRequest()
-        segmentation.qualityLevel = .balanced
-        segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
-        try VNImageRequestHandler(cvPixelBuffer: cameraFrame, orientation: .up).perform([segmentation])
-        let personMask = CIImage(cvPixelBuffer: try #require(segmentation.results?.first?.pixelBuffer), options: [.colorSpace: NSNull()])
-        let personMaskExtent = personMask.extent
-        let personMaskAtFrameSize = personMask
-            .transformed(by: CGAffineTransform(scaleX: frameExtent.width / personMaskExtent.width, y: frameExtent.height / personMaskExtent.height))
-            .cropped(to: frameExtent)
-
-        let original = LookPixels(frame, extent: frameExtent, context: context, colorSpace: sRGB)
-        let person = LookPixels(personMaskAtFrameSize, extent: frameExtent, context: context, colorSpace: nil)
-        let fullSizeFrame = ShirtSmallFrame(width: original.width, height: original.height, rgba: original.bytes, personMask: (0..<(original.width * original.height)).map { person.channel(0, at: $0) }, torso: torso)
-        let oldShirtColor = try #require(fullSizeFrame.measureOldShirtColor())
+        let scene = try ShirtLookScene(photosFolder: photosFolder, context: context)
+        let frame = scene.frame, frameExtent = scene.frameExtent, torso = scene.torso, personMask = scene.personMask
+        let original = scene.original, person = scene.person, oldShirtColor = scene.oldShirtColor
 
         let flatLayNames = try FileManager.default.contentsOfDirectory(atPath: photosFolder.path).filter { $0.hasPrefix("uE") && $0.hasSuffix(".jpg") }.sorted()
         #expect(!flatLayNames.isEmpty)
@@ -769,6 +824,10 @@ struct ShirtLookCheckTests {
             #expect(metrics.darkOutlinePixelsPerShoulderWidth < ShirtLookLimits.darkOutlinePixelsPerShoulderWidth, "\(shirtName): dark line along the outline")
             #expect(metrics.frontNecklineBelowTheNecklineInShoulderWidths.map { ShirtLookLimits.frontNecklineBelowTheNeckline.contains($0) } == true, "\(shirtName): front neckline")
             #expect(metrics.darkNecklinePixelsPerShoulderWidth < ShirtLookLimits.darkNecklinePixelsPerShoulderWidth, "\(shirtName): dark line along the neckline")
+            #expect(metrics.shoulderEdgeTeethPixelsPerShoulderWidth.count == 2, "\(shirtName): both shoulders' edges measured")
+            for teeth in metrics.shoulderEdgeTeethPixelsPerShoulderWidth {
+                #expect(teeth <= ShirtLookLimits.shoulderEdgeTeethPixelsPerShoulderWidth, "\(shirtName): dark teeth along the shoulder")
+            }
             if let insideOfTheBackDrawnShare = metrics.insideOfTheBackDrawnShare {
                 #expect(insideOfTheBackDrawnShare < ShirtLookLimits.insideOfTheBackDrawnShare, "\(shirtName): inside of the back drawn")
             }
@@ -780,7 +839,7 @@ struct ShirtLookCheckTests {
 }
 
 /// Each drawn sleeve, with the shoulder and elbow it should hold.
-private func sleeveLayers(of composition: ShirtTryOnComposition, torso: BodyTorso) -> [(side: ShirtSleeveSide, axis: CGVector, liesAlongTheArm: Bool, shoulder: CGPoint, elbow: CGPoint)] {
+func sleeveLayers(of composition: ShirtTryOnComposition, torso: BodyTorso) -> [(side: ShirtSleeveSide, axis: CGVector, liesAlongTheArm: Bool, shoulder: CGPoint, elbow: CGPoint)] {
     composition.sleeves.compactMap { sleeve in
         let isImageLeft = sleeve.side == .imageLeft
         guard let elbow = isImageLeft ? torso.imageLeftElbow : torso.imageRightElbow else { return nil }

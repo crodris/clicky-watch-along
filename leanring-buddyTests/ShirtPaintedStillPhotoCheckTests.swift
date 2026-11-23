@@ -44,17 +44,6 @@ struct ShirtPaintedStillMetrics: Codable {
     var seconds = 0.0
 }
 
-private func loadImage(at url: URL) throws -> CGImage {
-    let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
-    return try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
-}
-
-private func savePNG(_ image: CGImage, to url: URL) throws {
-    let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
-    CGImageDestinationAddImage(destination, image, nil)
-    #expect(CGImageDestinationFinalize(destination))
-}
-
 /// The picture as the room art panel reads a page's image file: its long side at most 1280.
 private func scaledLikeThePagePicture(_ image: CGImage) -> CGImage {
     let scale = min(1, Double(RoomArtPictureSource.longestSide) / Double(max(image.width, image.height)))
