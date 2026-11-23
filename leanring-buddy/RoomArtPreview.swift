@@ -1687,7 +1687,8 @@ final class RoomArtPreviewController: ObservableObject {
     /// The furniture's cutout over white, as a JPEG, which both generation services work from. It is the product cut out of
     /// the page's photo, never the raw page picture, which can hold a cookie banner or the rest of the page.
     private var furnitureCutoutJPEG: Data?
-    /// The composite service said it is not set up, so no later placement in this panel asks it again.
+    /// The composite service said it is not set up (503) or OpenAI is out of credit (402), so no later placement in this panel
+    /// asks it again.
     private var compositeServiceIsUnavailable = false
     private var stepBackWasSaid = false
 
