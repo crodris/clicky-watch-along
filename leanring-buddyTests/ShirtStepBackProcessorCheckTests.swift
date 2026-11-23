@@ -12,6 +12,8 @@
 //  framing over 2 seconds, then held still. The processor takes its time from the clock, so this check runs in real time, about
 //  15 seconds (about 25 for the time out check, which waits out the 18 second limit), which is why the capture's own
 //  rules are tested by hand in ShirtStepBackTests.
+//  It also checks the painted top following the learner on the same processor: the follow starts after the still, its
+//  out of reach hint comes and goes as the learner steps too close and back, and a top handed over after go back is dropped.
 //
 
 import CoreGraphics
@@ -164,6 +166,50 @@ struct ShirtStepBackProcessorCheckTests {
         setup.frameProcessor.endTheSession()
     }
 
+    @Test(.enabled(if: processorCheckEnvironment["SHIRT_TRYON_PHOTOS_DIR"] != nil, "Set SHIRT_TRYON_PHOTOS_DIR"))
+    func thePaintedTopFollowsTheLearnerAndSaysSoWhenTheyStepOutOfReachAndALateTopAfterGoBackDoesNothing() async throws {
+        let coverage = ShirtCoverage(sleeves: .short, length: .hip)
+        let setup = try makeTheSetup(ghostCoverage: coverage)
+        let capture = CaptureLog()
+        setup.frameProcessor.armTheShirtCapture { capture.record($0) }
+        let stillFrame = try setup.frame(zoom: 1)
+        let tooCloseFrame = try setup.frame(zoom: setup.closeZoom)
+        // The source reads which frame to send from here, so the test moves the learner by changing it.
+        let learnerIsTooClose = OSAllocatedUnfairLock(initialState: false)
+        let source = DispatchSource.makeTimerSource(queue: setup.frameProcessor.processingQueue)
+        source.schedule(deadline: .now(), repeating: 1 / framesPerSecond)
+        source.setEventHandler { setup.frameProcessor.process(learnerIsTooClose.withLock { $0 } ? tooCloseFrame : stillFrame) }
+        source.resume()
+        defer { source.cancel() }
+
+        try await untilTheCaptureEnds(capture, within: 15)
+        let frozen = try #require(capture.frozen, "the capture never froze: \(capture.entries.map { "\($0.seconds) \($0.event)" })")
+        // The frozen camera frame stands in for the painting: only the processor's follow is under test here.
+        let masks = try #require(ShirtPaintMask.make(frame: frozen.frame, bodyParts: shirtPaintBodyParts(in: frozen.frame.cameraImage), coverage: coverage))
+        let paintedTop = try #require(ShirtLivePaintedTop.make(painted: frozen.frame.cameraImage, masks: masks, frozenTorso: frozen.frame.torso, coverage: coverage))
+        let hints = OSAllocatedUnfairLock<[Bool]>(initialState: [])
+        setup.frameProcessor.showThePaintedStill(frozen.frame.cameraImage)
+        setup.frameProcessor.followTheLearnerWithThePaintedTop(paintedTop) { hintIsShowing in hints.withLock { $0.append(hintIsShowing) } }
+
+        // Standing as in the painting, the top follows and no hint shows. Too close (the shoulders past the painting's reach or
+        // out of the frame), the still shows and the hint comes, and back where they stood it goes.
+        try await Task.sleep(for: .seconds(2))
+        #expect(hints.withLock { $0 }.isEmpty, "hints \(hints.withLock { $0 })")
+        learnerIsTooClose.withLock { $0 = true }
+        try await until(within: 5, "the out of reach hint never came") { hints.withLock { $0 } == [true] }
+        learnerIsTooClose.withLock { $0 = false }
+        try await until(within: 5, "the hint never went") { hints.withLock { $0 } == [true, false] }
+
+        // Go back clears the frozen frame, so a top handed over late is dropped and no hint comes for it.
+        setup.frameProcessor.resumeTheLiveShirt()
+        let lateHints = OSAllocatedUnfairLock<[Bool]>(initialState: [])
+        setup.frameProcessor.followTheLearnerWithThePaintedTop(paintedTop) { hintIsShowing in lateHints.withLock { $0.append(hintIsShowing) } }
+        learnerIsTooClose.withLock { $0 = true }
+        try await Task.sleep(for: .seconds(2))
+        #expect(lateHints.withLock { $0 }.isEmpty, "late hints \(lateHints.withLock { $0 })")
+        setup.frameProcessor.endTheSession()
+    }
+
     // MARK: Setup
 
     private struct Setup {
@@ -222,6 +268,14 @@ struct ShirtStepBackProcessorCheckTests {
     }
 
     private struct SetupFailure: Error {}
+
+    private func until(within seconds: Double, _ failure: String, _ condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition() {
+            try #require(Date() < deadline, "\(failure) in \(seconds) s")
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
 
     private func untilTheCaptureEnds(_ capture: CaptureLog, within seconds: Double) async throws {
         let deadline = Date().addingTimeInterval(seconds)

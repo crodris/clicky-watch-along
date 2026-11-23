@@ -98,6 +98,10 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     private var frameIsFrozen = false
     private var recordedPaintedAreaOutlines = 0
     var paintedAreaOutlines: Int { lock.withLock { recordedPaintedAreaOutlines } }
+    /// How many live painted tops the controller handed over, and the handler its newest one reports the hint to.
+    private var recordedLivePaintedTopsFollowed = 0
+    private var livePaintedTopHintHandler: (@Sendable (Bool) -> Void)?
+    var livePaintedTopsFollowed: Int { lock.withLock { recordedLivePaintedTopsFollowed } }
 
     var freezes: Int { lock.withLock { recordedFreezes } }
     var paintedStillsShown: Int { lock.withLock { recordedPaintedStillsShown } }
@@ -304,6 +308,20 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
         lock.withLock { recordedPaintedStillsShown += 1 }
     }
 
+    func followTheLearnerWithThePaintedTop(_ paintedTop: ShirtLivePaintedTop, onTheHintChanged: @escaping @Sendable (Bool) -> Void) {
+        lock.withLock {
+            recordedLivePaintedTopsFollowed += 1
+            livePaintedTopHintHandler = onTheHintChanged
+        }
+    }
+
+    /// The painted top went out of the learner's reach (true) or came back (false), reported on the main actor as the real
+    /// processor does.
+    func reportThePaintedTopHint(showing hintIsShowing: Bool) {
+        guard let handler = lock.withLock({ livePaintedTopHintHandler }) else { return }
+        DispatchQueue.main.async { handler(hintIsShowing) }
+    }
+
     func resumeTheLiveShirt() {
         lock.withLock {
             recordedResumes += 1
@@ -378,6 +396,13 @@ private final class ShirtPaintingStub {
     private(set) var requests: [ShirtPaintingRequest] = []
     /// The area the garment covers, as each mask was asked for.
     private(set) var coveragesAsked: [ShirtCoverage] = []
+    /// Whether the painted top can be cut out of the painted still, and a gate that holds the cut pending until the test opens
+    /// it. A cancel, as go back and a close do, does not end the wait, since the real cut runs off the main actor and no
+    /// cancel stops it.
+    var livePaintedTopIsMade = true
+    var livePaintedTopGate: TestGate?
+    private(set) var livePaintedTopsAsked = 0
+    private(set) var livePaintedTopsFinished = 0
 
     func apply(to environment: inout RoomArtPreviewController.Environment) {
         environment.makeTheShirtPaintMasks = { frozenFrame, coverage in
@@ -395,6 +420,13 @@ private final class ShirtPaintingStub {
             if let paintingGate = self.paintingGate { try await paintingGate.waitUnlessCancelled() }
             try self.paintingResult.get()
             return paintingRequest.keyframe
+        }
+        environment.makeTheLivePaintedTop = { painted, masks, frozenTorso, coverage in
+            self.livePaintedTopsAsked += 1
+            await self.livePaintedTopGate?.wait()
+            defer { self.livePaintedTopsFinished += 1 }
+            guard self.livePaintedTopIsMade else { return nil }
+            return ShirtLivePaintedTop.make(painted: painted, masks: masks, frozenTorso: frozenTorso, coverage: coverage)
         }
     }
 }
@@ -1025,7 +1057,9 @@ private struct RoomArtHarness {
     }
 
     func statusLine() -> String {
-        controller.phase.statusLine(theSurfaceIsLost: controller.theSurfaceIsLost, shirtCoachingLine: controller.shirtCoachingLine)
+        controller.phase.statusLine(
+            theSurfaceIsLost: controller.theSurfaceIsLost, shirtCoachingLine: controller.shirtCoachingLine, thePaintedTopIsOutOfReach: controller.thePaintedTopIsOutOfReach
+        )
     }
 
     /// The middle of the ghost's box in the current frame, which the stand-in processor's turn leaves where the keyframe has it.
@@ -3605,7 +3639,7 @@ struct RoomArtPreviewControllerTests {
         #expect(shirtPainting.requests.count == 1)
         #expect(harness.spokenLines().last == "Here it is on you.")
         #expect(harness.recorder.spokenLineFailureFlags.last == false)
-        #expect(harness.statusLine() == "On you · say go back for the live view")
+        #expect(harness.statusLine() == "On you · say go back to the preview")
         #expect(harness.controller.loopState.isFadingOut)
 
         // The Worker hears the garment in its own words: the page's kind and sleeves, and the color the page reader named.
@@ -3629,6 +3663,113 @@ struct RoomArtPreviewControllerTests {
         harness.frameProcessor.freezeTheFrame()
         try await waitFor("the second painted still") { harness.controller.phase == .showingThePaintedShirt(title: "Linen shirt", preview: .liveGarment) }
         #expect(harness.spokenLines().filter { $0 == "Here it is on you." }.count == 2)
+        harness.controller.close()
+    }
+
+    @Test func thePaintedTopFollowsTheLearnerOnceThePaintedStillShowsAndTheHintFollowsItsReach() async throws {
+        let shirtPainting = ShirtPaintingStub()
+        let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
+
+        try await sayRightThereAndHoldStill(harness)
+        try await waitFor("the painted top to follow the learner") { harness.frameProcessor.livePaintedTopsFollowed == 1 }
+        // The top is cut out of the still that was painted, for this garment, and nothing else is asked.
+        #expect(shirtPainting.livePaintedTopsAsked == 1)
+        #expect(harness.controller.phase == .showingThePaintedShirt(title: "Linen shirt", preview: .liveGarment))
+        #expect(harness.statusLine() == roomArtShirtPaintedStatusLine)
+
+        // Out of the learner's reach the line says how to see it live, and back in reach the still's own line returns.
+        harness.frameProcessor.reportThePaintedTopHint(showing: true)
+        try await waitFor("the out of reach line") { harness.statusLine() == roomArtShirtPaintedOutOfReachLine }
+        #expect(harness.recorder.spokenLineFailureFlags.last == false)
+        harness.frameProcessor.reportThePaintedTopHint(showing: false)
+        try await waitFor("the painted still's line") { harness.statusLine() == roomArtShirtPaintedStatusLine }
+
+        // A hint that arrives after going back changes nothing, so it cannot start the next painted still out of reach.
+        harness.controller.goBackToTheLiveShirt()
+        #expect(harness.statusLine() == "On you")
+        harness.frameProcessor.reportThePaintedTopHint(showing: true)
+        await untilTheCaptureEventsSentSoFarAreHandled()
+        #expect(!harness.controller.thePaintedTopIsOutOfReach)
+        #expect(harness.statusLine() == "On you")
+        harness.controller.close()
+    }
+
+    @Test func goingBackAndPaintingAgainStartsWithTheStillsOwnLineAfterAnOutOfReachHint() async throws {
+        let shirtPainting = ShirtPaintingStub()
+        let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
+        try await sayRightThereAndHoldStill(harness)
+        try await waitFor("the painted top to follow the learner") { harness.frameProcessor.livePaintedTopsFollowed == 1 }
+        harness.frameProcessor.reportThePaintedTopHint(showing: true)
+        try await waitFor("the out of reach line") { harness.statusLine() == roomArtShirtPaintedOutOfReachLine }
+
+        // The hint was showing when the learner went back, and the next painted still must not start with it.
+        harness.controller.goBackToTheLiveShirt()
+        harness.controller.paintTheShirt()
+        harness.frameProcessor.freezeTheFrame()
+        try await waitFor("the second painted still") { harness.controller.phase == .showingThePaintedShirt(title: "Linen shirt", preview: .liveGarment) }
+        #expect(harness.statusLine() == roomArtShirtPaintedStatusLine)
+        harness.controller.close()
+    }
+
+    @Test func goingBackWhileThePaintedTopIsCutOutNeverStartsFollowing() async throws {
+        let shirtPainting = ShirtPaintingStub()
+        let cutGate = TestGate()
+        shirtPainting.livePaintedTopGate = cutGate
+        let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
+
+        try await sayRightThereAndHoldStill(harness)
+        try await waitFor("the painted still to show") { harness.controller.phase == .showingThePaintedShirt(title: "Linen shirt", preview: .liveGarment) }
+        try await waitFor("the cut to start") { shirtPainting.livePaintedTopsAsked == 1 }
+        harness.controller.goBackToTheLiveShirt()
+
+        // The cut goes on after going back, since no cancel stops it, and its result finds nothing to follow.
+        cutGate.open()
+        try await waitFor("the cut to end") { shirtPainting.livePaintedTopsFinished == 1 }
+        for _ in 0..<5 { await Task.yield() }
+        await untilTheCaptureEventsSentSoFarAreHandled()
+        #expect(harness.frameProcessor.livePaintedTopsFollowed == 0)
+        #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt", preview: .liveGarment))
+        harness.controller.close()
+    }
+
+    @Test func aCutThatFinishesForAnEarlierPaintingNeverFollowsOverANewerOne() async throws {
+        let shirtPainting = ShirtPaintingStub()
+        let cutGate = TestGate()
+        shirtPainting.livePaintedTopGate = cutGate
+        let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
+
+        // The first painting's cut is still pending when the learner goes back and paints again.
+        try await sayRightThereAndHoldStill(harness)
+        try await waitFor("the first cut to start") { shirtPainting.livePaintedTopsAsked == 1 }
+        harness.controller.goBackToTheLiveShirt()
+        harness.controller.paintTheShirt()
+        harness.frameProcessor.freezeTheFrame()
+        try await waitFor("the second cut to start") { shirtPainting.livePaintedTopsAsked == 2 }
+        #expect(harness.controller.phase == .showingThePaintedShirt(title: "Linen shirt", preview: .liveGarment))
+
+        // Both cuts finish, and only the newer painting's top follows, though the phase is a painted still's again.
+        cutGate.open()
+        try await waitFor("both cuts to end") { shirtPainting.livePaintedTopsFinished == 2 }
+        try await waitFor("the newer painting's top to follow") { harness.frameProcessor.livePaintedTopsFollowed >= 1 }
+        for _ in 0..<5 { await Task.yield() }
+        await untilTheCaptureEventsSentSoFarAreHandled()
+        #expect(harness.frameProcessor.livePaintedTopsFollowed == 1)
+        harness.controller.close()
+    }
+
+    @Test func aPaintedTopThatCannotBeCutOutLeavesThePaintedStillAsItIs() async throws {
+        let shirtPainting = ShirtPaintingStub()
+        shirtPainting.livePaintedTopIsMade = false
+        let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
+
+        try await sayRightThereAndHoldStill(harness)
+        try await waitFor("the cut to end") { shirtPainting.livePaintedTopsFinished == 1 }
+        for _ in 0..<5 { await Task.yield() }
+        await untilTheCaptureEventsSentSoFarAreHandled()
+        #expect(harness.frameProcessor.livePaintedTopsFollowed == 0)
+        // Nothing failed: the painted still shows, and the learner is told nothing.
+        #expect(harness.controller.phase == .showingThePaintedShirt(title: "Linen shirt", preview: .liveGarment))
+        #expect(harness.statusLine() == roomArtShirtPaintedStatusLine)
         harness.controller.close()
     }
 

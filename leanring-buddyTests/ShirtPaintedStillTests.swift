@@ -54,7 +54,7 @@ struct ShirtPaintedStillPhaseTests {
         let painting = RoomArtPhase.paintingTheShirt(title: "Tee", id: paintingID, preview: .liveGarment)
         let still = RoomArtPhase.showingThePaintedShirt(title: "Tee", preview: .liveGarment)
         #expect(painting.statusLine(theSurfaceIsLost: false, shirtCoachingLine: "Stand back") == "Putting it on you…")
-        #expect(still.statusLine(theSurfaceIsLost: false, shirtCoachingLine: "Stand back") == "On you · say go back for the live view")
+        #expect(still.statusLine(theSurfaceIsLost: false, shirtCoachingLine: "Stand back") == "On you · say go back to the preview")
         #expect(!painting.statusLineIsAFailure(theSurfaceIsLost: false) && !still.statusLineIsAFailure(theSurfaceIsLost: false))
         #expect(!painting.theItemIsPlacedByClicking && !still.theItemIsPlacedByClicking)
     }

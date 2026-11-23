@@ -961,7 +961,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     }
 
     /// `motion` (y down) for an image in Core Image's coordinates (y up) with `frameExtent`.
-    private static func coreImageTransform(of motion: CGAffineTransform, frameExtent: CGRect) -> CGAffineTransform {
+    static func coreImageTransform(of motion: CGAffineTransform, frameExtent: CGRect) -> CGAffineTransform {
         let flip = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: frameExtent.minY * 2 + frameExtent.height)
         return flip.concatenating(motion).concatenating(flip)
     }
@@ -973,7 +973,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     // MARK: Core Image helpers
 
     /// `image` scaled and moved to cover `extent` exactly.
-    private static func scaled(_ image: CIImage, toFill extent: CGRect) -> CIImage {
+    static func scaled(_ image: CIImage, toFill extent: CGRect) -> CIImage {
         let imageExtent = image.extent
         return image
             .transformed(by: CGAffineTransform(translationX: -imageExtent.minX, y: -imageExtent.minY))
@@ -983,7 +983,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     }
 
     /// One channel of `image` as an opaque gray image.
-    private static func channel(_ image: CIImage, _ index: Int) -> CIImage {
+    static func channel(_ image: CIImage, _ index: Int) -> CIImage {
         let unit = CIVector(x: index == 0 ? 1 : 0, y: index == 1 ? 1 : 0, z: index == 2 ? 1 : 0, w: index == 3 ? 1 : 0)
         return withBias(image, parameters: [
             "inputRVector": unit, "inputGVector": unit, "inputBVector": unit,
@@ -992,7 +992,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     }
 
     /// A gray image's values from `low` to `high` stretched to 0 to 1 and clipped.
-    private static func ramp(_ gray: CIImage, from low: Double, to high: Double) -> CIImage {
+    static func ramp(_ gray: CIImage, from low: Double, to high: Double) -> CIImage {
         let gain = 1 / (high - low), bias = -low / (high - low)
         return withBias(gray, parameters: [
             "inputRVector": CIVector(x: gain, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: gain, z: 0, w: 0),
@@ -1021,7 +1021,8 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         ]
     }
 
-    private static func multiplied(_ first: CIImage, _ second: CIImage) -> CIImage {
+    /// Two opaque gray images multiplied. Core Image's multiply is a blend mode, so images with clear pixels do not multiply.
+    static func multiplied(_ first: CIImage, _ second: CIImage) -> CIImage {
         first.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: second])
     }
 

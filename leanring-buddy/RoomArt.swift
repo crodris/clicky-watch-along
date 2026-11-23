@@ -1285,7 +1285,8 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// The capture froze the frame and the shirt is painted into it. `id` names this painting, so a reply for one the
     /// learner left by going back changes nothing.
     case paintingTheShirt(title: String, id: ShirtPaintingID, preview: ShirtPreviewKind)
-    /// The painted still shows until the learner goes back to the preview.
+    /// The painted still shows, and the painted top follows the learner in the live frames while it can (`ShirtLivePaintedTop`),
+    /// until the learner goes back to the preview.
     case showingThePaintedShirt(title: String, preview: ShirtPreviewKind)
     case failed(RoomArtFailure)
     /// The page read for a new item in a kept room failed, or the item's first measurement did, so the camera runs on and the
@@ -1553,8 +1554,10 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     }
 
     /// The panel's one-line status. `theSurfaceIsLost` says the tracker lost the room long enough to hide the item, which
-    /// only matters while the item shows, or while furniture's ghost shows or its painting comes, and `shirtCoachingLine` is the settled framing's advice while the shirt cannot be drawn.
-    func statusLine(theSurfaceIsLost: Bool, shirtCoachingLine: String?) -> String {
+    /// only matters while the item shows, or while furniture's ghost shows or its painting comes, and `shirtCoachingLine` is the
+    /// settled framing's advice while the shirt cannot be drawn. `thePaintedTopIsOutOfReach` matters only while the painted
+    /// still shows: the painted top cannot follow the learner, so the line says to stand as they did.
+    func statusLine(theSurfaceIsLost: Bool, shirtCoachingLine: String?, thePaintedTopIsOutOfReach: Bool = false) -> String {
         switch self {
         case .closed: return ""
         case .readingThePage, .readingThePageInTheKeptRoom: return "Reading the page…"
@@ -1574,7 +1577,9 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         case .waitingForTheLearnerToStepBack: return roomArtShirtStepBackLine
         // The frame is frozen, so the learner moving out of view changes nothing on screen and no coaching shows.
         case .paintingTheShirt: return roomArtShirtPaintingStatusLine
-        case .showingThePaintedShirt: return roomArtShirtPaintedStatusLine
+        // The framing's coaching means nothing here, since the frame is frozen or the painted top follows the learner. Out of
+        // the learner's reach the still shows, and the line says how to see the top live again.
+        case .showingThePaintedShirt: return thePaintedTopIsOutOfReach ? roomArtShirtPaintedOutOfReachLine : roomArtShirtPaintedStatusLine
         case .failed(let failure): return failure.statusLine
         // The placed items hide while the room is lost, as an item that shows does, so the line says to turn back.
         case .roomKeptAfterAFailedItem(let failure): return theSurfaceIsLost ? roomArtKeptRoomLostLine : failure.statusLine
