@@ -902,8 +902,16 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
     func renderTheLastFrame() -> CGImage? {
         processingQueue.sync {
-            lastComposedImage.flatMap { ciContext.createCGImage($0, from: $0.extent, format: .RGBA8, colorSpace: sRGBColorSpace) }
+            Self.imageToSave(lastComposedImage: lastComposedImage, paintedStill: frozenShirt?.painted)
+                .flatMap { ciContext.createCGImage($0, from: $0.extent, format: .RGBA8, colorSpace: sRGBColorSpace) }
         }
+    }
+
+    /// What Save photo writes: the painted still once it has arrived, so a save during its 0.5 s crossfade writes the
+    /// finished still and never a mix of it with the frozen preview, and otherwise the last frame as drawn.
+    static func imageToSave(lastComposedImage: CIImage?, paintedStill: CIImage?) -> CIImage? {
+        guard let paintedStill else { return lastComposedImage }
+        return paintedStill.cropped(to: lastComposedImage?.extent ?? paintedStill.extent)
     }
 
     /// The item over the frame where the tracker put `artCorners` (camera pixels, y down), with the person drawn back on top
@@ -1630,6 +1638,8 @@ final class RoomArtPreviewController: ObservableObject {
     private var lastShirtPaintingNumber = 0
     /// A press cancelled the waiting capture, and its transcript has not been routed yet.
     private var aPressCancelledTheCapture = false
+    /// The save in progress, so a second press while it runs saves nothing more, and a test can wait for it.
+    private(set) var photoSavingTask: Task<Void, Never>?
 
     /// With no presenter, the real panel shows, and with no frame processor, the real one draws it.
     init(environment: Environment, frameProcessor: RoomArtFrameProcessing = RoomArtFrameProcessor(), panelPresenter: RoomArtPanelPresenting? = nil) {
@@ -2279,10 +2289,10 @@ final class RoomArtPreviewController: ObservableObject {
         }
     }
 
-    /// "Right there" or Paint it: arms the capture, so the learner can step back from the keyboard, and the frame freezes
-    /// once they stand in the ready framing and hold still for the countdown (`ShirtStepBackCapture`). Asking again while the
-    /// capture waits restarts it. One painting runs at a time, and a request before the preview shows changes nothing
-    /// (`RoomArtPhase.armingTheShirtCapture`).
+    /// "Paint it" (or its alias "right there") or the Paint it button: arms the capture, so the learner can step back
+    /// from the keyboard, and the frame freezes once they stand in the ready framing and hold still for the countdown
+    /// (`ShirtStepBackCapture`). Asking again while the capture waits restarts it. One painting runs at a time, and a
+    /// request before the preview shows changes nothing (`RoomArtPhase.armingTheShirtCapture`).
     func paintTheShirt() {
         let paintingID = ShirtPaintingID(number: lastShirtPaintingNumber + 1)
         let armedPhase = phase.armingTheShirtCapture(id: paintingID)
@@ -2377,8 +2387,6 @@ final class RoomArtPreviewController: ObservableObject {
         }
     }
 
-    /// "Go back" or Back to live: the live preview comes back, from the painted still or from a painting on its way, which
-    /// is cancelled.
     /// Save photo, by its button or "save this photo": writes the frame the panel last drew, at the camera's own size, as a
     /// JPEG in `photoFolder`, and shows a chip that says where, or that it failed. The panel stays open either way.
     func saveThePhoto() {
@@ -2403,9 +2411,8 @@ final class RoomArtPreviewController: ObservableObject {
         }
     }
 
-    /// The save in progress, so a second press while it runs saves nothing more, and a test can wait for it.
-    private(set) var photoSavingTask: Task<Void, Never>?
-
+    /// "Go back" or Back to live: the live preview comes back, from the painted still or from a painting on its way, which
+    /// is cancelled.
     func goBackToTheLiveShirt() {
         let livePhase = phase.backToTheLiveShirt()
         guard livePhase != phase else { return }
@@ -2419,7 +2426,7 @@ final class RoomArtPreviewController: ObservableObject {
     }
 
     /// A push-to-talk press while the capture waits for the learner to step back cancels it, with nothing said, since the
-    /// press is the learner's next request, such as "right there" again, which arms a new capture. The press also resumes the
+    /// press is the learner's next request, such as "paint it" again, which arms a new capture. The press also resumes the
     /// live frame, since the processor may have frozen one whose event is still on its way and will be dropped as stale. The
     /// transcript of that press still reaches the capture's phrases (`shirtStillVoiceTargetsForTheRoute`), so "go back" never
     /// falls through to the router and seeks a video.
@@ -3386,8 +3393,10 @@ private struct RoomArtPanelView: View {
                     }
                     shirtButton
                 }
+                // The buttons end left of the corner grip, so a click on a button's right end never starts a resize.
+                .padding(.trailing, roomArtPanelBottomRowTrailingInset - roomArtPanelContentInset)
             }
-            .padding(16)
+            .padding(roomArtPanelContentInset)
         }
         .overlay(alignment: .bottomTrailing) { resizeGrip }
         .frame(width: panelSize.width, height: panelSize.height)
@@ -3417,12 +3426,12 @@ private struct RoomArtPanelView: View {
                 context.stroke(line, with: .color(DS.Colors.textPrimary.opacity(resizeGripIsHovered ? 0.9 : 0.5)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
             }
         }
-        .frame(width: 16, height: 16)
+        .frame(width: roomArtPanelResizeGripSide - 8, height: roomArtPanelResizeGripSide - 8)
         .padding(4)
         .background(RoundedRectangle(cornerRadius: 6).fill(DS.Colors.background.opacity(resizeGripIsHovered ? 0.7 : 0)))
         .overlay(RoomArtPanelWindowControl(kind: .resizeGrip))
         .hoverAndPointer { isHovered in resizeGripIsHovered = isHovered }
-        .padding(3)
+        .padding(roomArtPanelResizeGripEdgeInset)
         .accessibilityLabel("Resize the panel")
     }
 
@@ -3494,7 +3503,7 @@ private struct RoomArtPanelView: View {
     }
 
     /// Paint it while the live preview shows, and Back to live while a painting is made or the painted still shows. Each
-    /// does what its spoken phrase does ("right there", "go back").
+    /// does what its spoken phrase does ("paint it", "go back").
     @ViewBuilder
     private var shirtButton: some View {
         let shirtButtonTitle: String? = switch previewController.shirtStillVoiceTargets {

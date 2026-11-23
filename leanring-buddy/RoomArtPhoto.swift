@@ -34,19 +34,29 @@ extension RoomArtPhase {
     }
 }
 
-/// The longest item title a photo's file name keeps, in characters.
-nonisolated let roomArtPhotoTitleLongestCharacters = 60
+/// The longest item title a photo's file name keeps, in UTF-8 bytes. A file name may be 255 bytes, and the prefix, the
+/// date, a " 99" copy suffix, and the extension take about 45 of them, so 150 leaves room to spare for any title.
+nonisolated let roomArtPhotoTitleLongestUTF8Bytes = 150
 
 /// The file name of a saved photo: "Clicky try-on <item title> <yyyy-MM-dd HH.mm.ss>.jpg", with the title cut to
-/// `roomArtPhotoTitleLongestCharacters`. A slash, a colon, a control character, or a bidirectional control in the title
-/// becomes a hyphen and a leading dot is dropped, so a store's title can never name a folder, a hidden file, or a file that
-/// reads backward. The time is in `timeZone`, the learner's own by default.
+/// `roomArtPhotoTitleLongestUTF8Bytes` at a character boundary, so an emoji or an accented letter is never split. A slash,
+/// a colon, a control character, or a bidirectional control in the title becomes a hyphen and a leading dot is dropped, so
+/// a store's title can never name a folder, a hidden file, or a file that reads backward. The time is in `timeZone`, the learner's own by default.
 nonisolated func roomArtPhotoFileName(itemTitle: String, savedAt date: Date, timeZone: TimeZone = .current) -> String {
-    let unsafeScalars = CharacterSet(charactersIn: "/:").union(.controlCharacters).union(CharacterSet(charactersIn: "\u{200E}\u{200F}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}"))
-    var safeTitle = String(String.UnicodeScalarView(itemTitle.unicodeScalars.map { unsafeScalars.contains($0) ? "-" : $0 }))
+    // Only true control characters (the Cc category) and the bidirectional controls. `CharacterSet.controlCharacters` also
+    // holds every format character, such as the zero-width joiner inside a family emoji or the tags of a flag emoji, which
+    // are safe in a file name and would split the emoji into hyphens.
+    let unsafeScalars = CharacterSet(charactersIn: "/:\u{200E}\u{200F}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}")
+    var safeTitle = String(String.UnicodeScalarView(itemTitle.unicodeScalars.map {
+        unsafeScalars.contains($0) || $0.properties.generalCategory == .control ? "-" : $0
+    }))
         .trimmingCharacters(in: .whitespacesAndNewlines)
     while safeTitle.hasPrefix(".") { safeTitle.removeFirst() }
-    safeTitle = String(safeTitle.prefix(roomArtPhotoTitleLongestCharacters)).trimmingCharacters(in: .whitespaces)
+    var bytesKept = 0
+    safeTitle = String(safeTitle.prefix { character in
+        bytesKept += character.utf8.count
+        return bytesKept <= roomArtPhotoTitleLongestUTF8Bytes
+    }).trimmingCharacters(in: .whitespaces)
     let dateFormatter = DateFormatter()
     dateFormatter.locale = Locale(identifier: "en_US_POSIX")
     dateFormatter.timeZone = timeZone
@@ -55,9 +65,9 @@ nonisolated func roomArtPhotoFileName(itemTitle: String, savedAt date: Date, tim
     return safeTitle.isEmpty ? "Clicky try-on \(stamp).jpg" : "Clicky try-on \(safeTitle) \(stamp).jpg"
 }
 
-/// Whether the learner asked to save the panel's photo, as the whole utterance: "save this photo", "save the photo", or
-/// the same with "picture", with a few words of agreement before and please after. "Save it" is left to the Theme Studio's
-/// `save_theme`, and a longer request goes to the router.
+/// Whether the learner asked to save the panel's photo, as the whole utterance: "save this photo", "save the photo",
+/// "save photo" (the button's own label), or the same with "picture" or "pic", with a few words of agreement before and
+/// please after. "Save it" is left to the Theme Studio's `save_theme`, and a longer request goes to the router.
 nonisolated func asksToSaveTheRoomArtPhoto(_ transcript: String) -> Bool {
     let words = transcript.lowercased()
         .replacingOccurrences(of: "\u{2019}", with: "'")
@@ -68,8 +78,12 @@ nonisolated func asksToSaveTheRoomArtPhoto(_ transcript: String) -> Bool {
     let wordsAfterTheRequest: Set<String> = ["please", "clicky", "thanks", "now", "for", "me"]
     var requestWords = Array(words.drop { wordsBeforeTheRequest.contains($0) })
     while let lastWord = requestWords.last, wordsAfterTheRequest.contains(lastWord) { requestWords.removeLast() }
-    guard requestWords.count == 3, requestWords[0] == "save" else { return false }
-    return ["this", "the", "that", "a"].contains(requestWords[1]) && ["photo", "picture", "pic"].contains(requestWords[2])
+    guard requestWords.first == "save", let photoWord = requestWords.last, ["photo", "picture", "pic"].contains(photoWord) else { return false }
+    switch requestWords.count {
+    case 2: return true
+    case 3: return ["this", "the", "that", "a"].contains(requestWords[1])
+    default: return false
+    }
 }
 
 /// Whether "save this photo" runs ahead of the router: only while the panel shows something to save, with no quiz question

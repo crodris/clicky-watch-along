@@ -96,6 +96,11 @@ nonisolated struct ShirtCoverage: Equatable, Sendable {
     /// as the upper arm, but the wrist then sits on the hand's edge, so a full upper arm would reach over the hand, which the
     /// paint mask must keep as filmed. Short of the wrist, the sleeve's cuff still covers most of the bare forearm.
     static let unseenWristShareOfTheUpperArm = 0.8
+    /// A short sleeve reaches this share of the way from the shoulder joint to the elbow. A crew tee's sleeve hem sits near
+    /// the middle of the upper arm, a fitted one a little above it and a boxy one a little below. Past the sleeve's end the
+    /// paste puts the bare arm back as filmed, so a share too short cuts the painted sleeve off with a hard band of bare arm
+    /// under it, while a share too long only lets the painting redraw a little of the bare arm below a shorter sleeve.
+    static let shortSleeveShareOfTheUpperArm = 0.5
 
     init(sleeves: RoomArtSleeves, length: RoomArtGarmentLength) {
         self.sleeves = sleeves
@@ -106,8 +111,9 @@ nonisolated struct ShirtCoverage: Equatable, Sendable {
         self.init(sleeves: reading.sleeves, length: reading.length)
     }
 
-    /// The area the garment covers on `torso`: the torso from the shoulders down to the hem, and for long sleeves each arm
-    /// from the shoulder to the wrist. Convex pieces, whose union is the area, in the torso's own pixels, so a torso scaled
+    /// The area the garment covers on `torso`: the torso from the shoulders down to the hem, for short sleeves each upper
+    /// arm from the shoulder to `shortSleeveShareOfTheUpperArm` of the way to the elbow, and for long sleeves each arm from
+    /// the shoulder to the wrist. Convex pieces, whose union is the area, in the torso's own pixels, so a torso scaled
     /// to a small copy of the frame gives the area on that copy.
     func area(for torso: BodyTorso) -> ShirtCoverageArea {
         func vector(_ point: CGPoint) -> SIMD2<Double> { SIMD2(Double(point.x), Double(point.y)) }
@@ -136,12 +142,33 @@ nonisolated struct ShirtCoverage: Equatable, Sendable {
         let bodyPieces = [torsoPiece]
         var sleevePieces: [[CGPoint]] = []
 
+        let armHalfWidth = Self.armHalfWidthInShoulderWidths * shoulderWidth
+        let arms = [
+            (shoulder: leftShoulder, elbow: torso.imageLeftElbow.map(vector), wrist: torso.imageLeftWrist.map(vector)),
+            (shoulder: rightShoulder, elbow: torso.imageRightElbow.map(vector), wrist: torso.imageRightWrist.map(vector)),
+        ]
+        // A piece `armHalfWidth` to each side of the line from `start` to `end`, nil for a line too short to have a direction.
+        func armPiece(from start: SIMD2<Double>, to end: SIMD2<Double>) -> [CGPoint]? {
+            let segment = end - start
+            guard simd_length(segment) > 1 else { return nil }
+            let direction = simd_normalize(segment)
+            let sideways = SIMD2(-direction.y, direction.x) * armHalfWidth
+            return [start + sideways, end + sideways, end - sideways, start - sideways].map(point)
+        }
+
+        if sleeves == .short {
+            for arm in arms {
+                // The elbow, or with none seen, halfway to the wrist, or halfway down an arm hanging by the body's side.
+                let elbow = arm.elbow
+                    ?? arm.wrist.map { (arm.shoulder + $0) / 2 }
+                    ?? arm.shoulder + downTheTorso * Self.armWithNoJointsInTorsoLengths * torsoLength / 2
+                if let piece = armPiece(from: arm.shoulder, to: arm.shoulder + (elbow - arm.shoulder) * Self.shortSleeveShareOfTheUpperArm) {
+                    sleevePieces.append(piece)
+                }
+            }
+        }
+
         if sleeves == .long {
-            let armHalfWidth = Self.armHalfWidthInShoulderWidths * shoulderWidth
-            let arms = [
-                (shoulder: leftShoulder, elbow: torso.imageLeftElbow.map(vector), wrist: torso.imageLeftWrist.map(vector)),
-                (shoulder: rightShoulder, elbow: torso.imageRightElbow.map(vector), wrist: torso.imageRightWrist.map(vector)),
-            ]
             for arm in arms {
                 // The arm's joints in order. A wrist the pose did not see is most of an upper arm's length on from the elbow
                 // (`unseenWristShareOfTheUpperArm`), and with no joint at all the arm hangs down the body's side.
@@ -153,11 +180,7 @@ nonisolated struct ShirtCoverage: Equatable, Sendable {
                 case (nil, nil): joints += [arm.shoulder + downTheTorso * Self.armWithNoJointsInTorsoLengths * torsoLength]
                 }
                 for (start, end) in zip(joints, joints.dropFirst()) {
-                    let segment = end - start
-                    guard simd_length(segment) > 1 else { continue }
-                    let direction = simd_normalize(segment)
-                    let sideways = SIMD2(-direction.y, direction.x) * armHalfWidth
-                    sleevePieces.append([start + sideways, end + sideways, end - sideways, start - sideways].map(point))
+                    if let piece = armPiece(from: start, to: end) { sleevePieces.append(piece) }
                 }
                 // A square at each bend between two segments, which fills the notch their two pieces leave on the outside.
                 if joints.count == 3 {
@@ -174,8 +197,9 @@ nonisolated struct ShirtCoverage: Equatable, Sendable {
 }
 
 /// The area a garment covers: convex pieces in camera pixels whose union is the area, kept in two groups. The body pieces are
-/// the torso down to the hem. The sleeve pieces are the arms of a long sleeve, and only they stand where bare skin is
-/// legitimately painted over (a forearm under a long sleeve), so the paint mask's skin rule exempts the sleeve mask and no
+/// the torso down to the hem. The sleeve pieces are the arms a sleeve covers (the upper arm under a short sleeve, the whole
+/// arm under a long one), and only they stand where bare skin is legitimately painted over (a learner's bare upper arm
+/// under a new tee's sleeve, a forearm under a long sleeve), so the paint mask's skin rule exempts the sleeve mask and no
 /// more. It is not clipped to the frame, since a coat's hem is below it, and its masks are, because a mask only has the
 /// frame's pixels.
 nonisolated struct ShirtCoverageArea: Equatable, Sendable {

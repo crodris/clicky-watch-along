@@ -11,14 +11,15 @@
 //  the regions the paste must leave exactly as filmed, and the paste.
 //
 //  The mask covers the whole garment the learner wears now, not only where the new one lands, since a narrower new top
-//  painted inside a torso shape left the old top's sleeve stub and hem showing past it in the spike. It starts from the old
-//  top (`ShirtFrameAnalysis`'s old shirt pixels, down to its hem and along its sleeves), the torso, where the live
-//  overlay's garment landed, and the area the new garment covers on the body (`ShirtCoverage`: down to its hem, and along
-//  each arm to the wrist for long sleeves), fills the holes a print leaves, and takes away the neck and head (the analysis's
-//  neck cut), the face, the hands, and the bare skin the new top does not cover, which is not skin the coverage reaches, such
-//  as a forearm a long sleeve covers. The hands, the face, the neck, and the bare arms with the room beside them are also
-//  kept out of the paste, which grows the mask by 24 pixels, since in the spike that growth repainted about 30 percent of
-//  the hand pixels, and on the arms it took the painting's own redraw of each arm, a few pixels off the filmed one.
+//  painted inside a torso shape left the old top's sleeve stub and hem showing past it in the spike. It starts from the
+//  old top (`ShirtFrameAnalysis`'s old shirt pixels, down to its hem and along its sleeves), the torso, where the live
+//  overlay's garment landed, and the area the new garment covers on the body (`ShirtCoverage`: down to its hem, along
+//  the upper arm for short sleeves, and along each arm to the wrist for long sleeves), fills the holes a print leaves,
+//  and takes away the neck and head (the analysis's neck cut), the face, the hands, and the bare skin the new top does
+//  not cover, which is not skin a new sleeve reaches, such as a bare upper arm under a new tee's sleeve or a forearm a
+//  long sleeve covers. The hands, the face, the neck, and the bare arms with the room beside them are also kept out of
+//  the paste, which grows the mask by 24 pixels, since in the spike that growth repainted about 30 percent of the hand
+//  pixels, and on the arms it took the painting's own redraw of each arm, a few pixels off the filmed one.
 //
 
 import CoreGraphics
@@ -451,10 +452,10 @@ nonisolated enum ShirtPaintMask {
             }
         }
 
-        // The torso itself covers a print on the old top whose colors are not its own, and the preview's garment is where
-        // the new top lands. So does the area the new garment covers on the body (`ShirtCoverage`), where the person is: a
-        // long sleeve down the bare forearm, a coat's hem past the old top's. It stays within a little of the person, so
-        // the room beside a flared hem stays the room.
+        // The torso itself covers a print on the old top whose colors are not its own, and the preview's garment is
+        // where the new top lands. So does the area the new garment covers on the body (`ShirtCoverage`), where the
+        // person is: a short sleeve over a bare upper arm, a long sleeve down the bare forearm, a coat's hem past the
+        // old top's. It stays within a little of the person, so the room beside a flared hem stays the room.
         let torsoQuad = ShirtTryOnRenderer.bodyTorsoCorners(of: torso).map { SIMD2(Double($0.x), Double($0.y)) }
         let growthRadius = max(1, Int((outlineGrowthInShoulderWidths * shoulderWidth).rounded()))
         let personNearby = dilated(personMask.map { $0 > 127 }, width: width, height: height, radius: growthRadius)
@@ -474,11 +475,11 @@ nonisolated enum ShirtPaintMask {
         let grown = dilated(paintable, width: width, height: height, radius: growthRadius)
         for index in paintable.indices { paintable[index] = grown[index] && (personNearby[index] || paintable[index]) }
 
-        // Bare skin the new top does not cover is taken away here. The hands, the face, and the neck's skin are taken away
-        // at the frame's size, where their edges are exact. The mask never reaches above the neck's base, so the neck cut
-        // only decides what the paste puts back. Only skin under a new long sleeve, a forearm, is painted. Skin inside the
-        // new garment's body (a forearm across the belly under a short sleeve, an inner upper arm beside a vest) is not
-        // covered by it, so it is taken away like any other bare skin.
+        // Bare skin the new top does not cover is taken away here. The hands, the face, and the neck's skin are taken
+        // away at the frame's size, where their edges are exact. The mask never reaches above the neck's base, so the
+        // neck cut only decides what the paste puts back. Only skin under a new sleeve, an upper arm or a forearm, is
+        // painted. Skin inside the new garment's body (a forearm across the belly under a short sleeve, an inner upper
+        // arm beside a vest) is not covered by it, so it is taken away like any other bare skin.
         for index in 0..<(width * height) where paintable[index] {
             guard personMask[index] > 127, previewGarmentCoverage[index] <= 127, !oldShirt[index], !newSleevesCover[index] else { continue }
             if looksLikeSkin(red: rgba[index * 4], green: rgba[index * 4 + 1], blue: rgba[index * 4 + 2]) { paintable[index] = false }

@@ -60,6 +60,18 @@ struct RoomArtPanelFrameTests {
         #expect(huge.maxX <= screen.maxX + 0.5 && huge.minY >= screen.minY - 0.5)
         #expect(abs(huge.width / huge.height - 16.0 / 9.0) < 0.001)
     }
+
+    @Test(arguments: [roomArtPanelSmallestSize, roomArtPanelDefaultSize, CGSize(width: 1920, height: 1080)])
+    func theCornerGripNeverOverlapsTheBottomRowsButtons(panelSize: CGSize) {
+        let grip = roomArtPanelResizeGripFrame(panelSize: panelSize)
+        // The tallest button in the row, Paint it or Save photo, is about 34 points tall, so 44 leaves room.
+        let bottomRow = roomArtPanelBottomRowFrame(panelSize: panelSize, rowHeight: 44)
+        #expect(!grip.intersects(bottomRow), "grip \(grip), row \(bottomRow)")
+        #expect(grip.minX - bottomRow.maxX >= 4)
+        // The grip is in the corner and inside the panel, and the row still has room for its buttons at the smallest size.
+        #expect(grip.maxX <= panelSize.width && grip.maxY <= panelSize.height && grip.maxX > panelSize.width - roomArtPanelContentInset)
+        #expect(bottomRow.width >= 400)
+    }
 }
 
 @MainActor

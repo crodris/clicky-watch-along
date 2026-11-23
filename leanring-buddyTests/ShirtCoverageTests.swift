@@ -110,11 +110,36 @@ struct ShirtCoverageTests {
         #expect(ShirtCoverage.hemInTorsoLengths(for: .hip) == 1)
     }
 
-    @Test(arguments: [RoomArtSleeves.none, .short])
-    func shortAndNoSleevesCoverNoArm(sleeves: RoomArtSleeves) {
-        let covered = coveredPixels(ShirtCoverage(sleeves: sleeves, length: .hip))
-        #expect(!covered(135, 145) && !covered(115, 230) && !covered(111, 262))
-        #expect(!covered(265, 145) && !covered(285, 230) && !covered(289, 262))
+    @Test func noSleevesCoverNoArm() {
+        let covered = coveredPixels(ShirtCoverage(sleeves: .none, length: .hip))
+        #expect(!covered(140, 130) && !covered(135, 145) && !covered(115, 230) && !covered(111, 262))
+        #expect(!covered(260, 130) && !covered(265, 145) && !covered(285, 230) && !covered(289, 262))
+    }
+
+    @Test func shortSleevesCoverEachUpperArmHalfwayToTheElbowAndNoFurther() {
+        #expect(ShirtCoverage.shortSleeveShareOfTheUpperArm == 0.5)
+        let covered = coveredPixels(ShirtCoverage(sleeves: .short, length: .hip))
+        // The upper arm runs from the shoulder (150, 100) to the elbow (120, 190), so the sleeve ends at (135, 145). Outside
+        // the torso's edge, along the upper arm, on each side.
+        #expect(covered(140, 130) && covered(137, 140))
+        #expect(covered(260, 130) && covered(263, 140))
+        // Not past the sleeve's end down the upper arm, and not the forearm or the wrist.
+        #expect(!covered(128, 165) && !covered(115, 230) && !covered(111, 262))
+        #expect(!covered(272, 165) && !covered(285, 230) && !covered(289, 262))
+        // The upper arm is a sleeve piece, so the paint mask's skin rule lets a bare upper arm under it be painted.
+        let sleeveMask = ShirtCoverage(sleeves: .short, length: .hip).area(for: standingTorso).sleeveMask(width: frameWidth, height: frameHeight)
+        #expect(sleeveMask[130 * frameWidth + 140] && !sleeveMask[150 * frameWidth + 200])
+    }
+
+    @Test func aShortSleeveWithNoArmJointSeenHangsHalfwayDownTheUpperArm() {
+        let noJoints = BodyTorso(
+            imageLeftShoulder: standingTorso.imageLeftShoulder, imageRightShoulder: standingTorso.imageRightShoulder,
+            imageLeftHip: standingTorso.imageLeftHip, imageRightHip: standingTorso.imageRightHip, hipsWereEstimated: false, shouldersAreSeen: true
+        )
+        let covered = coveredPixels(ShirtCoverage(sleeves: .short, length: .hip), torso: noJoints)
+        // The arm hangs 1.1 torso lengths (176) down from the shoulder, so the elbow is taken 88 down and the sleeve ends 44 down.
+        #expect(covered(138, 130) && covered(262, 130))
+        #expect(!covered(138, 160) && !covered(262, 160))
     }
 
     @Test func longSleevesFollowEachArmFromTheShoulderToTheWristAndStopThere() {

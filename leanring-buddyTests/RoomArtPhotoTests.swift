@@ -6,6 +6,7 @@
 //
 
 import CoreGraphics
+import CoreImage
 import Foundation
 import ImageIO
 import Testing
@@ -34,20 +35,33 @@ struct RoomArtPhotoTests {
         // A leading dot would hide the file, and a right-to-left override would make its name read backward.
         #expect(roomArtPhotoFileName(itemTitle: "..hidden\u{202E}gpj", savedAt: savedAt, timeZone: utc) == "Clicky try-on hidden-gpj 2026-11-18 11.06.40.jpg")
         #expect(roomArtPhotoFileName(itemTitle: "  ", savedAt: savedAt, timeZone: utc) == "Clicky try-on 2026-11-18 11.06.40.jpg")
+        // A tab or a line break is a control character, while the zero-width joiner inside an emoji is kept.
+        #expect(roomArtPhotoFileName(itemTitle: "Tee\tNavy\nSoft 👩‍💻", savedAt: savedAt, timeZone: utc) == "Clicky try-on Tee-Navy-Soft 👩‍💻 2026-11-18 11.06.40.jpg")
     }
 
-    @Test func aLongTitleIsCutToSixtyCharacters() {
-        let longTitle = String(repeating: "é", count: 80)
-        let fileName = roomArtPhotoFileName(itemTitle: longTitle, savedAt: savedAt, timeZone: utc)
-        #expect(fileName == "Clicky try-on \(String(repeating: "é", count: 60)) 2026-11-18 11.06.40.jpg")
+    @Test func aLongTitleIsCutTo150BytesAtACharacterBoundary() {
+        // "é" is 2 bytes, so 75 of them fit.
+        let accented = roomArtPhotoFileName(itemTitle: String(repeating: "é", count: 120), savedAt: savedAt, timeZone: utc)
+        #expect(accented == "Clicky try-on \(String(repeating: "é", count: 75)) 2026-11-18 11.06.40.jpg")
+        // A family emoji is one character of 25 bytes, so after the 1 byte "A" 5 fit in 150 and the sixth is left out whole,
+        // never split into its people.
+        let family = "👨‍👩‍👧‍👦"
+        #expect(family.utf8.count == 25 && family.count == 1)
+        let emojiTitle = "A" + String(repeating: family, count: 20)
+        let emojiName = roomArtPhotoFileName(itemTitle: emojiTitle, savedAt: savedAt, timeZone: utc)
+        #expect(emojiName == "Clicky try-on A\(String(repeating: family, count: 5)) 2026-11-18 11.06.40.jpg")
+        // With a copy suffix the name stays under the 255 bytes a file name may have.
+        #expect(emojiName.utf8.count + " 99".utf8.count <= 255)
+        #expect(roomArtPhotoFileName(itemTitle: String(repeating: family, count: 40), savedAt: savedAt, timeZone: utc).utf8.count <= 200)
     }
 
     @Test func thePhraseIsTheWholeUtteranceAndNeverSaveIt() {
-        for phrase in ["save this photo", "Save the photo.", "okay, save this picture please", "Hey Clicky, save that photo for me", "can you save the pic"] {
+        for phrase in ["save this photo", "Save the photo.", "okay, save this picture please", "Hey Clicky, save that photo for me", "can you save the pic",
+                       "Save photo", "save picture", "save pic please", "okay, save photo"] {
             #expect(asksToSaveTheRoomArtPhoto(phrase), "\(phrase)")
         }
         // "Save it" is the Theme Studio's, and a longer request goes to the router.
-        for phrase in ["save it", "save", "save the theme", "save this photo of the lamp to my desktop", "how do I save this photo"] {
+        for phrase in ["save it", "save", "save the theme", "save this", "photo", "save photo now later", "save my photo", "save this photo of the lamp to my desktop", "how do I save this photo"] {
             #expect(!asksToSaveTheRoomArtPhoto(phrase), "\(phrase)")
         }
     }
@@ -67,6 +81,36 @@ struct RoomArtPhotoTests {
         // The Theme Studio card holds every spoken word.
         #expect(transcriptRoute(for: "save this photo", in: context(canSave: true, studio: true), videoIsInFront: { true }) == .voiceCommandRouter)
         #expect(transcriptRoute(for: "save it", in: context(canSave: true), videoIsInFront: { true }) != .saveTheRoomArtPhoto)
+        // The button's own label, spoken.
+        #expect(transcriptRoute(for: "save photo", in: context(canSave: true), videoIsInFront: { true }) == .saveTheRoomArtPhoto)
+        #expect(transcriptRoute(for: "save photo", in: context(canSave: false), videoIsInFront: { true }) == .voiceCommandRouter)
+    }
+
+    /// The center pixel's red and blue, 0 to 255, of `image` rendered.
+    private func centerRedAndBlue(of image: CIImage) throws -> (red: UInt8, blue: UInt8) {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let center = CGRect(x: image.extent.midX, y: image.extent.midY, width: 1, height: 1)
+        CIContext().render(image, toBitmap: &pixel, rowBytes: 4, bounds: center, format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+        return (pixel[0], pixel[2])
+    }
+
+    @Test func aSaveDuringThePaintedStillsCrossfadeWritesTheFinishedStill() throws {
+        let frameExtent = CGRect(x: 0, y: 0, width: 64, height: 36)
+        let frozenPreview = CIImage(color: CIColor(red: 1, green: 0, blue: 0)).cropped(to: frameExtent)
+        let paintedStill = CIImage(color: CIColor(red: 0, green: 0, blue: 1)).cropped(to: frameExtent.insetBy(dx: -8, dy: -8))
+        // Halfway through the 0.5 s crossfade the panel drew a mix of the two.
+        let halfwayFrame = frozenPreview.applyingFilter("CIDissolveTransition", parameters: [kCIInputTargetImageKey: paintedStill, kCIInputTimeKey: 0.5])
+            .cropped(to: frameExtent)
+        #expect(try centerRedAndBlue(of: halfwayFrame).red > 60)
+
+        let saved = try #require(RoomArtFrameProcessor.imageToSave(lastComposedImage: halfwayFrame, paintedStill: paintedStill))
+        let savedColor = try centerRedAndBlue(of: saved)
+        #expect(savedColor.red < 5 && savedColor.blue > 250, "\(savedColor)")
+        // At the frame's own size, whatever the painted image's extent.
+        #expect(saved.extent == frameExtent)
+        // With no painted still, the frame as drawn is saved.
+        #expect(RoomArtFrameProcessor.imageToSave(lastComposedImage: halfwayFrame, paintedStill: nil)?.extent == frameExtent)
+        #expect(RoomArtFrameProcessor.imageToSave(lastComposedImage: nil, paintedStill: nil) == nil)
     }
 
     @Test func aSaveWritesAJPEGAndNeverReplacesAnEarlierOne() throws {

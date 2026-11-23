@@ -16,6 +16,33 @@ nonisolated let roomArtPanelAspectRatio = 16.0 / 9.0
 nonisolated let roomArtPanelDefaultSize = CGSize(width: 960, height: 540)
 /// The smallest size, which still fits the Close button, the status line, and the Save photo, Place, and Paint it buttons.
 nonisolated let roomArtPanelSmallestSize = CGSize(width: 480, height: 270)
+/// The panel's controls sit this far inside its edges.
+nonisolated let roomArtPanelContentInset: CGFloat = 16
+/// The corner grip's hit area: a square this many points on a side, this far inside the panel's right and bottom edges.
+nonisolated let roomArtPanelResizeGripSide: CGFloat = 24
+nonisolated let roomArtPanelResizeGripEdgeInset: CGFloat = 3
+/// The bottom row's buttons end this far inside the panel's right edge, past the grip's hit area and a 4 point gap, so a
+/// click on the right end of Save photo, Place, or Paint it presses the button and never starts a resize.
+nonisolated let roomArtPanelBottomRowTrailingInset: CGFloat = roomArtPanelResizeGripEdgeInset + roomArtPanelResizeGripSide + 4
+
+/// The grip's hit area in a panel of `panelSize`, in points from the panel's top left.
+nonisolated func roomArtPanelResizeGripFrame(panelSize: CGSize) -> CGRect {
+    CGRect(
+        x: panelSize.width - roomArtPanelResizeGripEdgeInset - roomArtPanelResizeGripSide,
+        y: panelSize.height - roomArtPanelResizeGripEdgeInset - roomArtPanelResizeGripSide,
+        width: roomArtPanelResizeGripSide, height: roomArtPanelResizeGripSide
+    )
+}
+
+/// Where the bottom row's buttons may lie in a panel of `panelSize`, for a row `rowHeight` tall, in points from the panel's
+/// top left: inside the content inset, and left of `roomArtPanelBottomRowTrailingInset`.
+nonisolated func roomArtPanelBottomRowFrame(panelSize: CGSize, rowHeight: CGFloat) -> CGRect {
+    CGRect(
+        x: roomArtPanelContentInset, y: panelSize.height - roomArtPanelContentInset - rowHeight,
+        width: panelSize.width - roomArtPanelContentInset - roomArtPanelBottomRowTrailingInset, height: rowHeight
+    )
+}
+
 /// The UserDefaults key of the panel's last frame, as `NSStringFromRect` writes it.
 nonisolated let roomArtPanelFrameDefaultsKey = "roomArtPanelFrame"
 

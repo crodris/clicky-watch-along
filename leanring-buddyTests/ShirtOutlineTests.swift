@@ -155,6 +155,10 @@ extension CPUHeavyTests {
             // With no own top found, the coverage alone still shows, so the ghost never disappears for a color the analysis could not read.
             let coverageAlone = ShirtPaintMask.ghostArea(ownTop: nil, coverage: coverage, torso: torso, width: 200, height: 200)
             #expect(coverageAlone[130 * 200 + 100] && !coverageAlone[50 * 200 + 50])
+            // A short sleeve shows on the upper arm, outside the torso's edge, and ends halfway to the elbow, which with no elbow
+            // seen is taken halfway down an arm hanging 1.1 torso lengths: 33 below the shoulder, so the sleeve ends 16.5 below it.
+            #expect(coverageAlone[40 * 200 + 62] && coverageAlone[40 * 200 + 138])
+            #expect(!coverageAlone[55 * 200 + 62] && !coverageAlone[55 * 200 + 138])
             // And the union traces as one closed outline.
             let outline = try #require(ShirtOutline.outline(of: area, width: 200, height: 200))
             #expect(outline.count >= 4)
