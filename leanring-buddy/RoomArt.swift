@@ -936,7 +936,8 @@ extension RoomArtSurfaceKind {
     var lostLine: String {
         switch self {
         case .wall: return "Lost the wall. Turn back, or click the wall to place it again."
-        case .floor: return "Lost the floor. Turn back, or click the floor to place it again."
+        // Furniture never moves by a click on the floor, so its line only asks the learner to turn back.
+        case .floor: return "Lost the floor. Turn back to where the piece stands."
         }
     }
 
@@ -1031,8 +1032,8 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         switch self {
         case .waitingForTheCamera(let item), .waitingForAFloorClick(let item):
             return .measuring(id: id, item: item)
-        // Furniture stands on a floor already measured, so a click moves its ghost there instead (`pickingTheFurnitureBackUp`),
-        // also after it could not be drawn.
+        // Furniture stands on a floor already measured, so it never measures again: a press on the piece picks its ghost
+        // back up, and after it could not be drawn a press anywhere does (`aPressPicksTheFurnitureUp`).
         case .showing(.furniture, _, _):
             return self
         case .showing(let item, let surface, _):
@@ -1072,8 +1073,9 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         return .arranging(id: placementID, item: item, surface: surface)
     }
 
-    /// A press on the video picks placed furniture back up as a ghost, whether its look shows, is still on its way, or could
-    /// not be drawn.
+    /// Placed furniture picked back up as a ghost, whether its look shows, is still on its way, or could not be drawn. The
+    /// controller decides which press does it (`aPressPicksTheFurnitureUp`): one on the piece, or any after it could not be
+    /// drawn.
     func pickingTheFurnitureBackUp(placementID: RoomArtMeasurementID) -> RoomArtPhase {
         switch self {
         case .showing(let item, let surface, nil) where item.surfaceKind == .floor,
@@ -1170,7 +1172,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     }
 
     /// The panel's one-line status. `theSurfaceIsLost` says the tracker lost the room long enough to hide the item, which
-    /// only matters while it shows, and `shirtCoachingLine` is the settled framing's advice while the shirt cannot be drawn.
+    /// only matters while the item or furniture's ghost shows, and `shirtCoachingLine` is the settled framing's advice while the shirt cannot be drawn.
     func statusLine(theSurfaceIsLost: Bool, shirtCoachingLine: String?) -> String {
         switch self {
         case .closed: return ""
@@ -1179,7 +1181,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         case .measuring(_, let item): return item.surfaceKind.measuringStatusLine
         case .moving(_, let item, _): return item.surfaceKind.measuringStatusLine
         case .placingTheFurniture: return theSurfaceIsLost ? RoomArtSurfaceKind.floor.lostLine : roomFurnitureGhostStatusLine
-        case .arranging: return "Arranging it in your room…"
+        case .arranging: return theSurfaceIsLost ? RoomArtSurfaceKind.floor.lostLine : "Arranging it in your room…"
         case .couldNotDraw: return "I couldn't draw it this time. Click the floor to try again"
         case .showing(let item, _, let moveFailure):
             if theSurfaceIsLost { return item.surfaceKind.lostLine }

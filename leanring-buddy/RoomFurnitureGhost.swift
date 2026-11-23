@@ -382,6 +382,21 @@ nonisolated let roomFurnitureDefaultNudgeCentimeters = 30.0
 /// The share of the box in the frame above which the whole piece counts as showing, which leaves room for the clipping's
 /// rounding, so Clicky asks the learner to step back only for a piece the frame cuts off.
 nonisolated let roomFurnitureShareOfTheBoxThatShowsWhole = 0.99
+/// Why a spoken nudge left the ghost where it was, in words the router's model reads back to the learner.
+nonisolated enum RoomFurnitureNudgeRefusal: Equatable, Sendable {
+    case noGhost
+    case distanceMovesNothing
+    case leavesTheView
+
+    var toolError: String {
+        switch self {
+        case .noGhost: return "No furniture is being placed"
+        case .distanceMovesNothing: return "distanceCentimeters must be more than 0"
+        case .leavesTheView: return "That would move the whole piece out of view, so it stayed where it was"
+        }
+    }
+}
+
 /// The farthest one spoken nudge moves the ghost.
 nonisolated let roomFurnitureLongestNudgeMeters = 3.0
 
@@ -560,8 +575,8 @@ nonisolated struct RoomFurnitureGhostLines: Equatable, Sendable {
     }
 
     /// Where the size pill's center sits: over the middle of the part of the top outline the frame shows, a little above
-    /// its highest point, with the whole pill at least `pillMarginInPoints` inside the frame and above the status line and
-    /// the Place button, so a piece that runs off the frame's edge still has its size next to it.
+    /// its highest point, with the whole pill at least `pillMarginInPoints` inside the frame's sides, below the Close button,
+    /// and above the status line and the Place button, so a piece that runs off the frame's edge still has its size next to it.
     var pillCenter: CGPoint {
         let visibleTopPoints = top.indices.flatMap { index -> [CGPoint] in
             let start = top[index], end = top[(index + 1) % top.count]
@@ -576,7 +591,7 @@ nonisolated struct RoomFurnitureGhostLines: Equatable, Sendable {
         let wantedCenter = CGPoint(x: (leftmost + rightmost) / 2, y: highest - Self.pillGapAboveTheTopInPoints)
         let lowestX = videoRect.minX + Self.pillHalfWidthInPoints + Self.pillMarginInPoints
         let highestX = videoRect.maxX - Self.pillHalfWidthInPoints - Self.pillMarginInPoints
-        let lowestY = videoRect.minY + Self.pillHalfHeightInPoints + Self.pillMarginInPoints
+        let lowestY = videoRect.minY + Self.pillHalfHeightInPoints + Self.controlsHeightAtTheTopInPoints
         let highestY = videoRect.maxY - Self.pillHalfHeightInPoints - Self.controlsHeightAtTheBottomInPoints
         guard lowestX < highestX, lowestY < highestY else { return wantedCenter }
         return CGPoint(x: min(max(wantedCenter.x, lowestX), highestX), y: min(max(wantedCenter.y, lowestY), highestY))
@@ -587,6 +602,8 @@ nonisolated struct RoomFurnitureGhostLines: Equatable, Sendable {
     /// Half the pill's size, with room for the longest size words, such as "31.5″ wide · 32.5″ tall" in 13 point semibold.
     static let pillHalfWidthInPoints = 100.0
     static let pillHalfHeightInPoints = 15.0
+    /// The Close button along the panel's top: its 30 points, the panel's 16 point padding, and a gap below.
+    static let controlsHeightAtTheTopInPoints = 54.0
     /// The status line and the Place button along the panel's bottom, with the panel's 16 point padding and a gap above.
     static let controlsHeightAtTheBottomInPoints = 72.0
 }

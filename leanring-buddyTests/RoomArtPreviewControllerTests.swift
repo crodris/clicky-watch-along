@@ -1717,22 +1717,22 @@ struct RoomArtPreviewControllerTests {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)
         let harness = RoomArtHarness(worker: worker, placesTheGhostAtOnce: false)
-        #expect(!harness.controller.nudgeTheFurniture(.left, distanceCentimeters: nil, turnDegrees: nil))
+        #expect(harness.controller.nudgeTheFurniture(.left, distanceCentimeters: nil, turnDegrees: nil) == .noGhost)
         #expect(!harness.controller.placeTheFurnitureWhereItsGhostStands())
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
         try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
         let before = try #require(harness.controller.furnitureGhost?.shownPose)
-        #expect(harness.controller.nudgeTheFurniture(.left, distanceCentimeters: nil, turnDegrees: nil))
+        #expect(harness.controller.nudgeTheFurniture(.left, distanceCentimeters: nil, turnDegrees: nil) == nil)
         let afterTheNudge = try #require(harness.controller.furnitureGhost?.shownPose)
         // 30 cm toward the image's left.
         #expect(abs(simd_length(afterTheNudge.footprintCenter - before.footprintCenter) - 0.3) < 1e-6)
         #expect(afterTheNudge.footprintCenter.x < before.footprintCenter.x)
         // A distance that moves nothing, or one that takes the whole piece out of view, fails and leaves the ghost.
-        #expect(!harness.controller.nudgeTheFurniture(.left, distanceCentimeters: 0, turnDegrees: nil))
-        #expect(!harness.controller.nudgeTheFurniture(.left, distanceCentimeters: -40, turnDegrees: nil))
-        #expect(!harness.controller.nudgeTheFurniture(.left, distanceCentimeters: .infinity, turnDegrees: nil))
-        #expect(!harness.controller.nudgeTheFurniture(.left, distanceCentimeters: 1e20, turnDegrees: nil))
+        #expect(harness.controller.nudgeTheFurniture(.left, distanceCentimeters: 0, turnDegrees: nil) == .distanceMovesNothing)
+        #expect(harness.controller.nudgeTheFurniture(.left, distanceCentimeters: -40, turnDegrees: nil) == .distanceMovesNothing)
+        #expect(harness.controller.nudgeTheFurniture(.left, distanceCentimeters: .infinity, turnDegrees: nil) == .distanceMovesNothing)
+        #expect(harness.controller.nudgeTheFurniture(.left, distanceCentimeters: 1e20, turnDegrees: nil) == .leavesTheView)
         #expect(harness.controller.furnitureGhost?.shownPose == afterTheNudge)
 
         // The room lost while the ghost shows says so in the status line, until it is found.

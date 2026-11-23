@@ -394,7 +394,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
     }
 
-    /// Tells the main actor when the item hides because the room is lost, and when it shows again, once per change.
+    /// Tells the main actor when the item hides because the room is lost, and when it shows again, once per change. The
+    /// panel's copy follows only these reports, so each reset of the tracker or the item reports a found room through here.
     private func reportWhetherTheSurfaceIsLost(_ theSurfaceIsLost: Bool) {
         guard theSurfaceIsLost != theSurfaceIsLostAsLastReported else { return }
         theSurfaceIsLostAsLastReported = theSurfaceIsLost
@@ -639,7 +640,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         placedArt = nil
         crossfadeFrom = nil
         smoothedArtCorners = nil
-        theSurfaceIsLostAsLastReported = false
+        reportWhetherTheSurfaceIsLost(false)
         // The loop outlines the window around the spot until the item shows, and starts on the keyframe where it was drawn.
         let keyframeLoopCorners = RoomArtLoopGeometry.keyframeCorners(around: anchor, frameSize: CGSize(width: frameWidth, height: frameHeight), on: surfaceKind ?? .floor)
         loopKeyframeCorners = keyframeLoopCorners
@@ -721,7 +722,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             self.placedArt = PlacedArt(drawing: .warpedOntoItsCorners(litArt: litArt, shadow: shadow), keyframeCorners: corners, keyframeBasePoint: nil)
             self.crossfadeFrom = nil
             self.smoothedArtCorners = nil
-            self.theSurfaceIsLostAsLastReported = false
+            self.reportWhetherTheSurfaceIsLost(false)
             self.trackerBeforeTheMove = nil
             self.placedArtBeforeTheMove = nil
         }
@@ -754,7 +755,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             self.placedArt = nil
             self.crossfadeFrom = nil
             self.smoothedArtCorners = nil
-            self.theSurfaceIsLostAsLastReported = false
+            self.reportWhetherTheSurfaceIsLost(false)
         }
     }
 
@@ -838,7 +839,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             self.keyframeNumber = self.keyframeNumberBeforeTheMove
             self.crossfadeFrom = nil
             self.smoothedArtCorners = nil
-            self.theSurfaceIsLostAsLastReported = false
+            self.reportWhetherTheSurfaceIsLost(false)
             self.trackerBeforeTheMove = nil
             self.placedArtBeforeTheMove = nil
         }
@@ -1380,18 +1381,18 @@ final class RoomArtPreviewController: ObservableObject {
         return furnitureGhost.contains(keyframePixel: trackedWarp.keyframeToCurrent.inverted.apply(to: cameraPixel))
     }
 
-    /// "Move it a bit to the left" or "turn it". False when no ghost shows, when a direction comes with a distance that
-    /// moves nothing, or when the move would take the whole piece out of view, so the voice tool fails instead of claiming
-    /// it and the ghost stays where it was.
+    /// "Move it a bit to the left" or "turn it". Nil when the ghost moved, or why it did not: no ghost shows, a direction
+    /// came with a distance that moves nothing, or the move would take the whole piece out of view, so the voice tool fails
+    /// with that reason instead of claiming it, and the ghost stays where it was.
     @discardableResult
-    func nudgeTheFurniture(_ direction: RoomFurnitureNudgeDirection?, distanceCentimeters: Double?, turnDegrees: Double?) -> Bool {
-        guard phase.furnitureGhostShows, var ghost = furnitureGhost else { return false }
+    func nudgeTheFurniture(_ direction: RoomFurnitureNudgeDirection?, distanceCentimeters: Double?, turnDegrees: Double?) -> RoomFurnitureNudgeRefusal? {
+        guard phase.furnitureGhostShows, var ghost = furnitureGhost else { return .noGhost }
         let distance = distanceCentimeters ?? roomFurnitureDefaultNudgeCentimeters
-        if direction != nil, !(distance.isFinite && distance > 0) { return false }
+        if direction != nil, !(distance.isFinite && distance > 0) { return .distanceMovesNothing }
         ghost.nudge(direction, distanceMeters: distance / 100, turnDegrees: turnDegrees ?? 0)
-        guard ghost.shareOfTheBoxInTheFrame > 0 else { return false }
+        guard ghost.shareOfTheBoxInTheFrame > 0 else { return .leavesTheView }
         moveTheGhost(to: ghost)
-        return true
+        return nil
     }
 
     /// "Right there", the Place button, or `place_furniture`: the piece is painted where its ghost stands. False when no
@@ -1424,8 +1425,6 @@ final class RoomArtPreviewController: ObservableObject {
         guard pickedUpPhase != phase else { return }
         stopTheFurnituresLooks()
         frameProcessor.hideTheItem()
-        // Hiding the item resets the processor's lost report, so the panel's copy starts over with it.
-        theSurfaceIsLost = false
         furnitureGhost = RoomFurnitureGhost(pickedUpFrom: placedGhost)
         furnitureGhostDraw = RoomFurnitureGhostDraw(beganAt: ProcessInfo.processInfo.systemUptime, sparkStartInThePanel: nil)
         print("Room furniture: picked the piece back up as its ghost")
@@ -1592,7 +1591,6 @@ final class RoomArtPreviewController: ObservableObject {
         let measuringPhase = phase.startingAMeasurement(id: measurementID)
         guard measuringPhase != phase, let surfaceKind = measuringPhase.itemBeingMeasured?.surfaceKind else { return }
         phase = measuringPhase
-        theSurfaceIsLost = false
         forgetTheGhost()
         // A click measures where it points, so only the first measurement takes the keyframe taken during the page read.
         let earlyMeasurement = anchorInCameraPixels == nil ? self.earlyMeasurement : nil
@@ -1649,7 +1647,6 @@ final class RoomArtPreviewController: ObservableObject {
         phase = newPhase
         switch newPhase {
         case .showing(let item, let surface, let moveFailure):
-            theSurfaceIsLost = false
             if let moveFailure {
                 // The camera keeps running and only the status line says why, since the learner is looking at the panel.
                 print("Room art: the item stays where it was, since the move failed: \(moveFailure)")

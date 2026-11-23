@@ -4040,8 +4040,8 @@ final class CompanionManager: ObservableObject {
                 return .outcome(.failed(error: "Give a direction, a turn, or both", state: nil))
             }
             roomArtRequest.theLearnerSpokeToThePanel(atPushToTalkPressCount: pushToTalkPressCount)
-            guard roomArtPreviewController.nudgeTheFurniture(direction, distanceCentimeters: input["distanceCentimeters"]?.numberValue, turnDegrees: turnDegrees) else {
-                return .outcome(.failed(error: "No furniture is being placed", state: nil))
+            if let refusal = roomArtPreviewController.nudgeTheFurniture(direction, distanceCentimeters: input["distanceCentimeters"]?.numberValue, turnDegrees: turnDegrees) {
+                return .outcome(.failed(error: refusal.toolError, state: nil))
             }
             return .outcome(.changed(state: nil))
         case .replayExplanation:

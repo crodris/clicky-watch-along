@@ -710,13 +710,14 @@ struct RoomArtPhaseTests {
         #expect(placing == .placingTheFurniture(id: firstMeasurement, item: .furniture(furniture()), surface: .floor(floor)))
         #expect(placing.furnitureGhostShows)
         #expect(placing.statusLine == "Drag to move · say \u{201C}right there\u{201D}")
-        #expect(placing.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the floor. Turn back, or click the floor to place it again.")
+        #expect(placing.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the floor. Turn back to where the piece stands.")
         #expect(!placing.statusLineIsAFailure(theSurfaceIsLost: false))
         // Placed, it is arranged with no look until its painting or its fallback shows, under a placement number of its own.
         let arranging = placing.placingTheFurnitureWhereItsGhostStands(placementID: secondMeasurement)
         #expect(arranging == .arranging(id: secondMeasurement, item: .furniture(furniture()), surface: .floor(floor)))
         #expect(!arranging.furnitureGhostShows)
         #expect(arranging.statusLine == "Arranging it in your room…")
+        #expect(arranging.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the floor. Turn back to where the piece stands.")
         #expect(!arranging.statusLineIsAFailure(theSurfaceIsLost: false))
         // Only a ghost can be placed.
         #expect(arranging.placingTheFurnitureWhereItsGhostStands(placementID: RoomArtMeasurementID(number: 3)) == arranging)
@@ -872,7 +873,7 @@ struct RoomArtPhaseTests {
         #expect(showing.statusLine(theSurfaceIsLost: false, shirtCoachingLine: nil) == "On your wall at 16 by 20 inches")
         #expect(!showing.statusLineIsAFailure(theSurfaceIsLost: true))
         let showingTheTable = RoomArtPhase.showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil)
-        #expect(showingTheTable.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the floor. Turn back, or click the floor to place it again.")
+        #expect(showingTheTable.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the floor. Turn back to where the piece stands.")
         // Before the item shows, a lost room hides nothing, so the line keeps its own words.
         #expect(RoomArtPhase.readingThePage.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Reading the page…")
     }

@@ -519,7 +519,12 @@ struct RoomFurnitureGhostLinesTests {
             CGPoint(x: 0, y: 690), CGPoint(x: 80, y: 690), CGPoint(x: 80, y: 719), CGPoint(x: 0, y: 719),
             CGPoint(x: 5, y: 680), CGPoint(x: 75, y: 680), CGPoint(x: 75, y: 710), CGPoint(x: 5, y: 710),
         ]
-        for boxCorners in [atTheRightEdge, lowAtTheLeft] {
+        // A tall piece whose top runs off the frame near the Close button.
+        let tallAtTheTopRight = [
+            CGPoint(x: 1150, y: -200), CGPoint(x: 1279, y: -200), CGPoint(x: 1279, y: 400), CGPoint(x: 1150, y: 400),
+            CGPoint(x: 1160, y: -260), CGPoint(x: 1279, y: -260), CGPoint(x: 1279, y: 350), CGPoint(x: 1160, y: 350),
+        ]
+        for boxCorners in [atTheRightEdge, lowAtTheLeft, tallAtTheTopRight] {
             let lines = try #require(RoomFurnitureGhostLines(keyframeBoxCorners: boxCorners, keyframeToCurrent: .identity, fit: fit, cameraSize: CGSize(width: 1280, height: 720)))
             let pillRect = CGRect(
                 x: lines.pillCenter.x - RoomFurnitureGhostLines.pillHalfWidthInPoints, y: lines.pillCenter.y - RoomFurnitureGhostLines.pillHalfHeightInPoints,
@@ -527,6 +532,7 @@ struct RoomFurnitureGhostLinesTests {
             )
             #expect(lines.videoRect.contains(pillRect))
             #expect(pillRect.maxY <= lines.videoRect.maxY - RoomFurnitureGhostLines.controlsHeightAtTheBottomInPoints)
+            #expect(pillRect.minY >= lines.videoRect.minY + RoomFurnitureGhostLines.controlsHeightAtTheTopInPoints)
         }
     }
 
