@@ -845,16 +845,17 @@ nonisolated func furniturePieceSearchColumns(projectedBox: [CGPoint], width: Int
 /// may not reach. The painter follows the mask only as guidance: on 2026-11-23 it drew a seated plush astronaut's feet 20
 /// to 40 pixels past the mask, since a box whose depth the page does not state is shallower than a seated plush's legs,
 /// and the paste cut the soles off along a straight line 24 pixels out.
-/// The piece is read in the fit's columns (`furniturePieceSearchColumns`) from `furnitureCompositePasteSlackPixels` above the
-/// box's top, where the grown mask already reaches, down to `furniturePieceSearchBottomRow`, since a seated piece's feet
-/// run toward the camera, down the frame, and the grown mask of a box that faces the camera ends in a level row. A piece
-/// drawn taller than its box is the fit's work, so nothing above that is read. Only the parts that changed strongly and reach into the box's
-/// outline count (`furniturePiece` with `FurniturePieceShape.pastTheGrownMask`), so a learner, a window, a door's edge, or
-/// relit carpet beside the box keeps the keyframe. A pixel counts by the smaller of its changes before and after the reply's
-/// tone fit (`furnitureSearchCrops`), so room the painter relit or re-exposed, which one of the two explains, never joins the
-/// piece: a fit skewed by a learner the edit re-rendered beside the box moved the relit room 20 to 33 levels, and the whole
-/// room down to the frame's bottom then joined the piece. Both pixel arrays are RGBA bytes of the frame, and `pasteWeights`
-/// is the grown mask, one byte per pixel.
+/// The piece is read in the fit's columns (`furniturePieceSearchColumns`) from `furnitureCompositePasteSlackPixels`
+/// above the box's top, where the grown mask already reaches, down to `furniturePieceSearchBottomRow`, since a seated
+/// piece's feet run toward the camera, down the frame, and the grown mask of a box that faces the camera ends in a
+/// level row. A piece drawn taller than its box is the fit's work, so nothing above that is read. Only the parts that
+/// changed strongly and reach into the box's outline count (`furniturePiece` with
+/// `FurniturePieceShape.pastTheGrownMask`), so a learner, a window, a door's edge, or relit carpet beside the box keeps
+/// the keyframe. A pixel counts by the smaller of its changes before and after the reply's tone fit
+/// (`furnitureSearchCrops`), so room the painter relit or re-exposed, which one of the two explains, never joins the
+/// piece: a fit skewed by a learner the edit re-rendered beside the box moved the relit room 20 to 33 levels, and the
+/// whole room down to the frame's bottom then joined the piece. Both pixel arrays are RGBA bytes of the frame, and
+/// `pasteWeights` is the grown mask, one byte per pixel.
 /// Nil when no pixel of the piece past the grown mask changed by more than the shape's threshold, so a piece that stays
 /// inside it adds nothing, not even the margin around it.
 nonisolated func furniturePiecePastTheGrownMask(
