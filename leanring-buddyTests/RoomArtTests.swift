@@ -58,7 +58,7 @@ private let goodFurnitureItem = """
 
 private let goodClothingItem = """
 {"kind": "clothing", "clothing": {"garment": "tshirt", "sleeves": "short", "length": "hip", "canBeDrawnOnTheLearner": true,
- "chosenSizeLabel": "M", "photoShows": "flatLay", "printDescription": "large wave across the chest"}}
+ "chosenSizeLabel": "M", "photoShows": "flatLay", "printDescription": "large wave across the chest", "mainColorHex": "#2B4C7E"}}
 """
 
 private let goodRoomWallReply = """
@@ -139,6 +139,7 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             chosenSizeLabel: "M",
             photoShows: .flatLay,
             printDescription: "large wave print across the chest",
+            mainColorHex: "#2B4C7E",
             whyThisSize: "The page has size M selected.",
             itemCorners: pictureCorners(30, 60, 370, 440)
         ))
@@ -152,6 +153,7 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             chosenSizeLabel: "M",
             photoShows: .onModel,
             printDescription: "large sasquatch graphic across the chest",
+            mainColorHex: "#3E5F3A",
             whyThisSize: "The page has size M selected.",
             itemCorners: pictureCorners(20, 80, 280, 560),
             frontPictureIndex: 1
@@ -166,6 +168,7 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             chosenSizeLabel: "M",
             photoShows: .onModel,
             printDescription: "",
+            mainColorHex: "#E8E0D0",
             whyThisSize: "The page has size M selected.",
             itemCorners: pictureCorners(60, 20, 340, 480)
         ))
@@ -249,7 +252,26 @@ struct RoomArtReplyTests {
         #expect(clothing.garment == .tshirt && clothing.sleeves == .short && clothing.photoShows == .flatLay)
         #expect(clothing.length == .hip && clothing.canBeDrawnOnTheLearner)
         #expect(clothing.chosenSizeLabel == "M" && clothing.printDescription == "large wave across the chest")
+        #expect(clothing.mainColorHex == "#2B4C7E")
         #expect(clothing.itemCorners.bottomRight == CGPoint(x: 392, y: 500))
+    }
+
+    @Test func theReadersColorIsKeptUppercase() throws {
+        let lowercaseItem = goodClothingItem.replacingOccurrences(of: "#2B4C7E", with: "#2b4c7e")
+        let reading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: lowercaseItem)), pictureWidth: 400, pictureHeight: 500)
+        guard case .clothing(let clothing) = reading else {
+            Issue.record("Expected clothing, got \(reading)")
+            return
+        }
+        #expect(clothing.mainColorHex == "#2B4C7E")
+    }
+
+    @Test(arguments: ["navy", "#2B4C7", "2B4C7E", "#2B4C7EFF", "#GG4C7E", "#２B4C7E", ""])
+    func aMainColorThatIsNotHashAndSixHexDigitsIsRefused(mainColorHex: String) {
+        let badItem = goodClothingItem.replacingOccurrences(of: "#2B4C7E", with: mainColorHex)
+        #expect(throws: RoomArtReplyError.self) {
+            try RoomArtPageReading(responseData: jsonData(tryItReply(item: badItem, corners: fullCorners)), pictureWidth: 400, pictureHeight: 500)
+        }
     }
 
     @Test func aLongCoatOnAHangerAndAReaderVerdictOfFalseBothReadAsTheyAreSaid() throws {
@@ -313,6 +335,8 @@ struct RoomArtReplyTests {
         tryItReply(item: goodClothingItem.replacingOccurrences(of: #""hip""#, with: #""floor""#), corners: fullCorners),
         tryItReply(item: goodClothingItem.replacingOccurrences(of: #""length": "hip","#, with: ""), corners: fullCorners),
         tryItReply(item: goodClothingItem.replacingOccurrences(of: #""canBeDrawnOnTheLearner": true,"#, with: ""), corners: fullCorners),
+        // A reply with no main color.
+        tryItReply(item: goodClothingItem.replacingOccurrences(of: ##", "mainColorHex": "#2B4C7E""##, with: ""), corners: fullCorners),
         // An error body.
         #"{"error": "The page has no picture"}"#,
         "not json",
@@ -709,7 +733,7 @@ private func clothing(
 ) -> RoomArtClothingReading {
     RoomArtClothingReading(
         title: "Linen shirt", garment: garment, sleeves: sleeves, length: length, canBeDrawnOnTheLearner: canBeDrawnOnTheLearner,
-        chosenSizeLabel: "M", photoShows: photoShows, printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners
+        chosenSizeLabel: "M", photoShows: photoShows, printDescription: "", mainColorHex: "#C9B79C", whyThisSize: "M is selected.", itemCorners: pictureCorners
     )
 }
 

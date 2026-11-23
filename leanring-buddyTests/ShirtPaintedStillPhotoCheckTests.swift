@@ -10,11 +10,14 @@
 //  paintings an earlier run saved with no new call, and SHIRT_PAINT_MASKS_ONLY=1 writes only the masks. The garment's cut is
 //  named by SHIRT_PAINT_KIND (tshirt, shirt, sweater, hoodie, jacket, coat, vest, dress, jumpsuit, or other), SHIRT_PAINT_SLEEVES
 //  (none, short, or long), and SHIRT_PAINT_LENGTH (waist, hip, thigh, knee, or ankle), which default to a short-sleeved T-shirt
-//  to the hip, so a long-sleeved jacket is painted and masked as one. SHIRT_PAINT_GHOST=1 runs the ghost outline's path, as
+//  to the hip, so a long-sleeved jacket is painted and masked as one. The app is told the cloth color by the page reader, which
+//  this check has none of, so each product also needs SHIRT_PAINT_COLOR_<product file name> (the cloth's main color as #RRGGBB
+//  in sRGB, and SHIRT_PAINT_PRINT_<product file name> for its print, if any) before a painting is paid for. SHIRT_PAINT_GHOST=1 runs the ghost outline's path, as
 //  the app does for a garment the live preview cannot draw: no garment is cut out, the preview is the camera as filmed, and
 //  the mask takes its area from the coverage alone:
 //  SHIRT_TRYON_PHOTOS_DIR=/path/photos SHIRT_PAINT_PRODUCTS=/path/a.jpg,/path/b.jpg SHIRT_PAINT_OUTPUT_DIR=/path/out \
 //  SHIRT_PAINT_WORKER=http://localhost:8794 SHIRT_PAINT_APP_SECRET=... SHIRT_PAINT_KIND=jacket SHIRT_PAINT_SLEEVES=long \
+//  SHIRT_PAINT_COLOR_a=#2B4C7E SHIRT_PAINT_COLOR_b=#C9B79C \
 //  tools/swift-check.sh --filter ShirtPaintedStillPhotoCheck
 //
 //  The numbers, per painting:
@@ -173,8 +176,14 @@ struct ShirtPaintedStillPhotoCheckTests {
                 topLeft: .zero, topRight: CGPoint(x: productPhoto.width, y: 0),
                 bottomRight: CGPoint(x: productPhoto.width, y: productPhoto.height), bottomLeft: CGPoint(x: 0, y: productPhoto.height)
             )
-            let baseColorHex = try #require(shirtBaseColorHex(picture: productPhoto, itemCorners: wholePhoto), "no cloth color in \(shirtName)")
-            print("Shirt paint check: \(shirtName) cloth \(baseColorHex), \(garmentKind) \(garmentSleeves) sleeves to the \(garmentLength)\(usesTheGhostOutline ? ", ghost outline" : "")")
+            // Only a painting that is paid for needs the color, so the masks and a saved painting can be checked without one.
+            let paintsForReal = !reusesSavedPaintings && paintCheckEnvironment["SHIRT_PAINT_MASKS_ONLY"] != "1"
+            let baseColorHex = paintCheckEnvironment["SHIRT_PAINT_COLOR_\(shirtName)"] ?? ""
+            if paintsForReal, RoomArtClothingReading.uppercasedColorHex(baseColorHex) == nil {
+                Issue.record("Set SHIRT_PAINT_COLOR_\(shirtName) to the cloth's main color as #RRGGBB, as the page reader would name it. There is none, or it is not #RRGGBB, so no painting is made for \(shirtName).")
+                continue
+            }
+            print("Shirt paint check: \(shirtName) cloth \(baseColorHex.isEmpty ? "(none needed)" : baseColorHex), \(garmentKind) \(garmentSleeves) sleeves to the \(garmentLength)\(usesTheGhostOutline ? ", ghost outline" : "")")
             // The live preview draws the garment over the learner. The ghost outline draws nothing on the camera.
             let previewImage: CGImage
             let previewCoverage: [UInt8]
@@ -238,7 +247,7 @@ struct ShirtPaintedStillPhotoCheckTests {
                 painted = try await client.paint(ShirtPaintingRequest(
                     keyframe: standingPhoto, productJPEG: productJPEG, masks: masks, itemTitle: shirtName,
                     garment: ShirtPaintingGarment(
-                        kind: garmentKind, sleeves: garmentSleeves, length: garmentLength, baseColorHex: baseColorHex,
+                        kind: garmentKind, sleeves: garmentSleeves, length: garmentLength, baseColorHex: baseColorHex.uppercased(),
                         printDescription: paintCheckEnvironment["SHIRT_PAINT_PRINT_\(shirtName)"] ?? ""
                     )
                 ))

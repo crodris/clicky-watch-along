@@ -917,7 +917,7 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
     let frontNeckWasFound: Bool
     /// The garment's base color in sRGB, the mean of a print-free band near the hem worked out in linear light and encoded
     /// back. It fills the learner's old shirt where the garment's outline does not reach, at the waist, under the arms, and
-    /// on the tops of the shoulders. It is sRGB, so `sRGBHex(ofLinear:)` is not for it (see `shirtBaseColorHex`).
+    /// on the tops of the shoulders.
     let baseColor: ShirtRGB
     /// The product photo's white in linear light, per channel: its background, raised to the garment's own 98th percentile
     /// of luminance when the garment is brighter (a white shirt on a light gray sweep). The photo over this is the garment's

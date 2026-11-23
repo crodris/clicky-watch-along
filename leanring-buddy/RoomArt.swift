@@ -209,12 +209,22 @@ nonisolated struct RoomArtClothingReading: Equatable, Sendable {
     /// What the print on the garment looks like, empty for a plain garment. Page-derived text, so it is logged and goes
     /// into the shirt painting's prompt only inside a tag the Worker marks as untrusted data.
     let printDescription: String
+    /// The garment's main cloth color in the picture its front is in, as "#RRGGBB" in sRGB and uppercase, named by the page
+    /// reader and checked at the boundary. It goes to the shirt painting as the cloth color.
+    let mainColorHex: String
     let whyThisSize: String
     /// Where the garment sits in the picture its front is in, clamped into it.
     let itemCorners: RoomArtCorners
     /// Which picture shows the garment's front, the one the try-on cuts it out of: 0 is the main picture, and 1 and up are
     /// its `otherPictures`.
     var frontPictureIndex = 0
+
+    /// `hex` in uppercase when it is `#` and six hex digits, else nil.
+    static func uppercasedColorHex(_ hex: String) -> String? {
+        let digits = hex.dropFirst()
+        guard hex.hasPrefix("#"), digits.count == 6, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isHexDigit) else { return nil }
+        return hex.uppercased()
+    }
 }
 
 nonisolated struct RoomArtReplyError: Error, Equatable {
@@ -275,6 +285,7 @@ nonisolated private struct RoomArtClothingReply: Decodable {
     let chosenSizeLabel: String
     let photoShows: RoomArtGarmentPhoto
     let printDescription: String
+    let mainColorHex: String
     /// Absent from a Worker that predates it, which read the main picture only.
     let frontPictureIndex: Int?
 }
@@ -350,6 +361,9 @@ extension RoomArtPageReading {
                 }
                 frontPictureIndex = 0
             }
+            guard let mainColorHex = RoomArtClothingReading.uppercasedColorHex(clothingReply.mainColorHex) else {
+                throw RoomArtReplyError(reason: "clothing.mainColorHex is not # and six hex digits")
+            }
             let frontPictureSize = frontPictureIndex == 0 ? (width: pictureWidth, height: pictureHeight) : otherPictureSizes[frontPictureIndex - 1]
             self = .clothing(RoomArtClothingReading(
                 title: reply.title,
@@ -360,6 +374,7 @@ extension RoomArtPageReading {
                 chosenSizeLabel: clothingReply.chosenSizeLabel,
                 photoShows: clothingReply.photoShows,
                 printDescription: clothingReply.printDescription,
+                mainColorHex: mainColorHex,
                 whyThisSize: reply.whyThisSize,
                 itemCorners: try itemCornersInThePicture(width: frontPictureSize.width, height: frontPictureSize.height),
                 frontPictureIndex: frontPictureIndex

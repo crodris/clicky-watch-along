@@ -64,6 +64,7 @@ function goodClothing(overrides: Partial<ClothingItem> = {}): ClothingItem {
       photoShows: "flatLay",
       printDescription: "large Great Wave print across the chest",
       frontPictureIndex: 0,
+      mainColorHex: "#2B4C7E",
     },
     ...overrides,
   };
@@ -370,7 +371,7 @@ describe("checkTryItItem for clothing", () => {
     expectRejectedFor(goodClothing({ itemCorners: hat.itemCorners }), "itemCorners must be the four corners of a convex quadrilateral");
   });
 
-  it.each(["length", "canBeDrawnOnTheLearner"] as const)("refuses a clothing reply with no %s", async (missingField) => {
+  it.each(["length", "canBeDrawnOnTheLearner", "mainColorHex"] as const)("refuses a clothing reply with no %s", async (missingField) => {
     const clothing: Record<string, unknown> = { ...goodClothing().clothing };
     delete clothing[missingField];
     const fetchMock = stubFetch(modelReplyResponse({ ...asModelReply(goodClothing()), item: { kind: "clothing", clothing } }));
@@ -379,6 +380,47 @@ describe("checkTryItItem for clothing", () => {
 
     expect(response.status).toBe(422);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("uppercases the main color, also on a garment that cannot be drawn", () => {
+    const lowercaseColor = { ...goodClothing().clothing, mainColorHex: "#2b4c7e" };
+    expect(checked(goodClothing({ clothing: lowercaseColor }))).toEqual({ accepted: true, reply: asModelReply(goodClothing()) });
+    const hat = checked(goodClothing({ clothing: { ...lowercaseColor, garment: "other", canBeDrawnOnTheLearner: false } }));
+    expect(hat).toMatchObject({ accepted: true, reply: { item: { clothing: { mainColorHex: "#2B4C7E" } } } });
+  });
+
+  it.each(["navy", "#2B4C7", "2B4C7E", "#2B4C7EFF", "#GG4C7E", ""])("refuses the main color %j and asks again", async (mainColorHex) => {
+    const fetchMock = stubFetch(modelReplyResponse(asModelReply(goodClothing({ clothing: { ...goodClothing().clothing, mainColorHex } }))), modelReplyResponse(asModelReply(goodClothing())));
+
+    const response = await handleTryItItem(requestWithBody(validRequest), "key");
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(promptTextOf(sentBodies(fetchMock)[1])).toContain("not a JSON object in the schema's shape");
+  });
+
+  it("answers a lowercase main color from the model in uppercase", async () => {
+    stubFetch(modelReplyResponse(asModelReply(goodClothing({ clothing: { ...goodClothing().clothing, mainColorHex: "#2b4c7e" } }))));
+
+    const response = await handleTryItItem(requestWithBody(validRequest), "key");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(asModelReply(goodClothing()));
+  });
+
+  it("asks the model for the garment's main cloth color, in the prompt and in the clothing schema", async () => {
+    const fetchMock = stubFetch(modelReplyResponse(asModelReply(goodClothing())));
+
+    await handleTryItItem(requestWithBody(validRequest), "key");
+
+    const sentBody = sentBodies(fetchMock)[0];
+    const clothingVariant = (sentBody.output_config.format.schema.properties?.item?.anyOf ?? []).find((variant) => variant.properties?.kind.enum?.[0] === "clothing");
+    const clothingSchema = clothingVariant?.properties?.clothing;
+    expect(clothingSchema?.properties?.mainColorHex).toEqual({ type: "string", pattern: "^#[0-9A-Fa-f]{6}$" });
+    expect(clothingSchema?.required).toContain("mainColorHex");
+    const system = JSON.stringify(sentBody.system);
+    expect(system).toContain("mainColorHex is the main cloth color of the garment in the picture frontPictureIndex names, as #RRGGBB in sRGB");
+    expect(system).toContain("Ignore any print or graphic, the model's skin and hair, other clothing worn with it, and the backdrop");
   });
 
   it("refuses a garment length the schema does not list", async () => {

@@ -8,6 +8,7 @@
  * corners in a photo, so the app can cut the item out of the photo and show it in the learner's live camera view.
  * For clothing, Sonnet also picks the photo that shows the garment's front (`frontPictureIndex`), since a gallery can show
  * the back of a shirt as large as its front, and the corners are in that photo. Wall art and furniture use the main photo.
+ * It also names the garment's main cloth color (`mainColorHex`) from that photo, which the painted shirt is told.
  *
  * The reply carries exactly one per-kind object, named for its kind. The model's JSON schema makes that a union of four
  * shapes, one per kind, so a reply cannot mix them, and the parser below refuses a reply that does anyway.
@@ -104,6 +105,9 @@ const furnitureItemSchema = z
   })
   .strict();
 
+/** `#` and six hex digits in either case. The reply is cleaned to uppercase, the form `/room-furniture-composite` takes. */
+const colorHexPattern = /^#[0-9A-Fa-f]{6}$/;
+
 const clothingItemSchema = z
   .object({
     kind: z.literal("clothing"),
@@ -116,6 +120,7 @@ const clothingItemSchema = z
       photoShows: z.enum(photoShowsKinds),
       printDescription: z.string(),
       frontPictureIndex: z.number().int(),
+      mainColorHex: z.string().regex(colorHexPattern),
     }),
   })
   .strict();
@@ -197,6 +202,7 @@ const tryItItemJSONSchema = objectJSONSchema({
           photoShows: { type: "string", enum: [...photoShowsKinds] },
           printDescription: { type: "string" },
           frontPictureIndex: { type: "integer" },
+          mainColorHex: { type: "string", pattern: colorHexPattern.source },
         }),
       }),
       itemVariantJSONSchema("other", {}),
@@ -227,6 +233,7 @@ const tryItItemSystemPrompt = [
   "photoShows says whether the photo shows the garment flat, on a model, on a hanger, or in some other way.",
   `printDescription says in at most ${maximumPrintDescriptionLength} characters what the print or graphic on the front of the garment looks like and where it sits, such as "large Great Wave print across the chest", and is empty when the front is plain.`,
   "frontPictureIndex is the number of the picture that shows the garment's front, with the print or graphic the page describes when it has one. A picture of the garment's back, a close-up of the fabric, a label, or a detail is never the front, even when it is picture 0. When several pictures show the front, choose the one that shows the whole garment largest. With only picture 0, frontPictureIndex is 0.",
+  "mainColorHex is the main cloth color of the garment in the picture frontPictureIndex names, as #RRGGBB in sRGB. Ignore any print or graphic, the model's skin and hair, other clothing worn with it, and the backdrop. For a garment of several colors, give the color that covers the most of it.",
   "For clothing, photoShows, garment, sleeves, and itemCorners describe the picture frontPictureIndex names. For wallArt and furniture, itemCorners are in picture 0.",
   "itemCorners are the four outer corners of the item in the photo, in the photo's pixels, with the origin at the top left and y growing down.",
   "For wallArt, include the frame and leave out any wall, shadow, or room around it.",
@@ -371,7 +378,7 @@ function cannotBeDrawnOnTheLearner(item: Item): boolean {
 export type CheckedTryItItem = { accepted: true; reply: TryItItem } | { accepted: false; reason: string };
 
 /**
- * Clamps the corners into the picture they are in (a garment's front picture, else the main one) and checks the rules the
+ * Uppercases a garment's `mainColorHex`, clamps the corners into the picture they are in (a garment's front picture, else the main one) and checks the rules the
  * app relies on: a garment's front picture is one that was sent, the size range of the kind (wall art 5 to
  * 1000 centimeters, furniture 2 to 600 in width and height and 1 to 600 in depth), short labels and print text, and corners that form a convex
  * quadrilateral covering at least 4 percent of the picture, since the app cuts that quadrilateral out of the photo.
@@ -389,20 +396,21 @@ export function checkTryItItem(
   // A garment's corners are in the picture its front is in, which must be one of the pictures sent. A garment that cannot be
   // drawn on the learner is only reported, so its front picture is never used and an index that names no picture counts as 0.
   if (modelReply.item.kind === "clothing") {
-    const frontPictureIndex = modelReply.item.clothing.frontPictureIndex;
-    if (frontPictureIndex < 0 || frontPictureIndex > otherPictureSizes.length) {
-      if (modelReply.item.clothing.canBeDrawnOnTheLearner) {
+    let clothing = { ...modelReply.item.clothing, mainColorHex: modelReply.item.clothing.mainColorHex.toUpperCase() };
+    if (clothing.frontPictureIndex < 0 || clothing.frontPictureIndex > otherPictureSizes.length) {
+      if (clothing.canBeDrawnOnTheLearner) {
         return {
           accepted: false,
           reason: `clothing.frontPictureIndex must be a picture's number, from 0 to ${otherPictureSizes.length}.`,
         };
       }
-      modelReply = { ...modelReply, item: { ...modelReply.item, clothing: { ...modelReply.item.clothing, frontPictureIndex: 0 } } };
-    } else if (frontPictureIndex > 0) {
-      const frontPictureSize = otherPictureSizes[frontPictureIndex - 1];
+      clothing = { ...clothing, frontPictureIndex: 0 };
+    } else if (clothing.frontPictureIndex > 0) {
+      const frontPictureSize = otherPictureSizes[clothing.frontPictureIndex - 1];
       pictureWidth = frontPictureSize.width;
       pictureHeight = frontPictureSize.height;
     }
+    modelReply = { ...modelReply, item: { kind: "clothing", clothing } };
   }
   const clampedCorner = (corner: Corner): Corner => ({
     x: clamp(Math.round(corner.x), 0, pictureWidth - 1),

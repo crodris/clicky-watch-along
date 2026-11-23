@@ -113,7 +113,8 @@
             "chosenSizeLabel": "M",
             "photoShows": "flatLay",
             "printDescription": "large wave print across the chest",
-            "frontPictureIndex": 0
+            "frontPictureIndex": 0,
+            "mainColorHex": "#2B4C7E"
           }
         }
       }
@@ -140,7 +141,8 @@
             "chosenSizeLabel": "M",
             "photoShows": "onModel",
             "printDescription": "large sasquatch graphic across the chest",
-            "frontPictureIndex": 1
+            "frontPictureIndex": 1,
+            "mainColorHex": "#3E5F3A"
           }
         }
       }
@@ -167,7 +169,8 @@
             "chosenSizeLabel": "M",
             "photoShows": "onModel",
             "printDescription": "",
-            "frontPictureIndex": 0
+            "frontPictureIndex": 0,
+            "mainColorHex": "#E8E0D0"
           }
         }
       }

@@ -171,7 +171,7 @@ struct ShirtCoverageTests {
     @Test func aCoverageIsReadFromTheClothingReading() {
         let reading = RoomArtClothingReading(
             title: "Wool coat", garment: .coat, sleeves: .long, length: .knee, canBeDrawnOnTheLearner: true, chosenSizeLabel: "M",
-            photoShows: .onHanger, printDescription: "", whyThisSize: "M.", itemCorners: RoomArtCorners(rect: CGRect(x: 0, y: 0, width: 10, height: 10))
+            photoShows: .onHanger, printDescription: "", mainColorHex: "#4A3B2F", whyThisSize: "M.", itemCorners: RoomArtCorners(rect: CGRect(x: 0, y: 0, width: 10, height: 10))
         )
         #expect(ShirtCoverage(reading: reading) == ShirtCoverage(sleeves: .long, length: .knee))
     }

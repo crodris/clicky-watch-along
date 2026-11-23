@@ -387,7 +387,7 @@ private func shirtReading(
     .clothing(RoomArtClothingReading(
         title: "Linen shirt", garment: garment, sleeves: sleeves, length: length, canBeDrawnOnTheLearner: canBeDrawnOnTheLearner,
         chosenSizeLabel: "M", photoShows: photoShows,
-        printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners, frontPictureIndex: frontPictureIndex
+        printDescription: "", mainColorHex: "#C9B79C", whyThisSize: "M is selected.", itemCorners: pictureCorners, frontPictureIndex: frontPictureIndex
     ))
 }
 
@@ -2832,10 +2832,10 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.statusLine() == "On you · say go back for the live view")
         #expect(harness.controller.loopState.isFadingOut)
 
-        // The Worker hears the garment in its own words: the page's kind and sleeves, and the color the garment measured.
+        // The Worker hears the garment in its own words: the page's kind and sleeves, and the color the page reader named.
         let paintingRequest = try #require(shirtPainting.requests.first)
         #expect(paintingRequest.garment.kind == .shirt && paintingRequest.garment.sleeves == .short)
-        #expect(paintingRequest.garment.baseColorHex.hasPrefix("#") && paintingRequest.garment.baseColorHex.count == 7)
+        #expect(paintingRequest.garment.baseColorHex == "#C9B79C")
         #expect(paintingRequest.itemTitle == "Linen shirt")
         #expect(!paintingRequest.productJPEG.isEmpty)
 
@@ -3342,7 +3342,7 @@ struct RoomArtPreviewControllerTests {
         #expect(shirtPainting.coveragesAsked == [ShirtCoverage(sleeves: .long, length: .knee)])
         let paintingRequest = try #require(shirtPainting.requests.first)
         #expect(paintingRequest.garment.kind == .coat && paintingRequest.garment.sleeves == .long && paintingRequest.garment.length == .knee)
-        #expect(paintingRequest.garment.baseColorHex.hasPrefix("#") && paintingRequest.garment.baseColorHex.count == 7)
+        #expect(paintingRequest.garment.baseColorHex == "#C9B79C")
 
         // Going back returns to the same preview, and the ghost's line is not said again.
         harness.controller.goBackToTheLiveShirt()

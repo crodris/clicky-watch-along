@@ -84,6 +84,7 @@ private func clothingReplyData(
     var clothing: [String: JSONValue] = [
         "garment": .string("tshirt"), "sleeves": .string("short"), "length": .string("hip"), "canBeDrawnOnTheLearner": .bool(canBeDrawnOnTheLearner), "chosenSizeLabel": .string("M"),
         "photoShows": .string("onModel"), "printDescription": .string("sasquatch on the chest"),
+        "mainColorHex": .string("#3E5F3A"),
     ]
     if let frontPictureIndex { clothing["frontPictureIndex"] = .number(Double(frontPictureIndex)) }
     func point(_ pixelX: Double, _ pixelY: Double) -> JSONValue { .object(["x": .number(pixelX), "y": .number(pixelY)]) }

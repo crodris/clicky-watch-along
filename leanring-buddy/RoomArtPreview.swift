@@ -1369,10 +1369,10 @@ final class RoomArtPreviewController: ObservableObject {
     private var shirtCoachingWasSaid = false
     /// The framing last settled on ready, so a garment that is ready later shows the shirt at once.
     private var theLearnerIsInFrame = false
-    /// The clothing being tried on, its main cloth color measured from the page picture that shows its front, and that
-    /// picture, which a painting describes to the Worker and crops the product photo from, since the reading's corners are in
-    /// that picture. There is no garment cutout here: only the live preview has one, and it lives in the frame processor.
-    private var shirtBeingTried: (reading: RoomArtClothingReading, baseColorHex: String, frontPicture: CGImage)?
+    /// The clothing being tried on and the page picture that shows its front, which a painting crops the product photo from,
+    /// since the reading's corners are in that picture. The reading holds the cloth color the painting is told.
+    /// There is no garment cutout here: only the live preview has one, and it lives in the frame processor.
+    private var shirtBeingTried: (reading: RoomArtClothingReading, frontPicture: CGImage)?
     /// Freezes the frame and paints the shirt into it. Going back or a close cancels it.
     private var shirtPaintingTask: Task<Void, Never>?
     private var lastShirtPaintingNumber = 0
@@ -1907,13 +1907,12 @@ final class RoomArtPreviewController: ObservableObject {
             let frontPicture = clothingReading.frontPictureIndex == 0 ? pictureImage : pageRequest.picture.picture(numbered: clothingReading.frontPictureIndex).flatMap { picture in
                 CGImageSourceCreateWithData(picture.jpegData as CFData, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
             }
-            // The color measure falls back from the cloth band to the item box to the whole picture, so it is nil only when the
-            // picture cannot be scaled or read. The panel fails with `pageNotRead` when the front picture cannot be decoded too.
-            guard let frontPicture, let baseColorHex = shirtBaseColorHex(picture: frontPicture, itemCorners: clothingReading.itemCorners) else {
+            // The panel fails with `pageNotRead` when the front picture cannot be decoded.
+            guard let frontPicture else {
                 apply(phase.afterTheShirtsPictureCouldNotBeRead())
                 return
             }
-            print("Room art: the garment's front is picture \(clothingReading.frontPictureIndex) of \(1 + pageRequest.picture.otherPictures.count), its cloth is \(baseColorHex)")
+            print("Room art: the garment's front is picture \(clothingReading.frontPictureIndex) of \(1 + pageRequest.picture.otherPictures.count), its cloth is \(clothingReading.mainColorHex)")
             // The live preview is tried only where it can work, and a cutout that fails falls to the ghost outline of the area
             // the painting will cover, so no garment is refused for its cut or its photo (`shirtPreviewKind`).
             let mayDrawTheGarmentLive = shirtLiveGarmentMayWork(photoShows: clothingReading.photoShows, sleeves: clothingReading.sleeves, length: clothingReading.length)
@@ -1929,7 +1928,7 @@ final class RoomArtPreviewController: ObservableObject {
                 preview = .ghostOutline
             }
             print("Room art: the shirt shows as \(preview)")
-            shirtBeingTried = (clothingReading, baseColorHex, frontPicture)
+            shirtBeingTried = (clothingReading, frontPicture)
             apply(phase.withTheShirtPreviewReady(preview, learnerIsInFrame: theLearnerIsInFrame))
         }
     }
@@ -2039,7 +2038,7 @@ final class RoomArtPreviewController: ObservableObject {
                     kind: shirtBeingTried.reading.garment,
                     sleeves: shirtBeingTried.reading.sleeves,
                     length: shirtBeingTried.reading.length,
-                    baseColorHex: shirtBeingTried.baseColorHex,
+                    baseColorHex: shirtBeingTried.reading.mainColorHex,
                     printDescription: shirtBeingTried.reading.printDescription
                 )
             )
