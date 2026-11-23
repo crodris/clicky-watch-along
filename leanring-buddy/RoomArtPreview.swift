@@ -1327,8 +1327,9 @@ final class RoomArtPreviewController: ObservableObject {
     /// The page and its picture are being read before the panel opens, so Escape has a request to stop.
     private var anOpeningIsUnderway = false
     private var hereItIsWasSaid = false
-    /// The floor line is said once, the first time no floor is found, and a click's failure only shows in the status line.
-    private var floorNotFoundWasSaid = false
+    /// Each prompt for a click on a surface is said once per panel: the floor line the first time no floor is found, and a
+    /// table or shelf's invitation and its first failed click. A later failed click only shows in the status line.
+    private var surfaceClickPromptsSaid: Set<RoomArtSurfaceClickPrompt> = []
     /// The shirt's coaching is said once, before the shirt first shows, and after that only the status line follows it.
     private var shirtCoachingWasSaid = false
     /// The framing last settled on ready, so a garment that is ready later shows the shirt at once.
@@ -1486,7 +1487,7 @@ final class RoomArtPreviewController: ObservableObject {
         self.pictureImage = pictureImage
         pageRequest = RoomArtPageRequest(pageURL: frontTab.url, pageTitle: frontTab.title, pageText: pageText, learnerRequest: learnerRequest, picture: picture)
         hereItIsWasSaid = false
-        floorNotFoundWasSaid = false
+        surfaceClickPromptsSaid = []
         shirtCoachingWasSaid = false
         theLearnerIsInFrame = false
         theSurfaceIsLost = false
@@ -1609,7 +1610,7 @@ final class RoomArtPreviewController: ObservableObject {
         theFirstFrameIsIn = true
         // The page was read before the camera had a frame, so its surface is measured now.
         if case .waitingForTheCamera = phase {
-            startAMeasurement(anchorInCameraPixels: nil)
+            measureOrAskForAClick()
         } else if case .readingThePage = phase {
             startMeasuringEarly()
         }
@@ -1838,7 +1839,15 @@ final class RoomArtPreviewController: ObservableObject {
                 apply(phase.afterThePageFailed(.furnitureNotCutOut))
                 return
             }
-            guard let furniture = RoomFurniture.standing(title: furnitureReading.title, size: size, cutoutImage: cutoutImage) else {
+            if furnitureReading.standsOn.needsAClickOnItsSurface {
+                // The click takes its own keyframe, so the depth service cannot answer it from the early frame's cached depth,
+                // and the early wall's run of about 14 seconds would hold the service's one lock and delay the click's own
+                // measurement. So the early measurement is cancelled and its keyframe forgotten, as a shirt's are.
+                earlyMeasurement?.cancel()
+                earlyMeasurement = nil
+                frameProcessor.forgetTheKeyframe()
+            }
+            guard let furniture = RoomFurniture.standing(title: furnitureReading.title, size: size, cutoutImage: cutoutImage, standsOn: furnitureReading.standsOn) else {
                 print("Room furniture: the width measured from the cutout is outside 2 to 600 cm, so nothing is placed")
                 apply(phase.afterThePageFailed(.sizeNotOnThePage))
                 return
@@ -1890,10 +1899,21 @@ final class RoomArtPreviewController: ObservableObject {
         }
     }
 
-    /// Wall art or furniture is ready, and its surface is measured as soon as the camera has a frame.
+    /// A wall item or a standing item is ready, and its surface is measured as soon as the camera has a frame.
     private func itemIsReady(_ item: RoomArtPlacedItem) {
         apply(phase.withTheItemReady(item))
-        if theFirstFrameIsIn { startAMeasurement(anchorInCameraPixels: nil) }
+        if theFirstFrameIsIn { measureOrAskForAClick() }
+    }
+
+    /// The item is ready and the camera has a frame: the item's surface is measured where the bare spot search puts it, or a
+    /// table or shelf item asks for a click first (`RoomArtPhase.askingForAClickIfTheItemNeedsOne`).
+    private func measureOrAskForAClick() {
+        let askingPhase = phase.askingForAClickIfTheItemNeedsOne()
+        guard askingPhase == phase else {
+            apply(askingPhase)
+            return
+        }
+        startAMeasurement(anchorInCameraPixels: nil)
     }
 
     // MARK: The shirt
@@ -2235,14 +2255,15 @@ final class RoomArtPreviewController: ObservableObject {
             startThePlacementDeadline(measurementID: measurementID)
             startPaintingTheFurniture()
             startRenderingTheFurnituresModel()
-        case .couldNotDraw:
-            // The loop stays and the camera keeps running, so a click on the floor picks the ghost back up there.
-            environment.speak(roomFurnitureNotDrawnLine, true)
-        case .waitingForAFloorClick:
-            // The camera keeps running, so the learner can tilt the screen down and click the floor.
-            guard !floorNotFoundWasSaid else { return }
-            floorNotFoundWasSaid = true
-            environment.speak(RoomArtFailure.floorNotFound.spokenLine, true)
+        case .couldNotDraw(_, let item, _):
+            // The loop stays and the camera keeps running, so a click on the surface picks the ghost back up there.
+            environment.speak(item.notDrawnLine, true)
+        case .waitingForAFloorClick(let item, let aClickFoundNothing):
+            // The camera keeps running, so the learner can tilt the screen down and click the floor, or click the table or
+            // shelf where the item goes.
+            let prompt = item.surfaceClickPrompt(afterAClickFoundNothing: aClickFoundNothing)
+            guard surfaceClickPromptsSaid.insert(prompt).inserted else { return }
+            environment.speak(prompt.spokenLine, prompt.isAFailure)
         case .showingTheShirt:
             // The way back from a painting keeps the coaching of a learner still out of view, which the framing reports only
             // when it changes.
@@ -2300,8 +2321,11 @@ extension RoomArtPreviewController {
     ) async throws -> FloorPlane {
         var measuredFloor: FloorPlane?
         var floorError: Error?
+        // A table or shelf top is measured with its own fit, so the request says what the item stands on.
+        var floorRequest = keyframe.measurementRequest
+        floorRequest.standsOn = item?.standsOn ?? .floor
         do {
-            measuredFloor = try await environment.measureTheFloor(keyframe.measurementRequest)
+            measuredFloor = try await environment.measureTheFloor(floorRequest)
         } catch {
             guard roomArtFailure(forAFailedMeasurementOf: .floor, error: error) == .floorNotFound else { throw error }
             floorError = error
@@ -2341,7 +2365,8 @@ extension RoomArtPreviewController {
                 return floorForThePiece
             }
         }
-        if let wall, case .furniture(let furniture) = item,
+        // A table or shelf item is never put on a floor inferred from the wall: the learner clicks its surface instead.
+        if let wall, case .furniture(let furniture) = item, !furniture.standsOn.needsAClickOnItsSurface,
            let inferredFloor = FloorPlane.inferred(fromTheWall: wall, itemDepthMeters: furniture.depthMeters),
            let boxCorners = inferredFloor.keyframeBoxCorners(widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters) {
             let frameSize = CGSize(width: inferredFloor.principalPoint.x * 2, height: inferredFloor.principalPoint.y * 2)
@@ -2653,6 +2678,7 @@ extension RoomArtPreviewController {
         // The tracker's turn moves the box, so whether the frame cuts off its feet is read for this painting frame.
         var orientation = orientation
         orientation.itemContinuesPastTheFrameBottom = roomFurnitureFootprintReachesTheFrameBottom(projectedBox: projectedBox, frameHeight: frameImage.height)
+        orientation.standsOn = furniture.standsOn
         guard let furnitureCutoutJPEG,
               let maskPNG = environment.compositeMaskPNG(projectedBox, frameImage.width, frameImage.height, Self.compositeShadowMarginPixels) else { return nil }
         // The service paints each request afresh, so a painting refused for its height or its footprint, or a failed
@@ -2751,11 +2777,11 @@ extension RoomArtPageReading {
     /// The kind of item, for a log line that never prints page text beyond the title.
     var kindForTheLog: String {
         switch self {
-        case .wallArt(let reading): return "wall art \"\(reading.title)\""
-        case .sizeNotOnThePage(let title): return "wall art \"\(title)\" with no size"
-        case .furniture(let reading): return "furniture \"\(reading.title)\"\(reading.chosenSize == nil ? " with no size" : "")"
+        case .wallArt(let reading): return "a wall item \"\(reading.title)\""
+        case .sizeNotOnThePage(let title): return "a wall item \"\(title)\" with no size"
+        case .furniture(let reading): return "a standing item \"\(reading.title)\" on \(reading.standsOn.rawValue)\(reading.chosenSize == nil ? " with no size" : "")"
         case .clothing(let reading): return "a \(reading.garment.rawValue) \"\(reading.title)\" photographed \(reading.photoShows.rawValue)"
-        case .other(let title): return "\"\(title)\", which is not wall art, furniture, or clothing"
+        case .cannotBeShown(let title, let reason): return "\"\(title)\", which cannot be shown (\(reason.rawValue))"
         }
     }
 }

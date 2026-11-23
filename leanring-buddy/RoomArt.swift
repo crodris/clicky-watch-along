@@ -3,12 +3,13 @@
 //  leanring-buddy
 //
 //  "Show me how this would look in my room": Clicky reads the item on Chrome's front tab and its size from the page, opens a
-//  live camera panel, and shows the item in the learner's room at its real size: wall art hung on the wall, furniture stood
-//  on the floor, or a shirt tried on the learner's own body.
+//  live camera panel, and shows the item in the learner's room at its real size: a flat item hung on the wall, a standing
+//  item stood on the floor or on a table or shelf, or a shirt tried on the learner's own body. An item that cannot be shown
+//  is told so right after the page read.
 //
 //  This file holds the pure parts: the Worker replies parsed into Swift types (`POST /try-it-item` reads the page and says
-//  what kind of item it shows, `POST /room-wall` measures the wall and `POST /room-floor` the floor with Depth Pro), the
-//  art's corners projected from the wall plane and the furniture's from the floor plane, the bare wall or floor spot the item
+//  where the item goes and whether it can be shown, `POST /room-wall` measures the wall and `POST /room-floor` the floor or a
+//  table top with Depth Pro), the art's corners projected from the wall plane and a standing item's from the floor plane, the bare wall or floor spot the item
 //  goes to first, the wall's light, the phase state machine behind the panel, the clients, and the phrase that asks for it.
 //  `RoomTracker` keeps the item in place, `RoomCamera` supplies the frames, `RoomArtLoop` draws Clicky's loop around the spot
 //  while it is measured, `RoomArtPreview` runs and draws the panel, `RoomFloor` and the `RoomFurniture` files place and
@@ -134,16 +135,56 @@ nonisolated struct RoomArtSize: Equatable, Sendable {
     let heightCentimeters: Double
 }
 
-/// What `POST /try-it-item` read from the page and its picture, by the kind of item the learner wants to try. Wall art hangs
-/// on the wall, furniture stands on the floor, and a top is drawn over the learner (`roomArtReadingPlan`).
+/// What `POST /try-it-item` read from the page and its picture, by where the item goes. A flat rectangular item hangs on the
+/// wall, a standing item stands on the floor or on a table or shelf, and a top is drawn over the learner
+/// (`roomArtReadingPlan`). An item that cannot be shown carries the reason Clicky says right after the page read.
 nonisolated enum RoomArtPageReading: Equatable, Sendable {
+    /// A flat, rectangular item that hangs on the wall and fills its four corners in the photo: a print, a poster, a framed
+    /// photo, a flat mirror. The wire kind is `wall`.
     case wallArt(RoomArtWallArtReading)
-    /// Wall art whose page text states no size, so Clicky says so instead of hanging a size the model guessed.
+    /// A wall item whose page text states no size, so Clicky says so instead of hanging a size the model guessed.
     case sizeNotOnThePage(title: String)
+    /// Any standing item, not only furniture: a sofa, a lamp, a rug, a mug on a table. The wire kind is `standing`, and
+    /// `RoomArtFurnitureReading.standsOn` says whether it stands on the floor or on a table or shelf.
     case furniture(RoomArtFurnitureReading)
     case clothing(RoomArtClothingReading)
-    /// Anything else, such as a rug or a phone case.
-    case other(title: String)
+    /// The item cannot be shown in the room, and `reason` says why.
+    case cannotBeShown(title: String, reason: RoomArtCannotBeShownReason)
+}
+
+/// What a standing item stands on, from the page reader. The floor is found by a search for bare floor and measured, and
+/// a table or shelf is found by the learner's click, since no search can tell a table top from the floor.
+nonisolated enum RoomArtStandsOn: String, Decodable, Equatable, Sendable {
+    case floor
+    case tableOrShelf
+
+    /// Whether the learner clicks the surface the item goes on, instead of a search for bare floor choosing it. Such an item
+    /// waits for the click before any measurement, and no floor is ever inferred from the wall for it.
+    var needsAClickOnItsSurface: Bool { self == .tableOrShelf }
+}
+
+/// Why the page reader says an item cannot be shown. Clicky says the line for each itself, and page text is never spoken.
+nonisolated enum RoomArtCannotBeShownReason: String, Decodable, Equatable, Sendable {
+    /// A gift card, a download, a subscription, or a service.
+    case notAPhysicalItem
+    /// Under about 3 cm on its longest side, such as a ring or a screw.
+    case tooSmallToSee
+    /// No photo on the page shows the item by itself.
+    case noClearPhoto
+    /// It hangs on a wall but is not a flat rectangle filling its corners, such as a round clock, a wall shelf, or a sconce.
+    case notFlatForTheWall
+    /// It goes somewhere Clicky cannot measure, such as a ceiling light, curtains, a car, or anything larger than 6 m.
+    case noPlaceClickyCanShow
+
+    var failure: RoomArtFailure {
+        switch self {
+        case .notAPhysicalItem: return .notAPhysicalItem
+        case .tooSmallToSee: return .tooSmallToSee
+        case .noClearPhoto: return .noClearPhoto
+        case .notFlatForTheWall: return .notFlatForTheWall
+        case .noPlaceClickyCanShow: return .noPlaceClickyCanShow
+        }
+    }
 }
 
 nonisolated struct RoomArtWallArtReading: Equatable, Sendable {
@@ -156,9 +197,9 @@ nonisolated struct RoomArtWallArtReading: Equatable, Sendable {
     let artworkCorners: RoomArtCorners
 }
 
-/// A size a store sells furniture in: across the front, floor to top, and front to back. A toy or figurine page often
-/// states only the height, so the width and the depth are nil when the page does not state them, and the panel measures
-/// the width from the cutout's own shape (`RoomFurniture.standing`).
+/// A size a store sells a standing item in: across the front, from what it stands on to its top, and front to back. A rug is
+/// about 1 cm tall. A toy or figurine page often states only the height, so the width and the depth are nil when the page
+/// does not state them, and the panel measures the width from the cutout's own shape (`RoomFurniture.standing`).
 nonisolated struct RoomArtFurnitureSize: Equatable, Sendable {
     let label: String
     let widthCentimeters: Double?
@@ -166,13 +207,16 @@ nonisolated struct RoomArtFurnitureSize: Equatable, Sendable {
     let depthCentimeters: Double?
 }
 
+/// A standing item as the page reader read it: furniture, a lamp, a rug, a mug. It keeps the name "furniture" for every
+/// standing item.
 nonisolated struct RoomArtFurnitureReading: Equatable, Sendable {
     let title: String
     /// Nil when the page text states no size.
     let chosenSize: RoomArtFurnitureSize?
     let whyThisSize: String
-    /// Where the furniture sits in the picture, clamped into it.
+    /// Where the item sits in the picture, clamped into it.
     let itemCorners: RoomArtCorners
+    var standsOn: RoomArtStandsOn = .floor
 }
 
 nonisolated enum RoomArtGarment: String, Decodable, Equatable, Sendable {
@@ -253,9 +297,14 @@ nonisolated private struct RoomArtWallArtReply: Decodable {
     let otherSizes: [RoomArtSizeReply]
 }
 
-nonisolated private struct RoomArtFurnitureReply: Decodable {
+nonisolated private struct RoomArtStandingReply: Decodable {
+    let standsOn: RoomArtStandsOn
     let sizeFoundOnPage: Bool
     let size: RoomArtFurnitureSizeReply
+}
+
+nonisolated private struct RoomArtCannotBeShownReply: Decodable {
+    let reason: RoomArtCannotBeShownReason
 }
 
 nonisolated private struct RoomArtClothingReply: Decodable {
@@ -270,22 +319,22 @@ nonisolated private struct RoomArtClothingReply: Decodable {
 
 /// The reply's `item`: its kind and the one object that kind names. A kind this app does not know fails to decode.
 nonisolated private enum RoomArtItemReply: Decodable {
-    case wallArt(RoomArtWallArtReply)
-    case furniture(RoomArtFurnitureReply)
+    case wall(RoomArtWallArtReply)
+    case standing(RoomArtStandingReply)
     case clothing(RoomArtClothingReply)
-    case other
+    case cannotBeShown(RoomArtCannotBeShownReply)
 
     private enum CodingKeys: String, CodingKey {
-        case kind, wallArt, furniture, clothing
+        case kind, wall, standing, clothing, cannotBeShown
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(String.self, forKey: .kind) {
-        case "wallArt": self = .wallArt(try container.decode(RoomArtWallArtReply.self, forKey: .wallArt))
-        case "furniture": self = .furniture(try container.decode(RoomArtFurnitureReply.self, forKey: .furniture))
+        case "wall": self = .wall(try container.decode(RoomArtWallArtReply.self, forKey: .wall))
+        case "standing": self = .standing(try container.decode(RoomArtStandingReply.self, forKey: .standing))
         case "clothing": self = .clothing(try container.decode(RoomArtClothingReply.self, forKey: .clothing))
-        case "other": self = .other
+        case "cannotBeShown": self = .cannotBeShown(try container.decode(RoomArtCannotBeShownReply.self, forKey: .cannotBeShown))
         default: throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "an item kind this app does not know")
         }
     }
@@ -299,11 +348,12 @@ nonisolated private struct RoomArtTryItReply: Decodable {
 }
 
 extension RoomArtPageReading {
-    /// Parses the Worker's reply, whose `item` names a kind and holds that kind's own object. Wall art whose page states its
-    /// size needs a sensible size and corners that enclose part of the picture, which are clamped into it, since a model's
-    /// corner can land a pixel or two outside. Sizes that are not sensible are dropped from the other sizes. Wall art whose
-    /// page states no size needs neither, since nothing is hung. Furniture and clothing keep what was read, with their
-    /// corners clamped into the picture, since a later PR places them.
+    /// Parses the Worker's reply, whose `item` names a kind and holds that kind's own object. A wall item whose page states
+    /// its size needs a sensible size and corners that enclose part of the picture, which are clamped into it, since a model's
+    /// corner can land a pixel or two outside. Sizes that are not sensible are dropped from the other sizes. A wall item whose
+    /// page states no size needs neither, since nothing is hung. A standing item and clothing keep what was read, with their
+    /// corners clamped into the picture, since a later step places them. An item that cannot be shown keeps its title and
+    /// reason and no corners, since nothing is placed.
     /// `otherPictureSizes` are the sizes of the other pictures the request sent, in order. A garment's front must be in one of
     /// the pictures sent, and its corners are clamped into that picture.
     nonisolated init(responseData: Data, pictureWidth: Int, pictureHeight: Int, otherPictureSizes: [(width: Int, height: Int)] = []) throws {
@@ -327,8 +377,8 @@ extension RoomArtPageReading {
         }
 
         switch reply.item {
-        case .other:
-            self = .other(title: reply.title)
+        case .cannotBeShown(let cannotBeShownReply):
+            self = .cannotBeShown(title: reply.title, reason: cannotBeShownReply.reason)
         case .clothing(let clothingReply):
             let frontPictureIndex = clothingReply.frontPictureIndex ?? 0
             guard frontPictureIndex >= 0, frontPictureIndex <= otherPictureSizes.count else {
@@ -346,14 +396,14 @@ extension RoomArtPageReading {
                 itemCorners: try itemCornersInThePicture(width: frontPictureSize.width, height: frontPictureSize.height),
                 frontPictureIndex: frontPictureIndex
             ))
-        case .furniture(let furnitureReply):
-            let sizeReply = furnitureReply.size
+        case .standing(let standingReply):
+            let sizeReply = standingReply.size
             let chosenSize: RoomArtFurnitureSize?
-            if furnitureReply.sizeFoundOnPage {
+            if standingReply.sizeFoundOnPage {
                 let statedSides = [sizeReply.widthCentimeters, sizeReply.heightCentimeters, sizeReply.depthCentimeters].compactMap { $0 }
                 guard statedSides.allSatisfy({ sensibleArtCentimeters.contains($0) }),
                       !sizeReply.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw RoomArtReplyError(reason: "furniture.size needs a label, a height, and any width and depth it states, each from 1 to 1000 cm")
+                    throw RoomArtReplyError(reason: "standing.size needs a label, a height, and any width and depth it states, each from 1 to 1000 cm")
                 }
                 chosenSize = RoomArtFurnitureSize(
                     label: sizeReply.label,
@@ -364,8 +414,10 @@ extension RoomArtPageReading {
             } else {
                 chosenSize = nil
             }
-            self = .furniture(RoomArtFurnitureReading(title: reply.title, chosenSize: chosenSize, whyThisSize: reply.whyThisSize, itemCorners: try itemCornersInThePicture()))
-        case .wallArt(let wallArtReply):
+            self = .furniture(RoomArtFurnitureReading(
+                title: reply.title, chosenSize: chosenSize, whyThisSize: reply.whyThisSize, itemCorners: try itemCornersInThePicture(), standsOn: standingReply.standsOn
+            ))
+        case .wall(let wallArtReply):
             guard wallArtReply.sizeFoundOnPage else {
                 self = .sizeNotOnThePage(title: reply.title)
                 return
@@ -374,7 +426,7 @@ extension RoomArtPageReading {
             guard sensibleArtCentimeters.contains(chosenSize.widthCentimeters),
                   sensibleArtCentimeters.contains(chosenSize.heightCentimeters),
                   !chosenSize.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw RoomArtReplyError(reason: "wallArt.size needs a label and a width and height from 1 to 1000 cm")
+                throw RoomArtReplyError(reason: "wall.size needs a label and a width and height from 1 to 1000 cm")
             }
             let corners = try itemCornersInThePicture()
             // A sliver is a misread: real art covers at least a hundredth of its own product photo.
@@ -528,19 +580,26 @@ extension WallPlane {
     }
 }
 
-/// What Clicky sends `POST /room-wall`: the keyframe, the person in it, and the spot on the wall the art centers on.
+/// What Clicky sends `POST /room-wall`: the keyframe, the person in it, and the spot on the wall the art centers on. A floor
+/// measurement (`POST /room-floor`) sends the same body, with the anchor where the item stands.
 nonisolated struct RoomWallRequest: Equatable, Sendable {
     let keyframeJPEGData: Data
     let personMaskPNGData: Data
     /// In keyframe pixels.
     let anchor: CGPoint
+    /// What a floor measurement is for, which `/room-floor` fits its plane to: a table or shelf top is level and small, so
+    /// the depth service looks only at level planes in a small window around the anchor. Only a table or shelf is sent,
+    /// since an absent field means the floor, and a wall request never carries it.
+    var standsOn: RoomArtStandsOn = .floor
 
     var json: JSONValue {
-        .object([
+        var fields: [String: JSONValue] = [
             "jpegBase64": .string(keyframeJPEGData.base64EncodedString()),
             "maskPngBase64": .string(personMaskPNGData.base64EncodedString()),
             "anchor": .object(["u": .number(anchor.x), "v": .number(anchor.y)]),
-        ])
+        ]
+        if standsOn == .tableOrShelf { fields["standsOn"] = .string(standsOn.rawValue) }
+        return .object(fields)
     }
 }
 
@@ -792,11 +851,16 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
     case pageNotHTTPS
     case cameraAccessDenied
     case noCamera
-    /// The item is neither wall art, furniture, nor clothing, such as a rug.
-    case notSomethingToTry
+    /// The page reader says the item cannot be shown (`RoomArtCannotBeShownReason`), each reason with its own line. They come
+    /// right after the page read, before any camera measurement.
+    case notAPhysicalItem
+    case tooSmallToSee
+    case noClearPhoto
+    case notFlatForTheWall
+    case noPlaceClickyCanShow
     /// The page text could not be read or was empty, or `POST /try-it-item` failed.
     case pageNotRead
-    /// The page is wall art or furniture, but its text states no size, so nothing is placed at a size the model guessed.
+    /// The page is a wall item or a standing item, but its text states no size, so nothing is placed at a size the model guessed.
     case sizeNotOnThePage
     /// A measurement route answered 503 (no depth service configured) or 502 (the depth service is down).
     case depthServiceUnavailable
@@ -806,7 +870,7 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
     /// `POST /room-floor` answered 422 (no floor in view there, or one too tilted, near, or far), or its reply could not
     /// stand the furniture on it. The panel stays open and a click on the floor measures again.
     case floorNotFound
-    /// Vision found no furniture in the product photo, so nothing can stand on the floor.
+    /// Vision found no standing item in the product photo, so nothing can stand on its surface.
     case furnitureNotCutOut
     /// The clothing is not a top, such as a dress, which the shirt overlay cannot draw.
     case onlyTopsSoFar
@@ -827,13 +891,17 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .pageNotHTTPS: return "I can only read store pages served over https."
         case .cameraAccessDenied: return "I need camera access for that. You can turn it on in System Settings."
         case .noCamera: return "I couldn't find a camera to show your room."
-        case .notSomethingToTry: return "That isn't something I can place in your room or try on."
+        case .notAPhysicalItem: return "That isn't something I can show in your room."
+        case .tooSmallToSee: return "That's too small to see in your room."
+        case .noClearPhoto: return "I couldn't find a clear photo of it on that page."
+        case .notFlatForTheWall: return "I can only hang flat, rectangular things on your wall so far."
+        case .noPlaceClickyCanShow: return "I can show things on your wall, your floor, or a table so far."
         case .pageNotRead: return "I couldn't read that page."
         case .sizeNotOnThePage: return "I couldn't find the size on that page."
         case .depthServiceUnavailable: return "I couldn't measure your room. Is the depth service running?"
         case .wallNotMeasured: return "I couldn't measure your wall. Try pointing the camera at a bare wall."
         case .floorNotFound: return "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor."
-        case .furnitureNotCutOut: return "I couldn't cut the item out of its photo."
+        case .furnitureNotCutOut: return "I couldn't cut it out of its photo."
         case .onlyTopsSoFar: return "I can try on shirts, sweaters, and jackets so far."
         case .shirtPhotoNeitherFlatNorOnAModel: return "I can only try on a shirt from a photo of it laid flat or worn by a model."
         case .longSleevesOnAModel: return "I can only try on long sleeves from a photo of the top laid flat."
@@ -849,13 +917,17 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
         case .pageNotHTTPS: return "The page is not served over https"
         case .cameraAccessDenied: return "Camera access is off. Turn it on in System Settings, Privacy & Security, Camera."
         case .noCamera: return "No camera found"
-        case .notSomethingToTry: return "That isn't something I can place in your room or try on"
+        case .notAPhysicalItem: return "Not something I can show in your room"
+        case .tooSmallToSee: return "Too small to see in your room"
+        case .noClearPhoto: return "No clear photo of it on the page"
+        case .notFlatForTheWall: return "Only flat, rectangular things hang on the wall so far"
+        case .noPlaceClickyCanShow: return "Only walls, floors, and tables so far"
         case .pageNotRead: return "Couldn't read the page"
         case .sizeNotOnThePage: return "Couldn't find the size on the page"
         case .depthServiceUnavailable: return "Couldn't measure the room. Is the depth service running?"
         case .wallNotMeasured: return "Couldn't measure the wall"
         case .floorNotFound: return "Tilt the screen down so the floor shows, then click the floor"
-        case .furnitureNotCutOut: return "Couldn't cut the item out of its photo"
+        case .furnitureNotCutOut: return "Couldn't cut it out of its photo"
         case .onlyTopsSoFar: return "Only shirts, sweaters, and jackets so far"
         case .shirtPhotoNeitherFlatNorOnAModel: return "The photo shows the shirt neither laid flat nor worn"
         case .longSleevesOnAModel: return "Long sleeves need a photo of the top laid flat"
@@ -867,12 +939,14 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
 
 // MARK: - What the reading asks for
 
-/// What the panel does with the page's reading. Only wall art and furniture whose page states a size are placed, so a size
-/// the model guessed never reaches the room, and only a top photographed laid flat or worn by a model is tried on, since a
-/// photo on a hanger shows neither the shirt's flat shape nor a body to map from. A long-sleeved top on a model is refused
-/// too, since the model's forearms are cut away with the arms and each sleeve would end at the upper arm.
+/// What the panel does with the page's reading. Only a wall item and a standing item whose page states a size are placed, so
+/// a size the model guessed never reaches the room, and only a top photographed laid flat or worn by a model is tried on,
+/// since a photo on a hanger shows neither the shirt's flat shape nor a body to map from. A long-sleeved top on a model is
+/// refused too, since the model's forearms are cut away with the arms and each sleeve would end at the upper arm. An item
+/// the page reader says cannot be shown fails with that reason's line before any measurement.
 nonisolated enum RoomArtReadingPlan: Equatable, Sendable {
     case hangOnTheWall(RoomArtWallArtReading)
+    /// A standing item stands on the floor or on a table or shelf, as `RoomArtFurnitureReading.standsOn` says.
     case standOnTheFloor(RoomArtFurnitureReading, size: RoomArtFurnitureSize)
     case tryOnTheShirt(RoomArtClothingReading)
     case fail(RoomArtFailure)
@@ -898,14 +972,15 @@ nonisolated func roomArtReadingPlan(for pageReading: RoomArtPageReading) -> Room
         case .onModel: return clothingReading.sleeves == .long ? .fail(.longSleevesOnAModel) : .tryOnTheShirt(clothingReading)
         case .onHanger, .other: return .fail(.shirtPhotoNeitherFlatNorOnAModel)
         }
-    case .other:
-        return .fail(.notSomethingToTry)
+    case .cannotBeShown(_, let reason):
+        return .fail(reason.failure)
     }
 }
 
 // MARK: - Surfaces and what stands on them
 
-/// The two surfaces an item is measured on: wall art hangs on a wall and furniture stands on a floor.
+/// The two surfaces an item is measured on: wall art hangs on a wall, and a standing item stands on a floor or on a table or
+/// shelf, which the depth service measures as a floor too.
 nonisolated enum RoomArtSurfaceKind: Equatable, Sendable {
     case wall
     case floor
@@ -937,7 +1012,8 @@ nonisolated enum RoomArtSurface: Equatable, Sendable {
     }
 }
 
-/// What is placed on a surface: the art flattened from its photo, or the furniture cut out of its photo.
+/// What is placed on a surface: the art flattened from its photo, or a standing item cut out of its photo. The standing item
+/// keeps the name "furniture", and its `standsOn` says whether the surface is a floor or a table or shelf.
 nonisolated enum RoomArtPlacedItem: Equatable, Sendable {
     case wallArt(RoomArtwork)
     case furniture(RoomFurniture)
@@ -947,6 +1023,12 @@ nonisolated enum RoomArtPlacedItem: Equatable, Sendable {
         case .wallArt: return .wall
         case .furniture: return .floor
         }
+    }
+
+    /// What a standing item stands on, nil for wall art.
+    var standsOn: RoomArtStandsOn? {
+        if case .furniture(let furniture) = self { return furniture.standsOn }
+        return nil
     }
 
     /// What Clicky says once it shows, with the size from the measured centimeters.
@@ -960,12 +1042,115 @@ nonisolated enum RoomArtPlacedItem: Equatable, Sendable {
     var showingStatusLine: String {
         switch self {
         case .wallArt(let artwork): return "On your wall at \(artwork.sizeInWords)"
-        case .furniture(let furniture): return "On your floor, \(furniture.sizeInWords)"
+        case .furniture(let furniture): return furniture.standsOn.showingStatusLine(sizeInWords: furniture.sizeInWords)
+        }
+    }
+
+    /// The status line while this item's surface is measured.
+    var measuringStatusLine: String {
+        standsOn?.measuringStatusLine ?? RoomArtSurfaceKind.wall.measuringStatusLine
+    }
+
+    /// The status line while the tracker has lost the room and the item is hidden.
+    var lostLine: String {
+        standsOn?.lostLine ?? RoomArtSurfaceKind.wall.lostLine
+    }
+
+    /// What Clicky says when no look could be drawn for a standing item, and the status line that says the same.
+    var notDrawnLine: String {
+        (standsOn ?? .floor).notDrawnLine
+    }
+
+    var notDrawnStatusLine: String {
+        (standsOn ?? .floor).notDrawnStatusLine
+    }
+
+    /// What the panel says while it waits for a click on this item's surface (`RoomArtPhase.waitingForAFloorClick`).
+    /// `aClickFoundNothing` says the learner's click found no flat surface, which only an item that needs a click on its
+    /// surface tells apart from the first invitation. A floor item says the floor line either way, as it always has.
+    func surfaceClickPrompt(afterAClickFoundNothing aClickFoundNothing: Bool) -> RoomArtSurfaceClickPrompt {
+        guard standsOn?.needsAClickOnItsSurface == true else { return .noFloorWasFound }
+        return aClickFoundNothing ? .noFlatSurfaceThere : .whereTheItemShouldGo
+    }
+}
+
+nonisolated extension RoomArtStandsOn {
+    /// The status line while the surface is measured: the floor's line is the wall's twin, and a table or shelf is "the
+    /// surface" since a click chose it.
+    var measuringStatusLine: String {
+        switch self {
+        case .floor: return RoomArtSurfaceKind.floor.measuringStatusLine
+        case .tableOrShelf: return "Measuring the surface…"
+        }
+    }
+
+    var lostLine: String {
+        switch self {
+        case .floor: return RoomArtSurfaceKind.floor.lostLine
+        case .tableOrShelf: return "Lost the table. Turn back to where it stands."
+        }
+    }
+
+    func showingStatusLine(sizeInWords: String) -> String {
+        switch self {
+        case .floor: return "On your floor, \(sizeInWords)"
+        case .tableOrShelf: return "On the table, \(sizeInWords)"
+        }
+    }
+
+    /// Said as a failure when no painting and no render could be drawn.
+    var notDrawnLine: String {
+        switch self {
+        case .floor: return roomFurnitureNotDrawnLine
+        case .tableOrShelf: return roomFurnitureNotDrawnOnATableLine
+        }
+    }
+
+    var notDrawnStatusLine: String {
+        switch self {
+        case .floor: return "I couldn't draw it this time. Click the floor to try again"
+        case .tableOrShelf: return "I couldn't draw it this time. Click the table or shelf to try again"
         }
     }
 }
 
-extension RoomArtSurfaceKind {
+/// What the panel says while it waits for the learner to click a surface. Each prompt is said once per panel, since a later
+/// failed click only shows in the status line.
+nonisolated enum RoomArtSurfaceClickPrompt: Hashable, Sendable {
+    /// A floor item's first floor measurement found none: tilt the screen down, then click the floor.
+    case noFloorWasFound
+    /// A table or shelf item is ready, and the learner clicks where it should go.
+    case whereTheItemShouldGo
+    /// The learner's click on a table or shelf found no flat surface, so they click the top of one.
+    case noFlatSurfaceThere
+
+    var spokenLine: String {
+        switch self {
+        case .noFloorWasFound: return RoomArtFailure.floorNotFound.spokenLine
+        case .whereTheItemShouldGo: return "Click the table or shelf where it should go."
+        case .noFlatSurfaceThere: return "I couldn't find a flat surface there. Click the top of a table or shelf."
+        }
+    }
+
+    var statusLine: String {
+        switch self {
+        case .noFloorWasFound: return RoomArtFailure.floorNotFound.statusLine
+        case .whereTheItemShouldGo: return "Click the table or shelf where it should go"
+        case .noFlatSurfaceThere: return "Click the top of a table or shelf"
+        }
+    }
+
+    /// Whether the line says something went wrong, so the cursor shakes as Clicky says it and the status line is red. The
+    /// first invitation for a table or shelf is not a failure.
+    var isAFailure: Bool {
+        switch self {
+        case .noFloorWasFound, .noFlatSurfaceThere: return true
+        case .whereTheItemShouldGo: return false
+        }
+    }
+}
+
+nonisolated extension RoomArtSurfaceKind {
     var measuringStatusLine: String {
         switch self {
         case .wall: return "Measuring your wall…"
@@ -977,7 +1162,7 @@ extension RoomArtSurfaceKind {
     var lostLine: String {
         switch self {
         case .wall: return "Lost the wall. Turn back, or click the wall to place it again."
-        // Furniture never moves by a click on the floor, so its line only asks the learner to turn back.
+        // A standing item never moves by a click on its surface, so its line only asks the learner to turn back.
         case .floor: return "Lost the floor. Turn back to where the piece stands."
         }
     }
@@ -1004,7 +1189,7 @@ nonisolated struct ShirtPaintingID: Equatable, Sendable {
     let number: Int
 }
 
-/// What the panel is doing. The page is read as the panel opens, and its kind picks the rest: wall art and furniture are
+/// What the panel is doing. The page is read as the panel opens, and its kind picks the rest: wall art and standing items are
 /// measured on their surface and tracked, and a shirt is drawn over the learner with no measurement at all.
 nonisolated enum RoomArtPhase: Equatable, Sendable {
     case closed
@@ -1035,8 +1220,11 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// A click moves the item: a new keyframe and a new measurement. The surface it stood on comes back if the new one is
     /// not measured.
     case moving(id: RoomArtMeasurementID, item: RoomArtPlacedItem, surfaceBeforeTheMove: RoomArtSurface)
-    /// The first floor measurement found no floor, so the camera keeps running and a click on the floor measures again.
-    case waitingForAFloorClick(RoomArtPlacedItem)
+    /// The camera keeps running and a click on the surface measures it, for a floor item whose first measurement found no
+    /// floor, and for a table or shelf item from the start, since only a click chooses a table top
+    /// (`RoomArtStandsOn.needsAClickOnItsSurface`). `aClickFoundNothing` says the learner's click on a table or shelf found no
+    /// flat surface, which changes its prompt (`RoomArtPlacedItem.surfaceClickPrompt`). A floor item never records it.
+    case waitingForAFloorClick(RoomArtPlacedItem, aClickFoundNothing: Bool = false)
     /// A top laid flat or worn by a model: the garment is being cut out of its photo while the camera looks for the learner.
     case preparingTheShirt(title: String)
     /// The garment is ready, and the learner is not yet standing where the shirt can be drawn.
@@ -1063,7 +1251,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         .readingThePage
     }
 
-    /// Wall art or furniture was read and its picture prepared, so its surface can be measured once the camera has a frame.
+    /// A wall item or a standing item was read and its picture prepared, so its surface can be measured once the camera has a frame.
     func withTheItemReady(_ item: RoomArtPlacedItem) -> RoomArtPhase {
         guard case .readingThePage = self else { return self }
         return .waitingForTheCamera(item)
@@ -1081,11 +1269,20 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         return .failed(failure)
     }
 
+    /// The item is ready and the camera has its first frame. Wall art and a floor item measure at once, where a search for
+    /// bare wall or floor puts them (`startingAMeasurement`). A table or shelf item asks for a click instead, since no search
+    /// can tell a table top from the floor, so nothing is measured until the learner clicks.
+    func askingForAClickIfTheItemNeedsOne() -> RoomArtPhase {
+        guard case .waitingForTheCamera(let item) = self, item.standsOn?.needsAClickOnItsSurface == true else { return self }
+        return .waitingForAFloorClick(item, aClickFoundNothing: false)
+    }
+
     /// A keyframe was taken: the first one once the item is ready and the camera runs, a click that moves the item, or a
-    /// click on the floor after none was found. One measurement runs at a time, so a click during one changes nothing.
+    /// click on the surface after none was found or asked for. One measurement runs at a time, so a click during one changes
+    /// nothing.
     func startingAMeasurement(id: RoomArtMeasurementID) -> RoomArtPhase {
         switch self {
-        case .waitingForTheCamera(let item), .waitingForAFloorClick(let item):
+        case .waitingForTheCamera(let item), .waitingForAFloorClick(let item, _):
             return .measuring(id: id, item: item)
         // Furniture stands on a floor already measured, so it never measures again: a press on the piece picks its ghost
         // back up, and after it could not be drawn a press anywhere does (`aPressPicksTheFurnitureUp`).
@@ -1143,11 +1340,11 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         }
     }
 
-    /// No ghost can stand on the measured floor, such as a floor seen too steeply for the piece's box to project, so
-    /// nothing could move or place it: the panel asks for a click on the floor, which measures it again there.
+    /// No ghost can stand on the measured surface, such as a floor seen too steeply for the piece's box to project, so
+    /// nothing could move or place it: the panel asks for a click on the surface, which measures it again there.
     func afterTheGhostCouldNotStand() -> RoomArtPhase {
         guard case .placingTheFurniture(_, let item, _) = self else { return self }
-        return .waitingForAFloorClick(item)
+        return Self.waitingForAClickOnTheSurface(item, afterAClickFoundNothing: true)
     }
 
     /// The ghost shows, so a drag moves it and "right there" places it.
@@ -1189,8 +1386,14 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     }
 
     private static func afterTheFirstMeasurementFailed(_ failure: RoomArtFailure, item: RoomArtPlacedItem) -> RoomArtPhase {
-        if failure == .floorNotFound, case .furniture = item { return .waitingForAFloorClick(item) }
+        if failure == .floorNotFound, case .furniture = item { return waitingForAClickOnTheSurface(item, afterAClickFoundNothing: true) }
         return .failed(failure)
+    }
+
+    /// A standing item waits for a click on its surface. A floor item says the floor line whether or not a click failed, so
+    /// its phase is the same value either way, and only a table or shelf item records that a click found nothing.
+    private static func waitingForAClickOnTheSurface(_ item: RoomArtPlacedItem, afterAClickFoundNothing aClickFoundNothing: Bool) -> RoomArtPhase {
+        .waitingForAFloorClick(item, aClickFoundNothing: aClickFoundNothing && item.standsOn?.needsAClickOnItsSurface == true)
     }
 
     /// The garment is cut out. `learnerIsInFrame` says the framing already settled on ready, so the shirt shows at once.
@@ -1276,15 +1479,15 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         case .closed: return ""
         case .readingThePage: return "Reading the page…"
         case .waitingForTheCamera: return "Starting the camera…"
-        case .measuring(_, let item): return item.surfaceKind.measuringStatusLine
-        case .moving(_, let item, _): return item.surfaceKind.measuringStatusLine
-        case .placingTheFurniture: return theSurfaceIsLost ? RoomArtSurfaceKind.floor.lostLine : roomFurnitureGhostStatusLine
-        case .arranging: return theSurfaceIsLost ? RoomArtSurfaceKind.floor.lostLine : "Arranging it in your room…"
-        case .couldNotDraw: return "I couldn't draw it this time. Click the floor to try again"
+        case .measuring(_, let item): return item.measuringStatusLine
+        case .moving(_, let item, _): return item.measuringStatusLine
+        case .placingTheFurniture(_, let item, _): return theSurfaceIsLost ? item.lostLine : roomFurnitureGhostStatusLine
+        case .arranging(_, let item, _): return theSurfaceIsLost ? item.lostLine : "Arranging it in your room…"
+        case .couldNotDraw(_, let item, _): return item.notDrawnStatusLine
         case .showing(let item, _, let moveFailure):
-            if theSurfaceIsLost { return item.surfaceKind.lostLine }
+            if theSurfaceIsLost { return item.lostLine }
             return moveFailure?.statusLine ?? item.showingStatusLine
-        case .waitingForAFloorClick: return RoomArtFailure.floorNotFound.statusLine
+        case .waitingForAFloorClick(let item, let aClickFoundNothing): return item.surfaceClickPrompt(afterAClickFoundNothing: aClickFoundNothing).statusLine
         case .preparingTheShirt: return shirtCoachingLine ?? "Getting the shirt ready…"
         case .waitingToSeeTheLearner: return shirtCoachingLine ?? "Looking for you…"
         case .showingTheShirt: return shirtCoachingLine ?? "On you"
@@ -1299,7 +1502,8 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// Whether the status line says what went wrong, so the panel draws it in the failure color.
     func statusLineIsAFailure(theSurfaceIsLost: Bool) -> Bool {
         switch self {
-        case .failed, .waitingForAFloorClick, .couldNotDraw: return true
+        case .failed, .couldNotDraw: return true
+        case .waitingForAFloorClick(let item, let aClickFoundNothing): return item.surfaceClickPrompt(afterAClickFoundNothing: aClickFoundNothing).isAFailure
         case .showing(_, _, let moveFailure): return moveFailure != nil && !theSurfaceIsLost
         case .closed, .readingThePage, .waitingForTheCamera, .measuring, .placingTheFurniture, .arranging, .moving, .preparingTheShirt, .waitingToSeeTheLearner,
              .showingTheShirt, .waitingForTheLearnerToStepBack, .paintingTheShirt, .showingThePaintedShirt:
@@ -1532,7 +1736,8 @@ final class RoomArtClient {
         return try WallPlane(responseData: responseData)
     }
 
-    /// `floorRequest.anchor` is the keyframe pixel the furniture's front-bottom center stands on. The body is the wall's.
+    /// `floorRequest.anchor` is the keyframe pixel the item's front-bottom center stands on, and `floorRequest.standsOn` says
+    /// whether that is the floor or a table or shelf top. The body is the wall's.
     func measureTheFloor(_ floorRequest: RoomWallRequest) async throws -> FloorPlane {
         let (responseData, statusCode) = try await WorkerJSONPost.send(
             try JSONEncoder().encode(floorRequest.json),

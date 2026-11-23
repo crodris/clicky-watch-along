@@ -50,8 +50,8 @@ extension RoomFurnitureGenerating {
 }
 
 /// How the painter draws the piece, which the mask alone cannot say: which way it faces, from the ghost the learner placed
-/// (a convex area looks the same turned 180 degrees), and whether the frame cuts off its lower part. The Worker turns each
-/// into its own words.
+/// (a convex area looks the same turned 180 degrees), whether the frame cuts off its lower part, and what it stands on. The
+/// Worker turns each into its own words.
 nonisolated struct RoomFurniturePaintingOrientation: Equatable, Sendable {
     let facing: RoomFurnitureFacing
     let backAgainstTheWall: Bool
@@ -59,6 +59,9 @@ nonisolated struct RoomFurniturePaintingOrientation: Equatable, Sendable {
     /// so the piece's front feet and floor shadow are below the picture, and its back feet may be in it. Set per painting
     /// frame, since the tracker's turn moves the box, so the ghost's own orientation leaves it false.
     var itemContinuesPastTheFrameBottom = false
+    /// What the piece stands on, which the painter says its feet or base and its contact shadow rest on. The controller sets
+    /// it from the item, since the ghost knows only its pose. Only a table or shelf is sent: an absent field means the floor.
+    var standsOn: RoomArtStandsOn = .floor
 }
 
 extension RoomFurnitureGenerationClient: RoomFurnitureGenerating {}
@@ -349,6 +352,9 @@ nonisolated enum RoomFurnitureFallbackStep: Equatable, Sendable {
 
 /// What Clicky says, as a failure, when furniture's painting did not come and its model has no render.
 nonisolated let roomFurnitureNotDrawnLine = "I couldn't draw it this time. Click the floor to try again."
+
+/// The same line for a piece that stands on a table or shelf.
+nonisolated let roomFurnitureNotDrawnOnATableLine = "I couldn't draw it this time. Click the table or shelf to try again."
 
 /// The painting is the only first look, so the fallback waits for it until it cannot come (the service is not set up,
 /// two paintings were refused, or the request failed) or a wait runs out (`roomFurnitureSecondsToWaitForALook`): the wait

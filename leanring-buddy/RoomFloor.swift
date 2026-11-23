@@ -109,27 +109,31 @@ extension FloorPlane {
 
 // MARK: - The furniture
 
-/// Furniture as the panel stands it on the floor: its real size, from the page or measured from its cutout, and its cutout.
+/// A standing item as the panel stands it on its surface: its real size, from the page or measured from its cutout, and its
+/// cutout. It keeps the name "furniture" for every standing item, a lamp, a rug, or a mug included, and `standsOn` says
+/// whether the surface is the floor or a table or shelf.
 nonisolated struct RoomFurniture: Equatable, @unchecked Sendable {
     // @unchecked because CGImage is immutable, so sharing one across queues is safe.
     let title: String
     /// Across the front, from the page, or from the cutout's shape at the page's height when the page states no width.
     let widthMeters: Double
-    /// Floor to top, from the page.
+    /// What it stands on to its top, from the page.
     let heightMeters: Double
     /// Front to back, from the page, or `roomFurnitureDepthWhenThePageStatesNone` when it states none, which the 3D box and
     /// a model's fit use. The flat cutout has no depth.
     let depthMeters: Double
-    /// The product with a transparent background, trimmed to its own pixels, so its lowest pixel stands on the floor.
+    /// The product with a transparent background, trimmed to its own pixels, so its lowest pixel stands on its surface.
     let cutoutImage: CGImage
     /// True when the page stated no width and `widthMeters` was measured from the cutout's shape, so the spoken size and
     /// the ghost's size pill say "about".
     var widthIsMeasuredFromThePhoto = false
 
+    var standsOn: RoomArtStandsOn = .floor
+
     /// The piece at the page's size. A page that states only the height, as a figurine's often does, gets the width of
     /// the cutout's own shape at that height. Nil when that measured width falls outside the sizes a page may state
     /// (`roomFurnitureMeasuredWidthRangeCentimeters`), such as for a cutout that holds the figure and its box side by side.
-    static func standing(title: String, size: RoomArtFurnitureSize, cutoutImage: CGImage) -> RoomFurniture? {
+    static func standing(title: String, size: RoomArtFurnitureSize, cutoutImage: CGImage, standsOn: RoomArtStandsOn = .floor) -> RoomFurniture? {
         let heightMeters = size.heightCentimeters / 100
         let widthMeters: Double
         if let statedWidthCentimeters = size.widthCentimeters {
@@ -146,7 +150,8 @@ nonisolated struct RoomFurniture: Equatable, @unchecked Sendable {
             depthMeters: size.depthCentimeters.map { $0 / 100 }
                 ?? roomFurnitureDepthWhenThePageStatesNone(widthMeters: widthMeters, heightMeters: heightMeters),
             cutoutImage: cutoutImage,
-            widthIsMeasuredFromThePhoto: size.widthCentimeters == nil
+            widthIsMeasuredFromThePhoto: size.widthCentimeters == nil,
+            standsOn: standsOn
         )
     }
 

@@ -130,7 +130,7 @@ struct SetupChecklistTests {
         }
         // The shirt try-on uses the camera too. One frame goes to the depth service during the page read, before the kind is
         // known. After that its live preview stays on this Mac, and painting the shirt sends one frame out.
-        #expect(setupCaptureDisclosure.contains("Showing art, furniture, or a shirt uses your camera."))
+        #expect(setupCaptureDisclosure.contains("Showing an item in your room, or a shirt on you, uses your camera."))
         #expect(setupCaptureDisclosure.contains("one camera frame also goes to the depth service to measure the wall, before Clicky knows the item is a shirt"))
         #expect(setupCaptureDisclosure.contains("After that, a shirt's live preview stays on this Mac, and painting a shirt on you sends one camera frame and the product photo through Clicky's own server to OpenAI."))
         #expect(!setupCaptureDisclosure.contains("A shirt's camera frames stay on this Mac."))

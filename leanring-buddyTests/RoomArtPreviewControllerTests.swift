@@ -369,6 +369,15 @@ private let sideTableReading = RoomArtPageReading.furniture(RoomArtFurnitureRead
     itemCorners: pictureCorners
 ))
 
+/// A mug that stands on a table or shelf, which the learner places with a click on its surface.
+private let mugReading = RoomArtPageReading.furniture(RoomArtFurnitureReading(
+    title: "Stoneware mug",
+    chosenSize: RoomArtFurnitureSize(label: "9 x 10 cm", widthCentimeters: 12, heightCentimeters: 10, depthCentimeters: 9),
+    whyThisSize: "It is the only size.",
+    itemCorners: pictureCorners,
+    standsOn: .tableOrShelf
+))
+
 private func shirtReading(photoShows: RoomArtGarmentPhoto = .flatLay, frontPictureIndex: Int = 0) -> RoomArtPageReading {
     .clothing(RoomArtClothingReading(
         title: "Linen shirt", garment: .shirt, sleeves: .short, chosenSizeLabel: "M", photoShows: photoShows,
@@ -1184,16 +1193,34 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
-    @Test func anItemThatIsNeitherWallArtNorFurnitureNorClothingSaysSoAndMeasuresNothing() async throws {
+    @Test(arguments: [
+        (RoomArtCannotBeShownReason.notAPhysicalItem, "That isn't something I can show in your room."),
+        (RoomArtCannotBeShownReason.tooSmallToSee, "That's too small to see in your room."),
+        (RoomArtCannotBeShownReason.noClearPhoto, "I couldn't find a clear photo of it on that page."),
+        (RoomArtCannotBeShownReason.notFlatForTheWall, "I can only hang flat, rectangular things on your wall so far."),
+        (RoomArtCannotBeShownReason.noPlaceClickyCanShow, "I can show things on your wall, your floor, or a table so far."),
+    ])
+    func anItemThatCannotBeShownSaysWhyRightAfterThePageReadBeforeAnyCameraMeasurement(reason: RoomArtCannotBeShownReason, expectedLine: String) async throws {
         let worker = WorkerStub()
-        worker.pageReading = .success(.other(title: "Wool rug"))
-        let harness = RoomArtHarness(worker: worker)
+        worker.pageReading = .success(.cannotBeShown(title: "Round wall clock", reason: reason))
+        // The camera cannot start until the test opens its gate, so no frame can come before the page read's answer, and the
+        // line is said while no keyframe exists.
+        let cameraStartGate = TestGate()
+        let camera = SyntheticRoomCamera(startHeldAt: cameraStartGate)
+        let harness = RoomArtHarness(camera: camera, worker: worker)
 
-        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        let openingTask = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
+        try await waitFor("the panel to fail on an item that cannot be shown") { harness.controller.phase == .failed(reason.failure) }
 
-        try await waitFor("the panel to fail on an item that cannot be tried") { harness.controller.phase == .failed(.notSomethingToTry) }
-        #expect(harness.spokenLines() == ["That isn't something I can place in your room or try on."])
+        #expect(harness.spokenLines() == [expectedLine])
+        #expect(harness.recorder.spokenLineFailureFlags == [true])
+        #expect(harness.statusLine() == reason.failure.statusLine)
+        #expect(harness.frameProcessor.keyframeSurfaces.isEmpty)
         #expect(worker.wallRequests.isEmpty && worker.floorRequests.isEmpty)
+        cameraStartGate.open()
+        await openingTask.value
+        // The failed panel stopped its camera before it started, so the test stops the one that started late.
+        camera.stop()
         harness.controller.close()
     }
 
@@ -1217,6 +1244,9 @@ struct RoomArtPreviewControllerTests {
         #expect(worker.floorRequests.count == 1 && worker.wallRequests.count == 1)
         #expect(worker.wallRequests.first?.anchor == StandInFrameProcessor.bareWallSpot)
         #expect(worker.wallRequests.first?.keyframeJPEGData == worker.floorRequests.first?.keyframeJPEGData)
+        // A floor item's floor request says nothing about what it stands on, so the floor is fitted as it always was.
+        #expect(worker.floorRequests.map(\.standsOn) == [.floor])
+        #expect(worker.floorRequests.first?.json["standsOn"] == nil)
         // The painting is the piece's look, and the flat cutout is never drawn.
         #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
         #expect(harness.frameProcessor.surfacesShownOn.isEmpty)
@@ -1470,6 +1500,134 @@ struct RoomArtPreviewControllerTests {
 
         try await waitFor("the panel to wait for a click on the floor") { harness.controller.phase.waitingForAFloorClickItem != nil }
         #expect(harness.frameProcessor.surfacesShownOn.isEmpty)
+        harness.controller.close()
+    }
+
+    // MARK: A table or shelf
+
+    @Test func aTableOrShelfItemWaitsForAClickAndMeasuresNothingUntilTheLearnerClicks() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(mugReading)
+        let looks = FurnitureLookStub.thatPaintsAtOnce()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks, placesTheGhostAtOnce: false)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this mug look on my shelf in my room")
+
+        try await waitFor("the panel to wait for a click on the table or shelf") { harness.controller.phase.waitingForAFloorClickItem != nil }
+        // The invitation is not a failure, so the cursor does not shake and the status line is not red.
+        #expect(harness.spokenLines() == ["Click the table or shelf where it should go."])
+        #expect(harness.recorder.spokenLineFailureFlags == [false])
+        #expect(harness.statusLine() == "Click the table or shelf where it should go")
+        #expect(!harness.controller.phase.statusLineIsAFailure(theSurfaceIsLost: false))
+        #expect(harness.camera.isDeliveringFrames)
+        // No search for a bare floor spot ran: the floor is never measured before the click, and no keyframe was taken on a
+        // surface (the one taken while the page was read has no surface).
+        await letTheQueuedMainActorWorkRun()
+        #expect(worker.floorRequests.isEmpty)
+        #expect(harness.frameProcessor.keyframeSurfaces.allSatisfy { $0 == nil })
+        #expect(harness.controller.furnitureGhost == nil)
+
+        // The click measures the surface where it points, with the table or shelf fit, and the ghost stands there.
+        let click = CGPoint(x: 320, y: 300)
+        harness.controller.placeTheItem(atCameraPixel: click)
+        try await waitFor("the ghost to stand on the table") { harness.controller.phase.furnitureGhostShows }
+        #expect(worker.floorRequests.count == 1)
+        #expect(worker.floorRequests.first?.anchor == click)
+        #expect(worker.floorRequests.first?.standsOn == .tableOrShelf)
+        #expect(worker.floorRequests.first?.json["standsOn"]?.stringValue == "tableOrShelf")
+        #expect(harness.frameProcessor.keyframeSurfaces.compactMap { $0 } == [.floor])
+        #expect(harness.controller.furnitureGhost != nil)
+        #expect(harness.spokenLines() == ["Click the table or shelf where it should go."])
+
+        // Placed, it is painted as standing on the table or shelf, and its lines say the table.
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        try await waitFor("the mug to show on the table") { harness.artIsShowing() }
+        #expect(harness.controller.phase.statusLine == "On the table, 4.5 inches wide and 4 tall")
+        #expect(harness.spokenLines().dropFirst().first?.hasPrefix("Here it is, 4.5 inches wide and 4 tall.") == true)
+        #expect(!looks.orientationsSent.isEmpty)
+        #expect(looks.orientationsSent.allSatisfy { $0?.standsOn == .tableOrShelf })
+        harness.controller.close()
+    }
+
+    @Test func aFloorItemsPaintingIsToldNothingAboutATable() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub.thatPaintsAtOnce()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the table to stand on the floor") { harness.artIsShowing() }
+        #expect(!looks.orientationsSent.isEmpty)
+        #expect(looks.orientationsSent.allSatisfy { $0?.standsOn == .floor })
+        harness.controller.close()
+    }
+
+    @Test func aClickThatFindsNoFlatSurfaceAsksForTheTopOfATableAndNeverInfersAFloorFromTheWall() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(mugReading)
+        worker.floorReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"No table or shelf under that point"}"#))
+        // A wall 4 m away, which puts a floor inferred from it inside the frame for a floor item, as the floor test above shows.
+        worker.wallReply = .success(WallPlane(
+            center: SIMD3(-0.3, -0.2, 4), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 500,
+            principalPoint: SIMD2(320, 180), distanceMeters: 4, wallAngleDegrees: 0, planeInlierShare: 0.9
+        ))
+        let harness = RoomArtHarness(worker: worker, placesTheGhostAtOnce: false)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this mug look on my shelf in my room")
+        try await waitFor("the panel to wait for a click on the table or shelf") { harness.controller.phase.waitingForAFloorClickItem != nil }
+
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 100, y: 200))
+        try await waitFor("the click's floor request") { worker.floorRequests.count == 1 }
+        try await waitFor("the failed click's line") { harness.spokenLines().count == 2 }
+
+        // The failed click is a failure line, and the panel keeps waiting for a click. No ghost stands on a floor inferred from
+        // the wall, which is what a floor item would get here.
+        #expect(harness.spokenLines() == ["Click the table or shelf where it should go.", "I couldn't find a flat surface there. Click the top of a table or shelf."])
+        #expect(harness.recorder.spokenLineFailureFlags == [false, true])
+        #expect(harness.statusLine() == "Click the top of a table or shelf")
+        #expect(harness.controller.phase.statusLineIsAFailure(theSurfaceIsLost: false))
+        #expect(harness.controller.phase.waitingForAFloorClickItem != nil)
+        #expect(harness.controller.furnitureGhost == nil)
+
+        // A second failed click only shows in the status line.
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 120, y: 210))
+        try await waitFor("the second click's floor request") { worker.floorRequests.count == 2 }
+        try await waitFor("the panel to wait for a click again") { harness.controller.phase.waitingForAFloorClickItem != nil }
+        await letTheQueuedMainActorWorkRun()
+        #expect(harness.spokenLines().count == 2)
+
+        // A click on a flat surface places the ghost there.
+        worker.floorReply = .success(try FloorPlane(responseData: Data(
+            #"{"center": [0.4, 0.9, 4.0], "right": [1, 0, 0], "up": [0, -1, 0], "forward": [0, 0, 1], "focalPx": 500, "principal": [320, 180], "distanceMeters": 2.4, "floorTiltDegrees": 2, "planeInlierShare": 0.9}"#.utf8
+        )))
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 320, y: 300))
+        try await waitFor("the ghost to stand on the table") { harness.controller.phase.furnitureGhostShows }
+        #expect(worker.floorRequests.map(\.standsOn) == [.tableOrShelf, .tableOrShelf, .tableOrShelf])
+        harness.controller.close()
+    }
+
+    @Test func aTableOrShelfItemCancelsTheEarlyWallMeasurementAndForgetsItsKeyframe() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(mugReading)
+        // The page's reply waits until the early wall request went out, and the wall's reply waits at a gate, so the depth
+        // service's 14 seconds are still running when the page reads as a table or shelf item.
+        let pageReplyGate = TestGate()
+        worker.pageReplyGate = pageReplyGate
+        let wallReplyGate = TestGate()
+        worker.wallReplyGate = wallReplyGate
+        let harness = RoomArtHarness(worker: worker, placesTheGhostAtOnce: false)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this mug look on my shelf in my room")
+        try await waitFor("the wall measured during the page read") { worker.wallRequests.count == 1 }
+        pageReplyGate.open()
+        try await waitFor("the panel to wait for a click on the table or shelf") { harness.controller.phase.waitingForAFloorClickItem != nil }
+
+        // The click takes its own keyframe, so the early frame's wall run is cancelled, where it would hold the depth service
+        // and delay the click's own measurement, and its keyframe is no longer tracked.
+        await wallReplyGate.untilAWaitIsCancelled()
+        #expect(wallReplyGate.cancelledWaitCount == 1)
+        #expect(harness.frameProcessor.timesTheKeyframeWasForgotten == 1)
+        #expect(worker.floorRequests.isEmpty)
         harness.controller.close()
     }
 
@@ -2637,7 +2795,23 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
 
         try await waitFor("the panel to fail on the cutout") { harness.controller.phase == .failed(.furnitureNotCutOut) }
-        #expect(harness.spokenLines() == ["I couldn't cut the item out of its photo."])
+        #expect(harness.spokenLines() == ["I couldn't cut it out of its photo."])
+        #expect(harness.statusLine() == "Couldn't cut it out of its photo")
+        #expect(worker.floorRequests.isEmpty)
+        harness.controller.close()
+    }
+
+    @Test func aTableOrShelfItemThatCannotBeCutOutSaysTheSameLine() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(mugReading)
+        let cutouts = CutoutStub()
+        cutouts.furnitureCutout = nil
+        let harness = RoomArtHarness(worker: worker, cutouts: cutouts)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this mug look on my shelf in my room")
+
+        try await waitFor("the panel to fail on the cutout") { harness.controller.phase == .failed(.furnitureNotCutOut) }
+        #expect(harness.spokenLines() == ["I couldn't cut it out of its photo."])
         #expect(worker.floorRequests.isEmpty)
         harness.controller.close()
     }
@@ -3310,11 +3484,11 @@ struct RoomArtPreviewControllerTests {
         // A failure the panel enters after it opened.
         let cameraHarness = RoomArtHarness(camera: SyntheticRoomCamera(startFailure: .noCamera))
         await cameraHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
-        let rugWorker = WorkerStub()
-        rugWorker.pageReading = .success(.other(title: "Wool rug"))
-        let readFailureHarness = RoomArtHarness(worker: rugWorker)
+        let lampWorker = WorkerStub()
+        lampWorker.pageReading = .success(.cannotBeShown(title: "Ceiling light", reason: .noPlaceClickyCanShow))
+        let readFailureHarness = RoomArtHarness(worker: lampWorker)
         await readFailureHarness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
-        try await waitFor("the panel to fail on an item that cannot be tried") { readFailureHarness.controller.phase == .failed(.notSomethingToTry) }
+        try await waitFor("the panel to fail on an item that cannot be shown") { readFailureHarness.controller.phase == .failed(.noPlaceClickyCanShow) }
         let dressWorker = WorkerStub()
         dressWorker.pageReading = .success(.clothing(RoomArtClothingReading(
             title: "Dress", garment: .dress, sleeves: .none, chosenSizeLabel: "S", photoShows: .flatLay, printDescription: "", whyThisSize: "S.", itemCorners: pictureCorners
@@ -3464,9 +3638,9 @@ struct RoomArtPreviewControllerTests {
 }
 
 private extension RoomArtPhase {
-    /// The piece waiting for a click on the floor, nil in any other phase.
+    /// The piece waiting for a click on its surface, the floor or a table or shelf, nil in any other phase.
     var waitingForAFloorClickItem: RoomArtPlacedItem? {
-        if case .waitingForAFloorClick(let item) = self { return item }
+        if case .waitingForAFloorClick(let item, _) = self { return item }
         return nil
     }
 }

@@ -624,7 +624,7 @@ final class RoomFurnitureGenerationClient {
     /// Draws the product into the keyframe and returns the keyframe with the drawn piece pasted in, at the keyframe's
     /// size. `productJPEG` is the furniture's cutout over white (`roomFurnitureCutoutJPEG`), `maskPNG` comes from
     /// `roomFurnitureCompositeMaskPNG`, and `itemSizeWords` reads like "31.5 inches wide and 29.5 tall"
-    /// (`RoomFurniture.sizeInWords`). The Worker cuts nothing: size words over 300 characters, or an image over 4,000,000
+    /// (`RoomFurniture.sizeInWords`). `orientation` says which way the piece faces and what it stands on. The Worker cuts nothing: size words over 300 characters, or an image over 4,000,000
     /// characters of base64 (about 3 MB), gets a 400, so the title is cut here (`roomFurnitureTitleForTheWorker`).
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data,
@@ -655,6 +655,8 @@ final class RoomFurnitureGenerationClient {
             requestBody["itemFacing"] = orientation.facing.rawValue
             requestBody["backAgainstTheWall"] = orientation.backAgainstTheWall
             requestBody["itemContinuesPastTheFrameBottom"] = orientation.itemContinuesPastTheFrameBottom
+            // An absent field means the floor, so a floor piece and an older Worker's request carry none.
+            if orientation.standsOn == .tableOrShelf { requestBody["standsOn"] = orientation.standsOn.rawValue }
         }
         let responseData = try await post(requestBody, to: compositeURL)
 
