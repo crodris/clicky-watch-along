@@ -362,7 +362,12 @@ final class CompanionManager: ObservableObject {
                 captureThePicture: { [weak self] in await self?.captureThePictureForTheThemeStudio() },
                 designIdeas: { themeIdeasRequest in try await themeIdeasClient.designIdeas(for: themeIdeasRequest) }
             ),
-            cardPresenter: ThemeStudioPanelController(onSaveClicked: { saveOutcome in
+            cardPresenter: ThemeStudioPanelController(pictureTheLoopIsAround: { [weak self] in
+                // The picture a design from a picture reads, which the loop is already around when the card opens. A design
+                // with no picture opens next to the mouse, wherever a loop is.
+                guard let self, self.themeDesignReadsAPicture else { return nil }
+                return self.cursorLoopController.mediaTheRequestLoopIsAroundInAppKitCoordinates
+            }, onSaveClicked: { saveOutcome in
                 // The voice tool's chip comes from the router, so only a click on Save needs its own.
                 guard let chipPhrase = saveOutcome.chipPhraseAfterAClickOnSave else { return }
                 let chipSender: VoiceToolCallChipSender
@@ -4093,6 +4098,10 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Theme Studio
 
+    /// Whether the theme design starting now reads the picture in Chrome's front tab, which the studio card opens on and
+    /// rises above the cursor overlay for while it designs.
+    private var themeDesignReadsAPicture = false
+
     /// Opens the studio or asks for new ideas, and returns at once, so the card and its spoken line say the result. The
     /// thinking state stays up while a picture is captured and designed from, so the loop around the picture shows what
     /// Clicky is looking at. Like any hand-off, it takes over the reply, so a router turn that called it ends here.
@@ -4107,6 +4116,9 @@ final class CompanionManager: ObservableObject {
         if pictureChoice == .captureAgain {
             theRequestBecameALookAtTheMedia()
         }
+        // The card opens inside `design` when the studio was closed, and reads this to know whether to open on the picture,
+        // and its level reads it on every design, so a refine that keeps the card's picture does not raise it.
+        themeDesignReadsAPicture = pictureChoice == .captureAgain
         themeStudioController.design(request: request, basedOnIdea: basedOnIdea, pictureChoice: pictureChoice)
         voiceState = pictureChoice == .captureAgain ? .processing : .idle
         currentResponseTask = Task {
