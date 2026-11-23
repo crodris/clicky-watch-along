@@ -5,6 +5,8 @@
 //  The frames the room art panel shows: the built-in camera at 1280 by 720, or, in Debug builds launched with
 //  `--room-camera-file <path>`, a video file looped at its own frame rate, so verification can drive the panel with no
 //  camera. Both deliver full-range 420 frames (the luma plane is the grayscale the tracker reads) on the queue they are given.
+//  The built-in camera holds its first frames back while auto exposure and white balance settle (`RoomCameraWarmUp`), since
+//  the first frame with a person mask becomes the room keyframe and the wall's light is read from it.
 //
 
 @preconcurrency import AVFoundation
@@ -27,12 +29,44 @@ nonisolated protocol RoomFrameSource: AnyObject, Sendable {
 /// The pixel format both sources deliver: full-range 420, whose first plane is the frame's grayscale.
 nonisolated let roomCameraPixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
 
+// MARK: - Waiting for exposure and white balance
+
+/// Decides when the built-in camera starts handing frames on. A MacBook camera often starts dark or tinted and takes 0.3 to
+/// 1 second to settle, and the room art's early keyframe (taken from the first frame with a person mask during the page
+/// read) fixes the wall's light and the tracker's reference for the whole session. So frames are held back until the
+/// device reports that it is no longer adjusting exposure or white balance, or until `longestWaitSeconds` have passed since
+/// the first frame, whichever comes first. A device that never settles (a dim room) must not stall the panel.
+/// Pure, with the clock and the device's two flags passed in, so a test steps it by hand.
+nonisolated struct RoomCameraWarmUp: Equatable, Sendable {
+    static let longestWaitSeconds = 0.75
+
+    /// When the first frame arrived, nil before it.
+    private var firstFrameAt: TimeInterval?
+    private var hasStartedDelivering = false
+
+    /// Whether this frame should go on to the panel. Once frames are delivered, every later frame is too.
+    mutating func shouldDeliverAFrame(now: TimeInterval, isAdjustingExposure: Bool, isAdjustingWhiteBalance: Bool) -> Bool {
+        if hasStartedDelivering { return true }
+        let firstFrameAt = firstFrameAt ?? now
+        self.firstFrameAt = firstFrameAt
+        let deviceHasSettled = !isAdjustingExposure && !isAdjustingWhiteBalance
+        let waitedLongEnough = now - firstFrameAt >= Self.longestWaitSeconds
+        guard deviceHasSettled || waitedLongEnough else { return false }
+        hasStartedDelivering = true
+        return true
+    }
+}
+
 // MARK: - The built-in camera
 
 nonisolated final class BuiltInRoomCamera: NSObject, RoomFrameSource, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     private let captureSession = AVCaptureSession()
     /// Set before the session starts and read on the delivery queue only.
     private var onFrame: (@Sendable (CVPixelBuffer) -> Void)?
+    /// Set before the session starts. Its exposure and white balance flags are readable from any thread.
+    private var cameraDevice: AVCaptureDevice?
+    /// Read and changed on the delivery queue only.
+    private var warmUp = RoomCameraWarmUp()
 
     func start(deliveringFramesOn deliveryQueue: DispatchQueue, onFrame: @escaping @Sendable (CVPixelBuffer) -> Void) async throws {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -63,6 +97,7 @@ nonisolated final class BuiltInRoomCamera: NSObject, RoomFrameSource, AVCaptureV
         // A frame that arrives while the last one is still being drawn is dropped, so the panel shows the newest frame.
         videoOutput.alwaysDiscardsLateVideoFrames = true
         self.onFrame = onFrame
+        cameraDevice = camera
         videoOutput.setSampleBufferDelegate(self, queue: deliveryQueue)
         guard captureSession.canAddOutput(videoOutput) else {
             captureSession.commitConfiguration()
@@ -90,6 +125,13 @@ nonisolated final class BuiltInRoomCamera: NSObject, RoomFrameSource, AVCaptureV
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        // Frames from a camera still settling its exposure are dropped, so the panel's first frame is a well exposed one.
+        let cameraHasSettled = warmUp.shouldDeliverAFrame(
+            now: CMClockGetTime(CMClockGetHostTimeClock()).seconds,
+            isAdjustingExposure: cameraDevice?.isAdjustingExposure ?? false,
+            isAdjustingWhiteBalance: cameraDevice?.isAdjustingWhiteBalance ?? false
+        )
+        guard cameraHasSettled else { return }
         onFrame?(pixelBuffer)
     }
 }
