@@ -109,34 +109,42 @@ extension FloorPlane {
 
 // MARK: - The furniture
 
-/// Furniture as the panel stands it on the floor: its real size from the page and its cutout.
+/// Furniture as the panel stands it on the floor: its real size, from the page or measured from its cutout, and its cutout.
 nonisolated struct RoomFurniture: Equatable, @unchecked Sendable {
     // @unchecked because CGImage is immutable, so sharing one across queues is safe.
     let title: String
-    /// Across the front, from the page.
+    /// Across the front, from the page, or from the cutout's shape at the page's height when the page states no width.
     let widthMeters: Double
     /// Floor to top, from the page.
     let heightMeters: Double
-    /// Front to back, from the page, which the 3D box and a model's fit use. The flat cutout has no depth.
+    /// Front to back, from the page, or `roomFurnitureDepthWhenThePageStatesNone` when it states none, which the 3D box and
+    /// a model's fit use. The flat cutout has no depth.
     let depthMeters: Double
     /// The product with a transparent background, trimmed to its own pixels, so its lowest pixel stands on the floor.
     let cutoutImage: CGImage
-    /// True when the page stated no width and `widthMeters` was measured from the cutout's shape, so the spoken size says
-    /// "about".
+    /// True when the page stated no width and `widthMeters` was measured from the cutout's shape, so the spoken size and
+    /// the ghost's size pill say "about".
     var widthIsMeasuredFromThePhoto = false
 
     /// The piece at the page's size. A page that states only the height, as a figurine's often does, gets the width of
-    /// the cutout's own shape at that height, and a depth equal to that width, since the depth only sizes the ghost's
-    /// footprint and the painting's area.
-    static func standing(title: String, size: RoomArtFurnitureSize, cutoutImage: CGImage) -> RoomFurniture {
+    /// the cutout's own shape at that height. Nil when that measured width falls outside the sizes a page may state
+    /// (`roomFurnitureMeasuredWidthRangeCentimeters`), such as for a cutout that holds the figure and its box side by side.
+    static func standing(title: String, size: RoomArtFurnitureSize, cutoutImage: CGImage) -> RoomFurniture? {
         let heightMeters = size.heightCentimeters / 100
-        let widthMeters = size.widthCentimeters.map { $0 / 100 }
-            ?? heightMeters * Double(cutoutImage.width) / Double(max(cutoutImage.height, 1))
+        let widthMeters: Double
+        if let statedWidthCentimeters = size.widthCentimeters {
+            widthMeters = statedWidthCentimeters / 100
+        } else {
+            let measuredWidthMeters = heightMeters * Double(cutoutImage.width) / Double(max(cutoutImage.height, 1))
+            guard roomFurnitureMeasuredWidthRangeCentimeters.contains(measuredWidthMeters * 100) else { return nil }
+            widthMeters = measuredWidthMeters
+        }
         return RoomFurniture(
             title: title,
             widthMeters: widthMeters,
             heightMeters: heightMeters,
-            depthMeters: size.depthCentimeters.map { $0 / 100 } ?? widthMeters,
+            depthMeters: size.depthCentimeters.map { $0 / 100 }
+                ?? roomFurnitureDepthWhenThePageStatesNone(widthMeters: widthMeters, heightMeters: heightMeters),
             cutoutImage: cutoutImage,
             widthIsMeasuredFromThePhoto: size.widthCentimeters == nil
         )
@@ -150,9 +158,24 @@ nonisolated struct RoomFurniture: Equatable, @unchecked Sendable {
     /// The page's size in inches, such as "31.5 inches wide and 29.5 tall", from the measured centimeters and never the
     /// page's free-text label, with "about" in front when the width came from the photo.
     var sizeInWords: String {
-        let words = roomFurnitureSizeInWords(widthCentimeters: widthMeters * 100, heightCentimeters: heightMeters * 100)
-        return widthIsMeasuredFromThePhoto ? "about \(words)" : words
+        guard widthIsMeasuredFromThePhoto else {
+            return roomFurnitureSizeInWords(widthCentimeters: widthMeters * 100, heightCentimeters: heightMeters * 100)
+        }
+        // The height is the page's, so "about" goes on the measured width alone.
+        return "\(roomArtInchesInWords(centimeters: heightMeters * 100)) inches tall and about \(roomArtInchesInWords(centimeters: widthMeters * 100)) wide"
     }
+}
+
+/// The widths a measured width may have, the Worker's furniture range (`furnitureSizeRangeCentimeters`), so a cutout whose
+/// shape is far off, such as a figure and its box side by side, is refused instead of placed meters wide.
+nonisolated let roomFurnitureMeasuredWidthRangeCentimeters = 2.0...600.0
+
+/// The depth of a piece whose page states none. The depth sets the ghost's footprint, the painting's area, how far a piece
+/// on a floor inferred from the wall stands off it, the shadow's size, and whether a store model turns a quarter turn, so a
+/// depth equal to the width would make a 180 cm TV stand 180 cm deep. Half the width, never more than the height, is close
+/// for a figure (LEGO's 15 cm wide astronaut is about 8 deep) and keeps a wide, low piece shallow.
+nonisolated func roomFurnitureDepthWhenThePageStatesNone(widthMeters: Double, heightMeters: Double) -> Double {
+    min(widthMeters / 2, heightMeters)
 }
 
 /// "31.5 inches wide and 29.5 tall", each rounded to the nearest half inch.
