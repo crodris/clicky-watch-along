@@ -341,34 +341,44 @@ struct RoomFloorTests {
         #expect(alphaOfThePixel(in: cutout, x: cutout.width / 2, y: cutout.height / 2) > 200)
     }
 
-    /// A wall item keeps every instance Vision finds: IKEA's BONDIS clock split into its face and its hands, and keeping the
-    /// instance under the center hung only the hands. On a generated clock (an orange disc with a white hand and a pivot at the
-    /// center), the disc's edge must stay opaque. When Vision finds no subject, only the nil path runs.
-    @Test func aWallItemKeepsEveryPieceVisionFindsSoAClockKeepsItsFace() throws {
+    /// A clock that fills its store photo on white: Vision took the orange face of IKEA's BONDIS clock for background and hung
+    /// only its hands. The plain backdrop is cleared instead, so the face's edge and a white numeral inside the face stay
+    /// opaque, and the photo's white corner is clear.
+    @Test func aClockThatFillsItsPhotoKeepsItsWholeFace() throws {
         let side = 240
         let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: side, height: side))
         context.setFillColor(CGColor(red: 0.9, green: 0.35, blue: 0.1, alpha: 1))
-        context.fillEllipse(in: CGRect(x: 30, y: 30, width: 180, height: 180))
+        context.fillEllipse(in: CGRect(x: 4, y: 4, width: 232, height: 232))
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        // A white numeral on the face, top left origin (30 to 45, 110 to 130), and a white hand.
+        context.fill(CGRect(x: 30, y: Double(side) - 130, width: 15, height: 20))
         context.fill(CGRect(x: 117, y: 117, width: 70, height: 6))
-        context.fillEllipse(in: CGRect(x: 112, y: 112, width: 16, height: 16))
         let picture = try #require(context.makeImage())
         let corners = RoomArtCorners(
-            topLeft: CGPoint(x: 25, y: 25), topRight: CGPoint(x: 215, y: 25), bottomRight: CGPoint(x: 215, y: 215), bottomLeft: CGPoint(x: 25, y: 215)
+            topLeft: CGPoint(x: 4, y: 4), topRight: CGPoint(x: 236, y: 4), bottomRight: CGPoint(x: 236, y: 236), bottomLeft: CGPoint(x: 4, y: 236)
         )
 
-        guard let itemOnly = pictureWithOnlyTheItemOpaque(picture: picture, itemCorners: corners, context: CIContext()) else {
-            print("RoomFloorTests: Vision found no subject in the generated clock, so only the nil path ran")
-            return
+        let itemOnly = try #require(pictureWithOnlyTheItemOpaque(picture: picture, itemCorners: corners, context: CIContext()))
+
+        #expect(itemOnly.width == side && itemOnly.height == side)
+        #expect(alphaOfThePixel(in: itemOnly, x: 10, y: side / 2) > 200, "the face near its left edge")
+        #expect(alphaOfThePixel(in: itemOnly, x: 37, y: 120) > 200, "the white numeral inside the face")
+        #expect(alphaOfThePixel(in: itemOnly, x: 150, y: 120) > 200, "the white hand")
+        #expect(alphaOfThePixel(in: itemOnly, x: 2, y: 2) < 20, "the photo's white corner")
+    }
+
+    @Test func aPhotoWithNoPlainBackdropIsNotClearedByColor() throws {
+        // A border of alternating black and white bars, which no one color covers.
+        let context = CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        for column in stride(from: 0, to: 100, by: 10) {
+            let shade: CGFloat = (column / 10) % 2 == 0 ? 0 : 1
+            context.setFillColor(CGColor(red: shade, green: shade, blue: shade, alpha: 1))
+            context.fill(CGRect(x: column, y: 0, width: 10, height: 100))
         }
 
-        print("RoomFloorTests: Vision found the generated clock, so its face's edge was checked")
-        // A point on the face near its left edge, well away from the hand and the pivot, stays opaque.
-        #expect(alphaOfThePixel(in: itemOnly, x: 45, y: side / 2) > 200)
-        // The photo's white corner stays clear.
-        #expect(alphaOfThePixel(in: itemOnly, x: 28, y: 28) < 40)
+        #expect(cutoutFromAPlainBackdrop(try #require(context.makeImage())) == nil)
     }
 
     /// The labels of a clock Vision split in two: the face is instance 1, and the hands, instance 2, cover the center.

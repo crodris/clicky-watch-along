@@ -204,13 +204,96 @@ nonisolated func furnitureCutout(picture: CGImage, itemCorners: RoomArtCorners, 
 
 /// The item's own shape cut out of the whole product photo: the photo at its own size, with every pixel outside the item
 /// transparent. A wall item that does not fill its four corners, such as a round clock, is flattened from this picture, so the
-/// flattened art keeps transparent pixels where the photo's background was. The mask is Vision's, as in `furnitureCutout`,
-/// but it keeps every instance Vision finds, since the corners already hold only the item, and Vision splits a clock into its
-/// face and its hands: keeping the instance under the center kept only the hands of IKEA's BONDIS clock.
-/// Nil when the corners leave under 8 pixels of the photo, when Vision finds no subject, or when it fails.
+/// flattened art keeps transparent pixels where the photo's background was.
+/// A store photo of a wall item is almost always on a plain backdrop, so the backdrop is cleared first
+/// (`cutoutFromAPlainBackdrop`): Vision took the orange face of IKEA's BONDIS clock, which fills its photo, for background and
+/// kept only the hands. A photo with no plain backdrop, such as the item on a real wall, falls back to Vision's mask with every
+/// instance kept, since the corners already hold only the item.
+/// Nil when the corners leave under 8 pixels of the photo, or when neither way finds the item.
 nonisolated func pictureWithOnlyTheItemOpaque(picture: CGImage, itemCorners: RoomArtCorners, context: CIContext) -> CGImage? {
+    // The crop grows by 3 percent on each side, so the backdrop shows all around an item whose corners touch its outline.
+    if let cropRectangle = furnitureCropRectangle(for: itemCorners, inPictureOfWidth: picture.width, height: picture.height)
+        .map({ $0.insetBy(dx: -$0.width * 0.03, dy: -$0.height * 0.03).intersection(CGRect(x: 0, y: 0, width: picture.width, height: picture.height)).integral }),
+       let croppedPicture = picture.cropping(to: cropRectangle),
+       let cutout = cutoutFromAPlainBackdrop(croppedPicture) {
+        return pictureWithTheCutoutPlaced(cutout, at: cropRectangle, pictureWidth: picture.width, pictureHeight: picture.height)
+    }
     guard let foreground = foregroundOfTheItem(picture: picture, itemCorners: itemCorners, keepsEveryInstance: true, context: context) else { return nil }
     return pictureWithTheCutoutPlaced(foreground.cutout, at: foreground.cropRectangle, pictureWidth: picture.width, pictureHeight: picture.height)
+}
+
+/// How far, in 8-bit levels on any channel, a pixel may be from the backdrop's color and still be backdrop.
+nonisolated let plainBackdropColorTolerance = 24
+/// The share of the border pixels that must be the backdrop's color for the photo to count as one on a plain backdrop.
+nonisolated let plainBackdropLeastBorderShare = 0.75
+
+/// `picture` with its plain backdrop cleared: the backdrop's color is the median of the border pixels, and every pixel within
+/// `plainBackdropColorTolerance` of it that the border reaches through such pixels becomes transparent, so a white number
+/// inside a clock's face stays, since the face encloses it. A pixel next to the cleared backdrop fades by how close its color
+/// is to the backdrop's, so the edge carries no fringe of the backdrop. Nil when under `plainBackdropLeastBorderShare` of the
+/// border is the backdrop's color, or when under 4 percent of the picture is left.
+nonisolated func cutoutFromAPlainBackdrop(_ picture: CGImage) -> CGImage? {
+    let width = picture.width, height = picture.height
+    guard width >= 8, height >= 8,
+          let drawingContext = CGContext(
+              data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+          ),
+          let pixelData = drawingContext.data else { return nil }
+    drawingContext.draw(picture, in: CGRect(x: 0, y: 0, width: width, height: height))
+    let pixels = pixelData.assumingMemoryBound(to: UInt8.self)
+
+    var borderIndices: [Int] = []
+    for column in 0..<width { borderIndices.append(column); borderIndices.append((height - 1) * width + column) }
+    for row in 1..<(height - 1) { borderIndices.append(row * width); borderIndices.append(row * width + width - 1) }
+    func median(_ channel: Int) -> Int {
+        let values = borderIndices.map { Int(pixels[$0 * 4 + channel]) }.sorted()
+        return values[values.count / 2]
+    }
+    let backdrop = (median(0), median(1), median(2))
+    func distanceFromTheBackdrop(_ index: Int) -> Int {
+        max(abs(Int(pixels[index * 4]) - backdrop.0), abs(Int(pixels[index * 4 + 1]) - backdrop.1), abs(Int(pixels[index * 4 + 2]) - backdrop.2))
+    }
+    let backdropBorderCount = borderIndices.filter { distanceFromTheBackdrop($0) <= plainBackdropColorTolerance }.count
+    guard Double(backdropBorderCount) / Double(borderIndices.count) >= plainBackdropLeastBorderShare else { return nil }
+
+    // A flood fill from every border pixel of the backdrop's color, through pixels of the backdrop's color.
+    var isBackdrop = [Bool](repeating: false, count: width * height)
+    var pixelsToVisit = borderIndices.filter { distanceFromTheBackdrop($0) <= plainBackdropColorTolerance }
+    for index in pixelsToVisit { isBackdrop[index] = true }
+    while let index = pixelsToVisit.popLast() {
+        let row = index / width, column = index % width
+        for (neighborRow, neighborColumn) in [(row - 1, column), (row + 1, column), (row, column - 1), (row, column + 1)]
+        where neighborRow >= 0 && neighborRow < height && neighborColumn >= 0 && neighborColumn < width {
+            let neighbor = neighborRow * width + neighborColumn
+            if !isBackdrop[neighbor] && distanceFromTheBackdrop(neighbor) <= plainBackdropColorTolerance {
+                isBackdrop[neighbor] = true
+                pixelsToVisit.append(neighbor)
+            }
+        }
+    }
+
+    // The fade reaches the pixels next to the backdrop, whose color is a blend of the item and the backdrop.
+    let fadeDistance = 96.0
+    var itemPixelCount = 0
+    var alphas = [UInt8](repeating: 255, count: width * height)
+    for index in 0..<(width * height) {
+        if isBackdrop[index] { alphas[index] = 0; continue }
+        itemPixelCount += 1
+        let row = index / width, column = index % width
+        let touchesTheBackdrop = (row > 0 && isBackdrop[index - width]) || (row < height - 1 && isBackdrop[index + width])
+            || (column > 0 && isBackdrop[index - 1]) || (column < width - 1 && isBackdrop[index + 1])
+        if touchesTheBackdrop {
+            alphas[index] = UInt8(min(255, Double(distanceFromTheBackdrop(index)) / fadeDistance * 255).rounded())
+        }
+    }
+    guard Double(itemPixelCount) / Double(width * height) >= 0.04 else { return nil }
+    for index in 0..<(width * height) {
+        let alpha = Double(alphas[index]) / 255
+        for channel in 0..<3 { pixels[index * 4 + channel] = UInt8((Double(pixels[index * 4 + channel]) * alpha).rounded()) }
+        pixels[index * 4 + 3] = alphas[index]
+    }
+    return drawingContext.makeImage()
 }
 
 /// `cutout` drawn into a clear picture of `pictureWidth` by `pictureHeight` at `cropRectangle` (top left origin), so each
