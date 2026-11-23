@@ -120,9 +120,18 @@ struct CircledRegion: Equatable {
 }
 
 /// The picture a theme design reads: a loop the learner drew while asking names the picture whatever the words say about
-/// one, since closing a loop is deliberate, so "make my theme from this logo" reads it too. Without one, the words decide.
-func themePictureChoice(requested requestedPictureChoice: ThemeStudioPictureChoice, aRegionWasCircled: Bool) -> ThemeStudioPictureChoice {
-    aRegionWasCircled ? .captureAgain : requestedPictureChoice
+/// one, since closing a loop is deliberate, so "make my theme from this logo" reads it too. Without one, a change to one
+/// idea on a card that has a picture keeps that picture even when the words point at "this picture" again, since capturing
+/// again reads the largest picture in Chrome's front tab, which is rarely the one the learner circled. Otherwise the words
+/// decide.
+func themePictureChoice(
+    requested requestedPictureChoice: ThemeStudioPictureChoice,
+    aRegionWasCircled: Bool,
+    changesAnIdeaOnACardWithAPicture: Bool
+) -> ThemeStudioPictureChoice {
+    if aRegionWasCircled { return .captureAgain }
+    if changesAnIdeaOnACardWithAPicture && requestedPictureChoice == .captureAgain { return .keepTheCardsPicture }
+    return requestedPictureChoice
 }
 
 /// Records the mouse's path while push-to-talk is held, 60 times a second, in global points with the origin at the top

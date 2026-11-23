@@ -299,18 +299,30 @@ nonisolated let themeCouldNotBeAddedChipPhrase = "Couldn't add that theme"
 
 // MARK: - What the router reads
 
-/// The studio's part of the router's scene state: the idea names, which one is highlighted (counting from 1), and whether a
-/// design is running. Nil while the studio is closed. The idea names are text the model wrote, so they are short, and the
-/// message builder takes any "<" out of the state.
+/// The studio's part of the router's scene state: the idea names, which one is highlighted (counting from 1), whether a
+/// design is running, and `fromAPicture` true when the card's ideas came from a picture, so the model reads "the logo" or
+/// "it" as that picture and keeps it. The key is left out for a card with no picture. Nil while the studio is closed. The
+/// idea names are text the model wrote, so they are short, and the message builder takes any "<" out of the state.
 nonisolated func voiceCommandThemeStudioState(_ state: ThemeStudioState) -> JSONValue? {
     guard let ideasOnTheCard = state.ideasOnTheCard else {
         return state.isDesigning ? .object(["ideas": .array([]), "designing": .bool(true)]) : nil
     }
-    return .object([
+    var themeStudioStateFields: [String: JSONValue] = [
         "ideas": .array(ideasOnTheCard.ideas.map { .string($0.name) }),
         "highlighted": .number(Double(ideasOnTheCard.highlightedIdeaIndex + 1)),
         "designing": .bool(state.isDesigning),
-    ])
+    ]
+    if ideasOnTheCard.picture != nil {
+        themeStudioStateFields["fromAPicture"] = .bool(true)
+    }
+    return .object(themeStudioStateFields)
+}
+
+/// Whether a design changes one idea on a card whose ideas came from a picture. `basedOnIdea` counts from 1, and a number
+/// with no idea on the card changes none, since `ThemeIdeasRequest` drops it too, so the design is not a change to one idea.
+nonisolated func changesAnIdeaOnACardWithAPicture(basedOnIdea: Int?, state: ThemeStudioState) -> Bool {
+    guard let basedOnIdea, let ideasOnTheCard = state.ideasOnTheCard, ideasOnTheCard.picture != nil else { return false }
+    return ideasOnTheCard.ideas.indices.contains(basedOnIdea - 1)
 }
 
 // MARK: - POST /theme-ideas
@@ -327,10 +339,13 @@ nonisolated struct ThemeIdeasRequest: Equatable, Sendable {
     /// 1 to 3, the idea on the card the change applies to. Only set with `currentIdeas`.
     let basedOnIdea: Int?
     let picture: ThemeStudioPicture?
+    /// True when the picture was captured for this design and not kept from the card, so the Worker starts the cursors over
+    /// from it even with ideas on the card. False with no picture.
+    let pictureIsNew: Bool
 
     /// Nil for an empty request. A request over 500 UTF-16 code units is cut, more than 3 current ideas are dropped, and a
     /// `basedOnIdea` outside the current ideas is left out.
-    init?(request requestText: String, currentIdeas: [ClickyTheme], basedOnIdea: Int?, picture: ThemeStudioPicture?) {
+    init?(request requestText: String, currentIdeas: [ClickyTheme], basedOnIdea: Int?, picture: ThemeStudioPicture?, pictureIsNew: Bool = false) {
         let trimmedRequest = requestText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedRequest.isEmpty else { return nil }
         request = textCutToUTF16Count(trimmedRequest, longestUTF16Count: Self.longestRequestText)
@@ -341,6 +356,7 @@ nonisolated struct ThemeIdeasRequest: Equatable, Sendable {
             self.basedOnIdea = nil
         }
         self.picture = picture
+        self.pictureIsNew = pictureIsNew && picture != nil
     }
 
     var json: JSONValue {
@@ -357,6 +373,9 @@ nonisolated struct ThemeIdeasRequest: Equatable, Sendable {
                 "width": .number(Double(picture.width)),
                 "height": .number(Double(picture.height)),
             ])
+        }
+        if pictureIsNew {
+            fields["pictureIsNew"] = .bool(true)
         }
         return .object(fields)
     }
@@ -398,9 +417,10 @@ final class ThemeIdeasClient {
     private let themeIdeasURL: URL
     private let session: URLSession
 
-    /// Sonnet writes three whole themes in about 5 to 15 seconds, longer with a picture to read. Past this the studio says
-    /// it could not design the ideas.
-    private static let timeoutSeconds: TimeInterval = 40
+    /// Sonnet writes three whole themes in about 5 to 15 seconds, longer with a picture to read: on 2026-11-23 one attempt
+    /// with a picture took 6 to 16 seconds, and a reply the Worker asked for again took 29.5. The Worker may ask twice, so
+    /// this covers two of the slowest attempts with room to spare. Past it the studio says it could not design the ideas.
+    private static let timeoutSeconds: TimeInterval = 60
 
     init(workerBaseURL: String) {
         guard let themeIdeasURL = URL(string: "\(workerBaseURL)/theme-ideas") else {

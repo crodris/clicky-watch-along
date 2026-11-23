@@ -178,9 +178,20 @@ private func ellipsePath(width: CGFloat, height: CGFloat) -> [CGPoint] {
 
 @Test func aCircleDrawnWhileAskingForAThemeIsItsPictureWhateverTheWordsSay() {
     for requested in [ThemeStudioPictureChoice.none, .keepTheCardsPicture, .captureAgain] {
-        #expect(themePictureChoice(requested: requested, aRegionWasCircled: true) == .captureAgain)
-        #expect(themePictureChoice(requested: requested, aRegionWasCircled: false) == requested)
+        for changesAnIdea in [false, true] {
+            #expect(themePictureChoice(requested: requested, aRegionWasCircled: true, changesAnIdeaOnACardWithAPicture: changesAnIdea) == .captureAgain)
+        }
+        #expect(themePictureChoice(requested: requested, aRegionWasCircled: false, changesAnIdeaOnACardWithAPicture: false) == requested)
     }
+}
+
+@Test func aChangeToAnIdeaKeepsTheCardsPictureWhenTheWordsPointAtThePictureAgainWithNoCircle() {
+    // "turn the logo into a drawn cursor" may come with fromPicture true, and capturing again would read the largest picture
+    // in the tab instead of the logo the learner circled.
+    #expect(themePictureChoice(requested: .captureAgain, aRegionWasCircled: false, changesAnIdeaOnACardWithAPicture: true) == .keepTheCardsPicture)
+    #expect(themePictureChoice(requested: .keepTheCardsPicture, aRegionWasCircled: false, changesAnIdeaOnACardWithAPicture: true) == .keepTheCardsPicture)
+    // Dropping the picture is the learner's explicit wish, so it still drops it.
+    #expect(themePictureChoice(requested: .none, aRegionWasCircled: false, changesAnIdeaOnACardWithAPicture: true) == .none)
 }
 
 @Test func theLoopOnScreenFollowsTheLearnersOwnLineInsteadOfTheRoundedRectangle() {

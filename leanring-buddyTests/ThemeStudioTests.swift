@@ -308,6 +308,27 @@ struct ThemeStudioRouterStateTests {
             == #"{"designing":true,"highlighted":1,"ideas":["Ember","Moonlit","Forest"]}"#)
         #expect(voiceCommandThemeStudioState(.designing(previousIdeas: nil))?.compactJSONText == #"{"designing":true,"ideas":[]}"#)
     }
+
+    @Test func aDesignChangesAnIdeaOnACardWithAPictureOnlyForAnIdeaTheCardShows() throws {
+        let ideasFromAPicture = try threeStudioIdeas(picture: sampleStudioPicture)
+        let ideasFromWords = try threeStudioIdeas()
+        #expect(changesAnIdeaOnACardWithAPicture(basedOnIdea: 1, state: .showingIdeas(ideasFromAPicture)))
+        #expect(changesAnIdeaOnACardWithAPicture(basedOnIdea: 3, state: .designing(previousIdeas: ideasFromAPicture)))
+        // A number the card has no idea for is dropped from the request, so it changes no idea.
+        #expect(!changesAnIdeaOnACardWithAPicture(basedOnIdea: 4, state: .showingIdeas(ideasFromAPicture)))
+        #expect(!changesAnIdeaOnACardWithAPicture(basedOnIdea: 0, state: .showingIdeas(ideasFromAPicture)))
+        #expect(!changesAnIdeaOnACardWithAPicture(basedOnIdea: nil, state: .showingIdeas(ideasFromAPicture)))
+        #expect(!changesAnIdeaOnACardWithAPicture(basedOnIdea: 1, state: .showingIdeas(ideasFromWords)))
+        #expect(!changesAnIdeaOnACardWithAPicture(basedOnIdea: 1, state: .closed))
+    }
+
+    @Test func aCardWhoseIdeasCameFromAPictureSaysSo() throws {
+        let ideasFromAPicture = try threeStudioIdeas(picture: sampleStudioPicture)
+        #expect(voiceCommandThemeStudioState(.showingIdeas(ideasFromAPicture))?.compactJSONText
+            == #"{"designing":false,"fromAPicture":true,"highlighted":1,"ideas":["Ember","Moonlit","Forest"]}"#)
+        #expect(voiceCommandThemeStudioState(.designing(previousIdeas: ideasFromAPicture))?.compactJSONText
+            == #"{"designing":true,"fromAPicture":true,"highlighted":1,"ideas":["Ember","Moonlit","Forest"]}"#)
+    }
 }
 
 // MARK: - POST /theme-ideas
@@ -374,6 +395,15 @@ struct ThemeIdeasRequestTests {
         #expect(pictureJSON["jpegBase64"]?.stringValue == Data([0xFF, 0xD8, 0xFF, 0xD9]).base64EncodedString())
         #expect(pictureJSON["width"]?.numberValue == 1280)
         #expect(pictureJSON["height"]?.numberValue == 720)
+        #expect(themeIdeasRequest.json["pictureIsNew"] == nil)
+    }
+
+    @Test func aNewPictureSaysSoAndANewPictureWithNoPictureSaysNothing() throws {
+        let newPictureRequest = try #require(ThemeIdeasRequest(request: "use this one", currentIdeas: [], basedOnIdea: nil, picture: sampleStudioPicture, pictureIsNew: true))
+        #expect(newPictureRequest.json["pictureIsNew"]?.boolValue == true)
+        let noPictureRequest = try #require(ThemeIdeasRequest(request: "use this one", currentIdeas: [], basedOnIdea: nil, picture: nil, pictureIsNew: true))
+        #expect(!noPictureRequest.pictureIsNew)
+        #expect(noPictureRequest.json["pictureIsNew"] == nil)
     }
 }
 
