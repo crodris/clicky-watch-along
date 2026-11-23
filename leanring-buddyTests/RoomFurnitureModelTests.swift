@@ -205,6 +205,63 @@ struct RoomFurnitureOcclusionTests {
     }
 }
 
+/// A laptop camera that sees no floor puts the piece's feet below the picture. The box is the front face (top left, top
+/// right, bottom right, bottom left) and then the back face, as `FloorPlane.keyframeBoxCorners` gives it.
+struct RoomFurnitureFootprintBelowTheFrameTests {
+    private let frameSize = CGSize(width: 1280, height: 720)
+
+    private func box(frontBottomRow: Double, backBottomRow: Double) -> [CGPoint] {
+        [
+            CGPoint(x: 300, y: 500), CGPoint(x: 900, y: 500), CGPoint(x: 900, y: frontBottomRow), CGPoint(x: 300, y: frontBottomRow),
+            CGPoint(x: 400, y: 420), CGPoint(x: 800, y: 420), CGPoint(x: 800, y: backBottomRow), CGPoint(x: 400, y: backBottomRow),
+        ]
+    }
+
+    @Test func aFootprintReachesTheFrameBottomOnceItsLowestCornerIsOnTheBottomRow() {
+        #expect(!roomFurnitureFootprintReachesTheFrameBottom(projectedBox: box(frontBottomRow: 650, backBottomRow: 600), frameHeight: 720))
+        #expect(roomFurnitureFootprintReachesTheFrameBottom(projectedBox: box(frontBottomRow: 719, backBottomRow: 600), frameHeight: 720))
+        #expect(roomFurnitureFootprintReachesTheFrameBottom(projectedBox: box(frontBottomRow: 1020, backBottomRow: 800), frameHeight: 720))
+        // Only a footprint corner counts: a back top corner below the frame is not the feet.
+        var boxWithAHighFootprint = box(frontBottomRow: 650, backBottomRow: 600)
+        boxWithAHighFootprint[4] = CGPoint(x: 400, y: 900)
+        #expect(!roomFurnitureFootprintReachesTheFrameBottom(projectedBox: boxWithAHighFootprint, frameHeight: 720))
+        #expect(!roomFurnitureFootprintReachesTheFrameBottom(projectedBox: [], frameHeight: 720))
+    }
+
+    @Test func theLoopTracesTheFootprintWhileItIsInTheFrame() throws {
+        let projectedBox = box(frontBottomRow: 650, backBottomRow: 600)
+        let loop = try #require(roomFurnitureLoopQuadrilateral(projectedBox: projectedBox, frameSize: frameSize))
+        // Back left, back right, front right, front left.
+        #expect(loop.clockwiseFromTopLeft == [projectedBox[7], projectedBox[6], projectedBox[2], projectedBox[3]])
+    }
+
+    @Test func theLoopKeepsTracingAFootprintThatIsMostlyInTheFrame() throws {
+        // The front corners are 20 rows below the frame, but most of the footprint is in it.
+        let projectedBox = box(frontBottomRow: 740, backBottomRow: 600)
+        let loop = try #require(roomFurnitureLoopQuadrilateral(projectedBox: projectedBox, frameSize: frameSize))
+        #expect(loop.clockwiseFromTopLeft == [projectedBox[7], projectedBox[6], projectedBox[2], projectedBox[3]])
+    }
+
+    @Test func theLoopTracesTheVisiblePartOfTheBoxWhenTheFootprintIsBelowTheFrame() throws {
+        let projectedBox = box(frontBottomRow: 1020, backBottomRow: 800)
+        let loop = try #require(roomFurnitureLoopQuadrilateral(projectedBox: projectedBox, frameSize: frameSize))
+        // The box's outline spans columns 300 to 900 and rows 420 to 1020, and the frame cuts it at row 720.
+        #expect(loop.topLeft == CGPoint(x: 300, y: 420) && loop.bottomRight == CGPoint(x: 900, y: 720))
+        for corner in loop.clockwiseFromTopLeft {
+            #expect(CGRect(origin: .zero, size: frameSize).contains(corner) || corner.y == frameSize.height)
+        }
+    }
+
+    @Test func theLoopFallsBackToTheFootprintWhenNoPartOfTheBoxIsInTheFrame() throws {
+        let projectedBox = [
+            CGPoint(x: 300, y: 800), CGPoint(x: 900, y: 800), CGPoint(x: 900, y: 1020), CGPoint(x: 300, y: 1020),
+            CGPoint(x: 400, y: 790), CGPoint(x: 800, y: 790), CGPoint(x: 800, y: 900), CGPoint(x: 400, y: 900),
+        ]
+        let loop = try #require(roomFurnitureLoopQuadrilateral(projectedBox: projectedBox, frameSize: frameSize))
+        #expect(loop.clockwiseFromTopLeft == [projectedBox[7], projectedBox[6], projectedBox[2], projectedBox[3]])
+    }
+}
+
 struct RoomFurnitureSpotTests {
     private let frameSize = CGSize(width: 1280, height: 720)
 

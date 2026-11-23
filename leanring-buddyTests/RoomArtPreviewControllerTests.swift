@@ -1274,6 +1274,42 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
+    @Test func withTheFeetBelowTheFrameTheLoopTracesTheVisibleBoxAndThePainterIsToldTheFrameCutsThemOff() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        worker.floorReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"No floor under that point"}"#))
+        // A wall 2.8 m away puts a floor 1.05 m below the camera at row 367 of the 360 row frame, so the table's whole
+        // footprint is below the picture, as a laptop camera that sees no floor puts it.
+        worker.wallReply = .success(WallPlane(
+            center: SIMD3(-0.3, -0.2, 2.8), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 500,
+            principalPoint: SIMD2(320, 180), distanceMeters: 2.8, wallAngleDegrees: 0, planeInlierShare: 0.9
+        ))
+        let looks = FurnitureLookStub.thatPaintsAtOnce()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the table to stand against the wall") { harness.artIsShowing() }
+        guard case .showing(_, .floor(let floor), nil) = harness.controller.phase else {
+            Issue.record("The table is not on a floor: \(harness.controller.phase)")
+            return
+        }
+        #expect(floor.inferredFromTheWall)
+        let ghost = try #require(harness.controller.furnitureGhost)
+        let boxCorners = try #require(ghost.keyframeBoxCorners)
+        let frameBounds = CGRect(x: 0, y: 0, width: 640, height: 360)
+        #expect(roomFurnitureFootprintReachesTheFrameBottom(projectedBox: boxCorners, frameHeight: 360))
+        // The footprint is below the picture, so the loop went around the part of the box the frame shows.
+        let loop = try #require(harness.frameProcessor.loopQuadrilaterals.last)
+        #expect(loop != RoomArtCorners(clockwiseFromTopLeft: [boxCorners[7], boxCorners[6], boxCorners[2], boxCorners[3]]))
+        for corner in loop.clockwiseFromTopLeft {
+            #expect(frameBounds.insetBy(dx: -0.001, dy: -0.001).contains(corner), "\(corner) is outside the frame")
+        }
+        // The painter is told the frame cuts off the piece's feet.
+        #expect(looks.orientationsSent.compactMap { $0?.itemContinuesPastTheFrameBottom } == [true])
+        harness.controller.close()
+    }
+
     @Test func aDepthServiceThatIsDownFailsTheFloorWithNoWallRequest() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)

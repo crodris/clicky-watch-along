@@ -184,6 +184,37 @@ nonisolated func shareOfTheBoxInsideTheFrame(projectedCorners: [CGPoint], frameS
     return min(1, max(0, polygonArea(insideTheFrame) / outlineArea))
 }
 
+/// The loop traces the floor footprint while at least this share of it is in the frame, and the box's visible part below that.
+nonisolated let roomFurnitureLeastShareOfTheFootprintInTheFrameForTheLoop = 0.5
+
+/// Whether the box's floor footprint (its bottom corners, 2, 3, 6, and 7 of `RoomFurniturePlacement.boxCorners`) reaches the
+/// frame's bottom row or lies below it. That is the usual case on a floor inferred from the wall, where a laptop camera sees
+/// no floor: the piece's feet are below the picture, so the frame cuts off its lower part and the footprint's edge on the
+/// picture is only the bottom row.
+nonisolated func roomFurnitureFootprintReachesTheFrameBottom(projectedBox: [CGPoint], frameHeight: Int) -> Bool {
+    guard projectedBox.count == 8 else { return false }
+    let lowestFootprintRow = [projectedBox[2], projectedBox[3], projectedBox[6], projectedBox[7]].map(\.y).max() ?? 0
+    return lowestFootprintRow >= Double(frameHeight - 1)
+}
+
+/// What the loop traces while the piece is arranged: the floor footprint (back left, back right, front right, front left,
+/// clockwise on screen), or, when less than `roomFurnitureLeastShareOfTheFootprintInTheFrameForTheLoop` of the footprint is
+/// in the frame, the visible part of the box, since a line around a footprint that is mostly below the picture is drawn
+/// off it. The visible part is the rectangle around the box's outline clipped to the frame, and the footprint again when
+/// none of the box is in the frame.
+nonisolated func roomFurnitureLoopQuadrilateral(projectedBox: [CGPoint], frameSize: CGSize) -> RoomArtCorners? {
+    guard projectedBox.count == 8 else { return nil }
+    let footprint = RoomArtCorners(clockwiseFromTopLeft: [projectedBox[7], projectedBox[6], projectedBox[2], projectedBox[3]])
+    guard shareOfTheBoxInsideTheFrame(projectedCorners: footprint.clockwiseFromTopLeft, frameSize: frameSize) < roomFurnitureLeastShareOfTheFootprintInTheFrameForTheLoop else { return footprint }
+    let visibleOutline = clipped(convexHull(of: projectedBox), toRectangle: CGRect(origin: .zero, size: frameSize))
+    guard visibleOutline.count >= 3 else { return footprint }
+    let rectangleAroundTheVisibleOutline = visibleOutline.reduce(CGRect.null) { $0.union(CGRect(origin: $1, size: .zero)) }
+    return RoomArtCorners(rect: CGRect(
+        x: rectangleAroundTheVisibleOutline.minX, y: rectangleAroundTheVisibleOutline.minY,
+        width: max(rectangleAroundTheVisibleOutline.width, 1), height: max(rectangleAroundTheVisibleOutline.height, 1)
+    ))
+}
+
 /// The polygon's area by the shoelace formula, whichever way it winds.
 nonisolated func polygonArea(_ polygon: [CGPoint]) -> Double {
     guard polygon.count >= 3 else { return 0 }

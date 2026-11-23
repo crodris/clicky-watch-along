@@ -2166,12 +2166,14 @@ final class RoomArtPreviewController: ObservableObject {
                 apply(phase.afterTheFurnitureCouldNotBeDrawn(measurementID: measurementID))
                 return
             }
-            // While the painting comes, the loop goes around the ghost's footprint, which stays at half opacity.
-            // The loop traces the placed footprint: back left, back right, front right, front left, clockwise on screen.
-            frameProcessor.outlineTheLoop(
-                aroundKeyframeQuadrilateral: RoomArtCorners(clockwiseFromTopLeft: [boxInTheKeyframe[7], boxInTheKeyframe[6], boxInTheKeyframe[2], boxInTheKeyframe[3]]),
-                inKeyframeNumber: keyframe.keyframeNumber
-            )
+            // While the painting comes, the loop goes around the ghost's footprint, which stays at half opacity: back left,
+            // back right, front right, front left, clockwise on screen. A footprint below the frame is drawn off the picture,
+            // so the loop goes around the visible part of the box then (`roomFurnitureLoopQuadrilateral`).
+            // The depth service's principal point is the frame's center.
+            let frameSize = CGSize(width: floor.principalPoint.x * 2, height: floor.principalPoint.y * 2)
+            if let loopQuadrilateral = roomFurnitureLoopQuadrilateral(projectedBox: boxInTheKeyframe, frameSize: frameSize) {
+                frameProcessor.outlineTheLoop(aroundKeyframeQuadrilateral: loopQuadrilateral, inKeyframeNumber: keyframe.keyframeNumber)
+            }
             print(String(
                 format: "Room furniture: placed facing %@%@%@", ghost.facing.rawValue,
                 ghost.shownPose.isSnappedToTheWall ? ", its back on the wall" : "", floor.inferredFromTheWall ? ", on a floor inferred from the wall" : ""
@@ -2523,6 +2525,9 @@ extension RoomArtPreviewController {
     ) async -> RoomFurnitureFinishedPainting? {
         let projectedBox = paintingFrame.boxInThisFrame(boxInTheKeyframe)
         let frameImage = paintingFrame.image
+        // The tracker's turn moves the box, so whether the frame cuts off its feet is read for this painting frame.
+        var orientation = orientation
+        orientation.itemContinuesPastTheFrameBottom = roomFurnitureFootprintReachesTheFrameBottom(projectedBox: projectedBox, frameHeight: frameImage.height)
         guard let furnitureCutoutJPEG,
               let maskPNG = environment.compositeMaskPNG(projectedBox, frameImage.width, frameImage.height, Self.compositeShadowMarginPixels) else { return nil }
         // The service paints each request afresh, so a painting refused for its height or its footprint, or a failed

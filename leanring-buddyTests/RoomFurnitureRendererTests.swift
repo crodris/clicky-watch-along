@@ -251,6 +251,48 @@ struct RoomFurniturePaintedCompositeTests {
         #expect(result.layers != nil, "measured \(String(describing: result.paintedRows)) at \(String(describing: result.paintedHeightRatio))")
     }
 
+    /// A sofa seen by a laptop camera with no floor in view: its whole floor footprint is below the 720 row frame, and the
+    /// frame cuts it off at row 719.
+    private let sofaWithItsFeetBelowTheFrame = [
+        CGPoint(x: 300, y: 500), CGPoint(x: 900, y: 500), CGPoint(x: 900, y: 1020), CGPoint(x: 300, y: 1020),
+        CGPoint(x: 400, y: 420), CGPoint(x: 800, y: 420), CGPoint(x: 800, y: 800), CGPoint(x: 400, y: 800),
+    ]
+
+    /// The keyframe with a white piece in columns 420 to 780 from `topRow` to the row before `bottomRow`.
+    private func layersOfASofaWithItsFeetBelowTheFrame(paintedFromRow topRow: Int, toRow bottomRow: Int) throws -> RoomFurnitureKeyframeLayers? {
+        let keyframe = try #require(roomFurnitureTestKeyframe())
+        let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: sofaWithItsFeetBelowTheFrame, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        let context = try #require(CGContext(data: nil, width: keyframe.width, height: keyframe.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(keyframe, in: CGRect(x: 0, y: 0, width: keyframe.width, height: keyframe.height))
+        context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 420, y: keyframe.height - bottomRow, width: 360, height: bottomRow - topRow))
+        return RoomFurniturePaintedComposite.itemLayers(painted: try #require(context.makeImage()), keyframe: keyframe, maskPNG: maskPNG, projectedBox: sofaWithItsFeetBelowTheFrame).layers
+    }
+
+    @Test func aPaintingWhoseFeetAreCutOffByTheFramesBottomIsKeptEvenWhenItEndsAFewRowsAboveIt() throws {
+        // The footprint clamps to the bottom row 719, which left 0.15 of a row of vertical slack, so the painter's feet
+        // 20 rows above the bottom were refused. The painted rows 400 to 699 end inside the bottom band of 30 rows.
+        #expect(try layersOfASofaWithItsFeetBelowTheFrame(paintedFromRow: 400, toRow: 700) != nil)
+        // Painted down to the bottom row, as the frame cuts the piece off, is kept too.
+        #expect(try layersOfASofaWithItsFeetBelowTheFrame(paintedFromRow: 400, toRow: 720) != nil)
+    }
+
+    @Test func aPaintingThatStopsWellAboveTheFramesBottomIsRefusedWhenTheFeetAreBelowIt() throws {
+        // 240 rows tall, so it passes the height checks, but it ends at row 639, 80 rows above the bottom row. A piece whose
+        // feet are below the frame runs down to the bottom edge, so this one floats.
+        #expect(try layersOfASofaWithItsFeetBelowTheFrame(paintedFromRow: 400, toRow: 640) == nil)
+    }
+
+    @Test func aFootprintClampedToTheBottomRowIsCheckedOnlyAcrossIt() {
+        let clampedFootprint = [CGPoint(x: 900, y: 719), CGPoint(x: 300, y: 719), CGPoint(x: 800, y: 719), CGPoint(x: 400, y: 719)]
+        // Rows say nothing for a footprint with no height, so only the columns count: 15 percent of 600 is 90 pixels of slack.
+        #expect(RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 600, y: 650), footprint: clampedFootprint, checkingOnlyAcrossTheFootprint: true))
+        #expect(RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 985, y: 650), footprint: clampedFootprint, checkingOnlyAcrossTheFootprint: true))
+        #expect(!RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 995, y: 719), footprint: clampedFootprint, checkingOnlyAcrossTheFootprint: true))
+        #expect(!RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 600, y: 650), footprint: clampedFootprint))
+    }
+
     @Test func theFloorContactMustLandOnTheFootprint() {
         let footprint = [CGPoint(x: 700, y: 500), CGPoint(x: 500, y: 500), CGPoint(x: 680, y: 460), CGPoint(x: 520, y: 460)]
         #expect(RoomFurniturePaintedComposite.floorContactLandsOnTheFootprint(CGPoint(x: 600, y: 500), footprint: footprint))
