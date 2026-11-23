@@ -145,8 +145,8 @@
       "name": "other",
       "kind": "other",
       "response": {
-        "title": "Brass lamp",
-        "whyThisSize": "A lamp is not wall art, furniture, or clothing.",
+        "title": "Wool rug",
+        "whyThisSize": "A rug lies flat, so it is not wall art, furniture, or clothing.",
         "itemCorners": {
           "topLeft": { "x": 100, "y": 40 },
           "topRight": { "x": 300, "y": 40 },

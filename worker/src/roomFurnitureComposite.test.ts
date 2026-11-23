@@ -311,7 +311,7 @@ describe("handleRoomFurnitureComposite", () => {
 
     expect(response.status).toBe(200);
     const sentPrompt: string = JSON.parse(String(fetchMock.mock.calls[0][1].body)).prompt;
-    expect(sentPrompt).toContain("Its front, the side a person uses, faces the camera, turned slightly toward the left of the picture.");
+    expect(sentPrompt).toContain("Its front, the side a person uses or the side its face is on, faces the camera, turned slightly toward the left of the picture.");
     expect(sentPrompt).toContain("Its back stands against the wall behind it.");
     expect(sentPrompt).not.toContain("turned the way the area's shape shows");
   });
