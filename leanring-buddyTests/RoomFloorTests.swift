@@ -369,4 +369,28 @@ struct RoomFurnitureTests {
         #expect(furniture.sizeInWords == "27 inches wide and 39.5 tall")
         #expect(roomFurnitureSizeInWords(widthCentimeters: 80, heightCentimeters: 75) == "31.5 inches wide and 29.5 tall")
     }
+
+    @Test func aPageThatStatesOnlyTheHeightGetsTheCutoutsWidthAndThatWidthAsItsDepth() throws {
+        // A cutout half as wide as it is tall, as an upright figure is.
+        let context = CGContext(data: nil, width: 100, height: 200, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let heightOnly = RoomArtFurnitureSize(label: "26 cm tall", widthCentimeters: nil, heightCentimeters: 26, depthCentimeters: nil)
+
+        let figure = RoomFurniture.standing(title: "Astronaut", size: heightOnly, cutoutImage: try #require(context.makeImage()))
+
+        #expect(abs(figure.widthMeters - 0.13) < 1e-9)
+        #expect(abs(figure.depthMeters - 0.13) < 1e-9)
+        #expect(abs(figure.heightMeters - 0.26) < 1e-9)
+        #expect(figure.sizeInWords == "about 5 inches wide and 10 tall")
+    }
+
+    @Test func aPageThatStatesEverySideKeepsItAndSaysItWithoutAbout() throws {
+        let context = CGContext(data: nil, width: 100, height: 200, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let everySide = RoomArtFurnitureSize(label: "80 x 75 x 70 cm", widthCentimeters: 80, heightCentimeters: 75, depthCentimeters: 70)
+
+        let chair = RoomFurniture.standing(title: "Chair", size: everySide, cutoutImage: try #require(context.makeImage()))
+
+        #expect(abs(chair.widthMeters - 0.8) < 1e-9)
+        #expect(abs(chair.depthMeters - 0.7) < 1e-9)
+        #expect(chair.sizeInWords == "31.5 inches wide and 29.5 tall")
+    }
 }

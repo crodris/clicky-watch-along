@@ -1844,13 +1844,7 @@ final class RoomArtPreviewController: ObservableObject {
             startSearchingForTheFurnituresBestLook(
                 itemTitle: furnitureReading.title, pageURL: pageRequest.pageURL, pagePictureJPEG: pageRequest.picture.jpegData, thisOpening: thisOpening
             )
-            itemIsReady(.furniture(RoomFurniture(
-                title: furnitureReading.title,
-                widthMeters: size.widthCentimeters / 100,
-                heightMeters: size.heightCentimeters / 100,
-                depthMeters: size.depthCentimeters / 100,
-                cutoutImage: cutoutImage
-            )))
+            itemIsReady(.furniture(RoomFurniture.standing(title: furnitureReading.title, size: size, cutoutImage: cutoutImage)))
 
         case .tryOnTheShirt(let clothingReading):
             print("Room art: \"\(clothingReading.title)\" is a \(clothingReading.garment.rawValue) photographed \(clothingReading.photoShows.rawValue), size \(clothingReading.chosenSizeLabel)")

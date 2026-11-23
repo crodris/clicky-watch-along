@@ -121,6 +121,26 @@ nonisolated struct RoomFurniture: Equatable, @unchecked Sendable {
     let depthMeters: Double
     /// The product with a transparent background, trimmed to its own pixels, so its lowest pixel stands on the floor.
     let cutoutImage: CGImage
+    /// True when the page stated no width and `widthMeters` was measured from the cutout's shape, so the spoken size says
+    /// "about".
+    var widthIsMeasuredFromThePhoto = false
+
+    /// The piece at the page's size. A page that states only the height, as a figurine's often does, gets the width of
+    /// the cutout's own shape at that height, and a depth equal to that width, since the depth only sizes the ghost's
+    /// footprint and the painting's area.
+    static func standing(title: String, size: RoomArtFurnitureSize, cutoutImage: CGImage) -> RoomFurniture {
+        let heightMeters = size.heightCentimeters / 100
+        let widthMeters = size.widthCentimeters.map { $0 / 100 }
+            ?? heightMeters * Double(cutoutImage.width) / Double(max(cutoutImage.height, 1))
+        return RoomFurniture(
+            title: title,
+            widthMeters: widthMeters,
+            heightMeters: heightMeters,
+            depthMeters: size.depthCentimeters.map { $0 / 100 } ?? widthMeters,
+            cutoutImage: cutoutImage,
+            widthIsMeasuredFromThePhoto: size.widthCentimeters == nil
+        )
+    }
 
     /// The width of the piece's front face at its real height, from the photo's own shape, which the placement check uses.
     var drawnWidthMeters: Double {
@@ -128,9 +148,10 @@ nonisolated struct RoomFurniture: Equatable, @unchecked Sendable {
     }
 
     /// The page's size in inches, such as "31.5 inches wide and 29.5 tall", from the measured centimeters and never the
-    /// page's free-text label.
+    /// page's free-text label, with "about" in front when the width came from the photo.
     var sizeInWords: String {
-        roomFurnitureSizeInWords(widthCentimeters: widthMeters * 100, heightCentimeters: heightMeters * 100)
+        let words = roomFurnitureSizeInWords(widthCentimeters: widthMeters * 100, heightCentimeters: heightMeters * 100)
+        return widthIsMeasuredFromThePhoto ? "about \(words)" : words
     }
 }
 
