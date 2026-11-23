@@ -103,16 +103,16 @@ extension CPUHeavyTests {
         }
 
         /// The test keyframe with a light beige carpet in place of its dark floor, as in the plush's room, where a painted
-        /// shadow changes the floor by far more than the judge's 0.2 of luminance.
-        private func keyframeWithALightCarpet() throws -> CGImage {
+        /// shadow changes the floor by far more than the judge's 0.2 of luminance. `carpetColor` gives another carpet.
+        private func keyframeWithALightCarpet(carpetColor: [UInt8] = [200, 180, 150]) throws -> CGImage {
             let keyframe = try keyframe()
             var pixels = try #require(rgbaBytes(of: keyframe, width: keyframe.width, height: keyframe.height))
             for row in Int(Double(keyframe.height) * 0.6)..<keyframe.height {
                 for column in 0..<keyframe.width {
                     let byteIndex = (row * keyframe.width + column) * 4
-                    pixels[byteIndex] = 200
-                    pixels[byteIndex + 1] = 180
-                    pixels[byteIndex + 2] = 150
+                    pixels[byteIndex] = carpetColor[0]
+                    pixels[byteIndex + 1] = carpetColor[1]
+                    pixels[byteIndex + 2] = carpetColor[2]
                 }
             }
             return try #require(rgbaImage(pixels, width: keyframe.width, height: keyframe.height))
@@ -214,6 +214,28 @@ extension CPUHeavyTests {
             let (maskPNG, pasted) = try pasted(floating, over: keyframe)
             let judgement = RoomFurniturePaintedComposite.itemLayers(painted: pasted, keyframe: keyframe, maskPNG: maskPNG, projectedBox: Self.plushBox)
             #expect(judgement.refusal != nil)
+        }
+
+        @Test func aBlackPieceThatOnlyDarkensTheRoomIsStillFitted() throws {
+            let keyframe = try keyframeWithALightCarpet(carpetColor: [190, 190, 190])
+            // A charcoal plush, (30, 30, 32), drawn 1.4 times its box over the near-white wall and light gray floor: no pixel of it
+            // brightened or changed color, as none of a shadow's do, so it stands on its own lowest row.
+            var pixels = try #require(rgbaBytes(of: keyframe, width: keyframe.width, height: keyframe.height))
+            for row in 495..<822 {
+                for column in Self.plushColumns {
+                    let byteIndex = (row * keyframe.width + column) * 4
+                    pixels[byteIndex] = 30
+                    pixels[byteIndex + 1] = 30
+                    pixels[byteIndex + 2] = 32
+                }
+            }
+            let charcoal = try #require(rgbaImage(pixels, width: keyframe.width, height: keyframe.height))
+            let fit = try #require(try fit(of: charcoal, over: keyframe))
+            #expect(fit.paintedTopRow == 495)
+            #expect(fit.paintedLowestRow == 821)
+            let (maskPNG, pasted) = try pasted(charcoal, over: keyframe)
+            let judgement = RoomFurniturePaintedComposite.itemLayers(painted: pasted, keyframe: keyframe, maskPNG: maskPNG, projectedBox: Self.plushBox)
+            #expect(judgement.refusal == nil, "\(String(describing: judgement.refusal)), painted rows \(String(describing: judgement.paintedRows))")
         }
 
         @Test func aPieceStandingOnTheBackOfItsFootprintKeepsItsRowAndIsShrunkOnlyToTheBoxsTop() throws {

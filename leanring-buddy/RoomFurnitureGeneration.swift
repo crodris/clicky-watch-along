@@ -365,7 +365,8 @@ nonisolated struct FurnitureBoxOutlines {
 /// re-rendered, or a door's edge that reaches over the box from the side, is cleared however strongly it changed.
 /// `strongPixelCounts` and `recoloredStrongPixelCounts` give each cell's strongly changed pixels and those of them that
 /// brightened or changed color. A kept piece under `furniturePieceLeastRecoloredShareToStandOn` recolored only got darker,
-/// as a contact shadow does, so the item does not stand on it (`FurniturePieceCells.standsTheItem`).
+/// as a contact shadow does, so the item does not stand on it (`FurniturePieceCells.standsTheItem`), unless no kept piece
+/// brightened or changed color, as for a black piece in a light room, when the item stands on every kept piece.
 nonisolated func cellsOfThePiecesReachingTheBox(
     _ cells: [Float], strongCells: [Bool], strongPixelCounts: [Int], recoloredStrongPixelCounts: [Int],
     columns: Int, rows: Int, cellPixels: Int, boxOutlines: FurnitureBoxOutlines
@@ -399,9 +400,12 @@ nonisolated func cellsOfThePiecesReachingTheBox(
         pieceIsKept.append(isKept)
         pieceStandsTheItem.append(isKept && Double(recoloredStrongPixels) >= max(1, Double(strongPixels) * furniturePieceLeastRecoloredShareToStandOn))
     }
+    // A black or charcoal piece on a light room only got darker everywhere, as its shadow did, so when no kept piece
+    // brightened or changed color the item stands on every kept piece.
+    let theItemStandsOnSomePiece = pieceStandsTheItem.contains(true)
     return FurniturePieceCells(
         kept: pieceOfCell.map { piece in piece >= 0 && pieceIsKept[piece] ? 1 : 0 },
-        standsTheItem: pieceOfCell.map { piece in piece >= 0 && pieceStandsTheItem[piece] }
+        standsTheItem: pieceOfCell.map { piece in piece >= 0 && (theItemStandsOnSomePiece ? pieceStandsTheItem[piece] : pieceIsKept[piece]) }
     )
 }
 
