@@ -1330,9 +1330,10 @@ nonisolated struct RoomArtRequestRecord: Equatable, Sendable {
         isOpeningThePanel = true
     }
 
-    /// The learner asked the open panel for something by voice, such as "right there" for the furniture's ghost or the
-    /// shirt, or "move it left", so a line about it that lands after this press, such as "Step aside for a second." or
-    /// "Here it is", is still theirs. The panel is already open, so the opening flag is left as it is.
+    /// The learner asked the open panel for something by voice or by a click, such as "right there" or Place for the
+    /// furniture's ghost, "move it left", or the shirt's "right there" or its button, so a line about it that lands after
+    /// this press, such as "Step aside for a second." or "Here it is", is still theirs. The panel is already open, so the
+    /// opening flag is left as it is.
     mutating func continued(atPushToTalkPressCount pushToTalkPressCount: Int) {
         pushToTalkPressCountWhenItStarted = pushToTalkPressCount
     }
