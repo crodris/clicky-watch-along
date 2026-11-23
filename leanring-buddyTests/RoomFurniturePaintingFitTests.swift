@@ -38,8 +38,12 @@ extension CPUHeavyTests {
         /// shadow 35 levels darker under it when `drawsTheShadow`, and the room around it relit 17 levels brighter, as the
         /// plush's painter relit the carpet and the door frame beside it. With `strayPatch`, a 40 by 40 patch of room 40
         /// pixels left of the piece changes 30 levels, which is no part of it. Each of `relitParts`, inside the relit room,
-        /// changes 30 levels in all, more than the fit's 21 but under the 42 of strong change.
-        private func reply(parts: [PaintedPart], relitParts: [PaintedPart] = [], drawsTheShadow: Bool = true, strayPatch: Bool = false, over keyframe: CGImage) throws -> CGImage {
+        /// changes 30 levels in all, more than the fit's 21 but under the 42 of strong change. Each of `castShadows` is a
+        /// contact shadow as a painter casts one, the room at 0.3 of its light with its color kept.
+        private func reply(
+            parts: [PaintedPart], relitParts: [PaintedPart] = [], castShadows: [PaintedPart] = [], drawsTheShadow: Bool = true,
+            strayPatch: Bool = false, over keyframe: CGImage
+        ) throws -> CGImage {
             let width = keyframe.width, height = keyframe.height
             var pixels = try #require(rgbaBytes(of: keyframe, width: width, height: height))
             func set(_ column: Int, _ row: Int, _ change: (Int) -> Int) {
@@ -64,6 +68,11 @@ extension CPUHeavyTests {
             for part in relitParts {
                 for row in part.rows {
                     for column in part.columns { set(column, row) { $0 + 13 } }
+                }
+            }
+            for shadow in castShadows {
+                for row in shadow.rows {
+                    for column in shadow.columns { set(column, row) { Int((Double($0) * 0.3).rounded()) } }
                 }
             }
             for part in parts {
@@ -93,10 +102,36 @@ extension CPUHeavyTests {
             try #require(roomFurnitureTestKeyframe(width: Self.frameWidth, height: Self.frameHeight))
         }
 
+        /// The test keyframe with a light beige carpet in place of its dark floor, as in the plush's room, where a painted
+        /// shadow changes the floor by far more than the judge's 0.2 of luminance.
+        private func keyframeWithALightCarpet() throws -> CGImage {
+            let keyframe = try keyframe()
+            var pixels = try #require(rgbaBytes(of: keyframe, width: keyframe.width, height: keyframe.height))
+            for row in Int(Double(keyframe.height) * 0.6)..<keyframe.height {
+                for column in 0..<keyframe.width {
+                    let byteIndex = (row * keyframe.width + column) * 4
+                    pixels[byteIndex] = 200
+                    pixels[byteIndex + 1] = 180
+                    pixels[byteIndex + 2] = 150
+                }
+            }
+            return try #require(rgbaImage(pixels, width: keyframe.width, height: keyframe.height))
+        }
+
+        /// The fit as the paste asks for it, with the paste's region: the box's mask grown and feathered as the paste grows it.
         private func fit(of reply: CGImage, over keyframe: CGImage, box: [CGPoint] = plushBox) throws -> FurniturePaintingFit? {
             let keyframePixels = try #require(rgbaBytes(of: keyframe, width: keyframe.width, height: keyframe.height))
             let replyPixels = try #require(rgbaBytes(of: reply, width: keyframe.width, height: keyframe.height))
-            return furniturePaintingFit(keyframePixels: keyframePixels, replyPixels: replyPixels, width: keyframe.width, height: keyframe.height, projectedBox: box)
+            let frameExtent = CGRect(x: 0, y: 0, width: keyframe.width, height: keyframe.height)
+            let pasteRegion = roomFurnitureCompositeMaskPNG(projectedBox: box, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24)
+                .flatMap { maskPNG in try? maskImage(maskPNG) }
+                .flatMap { mask in
+                    grownMaskImage(mask, frameExtent: frameExtent, radiusPixels: furnitureCompositePasteSlackPixels, blurPixels: furnitureCompositePasteFeatherPixels, context: CIContext())
+                }
+                .flatMap { grownMask in grayBytes(of: grownMask, width: keyframe.width, height: keyframe.height) }
+            return furniturePaintingFit(
+                keyframePixels: keyframePixels, replyPixels: replyPixels, width: keyframe.width, height: keyframe.height, projectedBox: box, pasteRegion: pasteRegion
+            )
         }
 
         /// Where the fit puts a reply row: shrunk toward the anchor's row.
@@ -166,6 +201,21 @@ extension CPUHeavyTests {
             #expect(judgement.refusal != nil)
         }
 
+        @Test func aFloatingPieceIsNotFittedOntoTheShadowPaintedUnderIt() throws {
+            let keyframe = try keyframeWithALightCarpet()
+            // The same floating plush, with a contact shadow painted on the footprint under it, from row 790 to the box's
+            // lowest row. The shadow reaches the box but only got darker, so the plush does not stand on it.
+            let floating = try reply(
+                parts: [PaintedPart(columns: Self.plushColumns, rows: 488..<722)], castShadows: [PaintedPart(columns: 760..<930, rows: 790..<822)],
+                drawsTheShadow: false, over: keyframe
+            )
+            let floatingFit = try fit(of: floating, over: keyframe)
+            #expect(floatingFit == nil, "top \(floatingFit?.paintedTopRow ?? -1), lowest \(floatingFit?.paintedLowestRow ?? -1)")
+            let (maskPNG, pasted) = try pasted(floating, over: keyframe)
+            let judgement = RoomFurniturePaintedComposite.itemLayers(painted: pasted, keyframe: keyframe, maskPNG: maskPNG, projectedBox: Self.plushBox)
+            #expect(judgement.refusal != nil)
+        }
+
         @Test func aPieceStandingOnTheBackOfItsFootprintKeepsItsRowAndIsShrunkOnlyToTheBoxsTop() throws {
             let keyframe = try keyframe()
             // The plush stands on row 769, near the back of its footprint, and rises 320 rows to row 450.
@@ -177,6 +227,12 @@ extension CPUHeavyTests {
             // Measured from the box's lowest row it read as 372 rows and was shrunk to 0.605 about row 821.9.
             #expect(abs(fit.scale - (769 - Self.plushBoxTop) / 319) < 0.001)
             #expect(abs(rowAfterThe(fit, 450) - Self.plushBoxTop) < 0.01)
+            // The judge's front-face minimum is 0.85 of 216.2 rows, 183.8, and the fitted piece measures from the box's top to
+            // row 769 with its softened edge.
+            let (maskPNG, pasted) = try pasted(standingAtTheBack, over: keyframe)
+            let judgement = RoomFurniturePaintedComposite.itemLayers(painted: pasted, keyframe: keyframe, maskPNG: maskPNG, projectedBox: Self.plushBox)
+            print("Back of the footprint: the judge says \(judgement.refusal.map(String.init(describing:)) ?? "kept"), painted rows \(judgement.paintedRows.map(String.init(describing:)) ?? "none")")
+            #expect(judgement.refusal == nil)
         }
 
         @Test func aDeepBoxDrawnTooTallIsShrunkOnlyToItsOutline() throws {
@@ -195,6 +251,25 @@ extension CPUHeavyTests {
             // took 0.615 and drew the sofa about 27 percent too short and too narrow.
             #expect(abs(fit.scale - 219.0 / 259) < 0.001)
             #expect(abs(rowAfterThe(fit, 340) - 380) < 0.01)
+        }
+
+        @Test func aThinTopCountsForTheFitAsItDoesForTheJudge() throws {
+            let keyframe = try keyframe()
+            // A sofa 600 columns wide, with its front face from row 500 to 600 and its outline from row 380.
+            let wideSofaBox = [
+                CGPoint(x: 200, y: 500), CGPoint(x: 800, y: 500), CGPoint(x: 800, y: 600), CGPoint(x: 200, y: 600),
+                CGPoint(x: 260, y: 380), CGPoint(x: 740, y: 380), CGPoint(x: 740, y: 520), CGPoint(x: 260, y: 520),
+            ]
+            // Its body is kept by the paste and the judge, but a finial 16 columns wide rises from row 300, above the
+            // paste's top at row 356. The judge counts a row of 6 changed pixels there, while 2 percent of the search's 1200
+            // columns would need 24, so the fit must count it as the judge does and shrink the piece.
+            let body = PaintedPart(columns: 200..<800, rows: 400..<600)
+            let finial = PaintedPart(columns: 492..<508, rows: 300..<400)
+            let sofa = try reply(parts: [body, finial], drawsTheShadow: false, over: keyframe)
+            let fit = try #require(try fit(of: sofa, over: keyframe, box: wideSofaBox))
+            // The piece's softened edge leaves the finial's top 2 rows, at row 302, which still lands on the box's top.
+            #expect((300...304).contains(fit.paintedTopRow), "top \(fit.paintedTopRow)")
+            #expect(abs(rowAfterThe(fit, Double(fit.paintedTopRow)) - 380) < 0.01)
         }
 
         /// The keyframe, the plush's mask, and the reply pasted with the box, through the client's own paste.
@@ -216,16 +291,17 @@ extension CPUHeavyTests {
 
         @Test func anItemInTwoSeparatePartsKeepsBothParts() throws {
             let keyframe = try keyframe()
-            // A lamp whose stem matches the wall: a base on the footprint (rows 720 to 845) and a shade (rows 440 to 620)
-            // with 100 bare rows between them. Both are kept, and the piece runs from the shade's top.
+            // A lamp whose stem matches the wall: a base on the footprint (rows 720 to 845) and a shade (rows 440 to 570)
+            // wholly above the box's top at row 588, with 150 bare rows between them. Both are kept, since the shade stands
+            // straight above the box, and the piece runs from the shade's top.
             let base = PaintedPart(columns: 810..<890, rows: 720..<845)
-            let shade = PaintedPart(columns: 760..<940, rows: 440..<620)
+            let shade = PaintedPart(columns: 760..<940, rows: 440..<570)
             let lamp = try reply(parts: [base, shade], drawsTheShadow: false, over: keyframe)
             let fit = try #require(try fit(of: lamp, over: keyframe))
             #expect(fit.paintedTopRow == 440)
             let (_, fitted) = try pasted(lamp, over: keyframe)
             // The shade's and the base's middles, where the fit takes them.
-            let shadeRow = Int(rowAfterThe(fit, 530).rounded()), baseRow = Int(rowAfterThe(fit, 780).rounded())
+            let shadeRow = Int(rowAfterThe(fit, 505).rounded()), baseRow = Int(rowAfterThe(fit, 780).rounded())
             let middleColumn = Int((fit.anchor.x + (850 - fit.anchor.x) * fit.scale).rounded())
             #expect(isThePiecesGreen(try pixel(fitted, middleColumn, shadeRow)), "shade at (\(middleColumn), \(shadeRow))")
             #expect(isThePiecesGreen(try pixel(fitted, middleColumn, baseRow)), "base at (\(middleColumn), \(baseRow))")
@@ -238,8 +314,10 @@ extension CPUHeavyTests {
             // carpet the painter relit 30 levels, which reaches the box but never changes strongly.
             let plush = PaintedPart(columns: 820..<880, rows: 488..<845)
             let learner = PaintedPart(columns: 610..<690, rows: 440..<840)
+            // A door's edge the edit moved, above the box and reaching over a quarter of it from the side.
+            let doorEdge = PaintedPart(columns: 600..<760, rows: 340..<370)
             let relitCarpet = PaintedPart(columns: 735..<790, rows: 720..<790)
-            let painting = try reply(parts: [plush, learner], relitParts: [relitCarpet], drawsTheShadow: false, over: keyframe)
+            let painting = try reply(parts: [plush, learner, doorEdge], relitParts: [relitCarpet], drawsTheShadow: false, over: keyframe)
             let fit = try #require(try fit(of: painting, over: keyframe))
             #expect(fit.paintedTopRow == 488)
             #expect(abs(fit.scale - (822 - Self.plushBoxTop) / 334) < 0.001)
@@ -249,6 +327,8 @@ extension CPUHeavyTests {
             #expect(isThePiecesGreen(try pixel(fitted, plushColumn, Int(rowAfterThe(fit, 700).rounded()))))
             let learnerColumn = Int((fit.anchor.x + (650 - fit.anchor.x) * fit.scale).rounded()), learnerRow = Int(rowAfterThe(fit, 640).rounded())
             #expect(try pixel(fitted, learnerColumn, learnerRow) == pixel(keyframe, learnerColumn, learnerRow))
+            let doorColumn = Int((fit.anchor.x + (680 - fit.anchor.x) * fit.scale).rounded()), doorRow = Int(rowAfterThe(fit, 355).rounded())
+            #expect(try pixel(fitted, doorColumn, doorRow) == pixel(keyframe, doorColumn, doorRow), "door edge at (\(doorColumn), \(doorRow))")
             let carpetColumn = Int((fit.anchor.x + (762 - fit.anchor.x) * fit.scale).rounded()), carpetRow = Int(rowAfterThe(fit, 755).rounded())
             #expect(try pixel(fitted, carpetColumn, carpetRow) == pixel(keyframe, carpetColumn, carpetRow), "relit carpet at (\(carpetColumn), \(carpetRow))")
         }

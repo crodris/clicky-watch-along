@@ -106,10 +106,10 @@ nonisolated enum RoomFurniturePaintingRefusal: Equatable, Sendable, CustomString
         case .tallerThanTheOutline(let paintedRows, let mostRows):
             return String(format: "it is %d rows tall, over the %.0f the box's outline allows", paintedRows, mostRows)
         case .floorContactOffTheFootprint(let contact, let footprint):
-            let xs = footprint.map(\.x), ys = footprint.map(\.y)
+            let footprintColumns = footprint.map(\.x), footprintRows = footprint.map(\.y)
             return String(
                 format: "its floor contact (%.0f, %.0f) is off the footprint (x %.0f to %.0f, y %.0f to %.0f)",
-                contact.x, contact.y, xs.min() ?? 0, xs.max() ?? 0, ys.min() ?? 0, ys.max() ?? 0
+                contact.x, contact.y, footprintColumns.min() ?? 0, footprintColumns.max() ?? 0, footprintRows.min() ?? 0, footprintRows.max() ?? 0
             )
         }
     }
@@ -136,6 +136,14 @@ nonisolated enum RoomFurniturePaintedComposite {
     /// and measured a LACK side table and a Blu Dot chair at 75 to 87 percent of their height.
     static let shareOfARowThatMustChange = 0.02
     static let fewestChangedPixelsInARow = 6
+
+    /// How many changed pixels make a row count as painted, from the pasted region's pixels in that row: the more of
+    /// `fewestChangedPixelsInARow` and `shareOfARowThatMustChange` of them. The judge and the fit (`furniturePaintingFit`)
+    /// both count rows by it, so a thin top such as a chair's back counts for both or for neither.
+    static func changedPixelsARowNeeds(regionPixelsInTheRow: Int) -> Int {
+        max(fewestChangedPixelsInARow, Int((Double(regionPixelsInTheRow) * shareOfARowThatMustChange).rounded(.up)))
+    }
+
     /// A painting that changed at least this share of the pasted region's top `pixelsAlongTheRegionsTop` pixels, counted
     /// row by row from its top, reached past the region and was cut off by the paste. On the live check the service's
     /// redrawn wall changed 8 to 20 percent of them above a Blu Dot chair and none above a LACK side table, while a piece
@@ -292,7 +300,7 @@ nonisolated enum RoomFurniturePaintedComposite {
                 regionTopPixels += maskPixels
                 regionTopPixelsChanged += changedPixels
             }
-            guard maskPixels > 0, changedPixels >= max(fewestChangedPixelsInARow, Int((Double(maskPixels) * shareOfARowThatMustChange).rounded(.up))) else { continue }
+            guard maskPixels > 0, changedPixels >= changedPixelsARowNeeds(regionPixelsInTheRow: maskPixels) else { continue }
             firstPaintedRow = firstPaintedRow ?? row
             lastPaintedRow = row
             lastPaintedRowColumnTotal = changedColumnTotal
