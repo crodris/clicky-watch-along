@@ -1278,7 +1278,9 @@ struct RoomArtPreviewControllerTests {
         harness.frameProcessor.handOutKeyframesThatCannotBeDecoded()
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
-        try await waitFor("the line that the piece could not be drawn", seconds: 10) { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
+        // The wait takes the suite's long limit like every other, since a loaded Mac outlasted 10 s here. No render and no
+        // painting is what says the line came at once.
+        try await waitFor("the line that the piece could not be drawn") { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
         #expect(looks.renders.isEmpty && looks.paintings == 0)
         harness.controller.close()
     }
