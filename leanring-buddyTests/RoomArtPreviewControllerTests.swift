@@ -226,6 +226,11 @@ private func furnitureCutoutImage() -> CGImage {
     return context.makeImage()!
 }
 
+/// The test garment, made once for the whole run. `ShirtGarment.make` takes a quarter of a second or more on a loaded Mac, and
+/// the stubs are made on the main actor. One garment per harness held the main actor for most of a minute, so other main actor
+/// tests hit their time limits. A garment is a value, so every stub can share one.
+private let sharedTestGarment = testGarment()
+
 /// A garment from a plain photo whose whole middle is the cutout, which is all the controller needs to pass on.
 private func testGarment() -> ShirtGarment? {
     let context = CGContext(data: nil, width: 100, height: 120, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -307,7 +312,7 @@ private final class WorkerStub {
 @MainActor
 private final class CutoutStub {
     var furnitureCutout: CGImage? = furnitureCutoutImage()
-    var garment: ShirtGarment? = testGarment()
+    var garment: ShirtGarment? = sharedTestGarment
     var secondsBeforeTheGarmentIsReady = 0.0
     private(set) var furnitureCutoutsAsked = 0
     private(set) var garmentsAsked = 0
@@ -1207,7 +1212,7 @@ struct RoomArtPreviewControllerTests {
         looks.paintingGate = nil
         looks.paintedImage = nil
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
-        try await waitFor("the line that the piece could not be drawn", seconds: 10) { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
+        try await waitFor("the line that the piece could not be drawn") { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
         renderGate.open()
         harness.controller.close()
     }
@@ -1273,7 +1278,10 @@ struct RoomArtPreviewControllerTests {
         harness.frameProcessor.handOutKeyframesThatCannotBeDecoded()
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
-        try await waitFor("the line that the piece could not be drawn", seconds: 10) { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
+        // The deadline gate never opens, so the line can only come from the painting and the render ending at once. The wait
+        // takes the suite's long limit, since a loaded Mac outlasted 10 s here. The empty counts show the undecodable keyframe
+        // was never sent to either.
+        try await waitFor("the line that the piece could not be drawn") { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
         #expect(looks.renders.isEmpty && looks.paintings == 0)
         harness.controller.close()
     }

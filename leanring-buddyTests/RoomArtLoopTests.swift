@@ -246,14 +246,23 @@ struct RoomArtLoopOutlineTests {
     }
 }
 
+/// The loop's renders at 2x. Only the render runs on the main actor, as `ImageRenderer` needs. Every scan of its 2 million
+/// pixels runs on a detached task, since a scan on the main actor holds every other main actor test back on a loaded Mac.
 @MainActor
 struct RoomArtLoopRenderTests {
-    private let cameraFrame = CGSize(width: 1280, height: 720)
-    private let panelSize = CGSize(width: 960, height: 540)
-    private let accentRGB: (red: Int, green: Int, blue: Int) = (249, 115, 22)
+    private static let cameraFrame = CGSize(width: 1280, height: 720)
+    private static let panelSize = CGSize(width: 960, height: 540)
+    nonisolated private static let accentRGB: (red: Int, green: Int, blue: Int) = (249, 115, 22)
 
-    /// The rendered loop as 8-bit RGBA bytes at 2x, drawn into a known layout so no pixel read depends on the renderer's.
-    private func renderedLoop(showsTheSpark: Bool) throws -> (bytes: [UInt8], width: Int, height: Int, path: Path) {
+    /// One render as 8-bit RGBA bytes at 2x, drawn into a known layout so no pixel read depends on the renderer's.
+    struct Render: Sendable {
+        let bytes: [UInt8]
+        let width: Int
+        let height: Int
+        let lineBoundsInPoints: CGRect
+    }
+
+    private static func renderedLoop(showsTheSpark: Bool) async throws -> Render {
         let keyframe = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 640, y: 250), frameSize: cameraFrame, on: .wall)
         let snapshot = RoomArtLoopSnapshot(keyframeCorners: keyframe, currentCorners: keyframe)
         let path = try #require(RoomArtLoopOutline.path(for: snapshot, fit: RoomArtVideoFit(cameraSize: cameraFrame, viewSize: panelSize)))
@@ -265,7 +274,15 @@ struct RoomArtLoopRenderTests {
         )
         let renderer = ImageRenderer(content: canvas.frame(width: panelSize.width, height: panelSize.height))
         renderer.scale = 2
-        let image = try #require(renderer.cgImage)
+        // A CGImage never changes after the render, so the detached task may read it.
+        nonisolated(unsafe) let image = try #require(renderer.cgImage)
+        let lineBoundsInPoints = path.boundingRect
+        let bytes = try #require(await Task.detached { rgbaBytes(of: image) }.value)
+        return Render(bytes: bytes, width: image.width, height: image.height, lineBoundsInPoints: lineBoundsInPoints)
+    }
+
+    /// The image's pixels as 8-bit RGBA, or nil when no context could be made to draw them.
+    nonisolated private static func rgbaBytes(of image: CGImage) -> [UInt8]? {
         var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
         // The context writes through the buffer's pointer, so the draw happens inside the closure that lends it.
         let didDraw: Bool = bytes.withUnsafeMutableBytes { buffer in
@@ -276,48 +293,65 @@ struct RoomArtLoopRenderTests {
             context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
             return true
         }
-        #expect(didDraw)
-        return (bytes, image.width, image.height, path)
+        return didDraw ? bytes : nil
     }
 
-    private func isTheAccent(_ bytes: [UInt8], at offset: Int) -> Bool {
+    nonisolated private static func isTheAccent(_ bytes: [UInt8], at offset: Int) -> Bool {
         let alpha = Int(bytes[offset + 3])
         guard alpha >= 250 else { return false }
         return abs(Int(bytes[offset]) - accentRGB.red) < 14 && abs(Int(bytes[offset + 1]) - accentRGB.green) < 14 && abs(Int(bytes[offset + 2]) - accentRGB.blue) < 14
     }
 
-    @Test func theLineIsDrawnInTheAccentColorAndStaysInsideThePanel() throws {
-        let render = try renderedLoop(showsTheSpark: true)
-        #expect(render.width == 1920 && render.height == 1080)
-
-        var accentPixelCount = 0
-        var drawnBounds = CGRect.null
-        for row in 0..<render.height {
-            for column in 0..<render.width {
-                let offset = (row * render.width + column) * 4
-                if render.bytes[offset + 3] > 0 {
-                    // Nothing is drawn on the two outermost pixels of the panel.
-                    #expect(column >= 2 && row >= 2 && column < render.width - 2 && row < render.height - 2)
-                    drawnBounds = drawnBounds.union(CGRect(x: column, y: row, width: 1, height: 1))
-                }
-                if isTheAccent(render.bytes, at: offset) { accentPixelCount += 1 }
-            }
-        }
-        // A 3 point line is 6 pixels wide at 2x and the line is over 700 points long.
-        #expect(accentPixelCount > 3_000)
-        // The drawing covers the line's own box, with room for its width and the spark's glow, and nothing beyond.
-        let pathBoundsInPixels = CGRect(x: render.path.boundingRect.minX * 2, y: render.path.boundingRect.minY * 2, width: render.path.boundingRect.width * 2, height: render.path.boundingRect.height * 2)
-        #expect(drawnBounds.minX >= pathBoundsInPixels.minX - 30 && drawnBounds.maxX <= pathBoundsInPixels.maxX + 30)
-        #expect(drawnBounds.minY >= pathBoundsInPixels.minY - 30 && drawnBounds.maxY <= pathBoundsInPixels.maxY + 30)
-        #expect(drawnBounds.minX <= pathBoundsInPixels.minX + 10 && drawnBounds.maxX >= pathBoundsInPixels.maxX - 10)
+    /// What a render holds: where anything is drawn, how many pixels are the accent or white, and whether anything touches the
+    /// panel's two outermost pixels.
+    struct Scan: Sendable {
+        let drawnBounds: CGRect
+        let accentPixelCount: Int
+        let whitePixelCount: Int
+        let anythingDrawnAtTheEdge: Bool
     }
 
-    @Test func theSparkIsAWhiteDotWithAnAccentOutlineAndReduceMotionDrawsNone() throws {
-        func whitePixelCount(_ render: (bytes: [UInt8], width: Int, height: Int, path: Path)) -> Int {
-            stride(from: 0, to: render.bytes.count, by: 4).filter { render.bytes[$0] > 240 && render.bytes[$0 + 1] > 240 && render.bytes[$0 + 2] > 240 && render.bytes[$0 + 3] > 240 }.count
-        }
+    nonisolated private static func scan(_ render: Render) async -> Scan {
+        await Task.detached {
+            var accentPixelCount = 0
+            var whitePixelCount = 0
+            var drawnBounds = CGRect.null
+            var anythingDrawnAtTheEdge = false
+            for row in 0..<render.height {
+                for column in 0..<render.width {
+                    let offset = (row * render.width + column) * 4
+                    if render.bytes[offset + 3] > 0 {
+                        if column < 2 || row < 2 || column >= render.width - 2 || row >= render.height - 2 { anythingDrawnAtTheEdge = true }
+                        drawnBounds = drawnBounds.union(CGRect(x: column, y: row, width: 1, height: 1))
+                    }
+                    if isTheAccent(render.bytes, at: offset) { accentPixelCount += 1 }
+                    if render.bytes[offset] > 240 && render.bytes[offset + 1] > 240 && render.bytes[offset + 2] > 240 && render.bytes[offset + 3] > 240 {
+                        whitePixelCount += 1
+                    }
+                }
+            }
+            return Scan(drawnBounds: drawnBounds, accentPixelCount: accentPixelCount, whitePixelCount: whitePixelCount, anythingDrawnAtTheEdge: anythingDrawnAtTheEdge)
+        }.value
+    }
 
-        #expect(whitePixelCount(try renderedLoop(showsTheSpark: true)) > 50)
-        #expect(whitePixelCount(try renderedLoop(showsTheSpark: false)) == 0)
+    @Test func theLineIsDrawnInTheAccentColorAndStaysInsideThePanel() async throws {
+        let render = try await Self.renderedLoop(showsTheSpark: true)
+        #expect(render.width == 1920 && render.height == 1080)
+        let scan = await Self.scan(render)
+        // Nothing is drawn on the two outermost pixels of the panel.
+        #expect(!scan.anythingDrawnAtTheEdge)
+        // A 3 point line is 6 pixels wide at 2x and the line is over 700 points long.
+        #expect(scan.accentPixelCount > 3_000)
+        // The drawing covers the line's own box, with room for its width and the spark's glow, and nothing beyond.
+        let line = render.lineBoundsInPoints
+        let pathBoundsInPixels = CGRect(x: line.minX * 2, y: line.minY * 2, width: line.width * 2, height: line.height * 2)
+        #expect(scan.drawnBounds.minX >= pathBoundsInPixels.minX - 30 && scan.drawnBounds.maxX <= pathBoundsInPixels.maxX + 30)
+        #expect(scan.drawnBounds.minY >= pathBoundsInPixels.minY - 30 && scan.drawnBounds.maxY <= pathBoundsInPixels.maxY + 30)
+        #expect(scan.drawnBounds.minX <= pathBoundsInPixels.minX + 10 && scan.drawnBounds.maxX >= pathBoundsInPixels.maxX - 10)
+    }
+
+    @Test func theSparkIsAWhiteDotWithAnAccentOutlineAndReduceMotionDrawsNone() async throws {
+        #expect(await Self.scan(try await Self.renderedLoop(showsTheSpark: true)).whitePixelCount > 50)
+        #expect(await Self.scan(try await Self.renderedLoop(showsTheSpark: false)).whitePixelCount == 0)
     }
 }
