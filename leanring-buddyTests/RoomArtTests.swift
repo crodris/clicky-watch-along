@@ -1028,7 +1028,7 @@ struct RoomArtLineTests {
         var request = RoomArtRequestRecord()
         request.start(atPushToTalkPressCount: 7)
         // "Right there" is a press, and the panel answers it with "Here it is" seconds later, which must not be dropped.
-        request.theLearnerSpokeToThePanel(atPushToTalkPressCount: 8)
+        request.continued(atPushToTalkPressCount: 8)
         #expect(request.lineStep(dictationIsInProgress: false, clickyIsThinking: false, audioIsPlaying: false, pushToTalkPressCount: 8) == .speakNow)
         #expect(request.lineStep(dictationIsInProgress: false, clickyIsThinking: false, audioIsPlaying: false, pushToTalkPressCount: 9) == .drop)
     }

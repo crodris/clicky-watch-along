@@ -152,9 +152,12 @@ nonisolated struct ShirtSmallFrame: Sendable {
         let halfWidth = 0.08 * shoulderWidth, halfHeight = 0.04 * shoulderWidth
         let centerX = torso.shoulderMidpoint.x
         let centerY = min(torso.shoulderMidpoint.y + 0.12 * shoulderWidth, Double(height) - halfHeight - 1)
-        let columns = max(0, Int((centerX - halfWidth).rounded()))...min(width - 1, Int((centerX + halfWidth).rounded()))
-        let rows = max(0, Int((centerY - halfHeight).rounded()))...min(height - 1, Int((centerY + halfHeight).rounded()))
-        guard !columns.isEmpty, !rows.isEmpty, columns.count * rows.count >= 4 else { return nil }
+        let firstColumn = max(0, Int((centerX - halfWidth).rounded())), lastColumn = min(width - 1, Int((centerX + halfWidth).rounded()))
+        let firstRow = max(0, Int((centerY - halfHeight).rounded())), lastRow = min(height - 1, Int((centerY + halfHeight).rounded()))
+        // A torso outside the frame puts the patch past its edge, where a range from the first to the last would trap.
+        guard firstColumn <= lastColumn, firstRow <= lastRow else { return nil }
+        let columns = firstColumn...lastColumn, rows = firstRow...lastRow
+        guard columns.count * rows.count >= 4 else { return nil }
         var channelValues: [[Float]] = [[], [], []]
         for row in rows {
             for column in columns {

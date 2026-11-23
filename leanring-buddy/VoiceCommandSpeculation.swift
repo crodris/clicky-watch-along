@@ -23,6 +23,8 @@ nonisolated enum TranscriptRoute: Equatable {
     case replayTheExplanation
     /// "Right there" places the furniture's ghost with no model call (`RoomArtConfirmPhrase`).
     case confirmTheRoomArt
+    /// "Right there" paints the shirt the room art panel previews, and "go back" returns to the preview.
+    case shirtPaintedStill(ShirtStillVoiceRequest)
     /// "Animate this", "let me try it", and "change my theme" run with no model call.
     case keywordBranch(KeywordBranchAheadOfTheRouter)
     /// The voice command router, on the harness brain or the Worker.
@@ -50,6 +52,8 @@ nonisolated struct TranscriptRouteContext: Equatable, Sendable {
     var replayStopsAreRecorded: Bool = false
     /// The furniture's ghost shows, so "right there" places it and the router takes "move it left".
     var furnitureGhostShows: Bool = false
+    /// What the room art panel's shirt can do by voice, so "right there" and "go back" reach it.
+    var shirtStillVoiceTargets: ShirtStillVoiceTargets = .none
 }
 
 /// The route of a transcript, checked in the order the app has always checked it. `videoIsInFront` is asked only for a
@@ -84,6 +88,15 @@ nonisolated func transcriptRoute(
         themeStudioIsOpen: context.themeStudioIsOpen
     ) {
         return .confirmTheRoomArt
+    }
+    let shirtStillRequest = shirtStillVoiceRequest(for: transcript)
+    if let shirtStillRequest, shirtStillPhraseRunsAheadOfTheRouter(
+        request: shirtStillRequest,
+        targets: context.shirtStillVoiceTargets,
+        quizQuestionIsOpen: context.phaseIsWaitingForAQuizAnswer,
+        themeStudioIsOpen: context.themeStudioIsOpen
+    ) {
+        return .shirtPaintedStill(shirtStillRequest)
     }
     if let keywordBranch = keywordBranchAheadOfTheRouter(
         for: transcript,

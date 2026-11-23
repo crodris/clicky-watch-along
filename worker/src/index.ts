@@ -17,7 +17,7 @@
  *   POST /try-it-item → Anthropic Messages API (Sonnet reads a store page and its product photo for wall art, furniture, or clothing: its kind, size or garment details, and the item's corners)
  *   POST /room-wall    → the local depth service (tools/depth-service) at DEPTH_SERVICE_URL, which measures the wall plane in a photo of the learner's room
  *   POST /room-floor   → the local depth service at DEPTH_SERVICE_URL, which measures the floor plane under an anchor in a photo of the learner's room, for standing furniture
- *   POST /room-furniture-composite → OpenAI image edits (gpt-image-2.6-sunburst draws a furniture product into a camera frame of the learner's room, inside a mask)
+ *   POST /room-furniture-composite → OpenAI image edits (gpt-image-2.6-sunburst draws a furniture product into a camera frame of the learner's room, or with kind "shirt" paints a store's top onto the learner, inside a mask)
  *   POST /try-it-model → fal.ai's queue (TRELLIS 2 by default, or TRY_IT_MODEL_ENDPOINT), which turns the furniture's cutout over white into a GLB the Worker downloads and returns
  *   POST /voice-command → Anthropic Messages API (Haiku picks the app's tools for a spoken follow-up command)
  *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)

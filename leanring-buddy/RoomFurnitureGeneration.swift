@@ -422,7 +422,9 @@ nonisolated func furniturePieceWeights(keyframePixels: [UInt8], correctedReplyPi
 /// the reply's tone is matched to the keyframe on a ring `toneMatchBandPixels` wide just outside the paste
 /// (`toneFitsMatchingTheReplyToTheKeyframe`), so the pasted region does not show as a lighter or darker patch. Inside the
 /// region, only the piece keeps the reply: the room the edit repainted a few levels lighter, which one global fit cannot
-/// follow, keeps the keyframe's own pixels (`furniturePieceWeights`). A `generated` of another size, which the Worker
+/// follow, keeps the keyframe's own pixels (`furniturePieceWeights`). `keepsOnlyThePieceTheReplyChanged` false pastes
+/// the whole grown region instead, for a painting that must replace everything in its mask, as the shirt's must cover
+/// the learner's own top even where the new one is close to its color. A `generated` of another size, which the Worker
 /// returns for a keyframe size OpenAI does not take, is scaled to the keyframe first.
 nonisolated func furnitureCompositePasted(
     keyframe: CGImage,
@@ -431,6 +433,7 @@ nonisolated func furnitureCompositePasted(
     slackPixels: Double = furnitureCompositePasteSlackPixels,
     featherPixels: Double = furnitureCompositePasteFeatherPixels,
     toneMatchBandPixels: Double = furnitureCompositeToneMatchBandPixels,
+    keepsOnlyThePieceTheReplyChanged: Bool = true,
     context: CIContext
 ) -> CGImage? {
     let width = keyframe.width
@@ -459,7 +462,9 @@ nonisolated func furnitureCompositePasted(
             }
         }
     }
-    let pieceWeights = furniturePieceWeights(keyframePixels: keyframePixels, correctedReplyPixels: correctedReplyPixels, pasteWeights: pasteWeights, width: width, height: height)
+    let pieceWeights = keepsOnlyThePieceTheReplyChanged
+        ? furniturePieceWeights(keyframePixels: keyframePixels, correctedReplyPixels: correctedReplyPixels, pasteWeights: pasteWeights, width: width, height: height)
+        : [Float](repeating: 1, count: width * height)
 
     var pastedPixels = keyframePixels
     pastedPixels.withUnsafeMutableBufferPointer { pastedBytes in
