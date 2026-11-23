@@ -631,10 +631,9 @@ function withUsableAgentColors(idea: ModelIdea): ModelIdea {
 const sourcesFromThePicture: readonly string[] = ["thePicture", "tracedFromThePicture"];
 
 /**
- * requestIsAFirstDesign is true when the request held no ideas from the card, or a new picture with no basedOnIdea, which
- * starts the cursors over from it. A first design from a picture needs at
- * least one idea whose cursor is the picture or its subject traced, and only one, so "a star theme from this picture's
- * colors" may still draw two stars.
+ * requestIsAFirstDesign is true when the request held no ideas from the card, or a new picture with no basedOnIdea,
+ * which starts the cursors over from it. A first design from a picture needs at least one idea whose cursor is the
+ * picture or its subject traced, and only one, so "a star theme from this picture's colors" may still draw two stars.
  */
 export function checkThemeIdeas(unrepairedModelReply: ModelReply, requestHadAPicture: boolean, requestIsAFirstDesign: boolean): ThemeIdeasCheck {
   const modelReply = { ...unrepairedModelReply, ideas: unrepairedModelReply.ideas.map(withUsableAgentColors) };
