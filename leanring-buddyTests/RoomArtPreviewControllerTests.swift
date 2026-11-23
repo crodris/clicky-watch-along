@@ -2360,7 +2360,7 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
-    @Test func eachCountdownNumberTicksAndTheFreezeMakesItsOwnSoundWhileARestartAndAStaleCaptureAreSilent() async throws {
+    @Test func eachCountdownNumberTicksAndTheFreezeMakesItsOwnSoundWhileARestartIsSilent() async throws {
         let harness = try await harnessShowingTheLiveShirt(shirtPainting: ShirtPaintingStub())
         harness.controller.paintTheShirt()
         #expect(harness.countdownSounds().isEmpty)
@@ -2412,6 +2412,8 @@ struct RoomArtPreviewControllerTests {
         harness.frameProcessor.reportTheCapture(.countdown(1), fromArming: 0)
         await untilTheCaptureEventsSentSoFarAreHandled()
         #expect(shirtPainting.requests.isEmpty && harness.controller.shirtCaptureCountdownNumber == 3)
+        // Only the two countdown numbers that were shown ticked; the first capture's late freeze and number made no sound.
+        #expect(harness.countdownSounds() == [.tick, .tick])
         #expect(harness.controller.phase == .waitingForTheLearnerToStepBack(title: "Linen shirt", id: secondID))
 
         // The second capture's own frozen frame starts the painting.

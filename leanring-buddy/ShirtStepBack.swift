@@ -27,9 +27,9 @@ nonisolated let roomArtShirtStepBackTimeoutLine = "I can't see your shoulders ye
 
 // MARK: - The sounds
 
-/// The two short sounds of the countdown, macOS system sounds that are not the theme's done, correct, or needs-your-OK
-/// sounds, so a countdown is never mistaken for an agent finishing or a quiz answer. The countdown itself is on screen and
-/// is not spoken.
+/// The two short sounds of the countdown, macOS system sounds that no bundled theme uses for done, correct, or needs your
+/// OK, so under those themes a countdown is not mistaken for an agent finishing or a quiz answer. A saved theme may pick
+/// any system sound, these two included. The countdown itself is on screen and is not spoken.
 nonisolated enum ShirtCountdownSound: Equatable, Sendable {
     /// A soft tick as each number appears.
     case tick

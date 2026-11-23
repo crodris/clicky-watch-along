@@ -57,10 +57,20 @@ struct RoomCameraWarmUpTests {
         #expect(!warmUp.delivers(at: 500.5, exposure: true, whiteBalance: false))
     }
 
+    @Test func settledFlagsOnTheFirstFramesCountOnlyAfterTheShortestWait() {
+        // A session that just started can report both flags false before auto exposure has begun.
+        let warmUp = WarmUpStepper()
+        #expect(RoomCameraWarmUp.shortestWaitSeconds == 0.35)
+        #expect(!warmUp.delivers(at: 10.0, exposure: false, whiteBalance: false))
+        #expect(!warmUp.delivers(at: 10.34, exposure: false, whiteBalance: false))
+        #expect(warmUp.delivers(at: 10.4, exposure: false, whiteBalance: false))
+    }
+
     @Test func onceFramesStartTheyKeepComingWhateverTheDeviceReportsLater() {
         let warmUp = WarmUpStepper()
-        #expect(warmUp.delivers(at: 10.0, exposure: false, whiteBalance: false))
+        #expect(!warmUp.delivers(at: 10.0, exposure: false, whiteBalance: false))
+        #expect(warmUp.delivers(at: 10.4, exposure: false, whiteBalance: false))
         // Auto exposure adjusts again when the learner steps into the light, and the panel must not freeze on that.
-        #expect(warmUp.delivers(at: 10.1, exposure: true, whiteBalance: true))
+        #expect(warmUp.delivers(at: 10.5, exposure: true, whiteBalance: true))
     }
 }

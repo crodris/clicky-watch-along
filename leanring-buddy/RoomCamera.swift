@@ -36,8 +36,11 @@ nonisolated let roomCameraPixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFul
 /// read) fixes the wall's light and the tracker's reference for the whole session. So frames are held back until the
 /// device reports that it is no longer adjusting exposure or white balance, or until `longestWaitSeconds` have passed since
 /// the first frame, whichever comes first. A device that never settles (a dim room) must not stall the panel.
+/// The settled flags count only after `shortestWaitSeconds`, since a session that just started can report both flags false
+/// before auto exposure has begun, and its dark first frame would then pass at once.
 /// Pure, with the clock and the device's two flags passed in, so a test steps it by hand.
 nonisolated struct RoomCameraWarmUp: Equatable, Sendable {
+    static let shortestWaitSeconds = 0.35
     static let longestWaitSeconds = 0.75
 
     /// When the first frame arrived, nil before it.
@@ -49,8 +52,9 @@ nonisolated struct RoomCameraWarmUp: Equatable, Sendable {
         if hasStartedDelivering { return true }
         let firstFrameAt = firstFrameAt ?? now
         self.firstFrameAt = firstFrameAt
-        let deviceHasSettled = !isAdjustingExposure && !isAdjustingWhiteBalance
-        let waitedLongEnough = now - firstFrameAt >= Self.longestWaitSeconds
+        let secondsSinceTheFirstFrame = now - firstFrameAt
+        let deviceHasSettled = !isAdjustingExposure && !isAdjustingWhiteBalance && secondsSinceTheFirstFrame >= Self.shortestWaitSeconds
+        let waitedLongEnough = secondsSinceTheFirstFrame >= Self.longestWaitSeconds
         guard deviceHasSettled || waitedLongEnough else { return false }
         hasStartedDelivering = true
         return true
@@ -125,13 +129,14 @@ nonisolated final class BuiltInRoomCamera: NSObject, RoomFrameSource, AVCaptureV
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        // Frames from a camera still settling its exposure are dropped, so the panel's first frame is a well exposed one.
-        let cameraHasSettled = warmUp.shouldDeliverAFrame(
+        // Frames from a camera still settling its exposure and white balance are dropped for up to 0.75 seconds, so the
+        // panel's first frame, which becomes the room keyframe, is a well exposed one.
+        let frameShouldGoOnToThePanel = warmUp.shouldDeliverAFrame(
             now: CMClockGetTime(CMClockGetHostTimeClock()).seconds,
             isAdjustingExposure: cameraDevice?.isAdjustingExposure ?? false,
             isAdjustingWhiteBalance: cameraDevice?.isAdjustingWhiteBalance ?? false
         )
-        guard cameraHasSettled else { return }
+        guard frameShouldGoOnToThePanel else { return }
         onFrame?(pixelBuffer)
     }
 }
