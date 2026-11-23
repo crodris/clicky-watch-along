@@ -387,6 +387,35 @@
         "design_theme"
       ]
     },
+    "themeStudioIdeasFromAPicture": {
+      "description": "The Theme Studio card shows three ideas the learner made from a picture they circled, a logo: Your Picture (the logo itself as the cursor), Double Caret, and Zigzag Bolt, with Your Picture highlighted, so themeStudio carries fromAPicture. The tools are the themeStudioIdeas context's.",
+      "sceneState": {
+        "page": "none",
+        "themeStudio": {
+          "designing": false,
+          "fromAPicture": true,
+          "highlighted": 1,
+          "ideas": [
+            "Your Picture",
+            "Double Caret",
+            "Zigzag Bolt"
+          ]
+        },
+        "videoQuizIsRunning": false
+      },
+      "tools": [
+        "answer_with_screen",
+        "build_new_scene",
+        "build_simulation",
+        "pop_out",
+        "animate_picture",
+        "start_background_task",
+        "design_theme",
+        "pick_theme_idea",
+        "save_theme",
+        "close_theme_studio"
+      ]
+    },
     "themeStudioIdeas": {
       "description": "The Theme Studio card shows three ideas, Ember, Moonlit, and Forest, with Moonlit highlighted, and nothing else is on screen. The app offers the usual tools with nothing on screen, then design_theme, pick_theme_idea, save_theme, and close_theme_studio.",
       "sceneState": {
@@ -1487,6 +1516,65 @@
         "answer_with_screen"
       ],
       "why": "The open card must not capture a question about something else."
+    },
+    {
+      "id": "theme-picture-refine-drawn-logo",
+      "context": "themeStudioIdeasFromAPicture",
+      "say": "turn the logo into a drawn cursor in Clicky blue with motion trails",
+      "accept": [
+        "design_theme"
+      ],
+      "input": {
+        "design_theme": {
+          "basedOnIdea": 1,
+          "fromPicture": null
+        }
+      },
+      "why": "The demo take of 2026-11-23: Haiku set fromPicture false here, which dropped the logo, and every new idea was a generic blue arrow, orb, or chevron. The logo is the card's picture, so fromPicture stays out to keep it, and the change applies to the highlighted idea."
+    },
+    {
+      "id": "theme-picture-refine-bouncier",
+      "context": "themeStudioIdeasFromAPicture",
+      "say": "make it bouncier",
+      "accept": [
+        "design_theme"
+      ],
+      "input": {
+        "design_theme": {
+          "basedOnIdea": 1,
+          "fromPicture": null
+        }
+      },
+      "why": "A change to how the highlighted idea moves keeps the card's picture."
+    },
+    {
+      "id": "theme-picture-keep-logo-blue",
+      "context": "themeStudioIdeasFromAPicture",
+      "say": "keep the logo but make it blue",
+      "accept": [
+        "design_theme"
+      ],
+      "input": {
+        "design_theme": {
+          "basedOnIdea": 1,
+          "fromPicture": null
+        }
+      },
+      "why": "Naming the logo means the card's picture, so fromPicture stays out to keep it."
+    },
+    {
+      "id": "theme-picture-forget-it",
+      "context": "themeStudioIdeasFromAPicture",
+      "say": "forget the picture, make it ocean themed",
+      "accept": [
+        "design_theme"
+      ],
+      "input": {
+        "design_theme": {
+          "fromPicture": false
+        }
+      },
+      "why": "Only an explicit wish to stop using the picture drops it."
     },
     {
       "id": "planning-find-seek-pop-out",

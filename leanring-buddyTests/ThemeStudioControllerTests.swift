@@ -284,6 +284,28 @@ struct ThemeStudioControllerTests {
         #expect(!harness.spokenLines.contains(ThemeStudioController.noPictureLine))
     }
 
+    @Test func aChangeToAnIdeaThatSaysThisPictureAgainKeepsTheCircledPictureAndCapturesNothing() async throws {
+        let circledLogo = try smallJPEGPicture()
+        let largestPictureInTheTab = ThemeStudioPicture(jpegData: circledLogo.jpegData, width: 16, height: 16)
+        let harness = StudioHarness()
+        harness.picturesTheCaptureReturns = [circledLogo, largestPictureInTheTab]
+        harness.workerReplies = [{ try reply(names: ["A", "B", "C"], pictureCursor: true) }, { try reply(names: ["A2", "B2", "C2"]) }]
+        harness.studio.design(request: "make my theme from this picture", basedOnIdea: nil, pictureChoice: .captureAgain)
+        await harness.studio.waitForTheDesign()
+        // The router may set fromPicture true for "turn the logo into a drawn cursor", with no new circle.
+        let pictureChoice = themePictureChoice(
+            requested: ThemeStudioPictureChoice(fromPictureInput: true),
+            aRegionWasCircled: false,
+            changesAnIdeaOnACardWithAPicture: true
+        )
+        harness.studio.design(request: "turn the logo into a drawn cursor", basedOnIdea: 1, pictureChoice: pictureChoice)
+        await harness.studio.waitForTheDesign()
+        #expect(harness.requestsSentToTheWorker[1].picture == circledLogo)
+        #expect(harness.requestsSentToTheWorker[1].basedOnIdea == 1)
+        #expect(harness.requestsSentToTheWorker[1].currentIdeas.map(\.name) == ["A", "B", "C"])
+        #expect(harness.picturesTheCaptureReturns == [largestPictureInTheTab])
+    }
+
     @Test func aPictureChoiceOfNoneDropsThePictureFromARefinement() async throws {
         let picture = try smallJPEGPicture()
         let harness = StudioHarness()

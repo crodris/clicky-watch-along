@@ -537,7 +537,7 @@
     },
     {
       "name": "design_theme",
-      "description": "Open the Theme Studio, a card with three whole theme ideas, or change the ideas already on it. A theme is a cursor, its colors, its agent token colors, and its sounds, and it can use the picture the learner points at. Use it when the learner asks to change, make, design, or customize their theme, and for any wish about how the cursor looks, moves, or sounds while the card is open, such as \"two, but make the cursor a star that spins while it thinks\". While the card is open, a new vibe or subject, such as \"something totally different, like the ocean\", is a wish for new theme ideas, never a 3D scene. Put the wish in request, in the learner's words. Set basedOnIdea, from 1 to 3, when they name one idea on the card to change. Set fromPicture true when they say this picture, this image, or this photo, or false when they drop the picture, and leave it out otherwise. It takes several seconds, and the card and a spoken line say the result, so a confirmation is never spoken. Never use it to pick, save, or close.",
+      "description": "Open the Theme Studio, a card with three whole theme ideas, or change the ideas already on it. A theme is a cursor, its colors, its agent token colors, and its sounds, and it can use the picture the learner points at. Use it when the learner asks to change, make, design, or customize their theme, and for any wish about how the cursor looks, moves, or sounds while the card is open, such as \"two, but make the cursor a star that spins while it thinks\". While the card is open, a new vibe or subject, such as \"something totally different, like the ocean\", is a wish for new theme ideas, never a 3D scene. Put the wish in request, in the learner's words. Set basedOnIdea, from 1 to 3, to the idea the change applies to: the one they name, or the highlighted one in the scene state when they change it, this, or the logo without naming one. Leave basedOnIdea out for a change to all the ideas or a new wish. Leave fromPicture out to keep the card's picture: every change to the ideas on the card keeps it, including one that names the picture or its subject, such as \"turn the logo into a drawn cursor\" or \"keep the photo but make it blue\". Set fromPicture true only to design from a picture the learner points at now, such as \"make my theme from this picture\" when the scene state's themeStudio has no fromAPicture. Set it false only when the learner asks to stop using the picture, such as \"forget the picture\", \"start over without it\", or \"something completely different\". It takes several seconds, and the card and a spoken line say the result, so a confirmation is never spoken. Never use it to pick, save, or close.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -547,11 +547,11 @@
           },
           "basedOnIdea": {
             "type": "number",
-            "description": "The idea on the card the change applies to, from 1 to 3. Leave it out when no one idea is named."
+            "description": "The idea on the card the change applies to, from 1 to 3: the one named, or the highlighted one when the learner changes it or this. Leave it out for a change to all the ideas or a new wish."
           },
           "fromPicture": {
             "type": "boolean",
-            "description": "true to design from the picture the learner points at (a region they circled with the mouse, or else the largest picture in Chrome's front tab), false to drop the picture the card has. Leave it out otherwise."
+            "description": "Leave it out to keep the card's picture, as every change to the ideas on the card does. true only to design from a picture the learner points at now (a region they circled with the mouse, or else the largest picture in Chrome's front tab). false only when the learner asks to stop using the picture."
           }
         },
         "required": [

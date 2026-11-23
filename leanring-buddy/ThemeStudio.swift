@@ -299,18 +299,23 @@ nonisolated let themeCouldNotBeAddedChipPhrase = "Couldn't add that theme"
 
 // MARK: - What the router reads
 
-/// The studio's part of the router's scene state: the idea names, which one is highlighted (counting from 1), and whether a
-/// design is running. Nil while the studio is closed. The idea names are text the model wrote, so they are short, and the
-/// message builder takes any "<" out of the state.
+/// The studio's part of the router's scene state: the idea names, which one is highlighted (counting from 1), whether a
+/// design is running, and `fromAPicture` true when the card's ideas came from a picture, so the model reads "the logo" or
+/// "it" as that picture and keeps it. The key is left out for a card with no picture. Nil while the studio is closed. The
+/// idea names are text the model wrote, so they are short, and the message builder takes any "<" out of the state.
 nonisolated func voiceCommandThemeStudioState(_ state: ThemeStudioState) -> JSONValue? {
     guard let ideasOnTheCard = state.ideasOnTheCard else {
         return state.isDesigning ? .object(["ideas": .array([]), "designing": .bool(true)]) : nil
     }
-    return .object([
+    var fields: [String: JSONValue] = [
         "ideas": .array(ideasOnTheCard.ideas.map { .string($0.name) }),
         "highlighted": .number(Double(ideasOnTheCard.highlightedIdeaIndex + 1)),
         "designing": .bool(state.isDesigning),
-    ])
+    ]
+    if ideasOnTheCard.picture != nil {
+        fields["fromAPicture"] = .bool(true)
+    }
+    return .object(fields)
 }
 
 // MARK: - POST /theme-ideas

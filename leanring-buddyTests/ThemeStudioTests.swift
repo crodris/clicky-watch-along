@@ -308,6 +308,14 @@ struct ThemeStudioRouterStateTests {
             == #"{"designing":true,"highlighted":1,"ideas":["Ember","Moonlit","Forest"]}"#)
         #expect(voiceCommandThemeStudioState(.designing(previousIdeas: nil))?.compactJSONText == #"{"designing":true,"ideas":[]}"#)
     }
+
+    @Test func aCardWhoseIdeasCameFromAPictureSaysSo() throws {
+        let ideasFromAPicture = try threeStudioIdeas(picture: sampleStudioPicture)
+        #expect(voiceCommandThemeStudioState(.showingIdeas(ideasFromAPicture))?.compactJSONText
+            == #"{"designing":false,"fromAPicture":true,"highlighted":1,"ideas":["Ember","Moonlit","Forest"]}"#)
+        #expect(voiceCommandThemeStudioState(.designing(previousIdeas: ideasFromAPicture))?.compactJSONText
+            == #"{"designing":true,"fromAPicture":true,"highlighted":1,"ideas":["Ember","Moonlit","Forest"]}"#)
+    }
 }
 
 // MARK: - POST /theme-ideas

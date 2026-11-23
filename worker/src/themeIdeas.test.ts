@@ -9,6 +9,8 @@ const goodPath = "M12 2 L22 22 L12 17 L2 22 Z";
 
 function goodIdea(overrides: Partial<ModelIdea> = {}): ModelIdea {
   return {
+    // Valid with a picture and without one, so a test changes the source only when it is about the source.
+    cursorSource: "aShapeTheLearnerNamed",
     name: "Moonlit",
     accent: "#7DD3FC",
     contrast: "#1E1B4B",
@@ -56,7 +58,7 @@ const goodPictureCursor = {
 };
 
 function replyWithAPictureCursor(pictureCursorOverrides: Partial<ModelIdea["cursor"]>, ideaOverrides: Partial<ModelIdea> = {}): CheckedModelReply {
-  return replyWithFirstIdea({ cursor: { ...goodPictureCursor, ...pictureCursorOverrides }, ...ideaOverrides });
+  return replyWithFirstIdea({ cursorSource: "thePicture", cursor: { ...goodPictureCursor, ...pictureCursorOverrides }, ...ideaOverrides });
 }
 
 function replyWithPictureFields(pictureOverrides: Partial<NonNullable<ModelIdea["cursor"]["picture"]>>): CheckedModelReply {
@@ -353,6 +355,57 @@ describe("checkThemeIdeas on a picture cursor", () => {
 
   it("accepts a picture cursor whose agents keep the triangle face", () => {
     expect(checkThemeIdeas(replyWithAPictureCursor({}, withAgents({ faces: { kind: "triangle" } })), true)).toMatchObject({ accepted: true });
+  });
+});
+
+describe("checkThemeIdeas on the cursor's source", () => {
+  const tracedIdea = { cursorSource: "tracedFromThePicture" };
+
+  it("accepts every idea from the picture: the picture itself, its subject traced, or a shape the learner named", () => {
+    const pictureIdea = goodIdea({ cursorSource: "thePicture", cursor: goodPictureCursor });
+    const ideas = [pictureIdea, goodIdea({ ...tracedIdea, name: "Traced" }), goodIdea({ name: "Star" })];
+
+    expect(checkThemeIdeas(goodReply({ ideas }), true)).toMatchObject({ accepted: true });
+  });
+
+  it("refuses a new shape with a picture, so a generic shape that only shares the picture's motif is asked for again", () => {
+    expect(rejectionReason(replyWithFirstIdea({ cursorSource: "aNewShape" }), true)).toBe(
+      "Idea 1's cursorSource is aNewShape, but the request had a picture, so every cursor is the picture itself, the picture's subject traced as shapes, or a shape the learner's words name.",
+    );
+  });
+
+  it("accepts a new shape without a picture, and refuses a traced shape without one", () => {
+    expect(checkThemeIdeas(replyWithFirstIdea({ cursorSource: "aNewShape" }), false)).toMatchObject({ accepted: true });
+    expect(rejectionReason(replyWithFirstIdea(tracedIdea), false)).toContain("cursorSource is tracedFromThePicture, but the request had no picture");
+  });
+
+  it("refuses a source that does not match the cursor kind", () => {
+    expect(rejectionReason(replyWithFirstIdea({ cursorSource: "thePicture" }), true)).toContain("only a picture cursor has the source thePicture");
+    expect(rejectionReason(replyWithAPictureCursor({}, tracedIdea), true)).toContain("only a picture cursor has the source thePicture");
+  });
+
+  it("refuses a source outside its list", () => {
+    expect(rejectionReason(replyWithFirstIdea({ cursorSource: "vibes" }), true)).toContain('cursorSource is "vibes"');
+  });
+
+  it("asks the model for each idea's source before its cursor, from the four sources", async () => {
+    const fetchMock = stubFetch(sonnetReply(goodReply()));
+
+    await handleThemeIdeas(requestWithBody({ ...handlerRequest, picture: pictureRequest }), "key");
+
+    const ideaSchema = (sentBodies(fetchMock)[0].output_config as { format: { schema: { properties: { ideas: { items: { properties: object; required: string[] } } } } } })
+      .format.schema.properties.ideas.items;
+    expect(Object.keys(ideaSchema.properties)[0]).toBe("cursorSource");
+    expect(ideaSchema.properties).toMatchObject({ cursorSource: { enum: ["thePicture", "tracedFromThePicture", "aShapeTheLearnerNamed", "aNewShape"] } });
+    expect(ideaSchema.required).toContain("cursorSource");
+  });
+
+  it("leaves the source out of the reply, so the app's ideas keep their shape", () => {
+    const check = checkThemeIdeas(goodReply(), true);
+
+    expect(check).toMatchObject({ accepted: true });
+    if (!check.accepted) return;
+    expect(check.reply.ideas[0]).not.toHaveProperty("cursorSource");
   });
 });
 

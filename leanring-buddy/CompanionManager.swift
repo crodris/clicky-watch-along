@@ -4188,7 +4188,11 @@ final class CompanionManager: ObservableObject {
         let circledRegion = circledRegionOfTheCurrentPress
         // One press's loop names the picture of one design, so a later design, such as a Debug tool call, never reads it again.
         circledRegionOfThePress = nil
-        let pictureChoice = themePictureChoice(requested: requestedPictureChoice, aRegionWasCircled: circledRegion != nil)
+        let pictureChoice = themePictureChoice(
+            requested: requestedPictureChoice,
+            aRegionWasCircled: circledRegion != nil,
+            changesAnIdeaOnACardWithAPicture: basedOnIdea != nil && themeStudioController.state.ideasOnTheCard?.picture != nil
+        )
         // The request that started this design already pressed push-to-talk, so only a later press is the learner's next request.
         pushToTalkPressCountWhenTheThemeDesignStarted = pushToTalkPressCount
         currentResponseTask?.cancel()
