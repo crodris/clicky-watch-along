@@ -2362,6 +2362,62 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
+    @Test func wallArtOutlinesTheWallSpotAtOnceWhileTheEarlyWallIsStillBeingMeasured() async throws {
+        let worker = WorkerStub()
+        // The page's reply waits until the early wall request went out, so the keyframe is taken during the page read, and
+        // the wall's reply waits at a gate, so the depth service's 14 seconds are still running when the test looks.
+        let pageReplyGate = TestGate()
+        worker.pageReplyGate = pageReplyGate
+        let wallReplyGate = TestGate()
+        worker.wallReplyGate = wallReplyGate
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the wall measured during the page read") { worker.wallRequests.count == 1 }
+        #expect(harness.frameProcessor.keyframeSurfaces == [nil])
+        #expect(harness.frameProcessor.loopOutlines.isEmpty)
+
+        pageReplyGate.open()
+        // The page reads as wall art, and "Measuring your wall…" shows while the wall's run is still going. The loop that the
+        // keyframe drew around the floor spot has moved to the wall spot, and it did not wait for the wall's reply.
+        try await waitFor("the loop to move to the wall spot") { !harness.frameProcessor.loopOutlines.isEmpty }
+        #expect(harness.statusLine() == "Measuring your wall…")
+        #expect(wallReplyGate.timesPassed == 0 && !harness.artIsShowing())
+        #expect(harness.frameProcessor.loopOutlines.map(\.point) == [StandInFrameProcessor.bareWallSpot])
+        #expect(harness.frameProcessor.loopOutlines.map(\.keyframeNumber) == [1])
+
+        wallReplyGate.open()
+        try await waitFor("the art to show on the wall") { harness.artIsShowing() }
+        // The wall measured early is the one the art stands on, and nothing else was asked of the depth service.
+        #expect(worker.wallRequests.count == 1 && worker.floorRequests.isEmpty)
+        harness.controller.close()
+    }
+
+    @Test func furnitureStillWaitsForTheEarlyWallBeforeItAsksForTheFloor() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let pageReplyGate = TestGate()
+        worker.pageReplyGate = pageReplyGate
+        let wallReplyGate = TestGate()
+        worker.wallReplyGate = wallReplyGate
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the wall measured during the page read") { worker.wallRequests.count == 1 }
+        pageReplyGate.open()
+        try await waitFor("the table to be measured") { harness.controller.phase.itemBeingMeasured != nil }
+        await letTheQueuedMainActorWorkRun()
+        // Asked for while the wall's run is in flight, the floor would start a second run of the same frame on the depth
+        // service, which answers it from the cache only once the first run is done.
+        #expect(worker.floorRequests.isEmpty)
+        #expect(harness.frameProcessor.loopOutlines.isEmpty)
+
+        wallReplyGate.open()
+        try await waitFor("the table") { harness.artIsShowing() }
+        #expect(worker.floorRequests.count == 1 && worker.wallRequests.count == 1)
+        harness.controller.close()
+    }
+
     @Test func furnitureThatCannotBeCutOutSaysSo() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)

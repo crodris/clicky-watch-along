@@ -707,8 +707,17 @@ nonisolated enum RoomFurniturePaintingAheadOutcome: Sendable {
     case notAsked
 }
 
-/// The keyframe taken while the page was still read, and the wall measured on it then.
+/// The keyframe taken while the page was still read, and the wall measured on it then. They are two tasks because the
+/// keyframe is ready at once while the wall takes the depth service's one run of about 14 seconds, and the loop must move
+/// to the wall spot as soon as the keyframe exists, not when the wall is back.
 nonisolated struct RoomArtEarlyMeasurement: Sendable {
-    let keyframe: RoomArtKeyframe
-    let wall: Result<WallPlane, Error>
+    /// Nil when no keyframe could be taken, or a shirt read cancelled it first.
+    let keyframe: Task<RoomArtKeyframe?, Never>
+    /// The wall measured on that keyframe, nil when there was no keyframe or the measurement was cancelled.
+    let wall: Task<Result<WallPlane, Error>?, Never>
+
+    func cancel() {
+        keyframe.cancel()
+        wall.cancel()
+    }
 }

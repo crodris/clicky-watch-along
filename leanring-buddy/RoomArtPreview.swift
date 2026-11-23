@@ -1413,7 +1413,7 @@ final class RoomArtPreviewController: ObservableObject {
     private var stepAsideWasSaid = false
     /// The keyframe taken while the page is still read, and the wall measured on it, so the depth service's run overlaps the
     /// page read. The first measurement uses it, and the depth service answers the floor on it from its cache.
-    private var earlyMeasurement: Task<RoomArtEarlyMeasurement?, Never>?
+    private var earlyMeasurement: RoomArtEarlyMeasurement?
 
     /// The loop's line as the panel draws it this moment, in panel points, or nil before there is a keyframe, a torso, or a
     /// camera frame.
@@ -1606,18 +1606,21 @@ final class RoomArtPreviewController: ObservableObject {
     private func startMeasuringEarly() {
         guard earlyMeasurement == nil else { return }
         let frameProcessor = frameProcessor, measureTheWall = environment.measureTheWall
-        earlyMeasurement = Task {
+        let keyframeTask = Task { () -> RoomArtKeyframe? in
             // A shirt read before this task first runs has cancelled it and forgotten the keyframe, so it takes none.
-            guard !Task.isCancelled, let keyframe = await frameProcessor.takeAKeyframe(on: nil, anchorInCameraPixels: nil) else { return nil }
+            guard !Task.isCancelled else { return nil }
+            return await frameProcessor.takeAKeyframe(on: nil, anchorInCameraPixels: nil)
+        }
+        let wallTask = Task { () -> Result<WallPlane, Error>? in
+            guard let keyframe = await keyframeTask.value, !Task.isCancelled else { return nil }
             let wallRequest = RoomWallRequest(
                 keyframeJPEGData: keyframe.measurementRequest.keyframeJPEGData,
                 personMaskPNGData: keyframe.measurementRequest.personMaskPNGData,
                 anchor: keyframe.wallSpotAnchor ?? keyframe.measurementRequest.anchor
             )
-            let wall: Result<WallPlane, Error>
-            do { wall = .success(try await measureTheWall(wallRequest)) } catch { wall = .failure(error) }
-            return RoomArtEarlyMeasurement(keyframe: keyframe, wall: wall)
+            do { return .success(try await measureTheWall(wallRequest)) } catch { return .failure(error) }
         }
+        earlyMeasurement = RoomArtEarlyMeasurement(keyframe: keyframeTask, wall: wallTask)
         print("Room art: took the keyframe while the page is read, and measures its wall now")
     }
 
@@ -2076,10 +2079,11 @@ final class RoomArtPreviewController: ObservableObject {
         self.earlyMeasurement = nil
 
         measurementTask = Task {
-            let early = await earlyMeasurement?.value
+            // The keyframe is ready at once. The early wall is awaited separately, since it takes the depth service's 14 seconds.
+            let earlyKeyframe = await earlyMeasurement?.keyframe.value
             let keyframeOrNil: RoomArtKeyframe?
-            if let early {
-                keyframeOrNil = early.keyframe
+            if let earlyKeyframe {
+                keyframeOrNil = earlyKeyframe
             } else {
                 keyframeOrNil = await frameProcessor.takeAKeyframe(on: surfaceKind, anchorInCameraPixels: anchorInCameraPixels)
             }
@@ -2093,17 +2097,22 @@ final class RoomArtPreviewController: ObservableObject {
                 switch surfaceKind {
                 case .wall:
                     let wall: WallPlane
-                    if let early, let wallSpot = keyframe.wallSpotAnchor {
-                        // The early keyframe's loop went around the floor spot, so it moves to the wall spot it measured.
+                    if earlyKeyframe != nil, let earlyWall = earlyMeasurement?.wall, let wallSpot = keyframe.wallSpotAnchor {
+                        // The early keyframe's loop went around the floor spot, so it moves to the wall spot it measures,
+                        // now and not when the depth service's run is back, since "Measuring your wall…" shows for all of it.
                         frameProcessor.outlineTheLoop(around: wallSpot, on: .wall, inKeyframeNumber: keyframe.keyframeNumber)
-                        wall = try early.wall.get()
+                        guard let earlyWallResult = await earlyWall.value else { throw CancellationError() }
+                        wall = try earlyWallResult.get()
                     } else {
                         wall = try await environment.measureTheWall(keyframe.measurementRequest)
                     }
                     print(String(format: "Room art: wall %.2f m away at %.0f degrees, %.0f%% of it fits the plane", wall.distanceMeters, wall.wallAngleDegrees, wall.planeInlierShare * 100))
                     surface = .wall(wall)
                 case .floor:
-                    let floor = try await measureTheFurnituresFloor(on: keyframe, for: measuringPhase.itemBeingMeasured, anchorWasClicked: anchorInCameraPixels != nil, wallAlreadyMeasured: early?.wall)
+                    // The floor waits for the early wall's run, and so answers from the depth service's cache: asked while that
+                    // run is in flight, it would start a second 14 second run of the same frame.
+                    let earlyWallResult = await earlyMeasurement?.wall.value
+                    let floor = try await measureTheFurnituresFloor(on: keyframe, for: measuringPhase.itemBeingMeasured, anchorWasClicked: anchorInCameraPixels != nil, wallAlreadyMeasured: earlyWallResult)
                     print(String(format: "Room art: floor %.2f m away, tilted %.0f degrees, %.0f%% of it fits the plane%@", floor.distanceMeters, floor.floorTiltDegrees, floor.planeInlierShare * 100, floor.inferredFromTheWall ? ", inferred from the wall" : ""))
                     surface = .floor(floor)
                 }
