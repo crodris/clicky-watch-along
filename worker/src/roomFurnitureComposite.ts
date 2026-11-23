@@ -6,7 +6,7 @@
  * - `furniture` (the default, so an app that sends no kind keeps working): the furniture's cutout over white, and a mask that
  *   marks where the piece stands at its real size (the projected box of the item plus a margin for its contact shadow). This
  *   works for any furniture page with a photo and a size, where a 3D model works only for the few pages that publish one.
- * - `shirt`: the store's top over white, and a mask that covers the garment the learner wears now and where the new one lands,
+ * - `shirt`: the store's photo of the top, laid flat or worn by a model, cropped to the garment, and a mask that covers the garment the learner wears now and where the new one lands,
  *   with their skin, face, neck, hair, and hands left out. The top is painted onto the learner, replacing their own.
  *
  * The model re-renders the whole frame, so pixels outside the mask can come back slightly changed. The app pastes the
