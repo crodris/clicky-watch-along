@@ -2455,6 +2455,30 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
+    /// Escape during "Measuring your wall…" must stop the depth service's run, not leave it going for its 14 seconds while a
+    /// reopened panel waits behind it. The measurement takes the early measurement out of the controller, so `close()` finds
+    /// nothing to cancel there, and the measurement's own task has to pass the cancel on.
+    @Test func aCloseDuringTheFirstMeasurementCancelsTheEarlyWallRequestStillRunning() async throws {
+        let worker = WorkerStub()
+        let pageReplyGate = TestGate()
+        worker.pageReplyGate = pageReplyGate
+        let wallReplyGate = TestGate()
+        worker.wallReplyGate = wallReplyGate
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the wall measured during the page read") { worker.wallRequests.count == 1 }
+        pageReplyGate.open()
+        try await waitFor("the first measurement to start") { harness.controller.phase.itemBeingMeasured != nil }
+        #expect(wallReplyGate.cancelledWaitCount == 0)
+
+        harness.controller.close()
+        await wallReplyGate.untilAWaitIsCancelled()
+
+        #expect(wallReplyGate.cancelledWaitCount == 1)
+        #expect(worker.wallRequests.count == 1)
+    }
+
     @Test func furnitureThatCannotBeCutOutSaysSo() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)
