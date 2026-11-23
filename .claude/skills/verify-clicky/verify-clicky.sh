@@ -217,8 +217,10 @@ debug_app_workspace() {
 
 # The pattern starts at the command's first character, so a shell whose script text merely mentions the app's path
 # (another agent's wait loop, for example) is not counted as a running Clicky.
+# Only this user's processes count: CI's self-hosted runners run Clicky test hosts as the separate clicky-ci user, in that
+# user's own background session, where they cannot touch this user's event tap or overlay.
 running_clicky_pids() {
-  pgrep -f '^/[^ ]*Clicky\.app/Contents/MacOS/Clicky( |$)' || true
+  pgrep -U "$(id -u)" -f '^/[^ ]*Clicky\.app/Contents/MacOS/Clicky( |$)' || true
 }
 
 descendant_pids() {

@@ -73,4 +73,4 @@ Preconditions:
   The loop draws on the display that holds the video, and the ring and status label draw on the display under the mouse, so put the mouse on the video's display to see all three together.
 - Another session's automation can bring a different app to the front, which clears the loop as an app switch.
   The log says `Cursor loop: the front app became <bundle id>`.
-- `verify-clicky.sh app-launch` finds a running Clicky with `pgrep -f`, so any shell command whose text contains the app's path makes it refuse to launch.
+- `verify-clicky.sh app-launch` finds a running Clicky with `pgrep -U <this user> -f` on a pattern anchored to the app's executable path, so only this user's Clicky process makes it refuse to launch, and a shell command that merely names the app's path does not.

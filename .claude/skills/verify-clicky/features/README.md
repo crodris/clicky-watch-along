@@ -9,7 +9,7 @@ Read [`../SKILL.md`](../SKILL.md) first, then use the matching feature file as t
 
 - `$V doctor` shows `worker/.dev.vars` present.
 - Worker recipes run against a Worker this run started with `$V worker-up` on port 8789.
-- App recipes need a Worker this run started on 8787, a Debug build that supports `--live-scene-rehearsal`, and no Clicky already running.
+- App recipes need a Worker this run started on 8787, a Debug build that supports `--live-scene-rehearsal`, and no Clicky of this macOS user already running (a CI test host under `clicky-ci` does not count).
 - Prefer `--var LIVE_SCENE_MODEL:sonnet` for any run that builds a live scene, unless the change is to the GPT path.
 - Start each recipe with `$V new-run <feature-id>` so its evidence has its own folder.
 

@@ -86,6 +86,20 @@ fake_process_ids="$fake_process_ids $fake_app_id"
 sleep 0.5
 # A real Clicky on this Mac is listed too, so the check looks for the fake app's id among the ids.
 check "a process started from the app's binary is a running Clicky" "$(running_clicky_pids | grep -cx "$fake_app_id" || true)" "1"
+# A Clicky run by another user, such as a CI test host under clicky-ci, cannot touch this user's event tap, so it does not block
+# a launch. This test cannot start a process as another user, so a stand-in pgrep lists one unless the lookup asks for this
+# user's processes with -U, and always lists one of this user's.
+other_user_clicky_id=424242
+this_user_clicky_id=434343
+pgrep() {
+  local lookup_is_limited_to_this_user=false
+  [[ " $* " == *" -U $(id -u) "* ]] && lookup_is_limited_to_this_user=true
+  [[ "$lookup_is_limited_to_this_user" == false ]] && echo "$other_user_clicky_id"
+  echo "$this_user_clicky_id"
+}
+check "a Clicky run by another user is not a running Clicky" "$(running_clicky_pids | grep -cx "$other_user_clicky_id" || true)" "0"
+check "a Clicky run by this user is a running Clicky" "$(running_clicky_pids | grep -cx "$this_user_clicky_id" || true)" "1"
+unset -f pgrep
 # app-launch's flags become the app's launch arguments in either order, and the steps follow them.
 parse_app_launch_arguments --brain "turn it to the left|^pause it"
 check "--brain passes its launch argument" "${app_launch_flag_arguments[*]}" "--brain-takes-every-request"
