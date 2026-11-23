@@ -192,8 +192,10 @@ struct ShirtLivePaintedTopReachTests {
         #expect(decide(rolledTwenty, followsTheForearms: true, wasFollowing: true) == .follows)
     }
 
-    @Test func anElbowThePaintingSawMustBeSeenNowAndOneItNeverSawIsNotHeldToAnything() {
-        #expect(decide(replacingTheLeftElbow(of: frozenTorso(), with: nil)) == .outOfReach(.upperArmMoved))
+    @Test func anElbowNotSeenNowOrNeverSeenByThePaintingIsNotJudged() {
+        // Motion blur alone drops an elbow under the confidence floor, so a missing one says nothing about the arm
+        // (the follower holds the last arm verdict through such frames).
+        #expect(decide(replacingTheLeftElbow(of: frozenTorso(), with: nil)) == .follows)
         #expect(decide(frozenTorso(), frozen: replacingTheLeftElbow(of: frozenTorso(), with: nil)) == .follows)
     }
 
@@ -205,8 +207,8 @@ struct ShirtLivePaintedTopReachTests {
         #expect(decide(forearmTurned(by: 25), followsTheForearms: true) == .outOfReach(.forearmMoved))
         #expect(decide(forearmTurned(by: 17), followsTheForearms: true, wasFollowing: true) == .follows)
         #expect(decide(forearmTurned(by: 17), followsTheForearms: true, wasFollowing: false) == .outOfReach(.forearmMoved))
-        // A wrist the painting saw must be seen now, under a long sleeve.
-        #expect(decide(replacingTheLeftWrist(of: frozenTorso(), with: nil), followsTheForearms: true) == .outOfReach(.forearmMoved))
+        // A wrist not seen now is not judged either.
+        #expect(decide(replacingTheLeftWrist(of: frozenTorso(), with: nil), followsTheForearms: true) == .follows)
         #expect(decide(replacingTheLeftWrist(of: frozenTorso(), with: nil), followsTheForearms: false) == .follows)
     }
 }
@@ -270,6 +272,69 @@ struct ShirtLivePaintedTopFollowerTests {
         #expect(follower.reach == .outOfReach(.upperArmMoved))
         _ = follower.advance(currentTorso: replacingTheHips(of: frozenTorso(), leftHip: CGPoint(x: 230, y: 500), rightHip: CGPoint(x: 370, y: 500), hipsWereEstimated: true), at: 1.5)
         #expect(follower.reach == .follows)
+    }
+
+    @Test func anArmVerdictHoldsThroughFramesThatDoNotSeeTheArm() {
+        var follower = follower(followsTheForearms: true)
+        for step in 0...4 { _ = follower.advance(currentTorso: frozenTorso(), at: Double(step) * 0.1) }
+        // While following, an elbow or a wrist that drops out of the pose for a second keeps the live top.
+        for step in 5...15 {
+            let armUnseen = step.isMultiple(of: 2) ? replacingTheLeftElbow(of: frozenTorso(), with: nil) : replacingTheLeftWrist(of: frozenTorso(), with: nil)
+            _ = follower.advance(currentTorso: armUnseen, at: Double(step) * 0.1)
+            #expect(follower.reach == .follows && follower.visibility == 1)
+        }
+        // A raised arm goes out of reach, and stays out while the elbow is not seen.
+        let armRaised = replacingTheLeftElbow(of: frozenTorso(), with: turned(CGPoint(x: 185, y: 350), about: CGPoint(x: 200, y: 200), degrees: 40))
+        _ = follower.advance(currentTorso: armRaised, at: 1.6)
+        #expect(follower.reach == .outOfReach(.upperArmMoved))
+        _ = follower.advance(currentTorso: replacingTheLeftElbow(of: frozenTorso(), with: nil), at: 1.7)
+        #expect(follower.reach == .outOfReach(.upperArmMoved))
+        // A frame that sees the left elbow back in place but not the left wrist, which counts under a long sleeve, keeps it.
+        _ = follower.advance(currentTorso: replacingTheLeftWrist(of: frozenTorso(), with: nil), at: 1.8)
+        #expect(follower.reach == .outOfReach(.upperArmMoved))
+        // Seen whole and back in place, it follows again.
+        _ = follower.advance(currentTorso: frozenTorso(), at: 1.9)
+        #expect(follower.reach == .follows)
+        // A forearm swung under the long sleeve holds the same way while its wrist is not seen.
+        let forearmSwung = replacingTheLeftWrist(of: frozenTorso(), with: turned(CGPoint(x: 175, y: 500), about: CGPoint(x: 185, y: 350), degrees: 40))
+        _ = follower.advance(currentTorso: forearmSwung, at: 2.0)
+        #expect(follower.reach == .outOfReach(.forearmMoved))
+        _ = follower.advance(currentTorso: replacingTheLeftWrist(of: frozenTorso(), with: nil), at: 2.1)
+        #expect(follower.reach == .outOfReach(.forearmMoved))
+        _ = follower.advance(currentTorso: frozenTorso(), at: 2.2)
+        #expect(follower.reach == .follows)
+    }
+
+    /// Replays Vision's results for a learner who stands still, is frozen for the painting, and then sways sideways with a
+    /// webcam's motion blur, through the pose tracker's smoother at 30 frames a second. The elbows drop in and out of the
+    /// results under the blur, and the still flashed in four times before the arm verdict held through those frames.
+    @Test func aSwayingLearnerWithBlurredElbowsNeverFlipsToTheStill() throws {
+        let frameSeconds = 1.0 / 30
+        var smoother = ShirtTorsoSmoother()
+        var latestResult: BodyTorso?
+        var runs = motionBlurredStillThenSwayingPoseRuns[...]
+        let smoothedTorsos = (0..<240).map { frameIndex -> BodyTorso? in
+            let time = Double(frameIndex) * frameSeconds
+            let torso = smoother.advance(toward: latestResult, at: time)
+            if let run = runs.first, run.time <= time + 1e-6 {
+                latestResult = run.torso
+                runs = runs.dropFirst()
+            }
+            return torso
+        }
+        #expect(runs.isEmpty)
+        // The freeze lands 2 seconds in, while the learner stands still; the sway starts at 2.5 seconds.
+        let frozenTorso = try #require(smoothedTorsos[60])
+        let clearImage = CIImage(color: .clear).cropped(to: CGRect(x: 0, y: 0, width: 1440, height: 960))
+        var follower = ShirtLivePaintedTopFollower(top: ShirtLivePaintedTop(layer: clearImage, still: clearImage, paintedArea: clearImage, frozenTorso: frozenTorso, followsTheForearms: false))
+        var hasFollowed = false
+        var framesOnTheStillAfterFollowing = 0
+        for frameIndex in 61..<240 {
+            _ = follower.advance(currentTorso: smoothedTorsos[frameIndex], at: Double(frameIndex) * frameSeconds)
+            if follower.reach == .follows { hasFollowed = true } else if hasFollowed { framesOnTheStillAfterFollowing += 1 }
+        }
+        #expect(hasFollowed)
+        #expect(framesOnTheStillAfterFollowing == 0, "\(framesOnTheStillAfterFollowing) frames went back to the still, the last for \(follower.reach)")
     }
 
     @Test func itStartsOnThePaintedStillWithNoHintAndNoStepTaken() {
