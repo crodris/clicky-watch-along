@@ -1234,6 +1234,9 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     case closed
     /// The panel is open: the camera starts and the page is read at once.
     case readingThePage
+    /// A new request in a room that keeps its placed items (`keepsTheRoomForANewItem`): the camera runs on while the page is
+    /// read, and a page that fails keeps the room (`roomKeptAfterAFailedItem`).
+    case readingThePageInTheKeptRoom
     /// The item is read and ready, and the keyframe waits for the camera's first frame with a person mask.
     case waitingForTheCamera(RoomArtPlacedItem)
     /// The keyframe is taken and its surface is being measured.
@@ -1283,6 +1286,9 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// The painted still shows until the learner goes back to the preview.
     case showingThePaintedShirt(title: String, preview: ShirtPreviewKind)
     case failed(RoomArtFailure)
+    /// The page read for a new item in a kept room failed, so the camera runs on and the room keeps its placed items: the
+    /// status line says why, and the next request places its item among them.
+    case roomKeptAfterAFailedItem(RoomArtFailure)
 
     var isOpen: Bool { self != .closed }
 
@@ -1291,34 +1297,45 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// The learner asked to try the item. A panel already open starts over, or, while an item shows, reads the new page in the
     /// same room (`keepsTheRoomForANewItem`).
     func opening() -> RoomArtPhase {
-        .readingThePage
+        keepsTheRoomForANewItem ? .readingThePageInTheKeptRoom : .readingThePage
     }
 
-    /// A wall item, or a standing item whose painting or render shows. A new request then keeps the room: the item stays in
-    /// it, and the new item is placed into the same keyframe beside or on it, as a lamp on a painted table. Every other open
-    /// phase, a ghost the learner still moves or a shirt included, starts over.
+    /// A wall item, or a standing item whose painting or render shows, or a kept room whose last item failed. A new request
+    /// then keeps the room: the item that shows stays in it, and the new item is placed into the same keyframe beside or on
+    /// it, as a lamp on a painted table. Every other open phase, a ghost the learner still moves or a shirt included, starts
+    /// over.
     var keepsTheRoomForANewItem: Bool {
-        if case .showing = self { return true }
-        return false
+        switch self {
+        case .showing, .roomKeptAfterAFailedItem: return true
+        default: return false
+        }
     }
 
     /// A wall item or a standing item was read and its picture prepared, so its surface can be measured once the camera has a frame.
     func withTheItemReady(_ item: RoomArtPlacedItem) -> RoomArtPhase {
-        guard case .readingThePage = self else { return self }
+        guard isReadingThePage else { return self }
         return .waitingForTheCamera(item)
     }
 
     /// Clothing the reader says can be drawn on the learner was read, so its picture is prepared while the camera looks for
     /// the learner.
     func startingTheShirt(title: String) -> RoomArtPhase {
-        guard case .readingThePage = self else { return self }
+        guard isReadingThePage else { return self }
         return .preparingTheShirt(title: title)
     }
 
-    /// The page could not be read, or what it shows cannot be tried, so the panel says why.
+    /// The page could not be read, or what it shows cannot be tried, so the panel says why. A fresh panel fails, and a kept
+    /// room stays with its placed items.
     func afterThePageFailed(_ failure: RoomArtFailure) -> RoomArtPhase {
-        guard case .readingThePage = self else { return self }
-        return .failed(failure)
+        switch self {
+        case .readingThePage: return .failed(failure)
+        case .readingThePageInTheKeptRoom: return .roomKeptAfterAFailedItem(failure)
+        default: return self
+        }
+    }
+
+    private var isReadingThePage: Bool {
+        self == .readingThePage || self == .readingThePageInTheKeptRoom
     }
 
     /// The item is ready and the camera has its first frame. Wall art and a floor item measure at once, where a search for
@@ -1342,8 +1359,9 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
             return self
         case .showing(let item, let surface, _):
             return .moving(id: id, item: item, surfaceBeforeTheMove: surface)
-        case .closed, .readingThePage, .measuring, .placingTheFurniture, .arranging, .couldNotDraw, .moving, .preparingTheShirt, .waitingToSeeTheLearner,
-             .showingTheShirt, .waitingForTheLearnerToStepBack, .paintingTheShirt, .showingThePaintedShirt, .failed:
+        case .closed, .readingThePage, .readingThePageInTheKeptRoom, .measuring, .placingTheFurniture, .arranging, .couldNotDraw, .moving,
+             .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt, .waitingForTheLearnerToStepBack, .paintingTheShirt,
+             .showingThePaintedShirt, .failed, .roomKeptAfterAFailedItem:
             return self
         }
     }
@@ -1533,7 +1551,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     func statusLine(theSurfaceIsLost: Bool, shirtCoachingLine: String?) -> String {
         switch self {
         case .closed: return ""
-        case .readingThePage: return "Reading the page…"
+        case .readingThePage, .readingThePageInTheKeptRoom: return "Reading the page…"
         case .waitingForTheCamera: return "Starting the camera…"
         case .measuring(_, let item): return item.measuringStatusLine
         case .moving(_, let item, _): return item.measuringStatusLine
@@ -1551,17 +1569,17 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         // The frame is frozen, so the learner moving out of view changes nothing on screen and no coaching shows.
         case .paintingTheShirt: return roomArtShirtPaintingStatusLine
         case .showingThePaintedShirt: return roomArtShirtPaintedStatusLine
-        case .failed(let failure): return failure.statusLine
+        case .failed(let failure), .roomKeptAfterAFailedItem(let failure): return failure.statusLine
         }
     }
 
     /// Whether the status line says what went wrong, so the panel draws it in the failure color.
     func statusLineIsAFailure(theSurfaceIsLost: Bool) -> Bool {
         switch self {
-        case .failed, .couldNotDraw: return true
+        case .failed, .roomKeptAfterAFailedItem, .couldNotDraw: return true
         case .waitingForAFloorClick(let item, let aClickFoundNothing): return item.surfaceClickPrompt(afterAClickFoundNothing: aClickFoundNothing).isAFailure
         case .showing(_, _, let moveFailure): return moveFailure != nil && !theSurfaceIsLost
-        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .placingTheFurniture, .arranging, .moving, .preparingTheShirt, .waitingToSeeTheLearner,
+        case .closed, .readingThePage, .readingThePageInTheKeptRoom, .waitingForTheCamera, .measuring, .placingTheFurniture, .arranging, .moving, .preparingTheShirt, .waitingToSeeTheLearner,
              .showingTheShirt, .waitingForTheLearnerToStepBack, .paintingTheShirt, .showingThePaintedShirt:
             return false
         }
@@ -1648,13 +1666,16 @@ nonisolated struct RoomArtRequestRecord: Equatable, Sendable {
 // MARK: - The phrase that asks for it
 
 /// Whether the learner asks to see this item placed in their own room or on themselves: a room phrase ("in my room", "on my
-/// wall", "on my desk", "on the table", "on that shelf", "on the wall behind me", "on me", ...) right after either a placing verb and the item ("show this", "put it",
+/// wall", "on my desk", "on the wall behind me", "on me", ...) right after either a placing verb and the item ("show this", "put it",
 /// "can I see this", "hang that print", "could I see this shirt") or the item and a look ("how would this look", "what
 /// would that poster look like", "would this look good", "how would this look hanging"), or "try" with the item and "on"
 /// ending the request ("can I try this on", "try on that shirt"). The item is "this", "it", or "that", or "this", "that",
 /// or "the" and one noun. So "how does the router in my house work", "what would look good in my room", "I put a poster in
 /// my room", "what's on me", and "let me try this on the next video" name no item to place, and none of them asks.
-nonisolated func asksToSeeArtInMyRoom(_ transcript: String) -> Bool {
+/// "On the table", "on that shelf", and "on this desk" count only while `aRoomArtItemKeepsTheRoom`, a placed item in the open
+/// panel that keeps the room (`RoomArtPhase.keepsTheRoomForANewItem`), since they then name a table Clicky painted there, and
+/// otherwise "put the numbers on the table" in a lesson would open the camera.
+nonisolated func asksToSeeArtInMyRoom(_ transcript: String, aRoomArtItemKeepsTheRoom: Bool = false) -> Bool {
     let apostrophes = CharacterSet(charactersIn: "'\u{2019}")
     let words = transcript.lowercased()
         .components(separatedBy: CharacterSet.alphanumerics.union(apostrophes).inverted)
@@ -1662,7 +1683,8 @@ nonisolated func asksToSeeArtInMyRoom(_ transcript: String) -> Bool {
         .filter { !$0.isEmpty }
     // A table or shelf item sits on a surface the learner clicks: "how would this mug look on my desk", or, on a table Clicky
     // already painted into the room, "how would this lamp look on the table" or "put this vase on that shelf".
-    let surfacePhrases = ["my", "the", "that", "this"].flatMap { owner in
+    let surfaceOwners = aRoomArtItemKeepsTheRoom ? ["my", "the", "that", "this"] : ["my"]
+    let surfacePhrases = surfaceOwners.flatMap { owner in
         ["table", "desk", "shelf", "counter", "dresser", "nightstand"].map { surface in ["on", owner, surface] }
     }
     let roomPhrases: [[String]] = [

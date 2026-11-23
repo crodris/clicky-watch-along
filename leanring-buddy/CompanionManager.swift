@@ -381,8 +381,6 @@ final class CompanionManager: ObservableObject {
     /// Chrome's front tab on the learner's wall or floor, or a shirt drawn over the learner.
     private lazy var roomArtPreviewController = RoomArtPreviewController(environment: .live(
         workerBaseURL: Self.workerBaseURL,
-        capturePicture: { [weak self] in await self?.pictureForRoomArt() },
-        readThePictureBeforeThePageSectionsOpen: { [weak self] in self?.readTheRoomArtPictureBeforeThePageSectionsOpen() },
         clearTheLiveScene: { [weak self] in self?.clearTheLiveSceneForTheRoomArtPanel() },
         // The controller says which lines report a failure, so the cursor shakes as each is said. "Here it is" and the
         // shirt's coaching do not.
@@ -1959,6 +1957,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused,
             replayStopsAreRecorded: replayStopsAreRecordedForTheSceneOnScreen,
             furnitureGhostShows: roomArtPreviewController.phase.furnitureGhostShows,
+            aRoomArtItemKeepsTheRoom: roomArtPreviewController.phase.keepsTheRoomForANewItem,
             shirtStillVoiceTargets: roomArtPreviewController.shirtStillVoiceTargetsForTheRoute
         )
     }
@@ -4259,39 +4258,6 @@ final class CompanionManager: ObservableObject {
             liveScenePhase = .idle
         default:
             break
-        }
-    }
-
-    /// The front tab's largest picture, read just before the room art page read opens the page's collapsed sections, and taken
-    /// once by `pictureForRoomArt`.
-    private var roomArtPictureReadBeforeThePageSectionsOpen: Result<LargestVisibleMediaInFrontTab?, Error>?
-
-    private func readTheRoomArtPictureBeforeThePageSectionsOpen() {
-        roomArtPictureReadBeforeThePageSectionsOpen = Result { try ChromeVideoTab.largestVisibleMediaInFrontTabOrNone() }
-    }
-
-    /// The largest picture in Chrome's front tab for room art: the page's image file when it names one, else a screen capture
-    /// of it (`RoomArtPictureSource`), since a capture also holds a cookie banner or any other page element over the picture.
-    /// Nil when Chrome has no picture on screen.
-    private func pictureForRoomArt() async -> RoomArtPicture? {
-        // The read made before the page read opened any section, when there is one, since an opened section can show a
-        // larger picture than the product's own (`readTheFrontTabForRoomArt`).
-        let largestMediaResult = roomArtPictureReadBeforeThePageSectionsOpen ?? Result { try ChromeVideoTab.largestVisibleMediaInFrontTabOrNone() }
-        roomArtPictureReadBeforeThePageSectionsOpen = nil
-        let largestMedia: LargestVisibleMediaInFrontTab?
-        do {
-            largestMedia = try largestMediaResult.get()
-        } catch {
-            print("Room art: could not read the largest picture from Chrome: \(error)")
-            return nil
-        }
-        guard let largestMedia else { return nil }
-        return await RoomArtPictureSource.picture(imageFileURL: largestMedia.imageFileURL, otherImageFileURLs: largestMedia.otherImageFileURLs) {
-            guard let pictureGrab = try? await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(largestMedia.screenRect),
-                  let jpegData = Data(base64Encoded: pictureGrab.jpeg) else {
-                return nil
-            }
-            return RoomArtPicture(jpegData: jpegData, width: pictureGrab.width, height: pictureGrab.height)
         }
     }
 

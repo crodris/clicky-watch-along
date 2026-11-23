@@ -887,6 +887,12 @@ private final class HarnessRecorder {
     var countdownSounds: [ShirtCountdownSound] = []
     /// What Chrome's front tab holds, which a test may change between requests.
     var frontTab: RoomArtFrontTab?
+    /// While set, a front tab read waits here, and then returns the tab as it was when the read started.
+    var frontTabReadGate: TestGate?
+    /// While set, a picture capture waits here until the test opens it or the capture is cancelled.
+    var pictureCaptureGate: TestGate?
+    /// The address of the front tab each picture capture was given, in order.
+    var tabsThePictureWasCapturedFrom: [String] = []
 }
 
 @MainActor
@@ -919,15 +925,21 @@ private struct RoomArtHarness {
         let panel = RecordingPanel()
         let recorder = HarnessRecorder()
         recorder.frontTab = frontTab
+        recorder.pictureCaptureGate = pictureCaptureGate
         let frameProcessor = StandInFrameProcessor()
         var environment = RoomArtPreviewController.Environment(
                 appSecretIsSet: { appSecretIsSet },
-                readTheFrontTab: { recorder.frontTab },
-                capturePicture: {
+                readTheFrontTab: {
+                    let frontTabWhenTheReadStarted = recorder.frontTab
+                    if let frontTabReadGate = recorder.frontTabReadGate { await frontTabReadGate.wait() }
+                    return frontTabWhenTheReadStarted
+                },
+                capturePicture: { frontTab in
                     recorder.pictureCaptureStarted = true
+                    recorder.tabsThePictureWasCapturedFrom.append(frontTab.url)
                     // A cancelled capture still returns its picture, so a controller that stopped checking for the cancel would
                     // open the panel. The real capture returns nil when cancelled.
-                    try? await pictureCaptureGate?.waitUnlessCancelled()
+                    try? await recorder.pictureCaptureGate?.waitUnlessCancelled()
                     return picture
                 },
                 readThePage: { pageRequest in try await worker.readThePage(pageRequest) },
@@ -2034,6 +2046,114 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.frameProcessor.backgroundItemCount == 0)
         let tableCenter = try #require(harness.ghostCenterInTheFrame())
         #expect(harness.controller.aPressPicksTheFurnitureUp(atCameraPixel: tableCenter))
+        harness.controller.close()
+    }
+
+    @Test func aStackedRequestWhosePageShowsNothingKeepsTheCameraAndTheRoomForTheNextRequest() async throws {
+        let pagesThatShowNothing: [(reading: RoomArtPageReading, failure: RoomArtFailure)] = [
+            (.cannotBeShown(title: "Gift card", reason: .notAPhysicalItem), RoomArtCannotBeShownReason.notAPhysicalItem.failure),
+            (.sizeNotOnThePage(title: "Ceramic table lamp"), .sizeNotOnThePage),
+        ]
+        for (pageReading, failure) in pagesThatShowNothing {
+            let worker = WorkerStub()
+            worker.pageReading = .success(sideTableReading)
+            let harness = RoomArtHarness(worker: worker)
+            await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+            try await waitFor("the table to show") { harness.artIsShowing() }
+
+            worker.pageReading = .success(pageReading)
+            await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this look on the table")
+            try await waitFor("the room to stay after a page that shows nothing") { harness.controller.phase == .roomKeptAfterAFailedItem(failure) }
+            #expect(harness.spokenLines().last == failure.spokenLine)
+            #expect(harness.recorder.spokenLineFailureFlags.last == true)
+            #expect(harness.statusLine() == failure.statusLine)
+            // The camera and its session run on, and the table is part of the room.
+            #expect(harness.panel.timesHidden == 0)
+            #expect(harness.camera.timesStopped == 0)
+            #expect(harness.camera.isDeliveringFrames)
+            #expect(harness.frameProcessor.sessionsStarted == 1)
+            #expect(harness.frameProcessor.backgroundItemCount == 1)
+            let bakedJPEG = try #require(harness.frameProcessor.bakedKeyframeJPEG)
+
+            // The next request places its item in the same room, measured on the keyframe that holds the table.
+            worker.pageReading = .success(tableLampReading)
+            await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this lamp look on the table")
+            try await waitFor("the panel to wait for a click on the table") { harness.controller.phase.waitingForAFloorClickItem != nil }
+            harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 320, y: 300))
+            try await waitFor("the lamp to show on the table") { harness.artIsShowing() }
+            #expect(harness.panel.timesShown == 1)
+            #expect(harness.frameProcessor.sessionsStarted == 1)
+            #expect(harness.frameProcessor.backgroundItemCount == 1)
+            #expect(worker.floorRequests.last?.keyframeJPEGData == bakedJPEG)
+            harness.controller.close()
+        }
+    }
+
+    @Test func aPickUpWhileTheNextPictureIsReadStartsThePanelOverInsteadOfDroppingThePiece() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let harness = RoomArtHarness(worker: worker)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the table to show") { harness.artIsShowing() }
+        let tableCenter = try #require(harness.ghostCenterInTheFrame())
+
+        // The next request's picture waits at a gate, and the learner picks the table back up meanwhile.
+        let pictureCaptureGate = TestGate()
+        harness.recorder.pictureCaptureGate = pictureCaptureGate
+        worker.pageReading = .success(tableLampReading)
+        let openingTask = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this lamp look on the table") }
+        try await waitFor("the lamp's picture capture to start") { pictureCaptureGate.someoneIsWaiting }
+        harness.recorder.ghostPlacer = nil
+        harness.controller.pointerPressed(atCameraPixel: tableCenter)
+        #expect(harness.controller.phase.furnitureGhostShows)
+        pictureCaptureGate.open()
+        await openingTask.value
+
+        // The table left the room before the request reached it, so the panel started over with nothing in it.
+        try await waitFor("the panel to wait for a click on the table") { harness.controller.phase.waitingForAFloorClickItem != nil }
+        #expect(harness.panel.timesHidden == 1)
+        #expect(harness.panel.timesShown == 2)
+        #expect(harness.frameProcessor.sessionsStarted == 2)
+        #expect(harness.frameProcessor.backgroundItemCount == 0)
+        #expect(harness.controller.furnitureGhost == nil)
+        harness.controller.close()
+    }
+
+    @Test func aRequestOvertakenWhileItReadsTheFrontTabTakesNoPicture() async throws {
+        let frontTabReadGate = TestGate()
+        let harness = RoomArtHarness()
+        harness.recorder.frontTabReadGate = frontTabReadGate
+        let firstRequest = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
+        try await waitFor("the first request's front tab read") { frontTabReadGate.someoneIsWaiting }
+
+        // A second request reads another page while the first still opens the first page's sections.
+        harness.recorder.frontTabReadGate = nil
+        harness.recorder.frontTab = RoomArtFrontTab(url: "https://shop.example/lamp", title: "Table lamp", text: "16 in tall")
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this lamp look in my room")
+        frontTabReadGate.open()
+        await firstRequest.value
+
+        // Only the second request took a picture, from its own tab, and only its page was read.
+        #expect(harness.recorder.tabsThePictureWasCapturedFrom == ["https://shop.example/lamp"])
+        #expect(harness.worker.pageRequests.map(\.pageURL) == ["https://shop.example/lamp"])
+        harness.controller.close()
+    }
+
+    @Test func aPageThatCannotBeShownStopsTheWallMeasuredDuringThePageRead() async throws {
+        let worker = WorkerStub()
+        let pageReplyGate = TestGate()
+        worker.pageReplyGate = pageReplyGate
+        worker.pageReading = .success(.cannotBeShown(title: "Gift card", reason: .notAPhysicalItem))
+        let wallReplyGate = TestGate()
+        worker.wallReplyGate = wallReplyGate
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        try await waitFor("the wall measured during the page read") { worker.wallRequests.count == 1 }
+        pageReplyGate.open()
+        try await waitFor("the panel to fail") { harness.controller.phase == .failed(RoomArtCannotBeShownReason.notAPhysicalItem.failure) }
+        // The failed panel stops the wall's request itself, before any close.
+        try await waitFor("the early wall's request to stop", seconds: 20) { wallReplyGate.cancelledWaitCount == 1 }
         harness.controller.close()
     }
 

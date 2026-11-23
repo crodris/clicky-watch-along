@@ -304,7 +304,9 @@ def test_a_surface_plane_with_a_nan_raises_instead_of_writing_nan(monkeypatch):
 
 def test_ransac_with_a_tilt_limit_never_scores_a_plane_over_the_limit():
     # Points on a vertical plane only: every candidate is 90 degrees from level, so none may be scored.
-    vertical_wall_points = np.array([[x, y, 3.0] for x in np.linspace(-1, 1, 20) for y in np.linspace(-1, 1, 20)])
+    vertical_wall_points = np.array(
+        [[column_meters, row_meters, 3.0] for column_meters in np.linspace(-1, 1, 20) for row_meters in np.linspace(-1, 1, 20)]
+    )
 
     with pytest.raises(plane.NoPlaneFitError):
         plane.fit_plane_ransac(vertical_wall_points, maximum_tilt_degrees=25.0)

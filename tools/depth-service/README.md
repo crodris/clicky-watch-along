@@ -157,7 +157,8 @@ A floor fit on a table top measured the wall behind it (86 degrees), since its w
 So the surface fit differs from the floor fit in two ways:
 
 - The window is small: 6% of the frame's width to each side of the click, and 3% of the width above and below it.
-- RANSAC scores only candidate planes whose normal is within 25 degrees of the camera's vertical, so a wall can never win over a small level top. Inliers lie within 1.5 cm of the plane.
+- RANSAC scores only candidate planes whose normal is within 25 degrees of the camera's vertical, so a wall can never win over a small level top.
+  Inliers lie within 1.5 cm of the plane.
 
 The horizon and non-finite checks are the floor's.
 `422` says "table or shelf" when under 200 bare points remain, no level plane lies at the click, or the click is above the surface's horizon.

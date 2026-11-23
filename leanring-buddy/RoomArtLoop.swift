@@ -79,9 +79,9 @@ enum RoomArtLoopState: Equatable {
             case .waitingForAClick(let beganAt), .holdingTheGhost(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)
             case .hidden, .fadingOut: return self
             }
-        case .showing, .waitingForAFloorClick, .showingThePaintedShirt, .failed:
+        case .showing, .waitingForAFloorClick, .showingThePaintedShirt, .failed, .roomKeptAfterAFailedItem:
             return fadingOutAsTheItemShows()
-        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .moving:
+        case .closed, .readingThePage, .readingThePageInTheKeptRoom, .waitingForTheCamera, .measuring, .moving:
             return .hidden
         }
     }

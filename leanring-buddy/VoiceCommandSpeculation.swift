@@ -52,6 +52,9 @@ nonisolated struct TranscriptRouteContext: Equatable, Sendable {
     var replayStopsAreRecorded: Bool = false
     /// The furniture's ghost shows, so "right there" places it and the router takes "move it left".
     var furnitureGhostShows: Bool = false
+    /// The room art panel shows a placed item that keeps the room (`RoomArtPhase.keepsTheRoomForANewItem`), so "put this lamp
+    /// on the table" names a table Clicky painted there.
+    var aRoomArtItemKeepsTheRoom: Bool = false
     /// What the room art panel's shirt can do by voice, so "right there" and "go back" reach it.
     var shirtStillVoiceTargets: ShirtStillVoiceTargets = .none
 }
@@ -104,7 +107,9 @@ nonisolated func transcriptRoute(
         sceneIsOnScreen: context.sceneIsOnScreen,
         phaseIsWaitingForAQuizAnswer: context.phaseIsWaitingForAQuizAnswer,
         sceneIsBuilding: context.sceneIsBuilding,
-        themeStudioIsOpen: context.themeStudioIsOpen
+        themeStudioIsOpen: context.themeStudioIsOpen,
+        furnitureGhostShows: context.furnitureGhostShows,
+        aRoomArtItemKeepsTheRoom: context.aRoomArtItemKeepsTheRoom
     ) {
         return .keywordBranch(keywordBranch)
     }

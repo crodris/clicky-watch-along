@@ -250,9 +250,9 @@ nonisolated func cutoutFromAPlainBackdrop(_ picture: CGImage) -> CGImage? {
         let values = borderIndices.map { Int(pixels[$0 * 4 + channel]) }.sorted()
         return values[values.count / 2]
     }
-    let backdrop = (median(0), median(1), median(2))
+    let backdrop = (red: median(0), green: median(1), blue: median(2))
     func distanceFromTheBackdrop(_ index: Int) -> Int {
-        max(abs(Int(pixels[index * 4]) - backdrop.0), abs(Int(pixels[index * 4 + 1]) - backdrop.1), abs(Int(pixels[index * 4 + 2]) - backdrop.2))
+        max(abs(Int(pixels[index * 4]) - backdrop.red), abs(Int(pixels[index * 4 + 1]) - backdrop.green), abs(Int(pixels[index * 4 + 2]) - backdrop.blue))
     }
     let backdropBorderCount = borderIndices.filter { distanceFromTheBackdrop($0) <= plainBackdropColorTolerance }.count
     guard Double(backdropBorderCount) / Double(borderIndices.count) >= plainBackdropLeastBorderShare else { return nil }
@@ -273,7 +273,9 @@ nonisolated func cutoutFromAPlainBackdrop(_ picture: CGImage) -> CGImage? {
         }
     }
 
-    // The fade reaches the pixels next to the backdrop, whose color is a blend of the item and the backdrop.
+    // The fade reaches the pixels next to the backdrop, whose color is a blend of the item and the backdrop. An edge pixel 96
+    // or more levels (about 38 percent of a channel) from the backdrop counts as all item, and a nearer one is as clear as it
+    // is close to the backdrop, so an anti-aliased edge keeps its soft blend instead of a hard step.
     let fadeDistance = 96.0
     var itemPixelCount = 0
     var alphas = [UInt8](repeating: 255, count: width * height)

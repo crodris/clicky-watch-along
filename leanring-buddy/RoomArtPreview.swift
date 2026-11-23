@@ -72,7 +72,8 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     /// read at the bare wall spot, so the keyframe serves wall art and furniture alike. `anchorInCameraPixels` is in the
     /// newest frame. While the room has a background (`fixTheShownItemIntoTheBackground`), no new keyframe is taken, since
     /// the background's items are drawn in the keyframe's pixels: the keyframe returned is the one they stand in, with them
-    /// drawn in, the same number, and the anchor moved back into it through the tracker's turn.
+    /// drawn in, the same number, and the anchor moved back into it through the tracker's turn. With no anchor, the bare spot
+    /// is searched for on that keyframe, so the placed items count as busy texture and the new item is not placed over one.
     func takeAKeyframe(on surfaceKind: RoomArtSurfaceKind?, anchorInCameraPixels: CGPoint?) async -> RoomArtKeyframe?
     /// A new request keeps the room: the item that shows becomes part of its background (`RoomArtBackground`). It keeps
     /// drawing every frame through the tracker's turn, under the newest item and with the learner in front of it, nothing
@@ -101,7 +102,7 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     /// `boxInTheKeyframe` (keyframe pixels) the learner covers in it. Nil before a tracked frame or while the room is lost.
     /// While the room has a background, it is the keyframe with the background drawn in, whatever the newest frame shows:
     /// the item was measured on that image, and a painting made on it holds the items it stands on or beside, so the item's
-    /// layer, cut out by its difference from that image, lands on them pixel for pixel with no turn to undo. The learner
+    /// layer, cut out by its difference from that image, is placed on them pixel for pixel with no turn to undo. The learner
     /// cannot step out of a keyframe, so its share is 0 and the painting never waits.
     func aFrameForThePainting(boxInTheKeyframe: [CGPoint]) async -> RoomArtPaintingFrame?
     func putBackTheItemFromBeforeTheMove()
@@ -195,10 +196,15 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         /// Oldest first, so a later item draws over an earlier one, each with its corners eased like the newest item's.
         var items: [(placedArt: PlacedArt, smoothedCorners: [CGPoint]?)]
         /// The keyframe with every item drawn in, as the panel would draw them on the keyframe's own frame: the JPEG the next
-        /// measurement sends, with the keyframe's number, person mask, wall spot, and floor texture.
+        /// measurement sends, with the keyframe's number, person mask, wall spot, and floor texture, the texture read from
+        /// these pixels.
         let keyframe: RoomArtKeyframe
         /// The same pixels, which a painting is made on and the next item is drawn into.
         let keyframeImage: CGImage
+        /// The same pixels at the track size, and the room in them with the keyframe's learner left out, which the bare wall
+        /// and floor spot search runs on, so a placed item counts as busy texture and the next one is not placed over it.
+        let trackGrayscale: RoomGrayscaleImage
+        let trackRoomMask: [Float]
     }
     /// The shirt try-on, on while the item is a top. The pose tracker and the renderer belong to this queue's session,
     /// and the renderer is only ever called from this queue.
@@ -1006,18 +1012,21 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
     private func takeAKeyframeOnTheQueue(on surfaceKind: RoomArtSurfaceKind?, anchorInCameraPixels: CGPoint?) -> RoomArtKeyframe? {
         guard let latestFrame, let latestTrackGrayscale, let latestTrackRoomMask else { return nil }
+        if let background {
+            // A click moves back from the newest frame through the eased turn the panel draws with, so it is measured on the
+            // pixel of the keyframe the learner saw there. The spot search runs on the keyframe with its items drawn in.
+            let keyframeToTheNewestFrame = latestTrackedWarp.withLock { $0?.keyframeToCurrent } ?? .identity
+            let anchor = anchorInCameraPixels.map { keyframeToTheNewestFrame.inverted.apply(to: $0) } ?? bareSpot(
+                on: surfaceKind, grayscale: background.trackGrayscale, roomMask: background.trackRoomMask,
+                cameraPixelsPerTrackPixel: Double(background.keyframeImage.width) / Double(background.trackGrayscale.width)
+            )
+            return backgroundKeyframeOnTheQueue(background, on: surfaceKind, anchor: anchor)
+        }
         let frameWidth = Double(CVPixelBufferGetWidth(latestFrame)), frameHeight = Double(CVPixelBufferGetHeight(latestFrame))
         let cameraPixelsPerTrackPixel = frameWidth / Double(latestTrackGrayscale.width)
-        let anchor = anchorInCameraPixels ?? {
-            let trackSpot = switch surfaceKind {
-            case .wall: bareWallSpot(grayscale: latestTrackGrayscale, roomMask: latestTrackRoomMask)
-            case .floor, nil: bareFloorSpot(grayscale: latestTrackGrayscale, roomMask: latestTrackRoomMask)
-            }
-            return CGPoint(x: trackSpot.x * cameraPixelsPerTrackPixel, y: trackSpot.y * cameraPixelsPerTrackPixel)
-        }()
-        if let background {
-            return backgroundKeyframeOnTheQueue(background, on: surfaceKind, anchorInTheNewestFrame: anchor)
-        }
+        let anchor = anchorInCameraPixels ?? bareSpot(
+            on: surfaceKind, grayscale: latestTrackGrayscale, roomMask: latestTrackRoomMask, cameraPixelsPerTrackPixel: cameraPixelsPerTrackPixel
+        )
 
         trackerBeforeTheMove = tracker
         placedArtBeforeTheMove = placedArt
@@ -1066,13 +1075,19 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         return keyframe
     }
 
-    /// The background's keyframe for the next measurement, in place of a new one. The anchor moves back from the newest
-    /// frame through the eased turn the panel draws with, so a click lands on the pixel of the keyframe the learner saw there.
-    /// The item before the measurement hides and is kept for a failed move, as with a new keyframe, while the tracker, the
-    /// keyframe's number, and the background stay.
-    private func backgroundKeyframeOnTheQueue(_ background: RoomArtBackground, on surfaceKind: RoomArtSurfaceKind?, anchorInTheNewestFrame: CGPoint) -> RoomArtKeyframe {
-        let keyframeToTheNewestFrame = latestTrackedWarp.withLock { $0?.keyframeToCurrent } ?? .identity
-        let anchor = keyframeToTheNewestFrame.inverted.apply(to: anchorInTheNewestFrame)
+    /// Where an item goes with no anchor, in camera pixels: the bare wall spot for the wall, else the bare floor spot.
+    private func bareSpot(on surfaceKind: RoomArtSurfaceKind?, grayscale: RoomGrayscaleImage, roomMask: [Float], cameraPixelsPerTrackPixel: Double) -> CGPoint {
+        let trackSpot = switch surfaceKind {
+        case .wall: bareWallSpot(grayscale: grayscale, roomMask: roomMask)
+        case .floor, nil: bareFloorSpot(grayscale: grayscale, roomMask: roomMask)
+        }
+        return CGPoint(x: trackSpot.x * cameraPixelsPerTrackPixel, y: trackSpot.y * cameraPixelsPerTrackPixel)
+    }
+
+    /// The background's keyframe for the next measurement, in place of a new one, at `anchor` in its pixels. The item before
+    /// the measurement hides and is kept for a failed move, as with a new keyframe, while the tracker, the keyframe's number,
+    /// and the background stay.
+    private func backgroundKeyframeOnTheQueue(_ background: RoomArtBackground, on surfaceKind: RoomArtSurfaceKind?, anchor: CGPoint) -> RoomArtKeyframe {
         trackerBeforeTheMove = tracker
         placedArtBeforeTheMove = placedArt
         keyframeNumberBeforeTheMove = keyframeNumber
@@ -1113,6 +1128,12 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                       options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.92]
                   ) else { return }
             let takenKeyframe = latestKeyframe.keyframe
+            let (trackWidth, trackHeight) = trackSize(forFrameWidth: bakedCGImage.width, frameHeight: bakedCGImage.height)
+            guard let bakedTrackGrayscale = trackGrayscale(of: bakedCGImage, width: trackWidth, height: trackHeight) else { return }
+            // The baked keyframe draws the learner back where the keyframe's own mask has them, so that mask leaves them out.
+            let bakedTrackRoomMask = latestKeyframe.personMask.map { personMask in
+                roomMaskAtTrackSize(segmentationConfidence: firstPlaneScaled(of: personMask, toWidth: trackWidth, height: trackHeight), width: trackWidth, height: trackHeight)
+            } ?? roomMaskWithNoPerson(width: trackWidth, height: trackHeight)
             self.background = RoomArtBackground(
                 items: (self.background?.items ?? []) + [(placedArt, self.smoothedArtCorners)],
                 keyframe: RoomArtKeyframe(
@@ -1122,9 +1143,16 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                     wallLight: takenKeyframe.wallLight,
                     wallSpotAnchor: takenKeyframe.wallSpotAnchor,
                     keyframeNumber: takenKeyframe.keyframeNumber,
-                    floorTexture: takenKeyframe.floorTexture
+                    floorTexture: RoomFloorTextureMap(
+                        width: trackWidth,
+                        height: trackHeight,
+                        texture: textureWithThePersonMarked(grayscale: bakedTrackGrayscale, roomMask: bakedTrackRoomMask),
+                        cameraPixelsPerMapPixel: Double(bakedCGImage.width) / Double(trackWidth)
+                    )
                 ),
-                keyframeImage: bakedCGImage
+                keyframeImage: bakedCGImage,
+                trackGrayscale: bakedTrackGrayscale,
+                trackRoomMask: bakedTrackRoomMask
             )
             print("Room art: the item that showed is now part of the room, which holds \(self.background?.items.count ?? 0) placed items")
             // The item is the background's now, so no move puts it back and nothing hides it.
@@ -1295,11 +1323,14 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 // MARK: - Reading the page
 
 /// The page in Chrome's front tab, as `POST /try-it-item` reads it.
-nonisolated struct RoomArtFrontTab: Equatable, Sendable {
+nonisolated struct RoomArtFrontTab: Sendable {
     let url: String
     let title: String
     /// Nil when the page's script could not run, such as on a page with an open `alert()`, so no size can be read.
     let text: String?
+    /// The page's largest picture, read before the page's sections opened, which this request's picture is taken from. Nil
+    /// when the page shows none or Chrome could not be read.
+    var largestPicture: LargestVisibleMediaInFrontTab? = nil
 }
 
 /// The front tab's address, title, and text, the text cut to what `POST /try-it-item` takes. Nil when Chrome has no window.
@@ -1307,13 +1338,19 @@ nonisolated struct RoomArtFrontTab: Equatable, Sendable {
 /// first opens those sections (`roomArtExpandTheSizeSectionsScript`) and waits a moment for them to fill, and the text then
 /// adds the page's structured data that names a dimension (`roomArtPageTextScript`). The scripts have no double quotes or
 /// backslashes, since they run inside an AppleScript string.
-/// `beforeTheSectionsOpen` runs first, so the picture is read from the page as the learner sees it: IKEA opens its Product
-/// details section as a side sheet whose construction cutaway is the largest picture once it shows, and the KIVIK sofa was
-/// painted from that beige cutaway instead of its black product photo.
+/// The largest picture is read first, so it is the page as the learner sees it: IKEA opens its Product details section as a
+/// side sheet whose construction cutaway is the largest picture once it shows, and the KIVIK sofa was painted from that
+/// beige cutaway instead of its black product photo.
 @MainActor
-func readTheFrontTabForRoomArt(beforeTheSectionsOpen: @MainActor () -> Void = {}) async -> RoomArtFrontTab? {
+func readTheFrontTabForRoomArt() async -> RoomArtFrontTab? {
     guard let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow() else { return nil }
-    beforeTheSectionsOpen()
+    let largestPicture: LargestVisibleMediaInFrontTab?
+    do {
+        largestPicture = try ChromeVideoTab.largestVisibleMediaInFrontTabOrNone()
+    } catch {
+        print("Room art: could not read the largest picture from Chrome: \(error)")
+        largestPicture = nil
+    }
     let sectionsOpened = (try? ChromeVideoTab.runJavaScript(roomArtExpandTheSizeSectionsScript, in: frontTab)).flatMap { Int($0) } ?? 0
     if sectionsOpened > 0 {
         print("Room art: opened \(sectionsOpened) collapsed sections of the page before reading it")
@@ -1321,7 +1358,22 @@ func readTheFrontTabForRoomArt(beforeTheSectionsOpen: @MainActor () -> Void = {}
         try? await Task.sleep(for: .milliseconds(600))
     }
     let pageText = try? ChromeVideoTab.runJavaScript(roomArtPageTextScript(longestCharacters: RoomArtPageRequest.longestPageText), in: frontTab)
-    return RoomArtFrontTab(url: frontTab.url, title: frontTab.title, text: pageText)
+    return RoomArtFrontTab(url: frontTab.url, title: frontTab.title, text: pageText, largestPicture: largestPicture)
+}
+
+/// The front tab's largest picture for room art: the page's image file when it names one, else a screen capture of it
+/// (`RoomArtPictureSource`), since a capture also holds a cookie banner or any other page element over the picture. Nil when
+/// the page shows no picture.
+@MainActor
+func roomArtPicture(of largestPicture: LargestVisibleMediaInFrontTab?) async -> RoomArtPicture? {
+    guard let largestPicture else { return nil }
+    return await RoomArtPictureSource.picture(imageFileURL: largestPicture.imageFileURL, otherImageFileURLs: largestPicture.otherImageFileURLs) {
+        guard let pictureGrab = try? await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(largestPicture.screenRect),
+              let jpegData = Data(base64Encoded: pictureGrab.jpeg) else {
+            return nil
+        }
+        return RoomArtPicture(jpegData: jpegData, width: pictureGrab.width, height: pictureGrab.height)
+    }
 }
 
 /// What Clicky says when the front tab has no picture to hang.
@@ -1344,7 +1396,8 @@ final class RoomArtPreviewController: ObservableObject {
         /// Every Worker route the panel calls needs the app secret, so with none set the camera never opens.
         var appSecretIsSet: () -> Bool
         var readTheFrontTab: () async -> RoomArtFrontTab?
-        var capturePicture: () async -> RoomArtPicture?
+        /// The request's picture, taken from the front tab that request read.
+        var capturePicture: (RoomArtFrontTab) async -> RoomArtPicture?
         var readThePage: (RoomArtPageRequest) async throws -> RoomArtPageReading
         var measureTheWall: (RoomWallRequest) async throws -> WallPlane
         var measureTheFloor: (RoomWallRequest) async throws -> FloorPlane
@@ -1408,8 +1461,6 @@ final class RoomArtPreviewController: ObservableObject {
         /// build's `--room-camera-file`).
         static func live(
             workerBaseURL: String,
-            capturePicture: @escaping () async -> RoomArtPicture?,
-            readThePictureBeforeThePageSectionsOpen: @escaping @MainActor () -> Void,
             clearTheLiveScene: @escaping () -> Void,
             speak: @escaping (String, Bool) -> Void,
             loopAccentColor: @escaping () -> Color,
@@ -1421,8 +1472,8 @@ final class RoomArtPreviewController: ObservableObject {
             let shirtPaintingClient = ShirtPaintingClient(workerBaseURL: workerBaseURL)
             return Environment(
                 appSecretIsSet: { ClickyAppSecret.isSet() },
-                readTheFrontTab: { await readTheFrontTabForRoomArt(beforeTheSectionsOpen: readThePictureBeforeThePageSectionsOpen) },
-                capturePicture: capturePicture,
+                readTheFrontTab: { await readTheFrontTabForRoomArt() },
+                capturePicture: { frontTab in await roomArtPicture(of: frontTab.largestPicture) },
                 readThePage: { pageRequest in try await roomArtClient.readThePage(pageRequest) },
                 measureTheWall: { wallRequest in try await roomArtClient.measureTheWall(wallRequest) },
                 measureTheFloor: { floorRequest in try await roomArtClient.measureTheFloor(floorRequest) },
@@ -1542,8 +1593,8 @@ final class RoomArtPreviewController: ObservableObject {
     /// new item changes nothing.
     private var openingNumber = 0
     /// Each camera session counts up: a request that opens the panel starts one and a close ends it. A request that keeps the
-    /// room (`RoomArtPhase.keepsTheRoomForANewItem`) keeps the session, so the frame processor's reports for it still land
-    /// while `openingNumber` moves on to the new item.
+    /// room (`RoomArtPhase.keepsTheRoomForANewItem`) keeps the session, so the frame processor's reports for it still reach
+    /// the panel while `openingNumber` moves on to the new item.
     private var cameraSessionNumber = 0
     /// The page and its picture are being read before the panel opens, so Escape has a request to stop.
     private var anOpeningIsUnderway = false
@@ -1669,13 +1720,12 @@ final class RoomArtPreviewController: ObservableObject {
     /// camera never opens for a request the Worker would refuse.
     /// While an item shows, the request keeps the room: the panel, the camera, the keyframe, and the tracker stay, the item
     /// becomes part of the room's background (`fixTheShownItemIntoTheBackground`), and the new item is measured and painted
-    /// into that room, so a lamp can stand on a table Clicky painted. A check that fails then leaves the room as it was. Any
-    /// other open panel closes and opens again.
+    /// into that room, so a lamp can stand on a table Clicky painted. A check that fails then leaves the room as it was, and a
+    /// page that shows nothing keeps it (`RoomArtPhase.roomKeptAfterAFailedItem`). Any other open panel closes and opens again.
     func showTheArtInTheRoom(learnerRequest: String) async {
-        let keepsTheRoom = phase.keepsTheRoomForANewItem
-        if isOpen, !keepsTheRoom { close() }
+        if isOpen, !phase.keepsTheRoomForANewItem { close() }
         openingNumber += 1
-        let thisOpening = openingNumber
+        var thisOpening = openingNumber
         // An earlier request still fetching its picture is stale now, so its download stops instead of running to its deadline.
         pictureTask?.cancel()
         anOpeningIsUnderway = true
@@ -1689,6 +1739,8 @@ final class RoomArtPreviewController: ObservableObject {
             environment.speak(roomArtNoPictureLine, true)
             return
         }
+        // The read waits while the page's sections open, so a newer request or Escape may have moved on meanwhile.
+        guard thisOpening == openingNumber, !Task.isCancelled else { return }
         guard frontTab.url.lowercased().hasPrefix("https://") else {
             environment.speak(RoomArtFailure.pageNotHTTPS.spokenLine, true)
             return
@@ -1699,7 +1751,7 @@ final class RoomArtPreviewController: ObservableObject {
         }
         // The picture is captured before the panel opens, since the panel covers the screen.
         let capturePicture = environment.capturePicture
-        let pictureTask = Task { await capturePicture() }
+        let pictureTask = Task { await capturePicture(frontTab) }
         self.pictureTask = pictureTask
         let picture = await withTaskCancellationHandler { await pictureTask.value } onCancel: { pictureTask.cancel() }
         // Escape or a new request moved the opening number on, and a push-to-talk press cancelled this task, so the
@@ -1710,6 +1762,14 @@ final class RoomArtPreviewController: ObservableObject {
               let pictureImage = CGImageSourceCreateImageAtIndex(pictureSource, 0, nil) else {
             environment.speak(roomArtNoPictureLine, true)
             return
+        }
+        // Read after the picture's wait, since a pick-up or a click that moves the item during it takes the item out of the
+        // room, and that panel then starts over like any other.
+        let keepsTheRoom = phase.keepsTheRoomForANewItem
+        if isOpen, !keepsTheRoom {
+            close()
+            thisOpening = openingNumber
+            anOpeningIsUnderway = true
         }
         if keepsTheRoom {
             // The item that showed stops being the newest: its own work ends, and it stays in the room for the new one.
@@ -1815,7 +1875,7 @@ final class RoomArtPreviewController: ObservableObject {
 
     /// Stops everything a request started for its item and forgets the item's state: the page read, the picture, the
     /// measurement, the furniture's looks and their waits, the shirt's painting, and the ghost. A close runs it, and so does a
-    /// request that keeps the room, so nothing asked for the item before lands on the new one.
+    /// request that keeps the room, so nothing asked for the item before reaches the new one.
     private func stopTheItemsWork() {
         pageReadingTask?.cancel()
         pageReadingTask = nil
@@ -2095,10 +2155,11 @@ final class RoomArtPreviewController: ObservableObject {
                 return
             }
             if furnitureReading.standsOn.needsAClickOnItsSurface, let earlyMeasurement {
-                // The click takes its own keyframe, so the depth service cannot answer it from the early frame's cached depth,
-                // and the early wall's run of about 14 seconds would hold the service's one lock and delay the click's own
-                // measurement. So the early measurement is cancelled and its keyframe forgotten, as a shirt's are. A request
-                // that kept the room took no early keyframe, and its keyframe holds the items the click lands on, so it stays.
+                // The click takes its own keyframe, so the depth service cannot answer it from the early frame's cached depth.
+                // The early measurement is cancelled and its keyframe forgotten, as a shirt's are, so its reply is never read.
+                // The service still finishes that run of about 14 seconds under its one lock, since it does not stop when the
+                // app drops the request, so the click's own measurement may wait for it. A request that kept the room took no
+                // early keyframe, and its keyframe holds the items the click is measured on, so it stays.
                 earlyMeasurement.cancel()
                 self.earlyMeasurement = nil
                 frameProcessor.forgetTheKeyframe()
@@ -2536,13 +2597,19 @@ final class RoomArtPreviewController: ObservableObject {
             // Said each time a painting shows, since each is a new look the learner asked for.
             environment.speak(roomArtShirtPaintedLine, false)
         case .failed(let failure):
-            // The panel keeps its last frame and says what went wrong until the learner closes it.
+            // The panel keeps its last frame and says what went wrong until the learner closes it. The wall measured on the
+            // early keyframe has nothing left to place, so its request stops too.
+            earlyMeasurement?.cancel()
+            earlyMeasurement = nil
             frameSource?.stop()
             frameSource = nil
             frameProcessor.endTheSession()
             environment.speak(failure.spokenLine, true)
-        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner,
-             .waitingForTheLearnerToStepBack, .paintingTheShirt:
+        case .roomKeptAfterAFailedItem(let failure):
+            // The camera and the room's placed items stay, so the next request places its item among them.
+            environment.speak(failure.spokenLine, true)
+        case .closed, .readingThePage, .readingThePageInTheKeptRoom, .waitingForTheCamera, .measuring, .moving, .preparingTheShirt,
+             .waitingToSeeTheLearner, .waitingForTheLearnerToStepBack, .paintingTheShirt:
             break
         }
     }

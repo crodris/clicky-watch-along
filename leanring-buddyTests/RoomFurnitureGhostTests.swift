@@ -621,6 +621,23 @@ struct RoomFurnitureGhostVoiceRoutingTests {
         #expect(transcriptRoute(for: "move it a bit to the left", in: storePageContext(ghostShows: false), videoIsInFront: { false }) == .keywordPath)
     }
 
+    @Test func whileTheGhostShowsARoomPhraseReachesTheRouterAndNeverClosesTheGhost() {
+        #expect(transcriptRoute(for: "put it on the table", in: storePageContext(ghostShows: true), videoIsInFront: { false }) == .voiceCommandRouter)
+        #expect(transcriptRoute(for: "put this lamp on my desk", in: storePageContext(ghostShows: true), videoIsInFront: { false }) == .voiceCommandRouter)
+        // With no ghost, the same words open the panel for a new item.
+        #expect(transcriptRoute(for: "put this lamp on my desk", in: storePageContext(ghostShows: false), videoIsInFront: { false }) == .keywordBranch(.showArtInMyRoom))
+    }
+
+    @Test func onTheTableNamesAPaintedTableOnlyWhileAPlacedItemKeepsTheRoom() {
+        var keptRoom = storePageContext(ghostShows: false)
+        keptRoom.aRoomArtItemKeepsTheRoom = true
+        #expect(transcriptRoute(for: "how would this lamp look on the table", in: keptRoom, videoIsInFront: { false }) == .keywordBranch(.showArtInMyRoom))
+        // With no panel, "put the numbers on the table" is no request for the camera: a question on a store page, and the
+        // router's during a video lesson.
+        #expect(transcriptRoute(for: "put the numbers on the table", in: storePageContext(ghostShows: false), videoIsInFront: { false }) == .keywordPath)
+        #expect(transcriptRoute(for: "put the numbers on the table", in: storePageContext(ghostShows: false), videoIsInFront: { true }) == .voiceCommandRouter)
+    }
+
     @Test func theRouterTakesTheGhostsCommandsButNotAQuizAnswerOrABuildingScene() {
         #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, furnitureGhostShows: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, furnitureGhostShows: true, phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: false))

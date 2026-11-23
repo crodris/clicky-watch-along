@@ -596,6 +596,49 @@ struct RoomArtGeometryTests {
         #expect(spot.y >= 45 && spot.y <= 99)
     }
 
+    @Test func aPrintDrawnIntoTheKeyframeCountsAsBusyTextureSoTheNextPrintHangsBesideIt() throws {
+        let width = 640, height = 360
+        let (trackWidth, trackHeight) = trackSize(forFrameWidth: width, frameHeight: height)
+        let roomMask = [Float](repeating: 1, count: trackWidth * trackHeight)
+        /// A plain gray wall, with a print of black and white squares over `printRect` (counting rows from the top) when given.
+        func keyframe(withAPrintOver printRect: CGRect?) throws -> CGImage {
+            let context = try #require(CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.setFillColor(CGColor(srgbRed: 0.6, green: 0.6, blue: 0.6, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            if let printRect {
+                for column in stride(from: Int(printRect.minX), to: Int(printRect.maxX), by: 8) {
+                    for row in stride(from: Int(printRect.minY), to: Int(printRect.maxY), by: 8) {
+                        let shade: CGFloat = ((column + row) / 8) % 2 == 0 ? 0 : 1
+                        context.setFillColor(CGColor(srgbRed: shade, green: shade, blue: shade, alpha: 1))
+                        // Core Graphics counts rows up from the bottom.
+                        context.fill(CGRect(x: column, y: height - row - 8, width: 8, height: 8))
+                    }
+                }
+            }
+            return try #require(context.makeImage())
+        }
+
+        let plainWall = try #require(trackGrayscale(of: try keyframe(withAPrintOver: nil), width: trackWidth, height: trackHeight))
+        let firstSpot = bareWallSpot(grayscale: plainWall, roomMask: roomMask)
+        // The first print fills the window the search scored, in the keyframe's pixels.
+        let windowWidth = Double(trackWidth) * RoomArtBareWallWindow.widthShareOfTheFrame
+        let windowHeight = Double(trackHeight) * RoomArtBareWallWindow.heightShareOfTheFrame
+        let cameraPixelsPerTrackPixel = Double(width) / Double(trackWidth)
+        let firstPrint = CGRect(
+            x: (firstSpot.x - windowWidth / 2) * cameraPixelsPerTrackPixel, y: (firstSpot.y - windowHeight / 2) * cameraPixelsPerTrackPixel,
+            width: windowWidth * cameraPixelsPerTrackPixel, height: windowHeight * cameraPixelsPerTrackPixel
+        )
+        let wallWithThePrint = try #require(trackGrayscale(of: try keyframe(withAPrintOver: firstPrint), width: trackWidth, height: trackHeight))
+        let secondSpot = bareWallSpot(grayscale: wallWithThePrint, roomMask: roomMask)
+
+        // The second print's window does not overlap the first print.
+        let windowsOverlap = abs(secondSpot.x - firstSpot.x) < windowWidth && abs(secondSpot.y - firstSpot.y) < windowHeight
+        #expect(!windowsOverlap, "the first spot is \(firstSpot) and the second \(secondSpot)")
+    }
+
     @Test func theBareFloorSpotIsTheOpenFloorLowInTheFrameAwayFromThePerson() {
         let width = 320, height = 180
         var pixels = [Float](repeating: 200, count: width * height)
@@ -796,11 +839,6 @@ struct RoomArtPhraseTests {
         "how would this mug look on my table",
         "put this lamp on my desk",
         "what would this vase look like on my shelf",
-        // A table or shelf already in the room, such as a table Clicky painted there.
-        "how would this lamp look on the table",
-        "put this vase on the shelf",
-        "how would this lamp look on that table",
-        "can I see this plant on the desk",
         // A shirt is drawn on the learner.
         "could I see this shirt on me",
         "how would this look on me",
@@ -814,6 +852,19 @@ struct RoomArtPhraseTests {
     ])
     func aPlacingVerbOrALookOnTheItemBeforeARoomPhraseAsksForIt(transcript: String) {
         #expect(asksToSeeArtInMyRoom(transcript))
+    }
+
+    @Test(arguments: [
+        "how would this lamp look on the table",
+        "put this vase on the shelf",
+        "how would this lamp look on that table",
+        "can I see this plant on the desk",
+    ])
+    func aTableOrShelfWithNoOwnerNamesOneOnlyWhileAPlacedItemKeepsTheRoom(transcript: String) {
+        // In a kept room it is a table or shelf Clicky painted there.
+        #expect(asksToSeeArtInMyRoom(transcript, aRoomArtItemKeepsTheRoom: true))
+        // With no such room it is anything on any table, such as a lesson's "put the numbers on the table".
+        #expect(!asksToSeeArtInMyRoom(transcript))
     }
 
     @Test(arguments: [
@@ -839,6 +890,7 @@ struct RoomArtPhraseTests {
         "what's on the table",
         "what is on that shelf",
         "clean the table",
+        "put the numbers on the table",
         // "On me" or "try on" with no item to place, or "on" that starts another phrase.
         "what's on me",
         "is there something on me",

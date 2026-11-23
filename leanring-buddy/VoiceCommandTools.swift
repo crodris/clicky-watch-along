@@ -813,13 +813,18 @@ nonisolated enum KeywordBranchAheadOfTheRouter: Equatable, Sendable {
 /// keyword branch at all, so the router reads every word: "two, but make the cursor a star" is a refinement and not a new
 /// request, and "let me try it" or "make it move" is for the router to decide, not a branch that starts an experiment or
 /// an animation under the open card.
+/// While the furniture's ghost shows, "show this in my room" is no new request, so the router and the ghost's own phrases
+/// take the words, and "put it on the table" never closes the ghost. `aRoomArtItemKeepsTheRoom` lets "on the table" name a
+/// table Clicky painted (`asksToSeeArtInMyRoom`).
 nonisolated func keywordBranchAheadOfTheRouter(
     for transcript: String,
     brainTakesEveryRequest: Bool,
     sceneIsOnScreen: Bool,
     phaseIsWaitingForAQuizAnswer: Bool,
     sceneIsBuilding: Bool,
-    themeStudioIsOpen: Bool = false
+    themeStudioIsOpen: Bool = false,
+    furnitureGhostShows: Bool = false,
+    aRoomArtItemKeepsTheRoom: Bool = false
 ) -> KeywordBranchAheadOfTheRouter? {
     // Nothing else is live to command here, so only the brain flag can make the router take the utterance.
     let brainOwnsTheUtterance = voiceCommandRouterTakesTheTranscript(
@@ -833,7 +838,7 @@ nonisolated func keywordBranchAheadOfTheRouter(
     if !phaseIsWaitingForAQuizAnswer, let themeStudioRequest = asksToDesignATheme(transcript) {
         return .designATheme(themeStudioRequest)
     }
-    if !phaseIsWaitingForAQuizAnswer, asksToSeeArtInMyRoom(transcript) {
+    if !phaseIsWaitingForAQuizAnswer, !furnitureGhostShows, asksToSeeArtInMyRoom(transcript, aRoomArtItemKeepsTheRoom: aRoomArtItemKeepsTheRoom) {
         return .showArtInMyRoom
     }
     switch liveSceneKind(for: transcript) {

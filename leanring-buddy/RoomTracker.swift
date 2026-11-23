@@ -395,6 +395,23 @@ nonisolated func trackGrayscalePixels(of cameraFrame: CVPixelBuffer, width: Int,
     vDSP.integerToFloatingPoint(firstPlaneScaled(of: cameraFrame, toWidth: width, height: height), floatingPointType: Float.self)
 }
 
+/// An image's grayscale at the track size, as floats, top row first like a camera frame's: for a keyframe that is no camera
+/// frame, such as the room's background with its placed items drawn in. Nil when no context can be made.
+nonisolated func trackGrayscale(of image: CGImage, width: Int, height: Int) -> RoomGrayscaleImage? {
+    var pixels = [UInt8](repeating: 0, count: width * height)
+    let drewTheImage = pixels.withUnsafeMutableBytes { pixelBytes -> Bool in
+        guard let context = CGContext(
+            data: pixelBytes.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return false }
+        context.interpolationQuality = .medium
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return true
+    }
+    guard drewTheImage else { return nil }
+    return RoomGrayscaleImage(width: width, height: height, pixels: vDSP.integerToFloatingPoint(pixels, floatingPointType: Float.self))
+}
+
 /// The room mask at the track size: 1 on the room and 0 on the person, where the person is the segmentation's confidence
 /// over 0.3 (77 of 255), grown by 4 pixels on each side (a 9 by 9 square), so the person's soft edge stays out of the
 /// tracking too. Built from vDSP and vImage calls, since it runs on every frame.
