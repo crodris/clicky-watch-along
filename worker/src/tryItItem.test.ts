@@ -61,6 +61,7 @@ function goodClothing(overrides: Partial<ClothingItem> = {}): ClothingItem {
       chosenSizeLabel: "M",
       photoShows: "flatLay",
       printDescription: "large Great Wave print across the chest",
+      frontPictureIndex: 0,
     },
     ...overrides,
   };
@@ -301,6 +302,29 @@ describe("checkTryItItem when the page states no size", () => {
 });
 
 describe("checkTryItItem for clothing", () => {
+  it("rejects a front picture that was not sent, and accepts one that was", () => {
+    const frontPicture = (frontPictureIndex: number) => goodClothing({ clothing: { ...goodClothing().clothing, frontPictureIndex } });
+
+    for (const frontPictureIndex of [-1, 1]) {
+      const checkedReply = checkTryItItem(asModelReply(frontPicture(frontPictureIndex)), pictureWidth, pictureHeight);
+      expect(checkedReply).toEqual({ accepted: false, reason: "clothing.frontPictureIndex must be a picture's number, from 0 to 0." });
+    }
+    const otherPictureSizes = [{ width: 1000, height: 800 }];
+    expect(checkTryItItem(asModelReply(frontPicture(1)), pictureWidth, pictureHeight, otherPictureSizes).accepted).toBe(true);
+    expect(checkTryItItem(asModelReply(frontPicture(2)), pictureWidth, pictureHeight, otherPictureSizes).accepted).toBe(false);
+  });
+
+  it("clamps a garment's corners into its front picture, not the main one", () => {
+    const item = goodClothing({
+      itemCorners: { topLeft: { x: 50, y: 50 }, topRight: { x: 900, y: 50 }, bottomRight: { x: 900, y: 700 }, bottomLeft: { x: 50, y: 700 } },
+      clothing: { ...goodClothing().clothing, frontPictureIndex: 1 },
+    });
+
+    const checkedReply = checkTryItItem(asModelReply(item), pictureWidth, pictureHeight, [{ width: 600, height: 600 }]);
+
+    expect(checkedReply).toMatchObject({ accepted: true, reply: { itemCorners: { topRight: { x: 599, y: 50 }, bottomRight: { x: 599, y: 599 } } } });
+  });
+
   it("rejects a size label over 60 characters, and accepts exactly 60", () => {
     expectRejectedFor(goodClothing({ clothing: { ...goodClothing().clothing, chosenSizeLabel: "x".repeat(61) } }), "clothing.chosenSizeLabel must be at most 60");
     expect(checked(goodClothing({ clothing: { ...goodClothing().clothing, chosenSizeLabel: "x".repeat(60) } })).accepted).toBe(true);
@@ -362,8 +386,10 @@ function sentBodies(fetchMock: ReturnType<typeof vi.fn>): SentBody[] {
   return fetchMock.mock.calls.map((fetchCall) => JSON.parse(String(fetchCall[1].body)));
 }
 
+/** The prompt's text, which follows the numbered pictures. */
 function promptTextOf(sentBody: SentBody): string {
-  return sentBody.messages[0].content[1].text ?? "";
+  const content = sentBody.messages[0].content;
+  return content[content.length - 1].text ?? "";
 }
 
 function stubFetch(...replies: Response[]) {
@@ -393,6 +419,8 @@ describe("handleTryItItem request limits", () => {
     ["no picture", { pageURL: validRequest.pageURL, pageTitle: "", pageText: "" }],
     ["an empty picture", { ...validRequest, picture: { ...validRequest.picture, jpegBase64: "" } }],
     ["a photo over 4000000 base64 characters", { ...validRequest, picture: { ...validRequest.picture, jpegBase64: "A".repeat(4_000_001) } }],
+    ["four other pictures", { ...validRequest, otherPictures: Array(4).fill(validRequest.picture) }],
+    ["an other picture with no width", { ...validRequest, otherPictures: [{ jpegBase64: "AAAA", height: 10 }] }],
   ];
 
   it.each(badRequests)("answers 400 for %s before any model call", async (_name, body) => {
@@ -449,8 +477,46 @@ describe("handleTryItItem", () => {
       output_config: { effort: "low", format: { type: "json_schema" } },
       system: [{ cache_control: { type: "ephemeral" } }],
     });
-    expect(sentBody.messages[0].content[0]).toMatchObject({ type: "image", source: { data: "AAAA" } });
-    expect(promptTextOf(sentBody)).toContain("The photo is 1000 x 800 pixels.");
+    expect(sentBody.messages[0].content.slice(0, 2)).toMatchObject([{ type: "text", text: "Picture 0:" }, { type: "image", source: { data: "AAAA" } }]);
+    expect(promptTextOf(sentBody)).toContain("There is one picture, picture 0, 1000 x 800 pixels.");
+  });
+
+  it("sends the page's other product photos after the main one, each after its number", async () => {
+    const fetchMock = stubFetch(modelReplyResponse(asModelReply(goodClothing())));
+    const otherPictures = [
+      { jpegBase64: "BBBB", width: 600, height: 900 },
+      { jpegBase64: "CCCC", width: 700, height: 700 },
+    ];
+
+    const response = await handleTryItItem(requestWithBody({ ...validRequest, otherPictures }), "key");
+
+    expect(response.status).toBe(200);
+    const sentBody = sentBodies(fetchMock)[0];
+    expect(sentBody.messages[0].content.slice(0, 6)).toMatchObject([
+      { type: "text", text: "Picture 0:" },
+      { type: "image", source: { data: "AAAA" } },
+      { type: "text", text: "Picture 1:" },
+      { type: "image", source: { data: "BBBB" } },
+      { type: "text", text: "Picture 2:" },
+      { type: "image", source: { data: "CCCC" } },
+    ]);
+    expect(promptTextOf(sentBody)).toContain("There are 3 pictures");
+    expect(promptTextOf(sentBody)).toContain("picture 1 is 600 x 900 pixels");
+  });
+
+  it("answers a garment whose front is another picture, with its corners checked in that picture", async () => {
+    // The front is picture 1, 600 by 900, so corners past the main picture's 1000 by 800 are kept up to that picture's edge.
+    const frontCorners = { topLeft: { x: 50, y: 60 }, topRight: { x: 550, y: 60 }, bottomRight: { x: 550, y: 850 }, bottomLeft: { x: 50, y: 850 } };
+    const item = goodClothing({ itemCorners: frontCorners, clothing: { ...goodClothing().clothing, photoShows: "onModel", frontPictureIndex: 1 } });
+    stubFetch(modelReplyResponse(asModelReply(item)));
+
+    const response = await handleTryItItem(
+      requestWithBody({ ...validRequest, otherPictures: [{ jpegBase64: "BBBB", width: 600, height: 900 }] }),
+      "key",
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(asModelReply(item));
   });
 
   it.each([
@@ -632,7 +698,11 @@ describe("handleTryItItem against the replies fixture the app also reads", () =>
     stubFetch(modelReplyResponse(fixtureResponse));
 
     const response = await handleTryItItem(
-      requestWithBody({ ...validRequest, picture: { jpegBase64: "AAAA", ...tryItItemRepliesFixture.picture } }),
+      requestWithBody({
+        ...validRequest,
+        picture: { jpegBase64: "AAAA", ...tryItItemRepliesFixture.picture },
+        otherPictures: [{ jpegBase64: "BBBB", ...tryItItemRepliesFixture.otherPicture }],
+      }),
       "key",
     );
 

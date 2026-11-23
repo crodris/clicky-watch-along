@@ -1,6 +1,7 @@
 {
-  "description": "POST /try-it-item responses shaped exactly as the Worker returns them: one for each kind, plus wall art and furniture whose page states no size. worker/src/tryItItem.test.ts feeds each one to handleTryItItem as the model's reply and expects it back unchanged, and leanring-buddyTests/RoomArtTests.swift parses each one with RoomArtPageReading and checks its whole reading by case name, failing on a case it has no expectation for, so the Worker's response and the app's reader cannot drift apart. The corners fit the picture size below.",
+  "description": "POST /try-it-item responses shaped exactly as the Worker returns them: one for each kind, plus wall art and furniture whose page states no size, and a garment whose front is the second picture. worker/src/tryItItem.test.ts feeds each one to handleTryItItem as the model's reply and expects it back unchanged, and leanring-buddyTests/RoomArtTests.swift parses each one with RoomArtPageReading and checks its whole reading by case name, failing on a case it has no expectation for, so the Worker's response and the app's reader cannot drift apart. Each request carries the picture and one other picture of the sizes below, and the corners fit the picture they are in.",
   "picture": { "width": 400, "height": 500 },
+  "otherPicture": { "width": 300, "height": 600 },
   "cases": [
     {
       "name": "wall art with a stated size",
@@ -109,7 +110,33 @@
             "sleeves": "short",
             "chosenSizeLabel": "M",
             "photoShows": "flatLay",
-            "printDescription": "large wave print across the chest"
+            "printDescription": "large wave print across the chest",
+            "frontPictureIndex": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "clothing whose front is the second picture",
+      "kind": "clothing",
+      "response": {
+        "title": "Sasquatch tee",
+        "whyThisSize": "The page has size M selected.",
+        "itemCorners": {
+          "topLeft": { "x": 20, "y": 80 },
+          "topRight": { "x": 280, "y": 80 },
+          "bottomRight": { "x": 280, "y": 560 },
+          "bottomLeft": { "x": 20, "y": 560 }
+        },
+        "item": {
+          "kind": "clothing",
+          "clothing": {
+            "garment": "tshirt",
+            "sleeves": "short",
+            "chosenSizeLabel": "M",
+            "photoShows": "onModel",
+            "printDescription": "large sasquatch graphic across the chest",
+            "frontPictureIndex": 1
           }
         }
       }
