@@ -58,6 +58,8 @@ function goodClothing(overrides: Partial<ClothingItem> = {}): ClothingItem {
     clothing: {
       garment: "tshirt",
       sleeves: "short",
+      length: "hip",
+      canBeDrawnOnTheLearner: true,
       chosenSizeLabel: "M",
       photoShows: "flatLay",
       printDescription: "large Great Wave print across the chest",
@@ -334,6 +336,51 @@ describe("checkTryItItem for clothing", () => {
   it("rejects a print description over 120 characters, and accepts exactly 120", () => {
     expectRejectedFor(goodClothing({ clothing: { ...goodClothing().clothing, printDescription: "p".repeat(121) } }), "clothing.printDescription must be at most 120");
     expect(checked(goodClothing({ clothing: { ...goodClothing().clothing, printDescription: "p".repeat(120) } })).accepted).toBe(true);
+  });
+
+  it.each(["coat", "vest", "dress", "jumpsuit", "other"] as const)("accepts a %s", (garment) => {
+    expect(checked(goodClothing({ clothing: { ...goodClothing().clothing, garment } })).accepted).toBe(true);
+  });
+
+  it.each(["waist", "hip", "thigh", "knee", "ankle"] as const)("accepts a garment that ends at the %s", (length) => {
+    expect(checked(goodClothing({ clothing: { ...goodClothing().clothing, length } })).accepted).toBe(true);
+  });
+
+  it("keeps a verdict that the item cannot be drawn on the learner, without refusing it", () => {
+    const checkedReply = checked(goodClothing({ clothing: { ...goodClothing().clothing, garment: "other", canBeDrawnOnTheLearner: false } }));
+    expect(checkedReply.accepted).toBe(true);
+  });
+
+  it.each(["length", "canBeDrawnOnTheLearner"] as const)("refuses a clothing reply with no %s", async (missingField) => {
+    const clothing: Record<string, unknown> = { ...goodClothing().clothing };
+    delete clothing[missingField];
+    const fetchMock = stubFetch(modelReplyResponse({ ...asModelReply(goodClothing()), item: { kind: "clothing", clothing } }));
+
+    const response = await handleTryItItem(requestWithBody(validRequest), "key");
+
+    expect(response.status).toBe(422);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a garment length the schema does not list", async () => {
+    stubFetch(modelReplyResponse(asModelReply(goodClothing({ clothing: { ...goodClothing().clothing, length: "floor" } as never }))));
+
+    expect((await handleTryItItem(requestWithBody(validRequest), "key")).status).toBe(422);
+  });
+
+  it("tells the model the two new fields and sends them in the clothing schema", async () => {
+    const fetchMock = stubFetch(modelReplyResponse(asModelReply(goodClothing())));
+
+    await handleTryItItem(requestWithBody(validRequest), "key");
+
+    const sentBody = sentBodies(fetchMock)[0];
+    const clothingVariant = (sentBody.output_config.format.schema.properties?.item?.anyOf ?? []).find((variant) => variant.properties?.kind.enum?.[0] === "clothing");
+    const clothingProperties = clothingVariant?.properties?.clothing.properties ?? {};
+    expect(Object.keys(clothingProperties)).toEqual(expect.arrayContaining(["length", "canBeDrawnOnTheLearner"]));
+    expect(clothingProperties.garment.enum).toEqual(["tshirt", "shirt", "sweater", "hoodie", "jacket", "coat", "vest", "dress", "jumpsuit", "other"]);
+    expect(clothingProperties.length.enum).toEqual(["waist", "hip", "thigh", "knee", "ankle"]);
+    expect(JSON.stringify(sentBody.system)).toContain("canBeDrawnOnTheLearner is true when the item is worn over the upper body");
+    expect(JSON.stringify(sentBody.system)).toContain("length is where the garment's hem ends");
   });
 
   it("accepts a plain garment with an empty print description", () => {

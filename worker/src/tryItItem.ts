@@ -63,8 +63,10 @@ const tryItItemRequestSchema = z.object({
 
 type TryItItemRequest = z.infer<typeof tryItItemRequestSchema>;
 
-const garmentKinds = ["tshirt", "shirt", "sweater", "hoodie", "jacket", "dress", "other"] as const;
+const garmentKinds = ["tshirt", "shirt", "sweater", "hoodie", "jacket", "coat", "vest", "dress", "jumpsuit", "other"] as const;
 const sleeveKinds = ["none", "short", "long"] as const;
+// Where the hem ends on a standing person.
+const lengthKinds = ["waist", "hip", "thigh", "knee", "ankle"] as const;
 const photoShowsKinds = ["flatLay", "onModel", "onHanger", "other"] as const;
 
 const cornerSchema = z.object({ x: z.number(), y: z.number() });
@@ -108,6 +110,8 @@ const clothingItemSchema = z
     clothing: z.object({
       garment: z.enum(garmentKinds),
       sleeves: z.enum(sleeveKinds),
+      length: z.enum(lengthKinds),
+      canBeDrawnOnTheLearner: z.boolean(),
       chosenSizeLabel: z.string(),
       photoShows: z.enum(photoShowsKinds),
       printDescription: z.string(),
@@ -187,6 +191,8 @@ const tryItItemJSONSchema = objectJSONSchema({
         clothing: objectJSONSchema({
           garment: { type: "string", enum: [...garmentKinds] },
           sleeves: { type: "string", enum: [...sleeveKinds] },
+          length: { type: "string", enum: [...lengthKinds] },
+          canBeDrawnOnTheLearner: { type: "boolean" },
           chosenSizeLabel: { type: "string" },
           photoShows: { type: "string", enum: [...photoShowsKinds] },
           printDescription: { type: "string" },
@@ -214,7 +220,9 @@ const tryItItemSystemPrompt = [
   "For wallArt, size is the size of the object as it hangs, including the frame when it comes framed, and includesFrame says whether the size includes the frame.",
   "Width is the horizontal side as the photo shows the object hanging, so width and height must match the photo's orientation.",
   "For furniture, size is the item as it stands: widthCentimeters is across the front, heightCentimeters is from the floor to the top, and depthCentimeters is front to back.",
-  "For clothing, garment is the type of garment and sleeves is none, short, or long.",
+  "For clothing, garment is the type of garment and sleeves is none, short, or long. Use other for a garment that is none of the listed types.",
+  "length is where the garment's hem ends on a standing person: waist for a cropped garment, hip for most tops and jackets, thigh for a long top, a short coat, or a short dress, knee, or ankle.",
+  "canBeDrawnOnTheLearner is true when the item is worn over the upper body, so that it covers the shoulders or the chest. That includes tops, jackets, coats, vests, dresses, and jumpsuits. It is false for clothing worn only below the waist, on the head, on the hands, or on the feet, and for anything that is carried, such as trousers, skirts, shoes, hats, gloves, bags, and jewelry. The camera shows the learner from about the thighs up and the painting is built around their upper body, so those cannot be drawn.",
   "chosenSizeLabel is the size the page shows as selected, else the first size it lists, written as the page writes it, such as M or 42.",
   "photoShows says whether the photo shows the garment flat, on a model, on a hanger, or in some other way.",
   `printDescription says in at most ${maximumPrintDescriptionLength} characters what the print or graphic on the front of the garment looks like and where it sits, such as "large Great Wave print across the chest", and is empty when the front is plain.`,

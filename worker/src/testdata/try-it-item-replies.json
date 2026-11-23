@@ -108,6 +108,8 @@
           "clothing": {
             "garment": "tshirt",
             "sleeves": "short",
+            "length": "hip",
+            "canBeDrawnOnTheLearner": true,
             "chosenSizeLabel": "M",
             "photoShows": "flatLay",
             "printDescription": "large wave print across the chest",
@@ -133,6 +135,8 @@
           "clothing": {
             "garment": "tshirt",
             "sleeves": "short",
+            "length": "hip",
+            "canBeDrawnOnTheLearner": true,
             "chosenSizeLabel": "M",
             "photoShows": "onModel",
             "printDescription": "large sasquatch graphic across the chest",
