@@ -586,17 +586,22 @@ export function openAIIsOutOfCredit(status: number, replyText: string): boolean 
   if (status !== 429) {
     return false;
   }
+  let reply: unknown;
   try {
-    const reply: unknown = JSON.parse(replyText);
-    const error = typeof reply === "object" && reply !== null && "error" in reply ? (reply as { error: unknown }).error : undefined;
-    if (typeof error !== "object" || error === null) {
-      return false;
-    }
-    const { code, type } = error as { code?: unknown; type?: unknown };
-    return code === "credit_balance_exhausted" || code === "insufficient_quota" || type === "insufficient_quota";
+    reply = JSON.parse(replyText);
   } catch {
     return false;
   }
+  if (typeof reply !== "object" || reply === null || !("error" in reply)) {
+    return false;
+  }
+  const error = reply.error;
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const code = "code" in error ? error.code : undefined;
+  const type = "type" in error ? error.type : undefined;
+  return code === "credit_balance_exhausted" || code === "insufficient_quota" || type === "insufficient_quota";
 }
 
 /**

@@ -639,6 +639,8 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
     private(set) var storeModelSearches: [String] = []
     private(set) var modelsGenerated = 0
     private(set) var paintings = 0
+    /// What a painting throws while there is no painted image: a Worker with no OpenAI key by default.
+    var errorWithNoPainting: Error = RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")
     /// How many paintings reached the height and footprint check, which a dropped painting never does.
     private(set) var paintingsChecked = 0
     private(set) var orientationsSent: [RoomFurniturePaintingOrientation?] = []
@@ -666,7 +668,7 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
         keyframeJPEGsSent.append(keyframeJPEG)
         paintings += 1
         if let paintingGate { await paintingGate.wait() }
-        guard let paintedImage else { throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "") }
+        guard let paintedImage else { throw errorWithNoPainting }
         if paintings <= failingPaintings { throw failingPaintingError }
         return paintedImage
     }
@@ -2213,10 +2215,16 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
-    @Test func aGenerationServiceThatIsNotSetUpDrawsNothingAndIsNotAskedAgain() async throws {
+    /// A Worker with no OpenAI key (503) and an OpenAI account out of credit (402) both fail every painting the same way.
+    @Test(arguments: [
+        RoomFurnitureGenerationError.serviceIsNotSetUp(body: ""),
+        RoomFurnitureGenerationError.serviceIsOutOfCredit(body: ""),
+    ])
+    func aGenerationServiceThatIsNotSetUpDrawsNothingAndIsNotAskedAgain(paintingError: RoomFurnitureGenerationError) async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)
         let looks = FurnitureLookStub()
+        looks.errorWithNoPainting = paintingError
         let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
