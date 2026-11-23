@@ -120,7 +120,15 @@ struct RoomArtPictureSourceTests {
     /// The picture room art ends up with, and whether the screen was captured to get it.
     private func pictureAndWhetherTheScreenWasCaptured(imageFileURL: URL?) async -> (picture: RoomArtPicture?, screenWasCaptured: Bool) {
         var screenWasCaptured = false
-        let picture = await RoomArtPictureSource.picture(imageFileURL: imageFileURL, session: stubbedSession()) {
+        // The download's 5 second deadline is wall-clock time, which a loaded Mac can use up before a stubbed reply is read: three
+        // of these tests failed in CI at a load of 24 to 87 with the screen captured instead. A test that does not pin the
+        // deadline gives the download ten minutes, so only what the stub answers decides the result.
+        let picture = await RoomArtPictureSource.picture(
+            imageFileURL: imageFileURL,
+            session: stubbedSession(),
+            downloadDeadlineSeconds: 600,
+            downloadTimeoutSeconds: 600
+        ) {
             screenWasCaptured = true
             return screenCapture
         }
