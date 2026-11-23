@@ -295,6 +295,14 @@ func aFinishedAgentsSparkReachesTheEndOfItsLapExactlyWhenTheControllerRemovesItW
 
 // MARK: - The controller
 
+/// The wait between front tab polls for a test controller: it suspends until the poll is cancelled, which is when the line ends.
+/// A wait that returns at once, such as `Task.yield()`, keeps a poll whose samples match running on the main actor for as long
+/// as its line shows. No test here needs a second sample after a matching one.
+func suspendUntilThePollIsCancelled() async {
+    let aDayLongerThanAnyTest: Duration = .seconds(86_400)
+    try? await Task.sleep(for: aDayLongerThanAnyTest)
+}
+
 /// A controller that reads the media from a fixed front tab, with a finishing lap that ends at once.
 @MainActor
 private func controllerWithTheMediaInHand(
@@ -303,7 +311,7 @@ private func controllerWithTheMediaInHand(
     let controller = CursorLoopController(
         readTheMediaInTheFrontTab: { _ in sparkMedia() },
         readTheFrontTabSample: readTheFrontTabSample,
-        waitBetweenFrontTabPolls: { await Task.yield() },
+        waitBetweenFrontTabPolls: suspendUntilThePollIsCancelled,
         waitForAFinishingSparkLap: {},
         appActivationNotificationCenter: NotificationCenter()
     )
@@ -492,7 +500,7 @@ private func controllerWithTheMediaInHand(
     let controller = CursorLoopController(
         readTheMediaInTheFrontTab: { _ in sparkMedia() },
         readTheFrontTabSample: { sparkSample() },
-        waitBetweenFrontTabPolls: { await Task.yield() },
+        waitBetweenFrontTabPolls: suspendUntilThePollIsCancelled,
         waitForAFinishingSparkLap: { lapWaits.started += 1 },
         appActivationNotificationCenter: NotificationCenter()
     )
@@ -510,13 +518,19 @@ private func controllerWithTheMediaInHand(
 }
 
 @Test(.timeLimit(.minutes(1))) @MainActor func aControllerNobodyKeepsEndsItsPollWhileTheLineShows() async {
-    // A poll that held its controller would keep yielding on the main actor after the test, which starved other tests.
+    // A poll that held its controller would keep it alive after the test. The poll here takes one sample and then waits until
+    // it is cancelled, which nothing does, so the controller goes only if the poll holds it for the sample alone and never
+    // across the wait. The test drops the controller only once the poll is in its wait.
+    let pollIsWaiting = AsyncStream<Void>.makeStream()
     weak var droppedController: CursorLoopController?
     do {
         let controller = CursorLoopController(
             readTheMediaInTheFrontTab: { _ in sparkMedia() },
             readTheFrontTabSample: { sparkSample() },
-            waitBetweenFrontTabPolls: { await Task.yield() },
+            waitBetweenFrontTabPolls: {
+                pollIsWaiting.continuation.yield()
+                await suspendUntilThePollIsCancelled()
+            },
             waitForAFinishingSparkLap: {},
             appActivationNotificationCenter: NotificationCenter()
         )
@@ -525,6 +539,7 @@ private func controllerWithTheMediaInHand(
         await controller.waitForTheMediaReadToFinish()
         controller.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL))
         #expect(controller.state.agentLineIsShowing)
+        for await _ in pollIsWaiting.stream { break }
         droppedController = controller
     }
     for _ in 0..<500 where droppedController != nil {
@@ -533,13 +548,13 @@ private func controllerWithTheMediaInHand(
     #expect(droppedController == nil)
 }
 
-@Test(.timeLimit(.minutes(1))) @MainActor func theFrontAppChangingClearsTheAgentLine() async throws {
+@Test(.timeLimit(.minutes(1))) @MainActor func theFrontAppChangingClearsTheAgentLine() async {
     // This controller listens to a center of its own, so the post reaches no other test's controller.
     let appActivationNotificationCenter = NotificationCenter()
     let controller = CursorLoopController(
         readTheMediaInTheFrontTab: { _ in sparkMedia() },
         readTheFrontTabSample: { sparkSample() },
-        waitBetweenFrontTabPolls: { await Task.yield() },
+        waitBetweenFrontTabPolls: suspendUntilThePollIsCancelled,
         waitForAFinishingSparkLap: {},
         appActivationNotificationCenter: appActivationNotificationCenter
     )
@@ -556,9 +571,8 @@ private func controllerWithTheMediaInHand(
         object: nil,
         userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current]
     )
-    for _ in 0..<500 where controller.state.agentLineIsShowing {
-        try await Task.sleep(for: .milliseconds(10))
-    }
+    // A center delivers a post made on the main thread to an observer on the main queue before `post` returns, so the line
+    // has ended by now, with no wait that a loaded machine could outlast.
     #expect(!controller.state.agentLineIsShowing)
 }
 
@@ -662,7 +676,7 @@ private struct RenderedAgentLine {
     let controller = CursorLoopController(
         readTheMediaInTheFrontTab: { _ in sparkMedia() },
         readTheFrontTabSample: { sparkSample() },
-        waitBetweenFrontTabPolls: { await Task.yield() },
+        waitBetweenFrontTabPolls: suspendUntilThePollIsCancelled,
         waitForAFinishingSparkLap: {},
         appActivationNotificationCenter: NotificationCenter()
     )
