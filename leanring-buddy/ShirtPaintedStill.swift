@@ -233,7 +233,7 @@ nonisolated enum ShirtPaintMask {
         var protected = feathered(handsAndFace, width: width, height: height, featherPixels: protectedFeatherPixels)
         let neckSkin = neckSkinRegion(frame: frame)
         for index in 0..<(width * height) {
-            paintable[index] = fullPaintable[index] > 127 && !handsAndFace[index] && fullCut[index] <= 127 && !neckSkin[index]
+            paintable[index] = fullPaintable[index] > 127 && !handsAndFace[index] && !neckSkin[index]
             if (fullCut[index] > 127 && frame.personMask[index] > 127) || neckSkin[index] { protected[index] = 255 }
         }
         guard paintable.contains(true) else { return nil }
@@ -348,10 +348,10 @@ nonisolated enum ShirtPaintMask {
         let grown = dilated(paintable, width: width, height: height, radius: growthRadius)
         for index in paintable.indices { paintable[index] = grown[index] && (personNearby[index] || paintable[index]) }
 
-        // What the painting must not touch here: the neck and head (the analysis's cut, which keeps the old collar
-        // paintable) and bare skin the new top does not cover. The hands and the face are taken away at the frame's size.
+        // Bare skin the new top does not cover is taken away here. The hands, the face, and the neck's skin are taken away
+        // at the frame's size, where their edges are exact. The mask never reaches above the neck's base, so the neck cut
+        // only decides what the paste puts back.
         for index in 0..<(width * height) where paintable[index] {
-            if cut[index] { paintable[index] = false; continue }
             guard personMask[index] > 127, previewGarmentCoverage[index] <= 127, !oldShirt[index] else { continue }
             if looksLikeSkin(red: rgba[index * 4], green: rgba[index * 4 + 1], blue: rgba[index * 4 + 2]) { paintable[index] = false }
         }
@@ -649,12 +649,9 @@ nonisolated func shirtPaintedStillPasted(keyframe: CGImage, painted: CGImage, ma
         guard protectedWeight > 0 else { continue }
         for channel in 0..<3 {
             let byteIndex = pixelIndex * 4 + channel
-            if protectedWeight == 255 {
-                pastedPixels[byteIndex] = keyframePixels[byteIndex]
-            } else {
-                let blended = (Int(keyframePixels[byteIndex]) * protectedWeight + Int(pastedPixels[byteIndex]) * (255 - protectedWeight) + 127) / 255
-                pastedPixels[byteIndex] = UInt8(blended)
-            }
+            // At a weight of 255 this is the filmed byte exactly.
+            let blended = (Int(keyframePixels[byteIndex]) * protectedWeight + Int(pastedPixels[byteIndex]) * (255 - protectedWeight) + 127) / 255
+            pastedPixels[byteIndex] = UInt8(blended)
         }
     }
     return rgbImage(bytes: pastedPixels, width: masks.width, height: masks.height)

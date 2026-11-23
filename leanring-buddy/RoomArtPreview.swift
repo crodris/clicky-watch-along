@@ -1479,8 +1479,8 @@ final class RoomArtPreviewController: ObservableObject {
         let thisOpening = openingNumber
         let startedAt = Date()
         shirtPaintingTask = Task {
-            // Each await below can come back to a panel the learner closed, went back from, or asked to paint again.
-            @MainActor func isStillThisPainting() -> Bool { !Task.isCancelled && thisOpening == self.openingNumber && self.phase == paintingPhase }
+            // Each await below can come back to a panel the learner closed or went back from, which both cancel this task.
+            @MainActor func isStillThisPainting() -> Bool { !Task.isCancelled && thisOpening == self.openingNumber }
             guard let frozenFrame = await frameProcessor.freezeTheShirtFrame() else {
                 guard isStillThisPainting() else { return }
                 theShirtPaintingFailed(.nobodyToPaintOn, id: paintingID)
