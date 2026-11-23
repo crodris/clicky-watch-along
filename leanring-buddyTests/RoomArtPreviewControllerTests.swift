@@ -831,7 +831,7 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data, keyframeWidth: Int, keyframeHeight: Int, productJPEG: Data, maskPNG: Data, itemTitle: String, itemSizeWords: String,
         orientation: RoomFurniturePaintingOrientation?, projectedBox: [CGPoint]?
-    ) async throws -> CGImage {
+    ) async throws -> RoomFurniturePaintedKeyframe {
         productJPEGsSent.append(productJPEG)
         orientationsSent.append(orientation)
         projectedBoxesSent.append(projectedBox)
@@ -840,7 +840,10 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
         if let paintingGate { await paintingGate.wait() }
         guard let paintedImage else { throw errorWithNoPainting }
         if paintings <= failingPaintings { throw failingPaintingError }
-        return paintedImage
+        let wholeFrameRegion = try #require(grayImage(
+            bytes: [UInt8](repeating: 255, count: paintedImage.width * paintedImage.height), width: paintedImage.width, height: paintedImage.height
+        ))
+        return RoomFurniturePaintedKeyframe(image: paintedImage, pastedRegion: wholeFrameRegion)
     }
 
     static func thatPaintsAtOnce() -> FurnitureLookStub {

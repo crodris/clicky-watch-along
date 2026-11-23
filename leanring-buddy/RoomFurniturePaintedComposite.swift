@@ -23,10 +23,10 @@ protocol RoomFurnitureGenerating {
     /// GLB bytes of a model of the product in `productJPEG`, the furniture's cutout over white. `cacheKeyData` is what the
     /// model is cached by, the page picture's JPEG bytes.
     func generateAModel(productJPEG: Data, itemTitle: String, cacheKeyData: Data) async throws -> Data
-    /// The keyframe with the item painted in where the mask is white, at the keyframe's size. `orientation` says which way
-    /// the piece faces, which the mask alone cannot: a convex area looks the same turned 180 degrees. `projectedBox` is the
-    /// item's box in the keyframe (`FloorPlane.keyframeBoxCorners`), which a piece drawn taller than it is shrunk back into
-    /// (`furniturePaintingFit`).
+    /// The keyframe with the item painted in where the mask is white, at the keyframe's size, and the region the painting
+    /// was pasted in (`furnitureCompositePastedWithItsRegion`). `orientation` says which way the piece faces, which the mask
+    /// alone cannot: a convex area looks the same turned 180 degrees. `projectedBox` is the item's box in the keyframe
+    /// (`FloorPlane.keyframeBoxCorners`), which a piece drawn taller than it is shrunk back into (`furniturePaintingFit`).
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data,
         keyframeWidth: Int,
@@ -37,14 +37,14 @@ protocol RoomFurnitureGenerating {
         itemSizeWords: String,
         orientation: RoomFurniturePaintingOrientation?,
         projectedBox: [CGPoint]?
-    ) async throws -> CGImage
+    ) async throws -> RoomFurniturePaintedKeyframe
 }
 
 extension RoomFurnitureGenerating {
     /// A painting with no orientation, which the Worker asks for turned the way the masked area's shape shows.
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data, keyframeWidth: Int, keyframeHeight: Int, productJPEG: Data, maskPNG: Data, itemTitle: String, itemSizeWords: String
-    ) async throws -> CGImage {
+    ) async throws -> RoomFurniturePaintedKeyframe {
         try await paintTheItemIntoTheKeyframe(
             keyframeJPEG: keyframeJPEG, keyframeWidth: keyframeWidth, keyframeHeight: keyframeHeight, productJPEG: productJPEG,
             maskPNG: maskPNG, itemTitle: itemTitle, itemSizeWords: itemSizeWords, orientation: nil, projectedBox: nil
@@ -79,7 +79,7 @@ struct RoomFurnitureGenerationNotSetUp: RoomFurnitureGenerating {
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data, keyframeWidth: Int, keyframeHeight: Int, productJPEG: Data, maskPNG: Data, itemTitle: String, itemSizeWords: String,
         orientation: RoomFurniturePaintingOrientation?, projectedBox: [CGPoint]?
-    ) async throws -> CGImage {
+    ) async throws -> RoomFurniturePaintedKeyframe {
         throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")
     }
 }
@@ -164,9 +164,12 @@ nonisolated enum RoomFurniturePaintedComposite {
     /// the footprint's height before the cut, so the contact may lie anywhere from the top of the visible footprint down to
     /// the bottom row, and a piece that floats above the visible footprint is refused. Also returns the painted height as a
     /// share of the box's outline and the painted rows' span (top and bottom in y-down keyframe pixels) for the log, each nil
-    /// when nothing was painted.
+    /// when nothing was painted. `pastedRegion` is where the client pasted the painting (`RoomFurniturePaintedKeyframe`), which
+    /// is the item layer's alpha and where the painting is measured. A painting with none, such as one a test draws or an
+    /// earlier Debug run saved, takes the mask grown by the paste's slack, with its feather.
     static func itemLayers(
         painted: CGImage,
+        pastedRegion givenPastedRegion: CGImage? = nil,
         keyframe: CGImage,
         maskPNG: Data,
         projectedBox: [CGPoint],
@@ -178,12 +181,12 @@ nonisolated enum RoomFurniturePaintedComposite {
               let maskImage = CGImageSourceCreateImageAtIndex(maskSource, 0, nil) else { return unreadable }
         let frameRectangle = CGRect(x: 0, y: 0, width: keyframe.width, height: keyframe.height)
         let paintedImage = CIImage(cgImage: painted)
-        // The client pasted its painting inside the mask grown by its slack, with its feather, and left the rest of the
-        // keyframe as filmed, so the same grown mask is the item layer's alpha and the region where the painting is measured.
-        guard let pastedRegion = grownMaskImage(
+        // The client left the keyframe as filmed outside the region it pasted in, so that region is the item layer's alpha
+        // and where the painting is measured.
+        guard let pastedRegion = givenPastedRegion ?? grownMaskImage(
             maskImage, frameExtent: frameRectangle, radiusPixels: furnitureCompositePasteSlackPixels,
             blurPixels: furnitureCompositePasteFeatherPixels, context: ciContext
-        ) else { return unreadable }
+        ), pastedRegion.width == keyframe.width, pastedRegion.height == keyframe.height else { return unreadable }
         let mask = CIImage(cgImage: pastedRegion)
 
         // The painted item must stand between two heights the measured box sets: no shorter than its front face (less
