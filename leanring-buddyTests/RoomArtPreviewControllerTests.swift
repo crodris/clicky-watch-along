@@ -1630,6 +1630,37 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
+    @Test func aLostRoomStaysLostThroughAPlacementItsPaintingAndAPickUpUntilTheFrameProcessorFindsIt() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks, placesTheGhostAtOnce: false)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
+        let ghostCenter = try #require(harness.ghostCenterInTheFrame())
+        harness.frameProcessor.reportTheSurface(lost: true)
+        try await waitFor("the controller to hear the floor is lost") { harness.controller.theSurfaceIsLost }
+        let lostLine = RoomArtSurfaceKind.floor.lostLine
+        #expect(harness.statusLine() == lostLine)
+
+        // The panel follows only the frame processor's reports, so placing, painting, and picking up keep the room lost.
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.statusLine() == lostLine)
+        try await waitFor("the painting") { harness.artIsShowing() }
+        #expect(harness.controller.theSurfaceIsLost)
+        #expect(harness.statusLine() == lostLine)
+        harness.controller.pointerPressed(atCameraPixel: ghostCenter)
+        #expect(harness.controller.phase.furnitureGhostShows)
+        #expect(harness.controller.theSurfaceIsLost)
+
+        harness.frameProcessor.reportTheSurface(lost: false)
+        try await waitFor("the controller to hear the floor is found") { !harness.controller.theSurfaceIsLost }
+        #expect(harness.statusLine() == roomFurnitureGhostStatusLine)
+        harness.controller.close()
+    }
+
     @Test func aDragDropsThePaintingAskedForAheadAndThePlacementPaintsTheNewSpot() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)

@@ -227,7 +227,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     /// Forgets the last session, so a reopened panel starts with no keyframe, no item, and no shirt. `onFirstSegmentedFrame`
     /// runs once, on the main actor, when the first frame with a person mask has arrived. `onTheSurfaceLostOrFound` runs on
     /// the main actor each time the tracker loses the room long enough to hide the item (true), and when it finds it again
-    /// (false).
+    /// or a new keyframe, item, or put-back resets the tracker's state (false), after which the next frame reports a room
+    /// still lost. `forgetTheKeyframe` and `endTheSession` report nothing, since a shirt and a failed panel show no lost line.
     func startASession(onFirstSegmentedFrame: @escaping @Sendable () -> Void, onTheSurfaceLostOrFound: @escaping @Sendable (Bool) -> Void) {
         processingQueue.sync {
             sessionNumber += 1

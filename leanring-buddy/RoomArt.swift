@@ -1172,7 +1172,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     }
 
     /// The panel's one-line status. `theSurfaceIsLost` says the tracker lost the room long enough to hide the item, which
-    /// only matters while the item or furniture's ghost shows, and `shirtCoachingLine` is the settled framing's advice while the shirt cannot be drawn.
+    /// only matters while the item shows, or while furniture's ghost shows or its painting comes, and `shirtCoachingLine` is the settled framing's advice while the shirt cannot be drawn.
     func statusLine(theSurfaceIsLost: Bool, shirtCoachingLine: String?) -> String {
         switch self {
         case .closed: return ""
