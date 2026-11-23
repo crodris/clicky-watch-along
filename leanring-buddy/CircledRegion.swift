@@ -38,9 +38,11 @@ struct CircledRegion: Equatable {
     /// hand drawn loop rarely closes exactly.
     static let closingGapInPoints: CGFloat = 30
     static let closingGapShareOfTheDiagonal: CGFloat = 0.2
-    /// The path's heading must have turned this far before it may close: 300 degrees, most of a full turn, which a hand
-    /// drawn loop reaches a little before its start, and a line drawn out and back (half a turn) never does.
-    static let headingTurnToCloseInRadians = CGFloat.pi * 5 / 3
+    /// The path's heading must have turned this far before it may close: 240 degrees, which a hand drawn loop reaches well
+    /// before its start, and a rectangle drawn from a corner back to it reaches (three of its corners count, since the last
+    /// is never left). A wide, short loop has turned only half a turn on its bottom pass under its start, and a line drawn
+    /// out and back only half a turn too, so neither closes there.
+    static let headingTurnToCloseInRadians = CGFloat.pi * 4 / 3
     /// The loop must enclose this share of its box. A jiggle back and forth, or a line drawn out and back, encloses almost
     /// nothing, while a hand drawn circle encloses about 0.78 of its box and a rough one well over 0.5.
     static let smallestShareOfTheBoxEnclosed: CGFloat = 0.3
@@ -48,7 +50,8 @@ struct CircledRegion: Equatable {
     /// The loop the path closes, or nil when it does not close one around a real area. The learner often moves to the
     /// picture first and circles it after, and may overshoot the start or wander off before letting go, so the loop may
     /// start anywhere in the path: each sample is tried as the start, and the loop that encloses the most area wins. The path
-    /// is in global points with the origin at the top left of the main display.
+    /// is in global points with the origin at the top left of the main display, and holds no sample twice in a row, as
+    /// `MousePathRecorder` records it, since a repeated sample has no heading to measure a turn against.
     static func closedLoop(fromMousePath path: [CGPoint]) -> CircledRegion? {
         guard path.count >= fewestSamples else { return nil }
         var largestLoop: (points: [CGPoint], enclosedArea: CGFloat)?
@@ -61,7 +64,7 @@ struct CircledRegion: Equatable {
     }
 
     /// The loop that starts at `startIndex` and comes back to it, or nil. The loop closes at the first sample within the
-    /// closing gap of the start once the path's heading has turned most of a full turn, so a wide, short loop around a line
+    /// closing gap of the start once the path's heading has turned two thirds of a full turn, so a wide, short loop around a line
     /// of text never closes on its bottom pass under its start, and an overshoot or a wander after the close is dropped.
     private static func loopClosingBack(toTheSampleAt startIndex: Int, of path: [CGPoint]) -> (points: [CGPoint], enclosedArea: CGFloat)? {
         let start = path[startIndex]

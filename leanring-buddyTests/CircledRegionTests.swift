@@ -44,6 +44,23 @@ private let exampleMedia = MediaOnTheFrontTab(
     #expect(circledRegion.outline.count <= ShirtOutline.mostPoints)
 }
 
+@Test func aCounterclockwiseCircleAndARectangleDrawnCornerToCornerClose() throws {
+    let counterclockwise = Array(circlePath(center: CGPoint(x: 500, y: 300), radius: 100).reversed())
+    #expect(CircledRegion.closedLoop(fromMousePath: counterclockwise) != nil)
+    // A box around a wordmark, drawn clockwise from its top left corner and ending on that corner with no overshoot.
+    let corners = [CGPoint(x: 100, y: 100), CGPoint(x: 400, y: 100), CGPoint(x: 400, y: 160), CGPoint(x: 100, y: 160), CGPoint(x: 100, y: 100)]
+    var rectangle: [CGPoint] = []
+    for (from, to) in zip(corners, corners.dropFirst()) {
+        for step in 0..<20 {
+            let share = CGFloat(step) / 20
+            rectangle.append(CGPoint(x: from.x + (to.x - from.x) * share, y: from.y + (to.y - from.y) * share))
+        }
+    }
+    rectangle.append(corners[0])
+    let circledRegion = try #require(CircledRegion.closedLoop(fromMousePath: rectangle))
+    #expect(abs(circledRegion.boundingRect.rectWidth - 300) < 24)
+}
+
 @Test func aCircleThatOvershootsItsStartStillClosesAndDropsTheOvershoot() throws {
     let circledRegion = try #require(CircledRegion.closedLoop(fromMousePath: circlePath(center: CGPoint(x: 500, y: 300), radius: 100, turns: 1.15)))
     #expect(abs(circledRegion.boundingRect.rectWidth - 200) < 16)

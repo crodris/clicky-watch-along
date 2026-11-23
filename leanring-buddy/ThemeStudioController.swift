@@ -52,7 +52,7 @@ final class ThemeStudioController: ObservableObject {
         let stopSpeaking: () -> Void
         /// Plays a theme sound through the speakers.
         let playSound: (ThemeSound) -> Void
-        /// A JPEG of the largest picture in Chrome's front tab, or nil when there is none.
+        /// A JPEG of the region the learner circled, or else of the largest picture in Chrome's front tab, or nil when there is none.
         let captureThePicture: () async -> ThemeStudioPicture?
         /// Asks the Worker for ideas (`POST /theme-ideas`).
         let designIdeas: (ThemeIdeasRequest) async throws -> ThemeIdeasReply

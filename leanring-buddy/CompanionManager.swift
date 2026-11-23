@@ -4179,6 +4179,8 @@ final class CompanionManager: ObservableObject {
     /// Clicky is looking at. Like any hand-off, it takes over the reply, so a router turn that called it ends here.
     private func startDesigningATheme(request: String, basedOnIdea: Int?, pictureChoice requestedPictureChoice: ThemeStudioPictureChoice) {
         let circledRegion = circledRegionOfTheCurrentPress
+        // One press's loop names the picture of one design, so a later design, such as a Debug tool call, never reads it again.
+        circledRegionOfThePress = nil
         let pictureChoice = themePictureChoice(requested: requestedPictureChoice, aRegionWasCircled: circledRegion != nil)
         // The request that started this design already pressed push-to-talk, so only a later press is the learner's next request.
         pushToTalkPressCountWhenTheThemeDesignStarted = pushToTalkPressCount
