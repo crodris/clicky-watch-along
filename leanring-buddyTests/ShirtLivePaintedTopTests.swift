@@ -305,15 +305,43 @@ struct ShirtLivePaintedTopFollowerTests {
         #expect(follower.reach == .follows)
     }
 
+    @Test func aHeldHipProblemAndAHeldArmProblemEachNeedTheirOwnPartSeenToClear() {
+        var follower = follower()
+        for step in 0...4 { _ = follower.advance(currentTorso: frozenTorso(), at: Double(step) * 0.1) }
+        let bent = replacingTheHips(of: frozenTorso(), leftHip: CGPoint(x: 230, y: 420), rightHip: CGPoint(x: 370, y: 420), hipsWereEstimated: false)
+        _ = follower.advance(currentTorso: bent, at: 0.5)
+        #expect(follower.reach == .outOfReach(.torsoShortened))
+        let armRaised = replacingTheLeftElbow(of: frozenTorso(), with: turned(CGPoint(x: 185, y: 350), about: CGPoint(x: 200, y: 200), degrees: 40))
+        _ = follower.advance(currentTorso: armRaised, at: 0.6)
+        #expect(follower.reach == .outOfReach(.upperArmMoved))
+        // Real hips back in place clear the hips, but the elbow is not seen, so the arm problem holds.
+        _ = follower.advance(currentTorso: replacingTheLeftElbow(of: frozenTorso(), with: nil), at: 0.7)
+        #expect(follower.reach == .outOfReach(.upperArmMoved))
+        _ = follower.advance(currentTorso: frozenTorso(), at: 0.8)
+        #expect(follower.reach == .follows)
+    }
+
+    @Test func anElbowThePaintingSawThatIsNeverSeenAgainLeavesTheArmUnjudged() {
+        // A known limit: an arm that leaves the frame, or that the blur hides through a whole raise, is not judged, so the
+        // live top keeps following with the sleeve where the painting drew it.
+        var follower = follower()
+        for step in 0...10 { _ = follower.advance(currentTorso: replacingTheLeftElbow(of: frozenTorso(), with: nil), at: Double(step) * 0.1) }
+        #expect(follower.reach == .follows && follower.visibility == 1)
+    }
+
     /// Replays Vision's results for a learner who stands still, is frozen for the painting, and then sways sideways with a
-    /// webcam's motion blur, through the pose tracker's smoother at 30 frames a second. The elbows drop in and out of the
-    /// results under the blur, and the still flashed in four times before the arm verdict held through those frames.
-    @Test func aSwayingLearnerWithBlurredElbowsNeverFlipsToTheStill() throws {
+    /// webcam's motion blur, through the pose tracker's smoother at 30 frames a second, reset when the follow starts as the
+    /// frame processor resets it. The elbows drop in and out of the results under the blur. On the fast sway the still came
+    /// back while a held elbow stayed at its old pixel as the shoulder moved on, and on the slow sway with a long blur it came
+    /// back while an elbow was missing for longer than the smoother holds it.
+    @Test(arguments: [("fast sway", fastSwayPoseRuns), ("slow sway with a long blur", slowSwayWithLongBlurPoseRuns)])
+    func aSwayingLearnerWithBlurredElbowsNeverGoesBackToTheStill(recordingName: String, recordedRuns: [RecordedPoseRun]) throws {
         let frameSeconds = 1.0 / 30
         var smoother = ShirtTorsoSmoother()
         var latestResult: BodyTorso?
-        var runs = motionBlurredStillThenSwayingPoseRuns[...]
+        var runs = recordedRuns[...]
         let smoothedTorsos = (0..<240).map { frameIndex -> BodyTorso? in
+            if frameIndex == 61 { smoother = ShirtTorsoSmoother() }
             let time = Double(frameIndex) * frameSeconds
             let torso = smoother.advance(toward: latestResult, at: time)
             if let run = runs.first, run.time <= time + 1e-6 {
@@ -328,13 +356,13 @@ struct ShirtLivePaintedTopFollowerTests {
         let clearImage = CIImage(color: .clear).cropped(to: CGRect(x: 0, y: 0, width: 1440, height: 960))
         var follower = ShirtLivePaintedTopFollower(top: ShirtLivePaintedTop(layer: clearImage, still: clearImage, paintedArea: clearImage, frozenTorso: frozenTorso, followsTheForearms: false))
         var hasFollowed = false
-        var framesOnTheStillAfterFollowing = 0
+        var problemsAfterFollowing: [ShirtLivePaintedTopReach] = []
         for frameIndex in 61..<240 {
             _ = follower.advance(currentTorso: smoothedTorsos[frameIndex], at: Double(frameIndex) * frameSeconds)
-            if follower.reach == .follows { hasFollowed = true } else if hasFollowed { framesOnTheStillAfterFollowing += 1 }
+            if follower.reach == .follows { hasFollowed = true } else if hasFollowed { problemsAfterFollowing.append(follower.reach) }
         }
         #expect(hasFollowed)
-        #expect(framesOnTheStillAfterFollowing == 0, "\(framesOnTheStillAfterFollowing) frames went back to the still, the last for \(follower.reach)")
+        #expect(problemsAfterFollowing.isEmpty, "\(recordingName): \(problemsAfterFollowing.count) frames went back to the still, first for \(String(describing: problemsAfterFollowing.first))")
     }
 
     @Test func itStartsOnThePaintedStillWithNoHintAndNoStepTaken() {
