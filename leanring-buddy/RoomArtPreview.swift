@@ -1314,7 +1314,8 @@ final class RoomArtPreviewController: ObservableObject {
         guard earlyMeasurement == nil else { return }
         let frameProcessor = frameProcessor, measureTheWall = environment.measureTheWall
         earlyMeasurement = Task {
-            guard let keyframe = await frameProcessor.takeAKeyframe(on: nil, anchorInCameraPixels: nil) else { return nil }
+            // A shirt read before this task first runs has cancelled it and forgotten the keyframe, so it takes none.
+            guard !Task.isCancelled, let keyframe = await frameProcessor.takeAKeyframe(on: nil, anchorInCameraPixels: nil) else { return nil }
             let wallRequest = RoomWallRequest(
                 keyframeJPEGData: keyframe.measurementRequest.keyframeJPEGData,
                 personMaskPNGData: keyframe.measurementRequest.personMaskPNGData,

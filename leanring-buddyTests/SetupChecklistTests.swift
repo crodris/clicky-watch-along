@@ -128,7 +128,8 @@ struct SetupChecklistTests {
         for roomArtWords in ["camera", "depth service", "fal.ai"] {
             #expect(setupCaptureDisclosure.contains(roomArtWords))
         }
-        // The shirt try-on uses the camera too, and its frames never leave this Mac.
+        // The shirt try-on uses the camera too. One frame goes to the depth service during the page read, before the kind is
+        // known, and after that a shirt's frames stay on this Mac.
         #expect(setupCaptureDisclosure.contains("Showing art, furniture, or a shirt uses your camera."))
         #expect(setupCaptureDisclosure.contains("one camera frame also goes to the depth service to measure the wall, before Clicky knows the item is a shirt"))
         #expect(setupCaptureDisclosure.contains("After that, a shirt's camera frames stay on this Mac."))

@@ -1996,9 +1996,10 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.spokenLines() == ["Stand back so I can see your shoulders and chest.", "Here it is on you."])
         #expect(harness.statusLine() == "On you")
         #expect(harness.controller.loopState.isFadingOut)
-        // A shirt needs no depth: no keyframe, no wall, no floor.
-        #expect(harness.frameProcessor.keyframeSurfaces.isEmpty)
-        #expect(worker.wallRequests.isEmpty && worker.floorRequests.isEmpty)
+        // A shirt needs no depth: no floor and no keyframe on a surface. The camera's first frame may come before the page
+        // is read, which takes one keyframe for the early wall measurement, so that one is left to the test below.
+        #expect(harness.frameProcessor.keyframeSurfaces.allSatisfy { $0 == nil })
+        #expect(worker.floorRequests.isEmpty)
         // A click on a shirt changes nothing.
         harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 100, y: 100))
         #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt"))
@@ -2007,6 +2008,27 @@ struct RoomArtPreviewControllerTests {
         harness.frameProcessor.settleTheShirtFraming(on: .standBack)
         try await waitFor("the coaching to return to the status line") { harness.controller.shirtCoachingLine != nil }
         #expect(harness.spokenLines().count == 2)
+        harness.controller.close()
+    }
+
+    @Test(arguments: [RoomArtGarmentPhoto.flatLay, .onModel])
+    func aShirtForgetsTheKeyframeTakenWhileThePageWasRead(photoShows: RoomArtGarmentPhoto) async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(shirtReading(photoShows: photoShows))
+        // The page's reply waits until the early wall measurement went out, so the keyframe is taken during the page read.
+        let pageReplyGate = TestGate()
+        worker.pageReplyGate = pageReplyGate
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "could I see this shirt on me")
+        try await waitFor("the wall measured during the page read") { worker.wallRequests.count == 1 }
+        pageReplyGate.open()
+        try await waitFor("the shirt to start") { harness.frameProcessor.shirtTryOnStarted }
+        // The shirt never tracks the room: the early keyframe is forgotten, and nothing else is measured.
+        #expect(harness.frameProcessor.timesTheKeyframeWasForgotten == 1)
+        #expect(harness.frameProcessor.keyframeSurfaces == [nil])
+        #expect(worker.wallRequests.count == 1 && worker.floorRequests.isEmpty)
+        #expect(harness.controller.furnitureGhost == nil)
         harness.controller.close()
     }
 
