@@ -19,7 +19,7 @@ With a 3D scene or pop-out on screen, Escape keeps its scene behavior instead, a
 
 Preconditions:
 
-- The app preconditions in [Video quiz](./video-quiz.md) apply: a Worker this script started on 8787, a Debug build that supports `--live-scene-rehearsal`, and no Clicky already running.
+- The app preconditions in [Video quiz](./video-quiz.md) apply: a Worker this script started on 8787, a Debug build that supports `--live-scene-rehearsal`, and no Clicky of this macOS user already running.
 - Chrome's front tab shows a page worth explaining, such as a Wikipedia article with a diagram, and the question asks how something works, so the answer runs long enough to interrupt.
 
 - **Escape.** Run `$V app-launch "how does air move through this engine from front to back?"`.
