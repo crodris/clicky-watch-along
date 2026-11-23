@@ -840,7 +840,10 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
         if let paintingGate { await paintingGate.wait() }
         guard let paintedImage else { throw errorWithNoPainting }
         if paintings <= failingPaintings { throw failingPaintingError }
-        return RoomFurniturePaintedKeyframe(image: paintedImage, pastedRegion: paintedImage)
+        let wholeFrameRegion = try #require(grayImage(
+            bytes: [UInt8](repeating: 255, count: paintedImage.width * paintedImage.height), width: paintedImage.width, height: paintedImage.height
+        ))
+        return RoomFurniturePaintedKeyframe(image: paintedImage, pastedRegion: wholeFrameRegion)
     }
 
     static func thatPaintsAtOnce() -> FurnitureLookStub {

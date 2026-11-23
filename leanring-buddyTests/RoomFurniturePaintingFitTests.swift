@@ -435,6 +435,89 @@ extension CPUHeavyTests {
             #expect(layerAlpha(1060, 800) == 0)
             #expect(layerAlpha(1045, 640) == 0)
         }
+
+        /// The reply pasted with the box and its region, and the region's gray bytes.
+        private func pastedWithItsRegion(_ painting: CGImage, over keyframe: CGImage, box: [CGPoint] = plushBox) throws -> (pasted: RoomFurniturePaintedKeyframe, maskPNG: Data, region: [UInt8]) {
+            let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: box, frameWidth: Self.frameWidth, frameHeight: Self.frameHeight, shadowMarginPixels: 24))
+            let pasted = try #require(furnitureCompositePastedWithItsRegion(
+                keyframe: keyframe, generated: painting, mask: try maskImage(maskPNG), projectedBox: box, context: CIContext()
+            ))
+            let region = try #require(grayBytes(of: pasted.pastedRegion, width: Self.frameWidth, height: Self.frameHeight))
+            return (pasted, maskPNG, region)
+        }
+
+        @Test func feetPaintedDownTheFrameOnABoxThatFacesTheCameraArePasted() throws {
+            let keyframe = try keyframe()
+            // A box whose front faces the camera, so its front edge and the grown mask's bottom are level rows: the box ends at
+            // row 800, its mask at 824, and the grown mask at about 848. The feet run down the frame to row 880, 32 rows past it.
+            let facingTheCamera = [
+                CGPoint(x: 900, y: 600), CGPoint(x: 1100, y: 600), CGPoint(x: 1100, y: 800), CGPoint(x: 900, y: 800),
+                CGPoint(x: 920, y: 520), CGPoint(x: 1080, y: 520), CGPoint(x: 1080, y: 760), CGPoint(x: 920, y: 760),
+            ]
+            let plush = PaintedPart(columns: 920..<1080, rows: 560..<800)
+            let feet = PaintedPart(columns: 950..<1050, rows: 800..<880)
+            let painting = try reply(parts: [plush, feet], drawsTheShadow: false, over: keyframe)
+            let (pasted, _, region) = try pastedWithItsRegion(painting, over: keyframe, box: facingTheCamera)
+            let sole = try pixel(pasted.image, 1000, 870), plushBody = try pixel(pasted.image, 1000, 700)
+            #expect(sole == plushBody, "sole \(sole), body \(plushBody)")
+            #expect(region[870 * Self.frameWidth + 1000] == 255)
+            #expect(try pixel(pasted.image, 1000, 915) == pixel(keyframe, 1000, 915))
+        }
+
+        @Test func aPieceThatStaysInsideTheGrownMaskAddsNothingPastIt() throws {
+            let keyframe = try keyframe()
+            // The plush's right edge stops 6 pixels inside the grown mask on the row where the mask is narrowest, so the margin
+            // around it would reach past the grown mask while no pixel of it does.
+            let maskPNG = try #require(roomFurnitureCompositeMaskPNG(projectedBox: Self.plushBox, frameWidth: Self.frameWidth, frameHeight: Self.frameHeight, shadowMarginPixels: 24))
+            let grownMask = try #require(grownMaskImage(
+                try maskImage(maskPNG), frameExtent: CGRect(x: 0, y: 0, width: Self.frameWidth, height: Self.frameHeight),
+                radiusPixels: furnitureCompositePasteSlackPixels, blurPixels: furnitureCompositePasteFeatherPixels, context: CIContext()
+            ))
+            let grownMaskBytes = try #require(grayBytes(of: grownMask, width: Self.frameWidth, height: Self.frameHeight))
+            let rows = 640..<760
+            let firstColumnPastTheMask = try rows.map { row in
+                try #require((900..<Self.frameWidth).first { grownMaskBytes[row * Self.frameWidth + $0] == 0 })
+            }
+            let narrowestColumn = try #require(firstColumnPastTheMask.min())
+            let narrowestRow = rows.lowerBound + (firstColumnPastTheMask.firstIndex(of: narrowestColumn) ?? 0)
+            let painting = try reply(parts: [PaintedPart(columns: 760..<(narrowestColumn - 6), rows: rows)], drawsTheShadow: false, over: keyframe)
+            let (_, _, region) = try pastedWithItsRegion(painting, over: keyframe)
+            #expect(region[narrowestRow * Self.frameWidth + narrowestColumn + 2] == 0)
+        }
+
+        @Test func everyPixelAFittedPasteChangedIsInItsRegion() throws {
+            let keyframe = try keyframe()
+            // The plush drawn 1.6 times its box, with an arm out to column 1058. The fit shrinks it to 0.70 about column 836.7,
+            // which carries the arm's end to about column 992 at rows 666 to 694, past the grown mask there (about 973).
+            let plush = PaintedPart(columns: Self.plushColumns, rows: 488..<845)
+            let arm = PaintedPart(columns: 986..<1058, rows: 600..<640)
+            let painting = try reply(parts: [plush, arm], over: keyframe)
+            #expect(try fit(of: painting, over: keyframe) != nil)
+            let (pasted, _, region) = try pastedWithItsRegion(painting, over: keyframe)
+            let pastedPixels = try #require(rgbaBytes(of: pasted.image, width: Self.frameWidth, height: Self.frameHeight))
+            let keyframePixels = try #require(rgbaBytes(of: keyframe, width: Self.frameWidth, height: Self.frameHeight))
+            let changedPixelsOutsideTheRegion = (0..<(Self.frameWidth * Self.frameHeight)).filter { pixelIndex in
+                region[pixelIndex] == 0 && (0..<3).contains { pastedPixels[pixelIndex * 4 + $0] != keyframePixels[pixelIndex * 4 + $0] }
+            }
+            #expect(changedPixelsOutsideTheRegion.isEmpty, "\(changedPixelsOutsideTheRegion.count) changed pixels outside the region")
+            // The shrunk arm is pasted past the grown mask.
+            let armEnd = try pixel(pasted.image, 985, 680)
+            #expect(armEnd != (try pixel(keyframe, 985, 680)), "\(armEnd)")
+        }
+
+        @Test func aLearnerBesideTheBoxStaysAsFilmedPastTheGrownMask() throws {
+            let keyframe = try keyframe()
+            // A narrow plush with a foot drawn out to column 1034, past the grown mask, and the learner the edit re-rendered
+            // left of the box, inside the columns the piece is looked for in (from 607) and past the grown mask there (about 696).
+            let plush = PaintedPart(columns: 820..<880, rows: 600..<845)
+            let foot = PaintedPart(columns: 880..<1034, rows: 780..<820)
+            let learner = PaintedPart(columns: 610..<690, rows: 440..<840)
+            let painting = try reply(parts: [plush, foot, learner], drawsTheShadow: false, over: keyframe)
+            let (pasted, _, region) = try pastedWithItsRegion(painting, over: keyframe)
+            #expect(region[800 * Self.frameWidth + 1025] == 255)
+            #expect(try pixel(pasted.image, 615, 640) == pixel(keyframe, 615, 640))
+            #expect(region[640 * Self.frameWidth + 615] == 0)
+        }
     }
 }
 

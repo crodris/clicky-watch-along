@@ -23,11 +23,10 @@ protocol RoomFurnitureGenerating {
     /// GLB bytes of a model of the product in `productJPEG`, the furniture's cutout over white. `cacheKeyData` is what the
     /// model is cached by, the page picture's JPEG bytes.
     func generateAModel(productJPEG: Data, itemTitle: String, cacheKeyData: Data) async throws -> Data
-    /// The keyframe with the item painted in where the mask is white, at the keyframe's size, and the region the painting was
-    /// pasted in (`furnitureCompositePastedWithItsRegion`). `orientation` says which way
-    /// the piece faces, which the mask alone cannot: a convex area looks the same turned 180 degrees. `projectedBox` is the
-    /// item's box in the keyframe (`FloorPlane.keyframeBoxCorners`), which a piece drawn taller than it is shrunk back into
-    /// (`furniturePaintingFit`).
+    /// The keyframe with the item painted in where the mask is white, at the keyframe's size, and the region the painting
+    /// was pasted in (`furnitureCompositePastedWithItsRegion`). `orientation` says which way the piece faces, which the mask
+    /// alone cannot: a convex area looks the same turned 180 degrees. `projectedBox` is the item's box in the keyframe
+    /// (`FloorPlane.keyframeBoxCorners`), which a piece drawn taller than it is shrunk back into (`furniturePaintingFit`).
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data,
         keyframeWidth: Int,
