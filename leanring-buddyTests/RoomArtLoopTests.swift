@@ -69,6 +69,23 @@ struct RoomArtLoopStateTests {
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: arrangingPhase, at: 24) == .drawing(beganAt: 10))
     }
 
+    @Test func aPieceThatCouldNotBeDrawnKeepsItsLineStillUntilARetryClickTracesItAgain() {
+        let couldNotDraw = RoomArtPhase.couldNotDraw(id: RoomArtMeasurementID(number: 1), item: loopTestItem(), surface: .wall(loopTestWall()), retryFailure: nil)
+        let waiting = RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: couldNotDraw, at: 24)
+        #expect(waiting == .waitingForAClick(beganAt: 10))
+        #expect(!waiting.tracesTheLine)
+        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: couldNotDraw, at: 24) == .waitingForAClick(beganAt: 24))
+        let plan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 0.5, reduceMotionIsOn: false, tracesTheLine: waiting.tracesTheLine)
+        #expect(!plan.showsTheTracer)
+        #expect(plan.frame.drawnShare == 1)
+        // A retry click takes a new keyframe, so its spot gets a fresh trace.
+        let retrying = RoomArtPhase.retrying(id: RoomArtMeasurementID(number: 2), item: loopTestItem(), surfaceBeforeTheRetry: .wall(loopTestWall()))
+        #expect(waiting.after(phaseChangedTo: retrying, at: 40) == .drawing(beganAt: 40))
+        // The piece showing at last fades the still line.
+        let showing = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: nil)
+        #expect(waiting.after(phaseChangedTo: showing, at: 41) == .fadingOut(beganAt: 10))
+    }
+
     @Test func aPhaseWithNoMeasurementShowsNoLoopAndStartsNone() {
         let showing = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: nil)
 
