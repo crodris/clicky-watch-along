@@ -57,8 +57,8 @@ private let goodFurnitureItem = """
 """
 
 private let goodClothingItem = """
-{"kind": "clothing", "clothing": {"garment": "tshirt", "sleeves": "short", "chosenSizeLabel": "M", "photoShows": "flatLay",
- "printDescription": "large wave across the chest"}}
+{"kind": "clothing", "clothing": {"garment": "tshirt", "sleeves": "short", "length": "hip", "canBeDrawnOnTheLearner": true,
+ "chosenSizeLabel": "M", "photoShows": "flatLay", "printDescription": "large wave across the chest"}}
 """
 
 private let goodRoomWallReply = """
@@ -134,6 +134,8 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             title: "Great Wave tee",
             garment: .tshirt,
             sleeves: .short,
+            length: .hip,
+            canBeDrawnOnTheLearner: true,
             chosenSizeLabel: "M",
             photoShows: .flatLay,
             printDescription: "large wave print across the chest",
@@ -145,6 +147,8 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             title: "Sasquatch tee",
             garment: .tshirt,
             sleeves: .short,
+            length: .hip,
+            canBeDrawnOnTheLearner: true,
             chosenSizeLabel: "M",
             photoShows: .onModel,
             printDescription: "large sasquatch graphic across the chest",
@@ -226,8 +230,30 @@ struct RoomArtReplyTests {
         }
         #expect(clothing.title == "Wave tee")
         #expect(clothing.garment == .tshirt && clothing.sleeves == .short && clothing.photoShows == .flatLay)
+        #expect(clothing.length == .hip && clothing.canBeDrawnOnTheLearner)
         #expect(clothing.chosenSizeLabel == "M" && clothing.printDescription == "large wave across the chest")
         #expect(clothing.itemCorners.bottomRight == CGPoint(x: 392, y: 500))
+    }
+
+    @Test func aLongCoatOnAHangerAndAReaderVerdictOfFalseBothReadAsTheyAreSaid() throws {
+        let coatItem = goodClothingItem
+            .replacingOccurrences(of: #""tshirt""#, with: #""coat""#)
+            .replacingOccurrences(of: #""short""#, with: #""long""#)
+            .replacingOccurrences(of: #""hip""#, with: #""knee""#)
+            .replacingOccurrences(of: #""flatLay""#, with: #""onHanger""#)
+        let coatReading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: coatItem, title: "Wool coat")), pictureWidth: 400, pictureHeight: 500)
+        guard case .clothing(let coat) = coatReading else {
+            Issue.record("Expected clothing, got \(coatReading)")
+            return
+        }
+        #expect(coat.garment == .coat && coat.sleeves == .long && coat.length == .knee && coat.photoShows == .onHanger && coat.canBeDrawnOnTheLearner)
+        #expect(roomArtReadingPlan(for: coatReading) == .tryOnTheShirt(coat))
+
+        let trousersItem = goodClothingItem
+            .replacingOccurrences(of: #""tshirt""#, with: #""other""#)
+            .replacingOccurrences(of: #""canBeDrawnOnTheLearner": true"#, with: #""canBeDrawnOnTheLearner": false"#)
+        let trousersReading = try RoomArtPageReading(responseData: jsonData(tryItReply(item: trousersItem, title: "Chinos")), pictureWidth: 400, pictureHeight: 500)
+        #expect(roomArtReadingPlan(for: trousersReading) == .fail(.cannotBeDrawnOnYou))
     }
 
     @Test func anOtherReplyNeedsOnlyItsKindAndTitle() throws {
@@ -266,6 +292,10 @@ struct RoomArtReplyTests {
         tryItReply(item: goodFurnitureItem.replacingOccurrences(of: #""depthCentimeters": 90"#, with: #""depthCentimeters": 0"#), corners: fullCorners),
         // A garment this app does not know.
         tryItReply(item: goodClothingItem.replacingOccurrences(of: #""tshirt""#, with: #""cape""#), corners: fullCorners),
+        // A length this app does not know, and a reply with no length or no verdict, which the Worker's strict schema refuses too.
+        tryItReply(item: goodClothingItem.replacingOccurrences(of: #""hip""#, with: #""floor""#), corners: fullCorners),
+        tryItReply(item: goodClothingItem.replacingOccurrences(of: #""length": "hip","#, with: ""), corners: fullCorners),
+        tryItReply(item: goodClothingItem.replacingOccurrences(of: #""canBeDrawnOnTheLearner": true,"#, with: ""), corners: fullCorners),
         // An error body.
         #"{"error": "The page has no picture"}"#,
         "not json",
@@ -656,8 +686,14 @@ private let floorBehindTheCamera = FloorPlane(
 
 private let pictureCorners = RoomArtCorners(topLeft: CGPoint(x: 20, y: 25), topRight: CGPoint(x: 380, y: 25), bottomRight: CGPoint(x: 380, y: 475), bottomLeft: CGPoint(x: 20, y: 475))
 
-private func clothing(garment: RoomArtGarment = .tshirt, sleeves: RoomArtSleeves = .short, photoShows: RoomArtGarmentPhoto = .flatLay) -> RoomArtClothingReading {
-    RoomArtClothingReading(title: "Linen shirt", garment: garment, sleeves: sleeves, chosenSizeLabel: "M", photoShows: photoShows, printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners)
+private func clothing(
+    garment: RoomArtGarment = .tshirt, sleeves: RoomArtSleeves = .short, length: RoomArtGarmentLength = .hip, canBeDrawnOnTheLearner: Bool = true,
+    photoShows: RoomArtGarmentPhoto = .flatLay
+) -> RoomArtClothingReading {
+    RoomArtClothingReading(
+        title: "Linen shirt", garment: garment, sleeves: sleeves, length: length, canBeDrawnOnTheLearner: canBeDrawnOnTheLearner,
+        chosenSizeLabel: "M", photoShows: photoShows, printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners
+    )
 }
 
 struct RoomArtReadingPlanTests {
@@ -678,28 +714,31 @@ struct RoomArtReadingPlanTests {
         #expect(roomArtReadingPlan(for: .furniture(unsizedTable)) == .fail(.sizeNotOnThePage))
     }
 
-    @Test func onlyATopPhotographedFlatOrOnAModelIsTriedOn() {
-        for garment in [RoomArtGarment.tshirt, .shirt, .sweater, .hoodie, .jacket] {
+    @Test func everyGarmentTheReaderSaysCanBeDrawnOnTheLearnerIsTriedOn() {
+        // No garment kind, length, sleeve, or photo refuses an item: a coat, a dress, a long-sleeved top on a model, and a
+        // top on a hanger are tried on like a T-shirt.
+        for garment in [RoomArtGarment.tshirt, .shirt, .sweater, .hoodie, .jacket, .coat, .vest, .dress, .jumpsuit, .other] {
             #expect(roomArtReadingPlan(for: .clothing(clothing(garment: garment))) == .tryOnTheShirt(clothing(garment: garment)))
         }
-        #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .dress))) == .fail(.onlyTopsSoFar))
-        #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .other))) == .fail(.onlyTopsSoFar))
-        // A photo on a model is cut out around the model's body (ShirtOnModel.swift).
-        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onModel))) == .tryOnTheShirt(clothing(photoShows: .onModel)))
-        #expect(roomArtReadingPlan(for: .clothing(clothing(sleeves: .none, photoShows: .onModel))) == .tryOnTheShirt(clothing(sleeves: .none, photoShows: .onModel)))
-        // The model's forearms are cut away with the arms, so a long sleeve on a model would end at the upper arm. Laid flat,
-        // a long sleeve is whole.
-        #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .hoodie, sleeves: .long, photoShows: .onModel))) == .fail(.longSleevesOnAModel))
-        #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .hoodie, sleeves: .long))) == .tryOnTheShirt(clothing(garment: .hoodie, sleeves: .long)))
-        #expect(RoomArtFailure.longSleevesOnAModel.spokenLine == "I can only try on long sleeves from a photo of the top laid flat.")
-        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onHanger))) == .fail(.shirtPhotoNeitherFlatNorOnAModel))
-        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .other))) == .fail(.shirtPhotoNeitherFlatNorOnAModel))
+        let coat = clothing(garment: .coat, sleeves: .long, length: .knee, photoShows: .onHanger)
+        #expect(roomArtReadingPlan(for: .clothing(coat)) == .tryOnTheShirt(coat))
+        let dress = clothing(garment: .dress, sleeves: .none, length: .ankle, photoShows: .other)
+        #expect(roomArtReadingPlan(for: .clothing(dress)) == .tryOnTheShirt(dress))
+        let longSleevedTopOnAModel = clothing(garment: .hoodie, sleeves: .long, photoShows: .onModel)
+        #expect(roomArtReadingPlan(for: .clothing(longSleevedTopOnAModel)) == .tryOnTheShirt(longSleevedTopOnAModel))
+    }
+
+    @Test func clothingTheReaderSaysCannotBeDrawnOnTheLearnerFailsWhateverItsKind() {
+        for garment in [RoomArtGarment.other, .shirt, .jacket] {
+            #expect(roomArtReadingPlan(for: .clothing(clothing(garment: garment, canBeDrawnOnTheLearner: false))) == .fail(.cannotBeDrawnOnYou))
+        }
+        #expect(RoomArtFailure.cannotBeDrawnOnYou.spokenLine == "I can't draw that item on you.")
+        #expect(RoomArtFailure.cannotBeDrawnOnYou.statusLine == "Can't draw that item on you")
     }
 
     @Test func anythingElseCannotBeTried() {
         #expect(roomArtReadingPlan(for: .other(title: "Wool rug")) == .fail(.notSomethingToTry))
         #expect(RoomArtFailure.notSomethingToTry.spokenLine == "That isn't something I can place in your room or try on.")
-        #expect(RoomArtFailure.shirtPhotoNeitherFlatNorOnAModel.spokenLine == "I can only try on a shirt from a photo of it laid flat or worn by a model.")
     }
 }
 
@@ -931,22 +970,49 @@ struct RoomArtPhaseTests {
     @Test func theShirtIsPreparedThenWaitsForTheLearnerThenShows() {
         let preparing = RoomArtPhase.readingThePage.startingTheShirt(title: "Linen shirt")
         #expect(preparing == .preparingTheShirt(title: "Linen shirt"))
-        #expect(preparing.statusLine == "Getting the shirt ready…")
+        #expect(preparing.statusLine == "Getting it ready…")
         // The coaching takes the status line while the learner is not where the shirt can be drawn.
         #expect(preparing.statusLine(theSurfaceIsLost: false, shirtCoachingLine: "Stand back so I can see your shoulders and chest.") == "Stand back so I can see your shoulders and chest.")
-        let waiting = preparing.withTheGarmentReady(learnerIsInFrame: false)
-        #expect(waiting == .waitingToSeeTheLearner(title: "Linen shirt"))
+        let waiting = preparing.withTheShirtPreviewReady(.liveGarment, learnerIsInFrame: false)
+        #expect(waiting == .waitingToSeeTheLearner(title: "Linen shirt", preview: .liveGarment))
         let showing = waiting.afterTheLearnerStoodInFrame()
-        #expect(showing == .showingTheShirt(title: "Linen shirt"))
+        #expect(showing == .showingTheShirt(title: "Linen shirt", preview: .liveGarment))
         #expect(showing.statusLine == "On you")
         // A learner already in view when the garment is ready sees the shirt at once.
-        #expect(preparing.withTheGarmentReady(learnerIsInFrame: true) == .showingTheShirt(title: "Linen shirt"))
+        #expect(preparing.withTheShirtPreviewReady(.liveGarment, learnerIsInFrame: true) == .showingTheShirt(title: "Linen shirt", preview: .liveGarment))
         // The learner standing in view before the garment is ready changes nothing until it is.
         #expect(preparing.afterTheLearnerStoodInFrame() == preparing)
-        // A click does nothing on a shirt, and a garment that cannot be cut out ends the panel.
+        // A click does nothing on a shirt, and a picture that cannot be read ends the panel while it is prepared.
         #expect(showing.startingAMeasurement(id: firstMeasurement) == showing)
-        #expect(preparing.afterTheGarmentFailed() == .failed(.garmentNotCutOut))
-        #expect(waiting.afterTheGarmentFailed() == waiting)
+        #expect(preparing.afterTheShirtsPictureCouldNotBeRead() == .failed(.pageNotRead))
+        #expect(waiting.afterTheShirtsPictureCouldNotBeRead() == waiting)
+    }
+
+    @Test func theGhostOutlineIsAPreviewThatEveryLaterPhaseKeeps() {
+        let preparing = RoomArtPhase.readingThePage.startingTheShirt(title: "Coat")
+        let waiting = preparing.withTheShirtPreviewReady(.ghostOutline, learnerIsInFrame: false)
+        #expect(waiting == .waitingToSeeTheLearner(title: "Coat", preview: .ghostOutline))
+        let showing = waiting.afterTheLearnerStoodInFrame()
+        #expect(showing == .showingTheShirt(title: "Coat", preview: .ghostOutline))
+        #expect(showing.shirtPreview == .ghostOutline)
+        #expect(showing.statusLine == "Where it will go · say right there")
+        #expect(preparing.shirtPreview == nil && RoomArtPhase.readingThePage.shirtPreview == nil)
+        // The preview is carried through the capture, the painting, and the painted still, and comes back after each.
+        let id = ShirtPaintingID(number: 1)
+        let armed = showing.armingTheShirtCapture(id: id)
+        #expect(armed == .waitingForTheLearnerToStepBack(title: "Coat", id: id, preview: .ghostOutline))
+        let painting = armed.afterTheLearnerHeldStill(id: id)
+        #expect(painting == .paintingTheShirt(title: "Coat", id: id, preview: .ghostOutline))
+        let painted = painting.withThePaintedShirt(id: id)
+        #expect(painted == .showingThePaintedShirt(title: "Coat", preview: .ghostOutline))
+        for phase in [armed, painting, painted] {
+            #expect(phase.backToTheLiveShirt() == showing)
+        }
+        #expect(painting.afterThePaintingFailed(id: id) == showing)
+        #expect(armed.afterTheStepBackTimedOut(id: id) == showing)
+        // The live garment's phases keep their own preview and statusLine.
+        #expect(RoomArtPhase.showingTheShirt(title: "Tee", preview: .liveGarment).statusLine == "On you")
+        #expect(RoomArtPhase.showingTheShirt(title: "Tee", preview: .liveGarment).armingTheShirtCapture(id: id).backToTheLiveShirt() == .showingTheShirt(title: "Tee", preview: .liveGarment))
     }
 
     @Test func aReplyAfterThePanelClosedChangesNothing() {
@@ -956,7 +1022,7 @@ struct RoomArtPhaseTests {
         #expect(closed.withTheItemReady(.wallArt(artwork())) == .closed)
         #expect(closed.startingTheShirt(title: "Tee") == .closed)
         #expect(closed.afterThePageFailed(.pageNotRead) == .closed)
-        #expect(closed.withTheGarmentReady(learnerIsInFrame: true) == .closed)
+        #expect(closed.withTheShirtPreviewReady(.liveGarment, learnerIsInFrame: true) == .closed)
         #expect(closed.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .closed)
         #expect(closed.afterTheCameraFailed(.noCamera) == .closed)
     }

@@ -12,10 +12,12 @@
 //
 //  The mask covers the whole garment the learner wears now, not only where the new one lands, since a narrower new top
 //  painted inside a torso shape left the old top's sleeve stub and hem showing past it in the spike. It starts from the old
-//  top (`ShirtFrameAnalysis`'s old shirt pixels, down to its hem and along its sleeves), the torso, and where the live
-//  overlay's garment landed, fills the holes a print leaves, and takes away the neck and head (the analysis's neck cut),
-//  the face, the hands, and the bare skin the new top does not cover. The hands and the face are also kept out of the paste,
-//  which grows the mask by 24 pixels, since in the spike that growth repainted about 30 percent of the hand pixels.
+//  top (`ShirtFrameAnalysis`'s old shirt pixels, down to its hem and along its sleeves), the torso, where the live
+//  overlay's garment landed, and the area the new garment covers on the body (`ShirtCoverage`: down to its hem, and along
+//  each arm to the wrist for long sleeves), fills the holes a print leaves, and takes away the neck and head (the analysis's
+//  neck cut), the face, the hands, and the bare skin the new top does not cover, which is not skin the coverage reaches, such
+//  as a forearm a long sleeve covers. The hands and the face are also kept out of the paste, which grows the mask by 24
+//  pixels, since in the spike that growth repainted about 30 percent of the hand pixels.
 //
 
 import CoreGraphics
@@ -128,6 +130,10 @@ nonisolated func shirtStillPhraseRunsAheadOfTheRouter(
 
 /// What Clicky says when the live preview first shows, so the learner knows how to get the real look.
 nonisolated let roomArtShirtPreviewLine = "Here's a preview. Say right there to put it on you."
+/// What Clicky says when the ghost outline first shows, for a garment the live preview cannot draw.
+nonisolated let roomArtShirtGhostLine = "This outline is where it will go. Say right there to put it on you."
+/// The status line while the ghost outline shows over the learner.
+nonisolated let roomArtShirtGhostStatusLine = "Where it will go · say right there"
 /// What Clicky says when the painted still has crossfaded in.
 nonisolated let roomArtShirtPaintedLine = "Here it is on you."
 /// The status line while the shirt is painted into the frozen frame.
@@ -174,7 +180,8 @@ nonisolated struct ShirtFrozenFrame: @unchecked Sendable {
     let previewImage: CGImage
     /// 0 to 255, where the person is.
     let personMask: [UInt8]
-    /// 0 to 255, where the live preview drew the garment and its base color fill: where the new top lands.
+    /// 0 to 255, where the live preview drew the garment and its base color fill: where the new top lands. All 0 under the
+    /// ghost outline, which draws no garment, so the area the painting covers comes from `ShirtCoverage` alone.
     let previewGarmentCoverage: [UInt8]
     let torso: BodyTorso
 
@@ -245,7 +252,8 @@ nonisolated enum ShirtPaintMask {
     static let workingLongestSide = 480
 
     /// The masks for one frozen frame, or nil when the shoulders are not in it or the old top's color cannot be read below them.
-    static func make(frame: ShirtFrozenFrame, bodyParts: ShirtPaintBodyParts) -> ShirtPaintMasks? {
+    /// `coverage` is where the new garment lands on the body, added to what the painting may draw in.
+    static func make(frame: ShirtFrozenFrame, bodyParts: ShirtPaintBodyParts, coverage: ShirtCoverage) -> ShirtPaintMasks? {
         let width = frame.width, height = frame.height
         let torso = frame.torso
         // The analysis reads the old top below the shoulders, so the shoulders must be in the frame.
@@ -257,7 +265,10 @@ nonisolated enum ShirtPaintMask {
         guard let workRGBA = rgbaBytes(of: frame.cameraImage, width: workWidth, height: workHeight),
               let workPerson = resizedGrayBytes(frame.personMask, width: width, height: height, toWidth: workWidth, toHeight: workHeight),
               let workCoverage = resizedGrayBytes(frame.previewGarmentCoverage, width: width, height: height, toWidth: workWidth, toHeight: workHeight),
-              let work = workingMasks(rgba: workRGBA, personMask: workPerson, previewGarmentCoverage: workCoverage, torso: torso.scaled(by: scale), width: workWidth, height: workHeight)
+              let work = workingMasks(
+                  rgba: workRGBA, personMask: workPerson, previewGarmentCoverage: workCoverage, coverage: coverage,
+                  torso: torso.scaled(by: scale), width: workWidth, height: workHeight
+              )
         else { return nil }
 
         // Scaled up to the frame, where the hands and the face, drawn at its own size, come out exactly.
@@ -314,8 +325,9 @@ nonisolated enum ShirtPaintMask {
     }
 
     /// The mask at the working size: where the painting may draw, the analysis's neck cut, and the old top as found.
+    /// `coverage` is where the new garment lands on `torso`, nil while the learner's own top alone is traced.
     static func workingMasks(
-        rgba: [UInt8], personMask: [UInt8], previewGarmentCoverage: [UInt8], torso: BodyTorso, width: Int, height: Int
+        rgba: [UInt8], personMask: [UInt8], previewGarmentCoverage: [UInt8], coverage: ShirtCoverage? = nil, torso: BodyTorso, width: Int, height: Int
     ) -> (paintable: [Bool], cut: [Bool], oldShirt: [Bool])? {
         let analysisFrame = ShirtSmallFrame(width: width, height: height, rgba: rgba, personMask: personMask, torso: torso)
         guard let oldShirtColor = analysisFrame.measureOldShirtColor() else { return nil }
@@ -370,11 +382,16 @@ nonisolated enum ShirtPaintMask {
         }
 
         // The torso itself covers a print on the old top whose colors are not its own, and the preview's garment is where
-        // the new top lands.
+        // the new top lands. So does the area the new garment covers on the body (`ShirtCoverage`), where the person is: a
+        // long sleeve down the bare forearm, a coat's hem past the old top's. It stays within a little of the person, so
+        // the room beside a flared hem stays the room.
         let torsoQuad = ShirtTryOnRenderer.bodyTorsoCorners(of: torso).map { SIMD2(Double($0.x), Double($0.y)) }
+        let growthRadius = max(1, Int((outlineGrowthInShoulderWidths * shoulderWidth).rounded()))
+        let personNearby = dilated(personMask.map { $0 > 127 }, width: width, height: height, radius: growthRadius)
+        let newGarmentCovers = coverage?.area(for: torso).mask(width: width, height: height) ?? [Bool](repeating: false, count: width * height)
         var paintable = [Bool](repeating: false, count: width * height)
         for index in 0..<(width * height) {
-            if oldShirt[index] || previewGarmentCoverage[index] > 127 { paintable[index] = true; continue }
+            if oldShirt[index] || previewGarmentCoverage[index] > 127 || (newGarmentCovers[index] && personNearby[index]) { paintable[index] = true; continue }
             guard personMask[index] > 127 else { continue }
             paintable[index] = isInside(SIMD2(Double(index % width) + 0.5, Double(index / width) + 0.5), convexQuad: torsoQuad)
         }
@@ -382,16 +399,14 @@ nonisolated enum ShirtPaintMask {
         paintable = eroded(dilated(paintable, width: width, height: height, radius: closingRadius), width: width, height: height, radius: closingRadius)
         paintable = withTheHolesFilled(paintable, width: width, height: height)
         // Grown past the outline, but only within a little of the person, so the room around stays the room.
-        let growthRadius = max(1, Int((outlineGrowthInShoulderWidths * shoulderWidth).rounded()))
-        let personNearby = dilated(personMask.map { $0 > 127 }, width: width, height: height, radius: growthRadius)
         let grown = dilated(paintable, width: width, height: height, radius: growthRadius)
         for index in paintable.indices { paintable[index] = grown[index] && (personNearby[index] || paintable[index]) }
 
         // Bare skin the new top does not cover is taken away here. The hands, the face, and the neck's skin are taken away
         // at the frame's size, where their edges are exact. The mask never reaches above the neck's base, so the neck cut
-        // only decides what the paste puts back.
+        // only decides what the paste puts back. Skin the new garment covers, a forearm under a long sleeve, is painted.
         for index in 0..<(width * height) where paintable[index] {
-            guard personMask[index] > 127, previewGarmentCoverage[index] <= 127, !oldShirt[index] else { continue }
+            guard personMask[index] > 127, previewGarmentCoverage[index] <= 127, !oldShirt[index], !newGarmentCovers[index] else { continue }
             if looksLikeSkin(red: rgba[index * 4], green: rgba[index * 4 + 1], blue: rgba[index * 4 + 2]) { paintable[index] = false }
         }
         paintable = withoutSmallPieces(paintable, width: width, height: height, smallestPieceSize: Int(smallestPieceShare * Double(width * height)))
@@ -743,7 +758,8 @@ nonisolated func jpegData(of image: CGImage, quality: Double = 0.92) -> Data? {
 nonisolated struct ShirtPaintingGarment: Equatable, Sendable {
     let kind: RoomArtGarment
     let sleeves: RoomArtSleeves
-    /// The garment's base color in sRGB, as "#RRGGBB".
+    let length: RoomArtGarmentLength
+    /// The garment's base color in sRGB, as "#RRGGBB" (`shirtBaseColorHex`).
     let baseColorHex: String
     let printDescription: String
 
@@ -751,7 +767,9 @@ nonisolated struct ShirtPaintingGarment: Equatable, Sendable {
     static let mostPrintDescriptionUTF16Units = 300
 }
 
-/// A linear-light color as "#RRGGBB" in sRGB, which is how the Worker reads it.
+/// A linear-light color as "#RRGGBB" in sRGB, which is how the Worker reads it. A color that is already sRGB, such as
+/// `ShirtGarment.baseColor`, must not go through this: it would be encoded twice, and a near-black cloth would read as a mid
+/// gray (the Theory blazer's #272525 reached the Worker as #6D6A6B, and the painter drew it purple).
 nonisolated func sRGBHex(ofLinear color: ShirtRGB) -> String {
     func encoded(_ linearValue: Float) -> Int {
         let clamped = Double(min(1, max(0, linearValue)))
@@ -759,6 +777,53 @@ nonisolated func sRGBHex(ofLinear color: ShirtRGB) -> String {
         return Int((encodedValue * 255).rounded())
     }
     return String(format: "#%02X%02X%02X", encoded(color.red), encoded(color.green), encoded(color.blue))
+}
+
+/// The garment's main cloth color as "#RRGGBB" in sRGB, measured from the page picture that shows its front, inside the
+/// item's corners, so it needs no cutout and serves the ghost outline, which has none, as well as the live garment. It is the
+/// mean in linear light of a band below the middle of the garment, where a print rarely reaches, leaving out pixels that match
+/// the picture's backdrop (its outer ring) unless nearly the whole band does, as on a white shirt against white, and pixels far
+/// from the band's median color. Nil when the corners enclose less than 8 pixels on a side.
+nonisolated func shirtBaseColorHex(picture: CGImage, itemCorners: RoomArtCorners) -> String? {
+    let longestSide = 256
+    guard let small = ShirtGarment.scaledDown(picture, toLongestSide: longestSide), let pixels = ShirtGarment.rgbaPixels(of: small) else { return nil }
+    let scale = Double(small.width) / Double(picture.width)
+    let corners = itemCorners.clockwiseFromTopLeft.map { SIMD2(Double($0.x) * scale, Double($0.y) * scale) }
+    guard let minX = corners.map(\.x).min(), let maxX = corners.map(\.x).max(), let minY = corners.map(\.y).min(), let maxY = corners.map(\.y).max(),
+          maxX - minX >= 8, maxY - minY >= 8 else { return nil }
+
+    // The backdrop is the median color of the picture's outer ring.
+    var ringChannels: [[UInt8]] = [[], [], []]
+    for row in 0..<small.height {
+        for column in 0..<small.width where row < 2 || column < 2 || row >= small.height - 2 || column >= small.width - 2 {
+            for channel in 0..<3 { ringChannels[channel].append(pixels[(row * small.width + column) * 4 + channel]) }
+        }
+    }
+    let backdrop = ringChannels.map { Int($0.sorted()[$0.count / 2]) }
+
+    var bandPixels: [[Int]] = []
+    var awayFromTheBackdrop: [[Int]] = []
+    let firstColumn = max(0, Int((minX + 0.35 * (maxX - minX)).rounded())), lastColumn = min(small.width - 1, Int((minX + 0.65 * (maxX - minX)).rounded()))
+    let firstRow = max(0, Int((minY + 0.55 * (maxY - minY)).rounded())), lastRow = min(small.height - 1, Int((minY + 0.9 * (maxY - minY)).rounded()))
+    guard firstColumn <= lastColumn, firstRow <= lastRow else { return nil }
+    for row in firstRow...lastRow {
+        for column in firstColumn...lastColumn where ShirtPaintMask.isInside(SIMD2(Double(column) + 0.5, Double(row) + 0.5), convexQuad: corners) {
+            let color = (0..<3).map { Int(pixels[(row * small.width + column) * 4 + $0]) }
+            bandPixels.append(color)
+            if (0..<3).contains(where: { abs(color[$0] - backdrop[$0]) >= 14 }) { awayFromTheBackdrop.append(color) }
+        }
+    }
+    let measuredBand = awayFromTheBackdrop.count * 5 >= bandPixels.count ? awayFromTheBackdrop : bandPixels
+    guard !measuredBand.isEmpty else { return nil }
+    // Only the cloth that is near the band's median is averaged, so a pixel on the garment's anti-aliased edge, halfway to the
+    // backdrop, or a button, does not lift a near-black cloth.
+    let medianColor = (0..<3).map { channel in measuredBand.map { $0[channel] }.sorted()[measuredBand.count / 2] }
+    let nearTheMedian = measuredBand.filter { color in (0..<3).allSatisfy { abs(color[$0] - medianColor[$0]) <= 48 } }
+    let measured = nearTheMedian.isEmpty ? measuredBand : nearTheMedian
+    let linearMeans = (0..<3).map { channel in
+        measured.reduce(Float(0)) { $0 + ShirtGarment.linearValueOfEachByte[$1[channel]] } / Float(measured.count)
+    }
+    return sRGBHex(ofLinear: ShirtRGB(red: linearMeans[0], green: linearMeans[1], blue: linearMeans[2]))
 }
 
 /// The product photo the Worker is sent: the page picture that shows the garment's front, cropped to its corners with a 5 percent margin, at
@@ -807,6 +872,7 @@ nonisolated func shirtPaintingRequestBody(_ request: ShirtPaintingRequest) -> [S
         "garment": [
             "kind": request.garment.kind.rawValue,
             "sleeves": request.garment.sleeves.rawValue,
+            "length": request.garment.length.rawValue,
             "baseColorHex": request.garment.baseColorHex,
             "printDescription": String(printDescription),
         ],

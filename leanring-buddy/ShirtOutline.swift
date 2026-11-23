@@ -226,6 +226,15 @@ nonisolated extension ShirtPaintMask {
         return workingMasks(rgba: rgba, personMask: personMask, previewGarmentCoverage: [UInt8](repeating: 0, count: width * height), torso: torso, width: width, height: height)?.paintable
     }
 
+    /// The area the ghost outline traces at `width` by `height`: the learner's own top (`oldGarmentArea`, nil when its color
+    /// cannot be read) joined with the area the new garment covers on `torso`, which is in the same pixels. With no own top the
+    /// coverage alone, so the ghost still shows.
+    static func ghostArea(ownTop: [Bool]?, coverage: ShirtCoverage, torso: BodyTorso, width: Int, height: Int) -> [Bool] {
+        let covered = coverage.area(for: torso).mask(width: width, height: height)
+        guard let ownTop, ownTop.count == covered.count else { return covered }
+        return zip(ownTop, covered).map { $0 || $1 }
+    }
+
     /// The paint mask's outline in the frame's pixels, traced on a copy scaled down to `outlineLongestSide`.
     static func outlineOfThePaintableArea(_ masks: ShirtPaintMasks) -> [CGPoint]? {
         let scale = min(1, Double(outlineLongestSide) / Double(max(masks.width, masks.height)))

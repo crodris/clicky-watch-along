@@ -134,6 +134,32 @@ extension CPUHeavyTests {
             #expect(RoomArtLoopOutline.closedPath(through: Array(outline.prefix(2))) == nil)
         }
 
+        @Test func theGhostOutlinesAreaJoinsTheLearnersOwnTopWithTheAreaTheGarmentCovers() throws {
+            // A 200 by 200 frame: the learner's own top is a short block over the chest, the new garment a knee-length coat.
+            let torso = BodyTorso(
+                imageLeftShoulder: CGPoint(x: 70, y: 30), imageRightShoulder: CGPoint(x: 130, y: 30),
+                imageLeftHip: CGPoint(x: 76, y: 90), imageRightHip: CGPoint(x: 124, y: 90), hipsWereEstimated: false, shouldersAreSeen: true
+            )
+            var ownTop = [Bool](repeating: false, count: 200 * 200)
+            for row in 30..<95 { for column in 70..<130 { ownTop[row * 200 + column] = true } }
+            let coverage = ShirtCoverage(sleeves: .short, length: .knee)
+
+            let area = ShirtPaintMask.ghostArea(ownTop: ownTop, coverage: coverage, torso: torso, width: 200, height: 200)
+            // Both: the old top's block, and the coat's hem far below it (torso length 60, knee at 1.85 lengths: row 141).
+            #expect(area[50 * 200 + 100] && area[130 * 200 + 100])
+            #expect(!area[150 * 200 + 100] && !area[10 * 200 + 100])
+            // The old top reaches where the coverage does not: past the coat's side margin.
+            var wideOwnTop = ownTop
+            for row in 40..<60 { for column in 40..<70 { wideOwnTop[row * 200 + column] = true } }
+            #expect(ShirtPaintMask.ghostArea(ownTop: wideOwnTop, coverage: coverage, torso: torso, width: 200, height: 200)[50 * 200 + 50])
+            // With no own top found, the coverage alone still shows, so the ghost never disappears for a color the analysis could not read.
+            let coverageAlone = ShirtPaintMask.ghostArea(ownTop: nil, coverage: coverage, torso: torso, width: 200, height: 200)
+            #expect(coverageAlone[130 * 200 + 100] && !coverageAlone[50 * 200 + 50])
+            // And the union traces as one closed outline.
+            let outline = try #require(ShirtOutline.outline(of: area, width: 200, height: 200))
+            #expect(outline.count >= 4)
+        }
+
         @Test func thePaintMasksOutlineIsInTheFramesPixels() throws {
             // A 400 by 300 mask with a rectangle, traced on a copy scaled to 200 wide and scaled back.
             var paintable = [UInt8](repeating: 0, count: 400 * 300)

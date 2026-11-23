@@ -31,9 +31,12 @@ nonisolated struct ShirtTorsoSmoother: Equatable, Sendable {
     private var lastResultTime: TimeInterval?
     /// When each elbow was last in a result. Vision's elbow confidence flickers around its floor from run to run, and a
     /// sleeve that came and went with it would jump between lying along the arm and not, so an elbow missing from a result
-    /// keeps its last place for as long as a missing torso does.
+    /// keeps its last place for as long as a missing torso does. A wrist, which a long sleeve's area follows, is held the same
+    /// way.
     private var imageLeftElbowSeenAt: TimeInterval?
     private var imageRightElbowSeenAt: TimeInterval?
+    private var imageLeftWristSeenAt: TimeInterval?
+    private var imageRightWristSeenAt: TimeInterval?
 
     /// The smoothed torso after moving toward `latestResult`, the newest pose result (nil when the last run found nobody).
     mutating func advance(toward latestResult: BodyTorso?, at time: TimeInterval) -> BodyTorso? {
@@ -45,6 +48,8 @@ nonisolated struct ShirtTorsoSmoother: Equatable, Sendable {
         lastResultTime = time
         if latestResult.imageLeftElbow != nil { imageLeftElbowSeenAt = time }
         if latestResult.imageRightElbow != nil { imageRightElbowSeenAt = time }
+        if latestResult.imageLeftWrist != nil { imageLeftWristSeenAt = time }
+        if latestResult.imageRightWrist != nil { imageRightWristSeenAt = time }
         guard let current = smoothedTorso, let lastAdvanceTime else {
             smoothedTorso = latestResult
             return latestResult
@@ -56,7 +61,7 @@ nonisolated struct ShirtTorsoSmoother: Equatable, Sendable {
         }
         let share = 1 - exp(-max(0, min(time - lastAdvanceTime, 0.2)) / Self.timeConstantSeconds)
         func moved(_ from: CGPoint, _ to: CGPoint) -> CGPoint { CGPoint(x: from.x + (to.x - from.x) * share, y: from.y + (to.y - from.y) * share) }
-        // An elbow in the result moves toward it, or appears there; one missing from it holds while it was seen recently.
+        // An elbow or wrist in the result moves toward it, or appears there; one missing from it holds while it was seen recently.
         func elbow(current currentElbow: CGPoint?, latest latestElbow: CGPoint?, seenAt: TimeInterval?) -> CGPoint? {
             if let latestElbow { return currentElbow.map { moved($0, latestElbow) } ?? latestElbow }
             guard let seenAt, time - seenAt <= Self.secondsBeforeTheTorsoIsLost else { return nil }
@@ -67,7 +72,9 @@ nonisolated struct ShirtTorsoSmoother: Equatable, Sendable {
             imageLeftHip: moved(current.imageLeftHip, latestResult.imageLeftHip), imageRightHip: moved(current.imageRightHip, latestResult.imageRightHip),
             hipsWereEstimated: latestResult.hipsWereEstimated, shouldersAreSeen: latestResult.shouldersAreSeen,
             imageLeftElbow: elbow(current: current.imageLeftElbow, latest: latestResult.imageLeftElbow, seenAt: imageLeftElbowSeenAt),
-            imageRightElbow: elbow(current: current.imageRightElbow, latest: latestResult.imageRightElbow, seenAt: imageRightElbowSeenAt)
+            imageRightElbow: elbow(current: current.imageRightElbow, latest: latestResult.imageRightElbow, seenAt: imageRightElbowSeenAt),
+            imageLeftWrist: elbow(current: current.imageLeftWrist, latest: latestResult.imageLeftWrist, seenAt: imageLeftWristSeenAt),
+            imageRightWrist: elbow(current: current.imageRightWrist, latest: latestResult.imageRightWrist, seenAt: imageRightWristSeenAt)
         )
         smoothedTorso = smoothed
         return smoothed

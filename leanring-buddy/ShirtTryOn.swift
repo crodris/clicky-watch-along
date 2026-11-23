@@ -26,8 +26,9 @@ nonisolated struct ShirtJointReading: Equatable, Sendable {
     let confidence: Float
 }
 
-/// The joints the torso needs, each nil when the pose request did not report it, and the elbows the sleeves follow. These are
-/// the person's own left and right, which the torso sorts by where they land in the image.
+/// The joints the torso needs, each nil when the pose request did not report it, the elbows the sleeves follow, and the
+/// wrists a long sleeve reaches (`ShirtCoverage`). These are the person's own left and right, which the torso sorts by where
+/// they land in the image.
 nonisolated struct ShirtBodyJointReadings: Equatable, Sendable {
     let personLeftShoulder: ShirtJointReading?
     let personRightShoulder: ShirtJointReading?
@@ -35,10 +36,13 @@ nonisolated struct ShirtBodyJointReadings: Equatable, Sendable {
     let personRightHip: ShirtJointReading?
     let personLeftElbow: ShirtJointReading?
     let personRightElbow: ShirtJointReading?
+    let personLeftWrist: ShirtJointReading?
+    let personRightWrist: ShirtJointReading?
 
     init(
         personLeftShoulder: ShirtJointReading?, personRightShoulder: ShirtJointReading?, personLeftHip: ShirtJointReading?, personRightHip: ShirtJointReading?,
-        personLeftElbow: ShirtJointReading? = nil, personRightElbow: ShirtJointReading? = nil
+        personLeftElbow: ShirtJointReading? = nil, personRightElbow: ShirtJointReading? = nil,
+        personLeftWrist: ShirtJointReading? = nil, personRightWrist: ShirtJointReading? = nil
     ) {
         self.personLeftShoulder = personLeftShoulder
         self.personRightShoulder = personRightShoulder
@@ -46,6 +50,8 @@ nonisolated struct ShirtBodyJointReadings: Equatable, Sendable {
         self.personRightHip = personRightHip
         self.personLeftElbow = personLeftElbow
         self.personRightElbow = personRightElbow
+        self.personLeftWrist = personLeftWrist
+        self.personRightWrist = personRightWrist
     }
 }
 
@@ -74,6 +80,10 @@ nonisolated struct BodyTorso: Equatable, Sendable {
     /// follow the line from each shoulder to its elbow, so the shirt is drawn without them apart when either is missing.
     let imageLeftElbow: CGPoint?
     let imageRightElbow: CGPoint?
+    /// The wrist on the image left shoulder's arm and the one on the image right's, each nil when it is not seen. A long
+    /// sleeve reaches them, so the area a garment covers follows the arm down to each (`ShirtCoverage`).
+    let imageLeftWrist: CGPoint?
+    let imageRightWrist: CGPoint?
 
     var shoulderMidpoint: CGPoint { CGPoint(x: (imageLeftShoulder.x + imageRightShoulder.x) / 2, y: (imageLeftShoulder.y + imageRightShoulder.y) / 2) }
     var hipMidpoint: CGPoint { CGPoint(x: (imageLeftHip.x + imageRightHip.x) / 2, y: (imageLeftHip.y + imageRightHip.y) / 2) }
@@ -81,7 +91,7 @@ nonisolated struct BodyTorso: Equatable, Sendable {
 
     init(
         imageLeftShoulder: CGPoint, imageRightShoulder: CGPoint, imageLeftHip: CGPoint, imageRightHip: CGPoint, hipsWereEstimated: Bool, shouldersAreSeen: Bool,
-        imageLeftElbow: CGPoint? = nil, imageRightElbow: CGPoint? = nil
+        imageLeftElbow: CGPoint? = nil, imageRightElbow: CGPoint? = nil, imageLeftWrist: CGPoint? = nil, imageRightWrist: CGPoint? = nil
     ) {
         self.imageLeftShoulder = imageLeftShoulder
         self.imageRightShoulder = imageRightShoulder
@@ -91,9 +101,9 @@ nonisolated struct BodyTorso: Equatable, Sendable {
         self.shouldersAreSeen = shouldersAreSeen
         self.imageLeftElbow = imageLeftElbow
         self.imageRightElbow = imageRightElbow
+        self.imageLeftWrist = imageLeftWrist
+        self.imageRightWrist = imageRightWrist
     }
-
-
 
     /// The torso of a pose request's observation, or nil when it has no shoulder joint at all.
     init?(observation: VNHumanBodyPoseObservation, frameSize: CGSize) {
@@ -104,7 +114,8 @@ nonisolated struct BodyTorso: Equatable, Sendable {
         let readings = ShirtBodyJointReadings(
             personLeftShoulder: reading(of: .leftShoulder), personRightShoulder: reading(of: .rightShoulder),
             personLeftHip: reading(of: .leftHip), personRightHip: reading(of: .rightHip),
-            personLeftElbow: reading(of: .leftElbow), personRightElbow: reading(of: .rightElbow)
+            personLeftElbow: reading(of: .leftElbow), personRightElbow: reading(of: .rightElbow),
+            personLeftWrist: reading(of: .leftWrist), personRightWrist: reading(of: .rightWrist)
         )
         guard let torso = BodyTorso(readings: readings, frameSize: frameSize) else { return nil }
         self = torso
@@ -136,12 +147,17 @@ nonisolated struct BodyTorso: Equatable, Sendable {
         let seenPersonRightElbow = isSeen(readings.personRightElbow) ? readings.personRightElbow.map(pixelPoint) : nil
         let imageLeftElbow = personLeftIsImageLeft ? seenPersonLeftElbow : seenPersonRightElbow
         let imageRightElbow = personLeftIsImageLeft ? seenPersonRightElbow : seenPersonLeftElbow
+        let seenPersonLeftWrist = isSeen(readings.personLeftWrist) ? readings.personLeftWrist.map(pixelPoint) : nil
+        let seenPersonRightWrist = isSeen(readings.personRightWrist) ? readings.personRightWrist.map(pixelPoint) : nil
+        let imageLeftWrist = personLeftIsImageLeft ? seenPersonLeftWrist : seenPersonRightWrist
+        let imageRightWrist = personLeftIsImageLeft ? seenPersonRightWrist : seenPersonLeftWrist
         if isSeen(readings.personLeftHip), isSeen(readings.personRightHip), let personLeftHip = readings.personLeftHip, let personRightHip = readings.personRightHip {
             let hipsInImageOrder = [pixelPoint(personLeftHip), pixelPoint(personRightHip)].sorted { $0.x < $1.x }
             self.init(
                 imageLeftShoulder: imageLeftShoulder, imageRightShoulder: imageRightShoulder,
                 imageLeftHip: hipsInImageOrder[0], imageRightHip: hipsInImageOrder[1],
-                hipsWereEstimated: false, shouldersAreSeen: shouldersAreSeen, imageLeftElbow: imageLeftElbow, imageRightElbow: imageRightElbow
+                hipsWereEstimated: false, shouldersAreSeen: shouldersAreSeen, imageLeftElbow: imageLeftElbow, imageRightElbow: imageRightElbow,
+                imageLeftWrist: imageLeftWrist, imageRightWrist: imageRightWrist
             )
             return
         }
@@ -160,7 +176,8 @@ nonisolated struct BodyTorso: Equatable, Sendable {
                 x: imageRightShoulder.x + downDirection.x * torsoLength - shoulderSpan.x * hipInset,
                 y: imageRightShoulder.y + downDirection.y * torsoLength - shoulderSpan.y * hipInset
             ),
-            hipsWereEstimated: true, shouldersAreSeen: shouldersAreSeen, imageLeftElbow: imageLeftElbow, imageRightElbow: imageRightElbow
+            hipsWereEstimated: true, shouldersAreSeen: shouldersAreSeen, imageLeftElbow: imageLeftElbow, imageRightElbow: imageRightElbow,
+            imageLeftWrist: imageLeftWrist, imageRightWrist: imageRightWrist
         )
     }
 
@@ -176,7 +193,8 @@ nonisolated struct BodyTorso: Equatable, Sendable {
         return BodyTorso(
             imageLeftShoulder: imageLeftShoulder, imageRightShoulder: imageRightShoulder,
             imageLeftHip: moved(hip: imageLeftHip, shoulder: imageLeftShoulder), imageRightHip: moved(hip: imageRightHip, shoulder: imageRightShoulder),
-            hipsWereEstimated: hipsWereEstimated, shouldersAreSeen: shouldersAreSeen, imageLeftElbow: imageLeftElbow, imageRightElbow: imageRightElbow
+            hipsWereEstimated: hipsWereEstimated, shouldersAreSeen: shouldersAreSeen, imageLeftElbow: imageLeftElbow, imageRightElbow: imageRightElbow,
+            imageLeftWrist: imageLeftWrist, imageRightWrist: imageRightWrist
         )
     }
 }
@@ -897,8 +915,9 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
     /// The front of the neck hole, top left origin, y down.
     let frontNeckPoint: CGPoint
     let frontNeckWasFound: Bool
-    /// The garment's base color, the mean in linear light of a print-free band near the hem. It fills the learner's old
-    /// shirt where the garment's outline does not reach, at the waist, under the arms, and on the tops of the shoulders.
+    /// The garment's base color in sRGB, the mean of a print-free band near the hem worked out in linear light and encoded
+    /// back. It fills the learner's old shirt where the garment's outline does not reach, at the waist, under the arms, and
+    /// on the tops of the shoulders. It is sRGB, so `sRGBHex(ofLinear:)` is not for it (see `shirtBaseColorHex`).
     let baseColor: ShirtRGB
     /// The product photo's white in linear light, per channel: its background, raised to the garment's own 98th percentile
     /// of luminance when the garment is brighter (a white shirt on a light gray sweep). The photo over this is the garment's

@@ -80,7 +80,7 @@ private func smallPicture(width: Int, height: Int) -> RoomArtPicture {
 /// A clothing reply from the Worker with the front in `frontPictureIndex` (left out when nil, as an older Worker sends it).
 private func clothingReplyData(frontPictureIndex: Int?, corners: (left: Double, top: Double, right: Double, bottom: Double)) throws -> Data {
     var clothing: [String: JSONValue] = [
-        "garment": .string("tshirt"), "sleeves": .string("short"), "chosenSizeLabel": .string("M"),
+        "garment": .string("tshirt"), "sleeves": .string("short"), "length": .string("hip"), "canBeDrawnOnTheLearner": .bool(true), "chosenSizeLabel": .string("M"),
         "photoShows": .string("onModel"), "printDescription": .string("sasquatch on the chest"),
     ]
     if let frontPictureIndex { clothing["frontPictureIndex"] = .number(Double(frontPictureIndex)) }

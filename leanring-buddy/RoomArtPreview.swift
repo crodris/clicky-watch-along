@@ -97,8 +97,11 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     /// Starts drawing a shirt instead of tracking a surface: each frame finds the torso, and `onTheFramingSettled` runs on
     /// the main actor each time the framing settles on a new kind (`ShirtFramingDebouncer`). The loop traces the torso.
     func startTheShirtTryOn(onTheFramingSettled: @escaping @Sendable (ShirtFramingKind) -> Void)
-    /// The garment to draw on every frame where the framing has settled on ready.
+    /// The preview is the live garment: the garment to draw on every frame where the framing has settled on ready.
     func wearTheGarment(_ garment: ShirtGarment)
+    /// The preview is the ghost outline: the camera stays as filmed, and the loop traces the outline of the learner's own top
+    /// joined with the area `coverage` says the garment will cover, held up as the preview.
+    func showTheGhostOutline(of coverage: ShirtCoverage)
     /// Arms the capture (`ShirtStepBackCapture`): each frame judges whether the learner stands in the ready framing and holds
     /// still, and the first frame where they have held for the whole countdown freezes the panel with the live preview's
     /// shirt on it, paired with the torso found for that same frame. `onEvent` runs on the main actor with the countdown
@@ -166,7 +169,13 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     private var shirtTryOnIsOn = false
     private let shirtPoseTracker = ShirtPoseTracker()
     private let shirtRenderer: ShirtTryOnRenderer
-    private var shirtGarment: ShirtGarment?
+    /// What the shirt shows over the learner once it is chosen: the garment itself, or the area the painting will cover. Nil
+    /// while the garment is being prepared, when the loop traces the learner's own top alone.
+    private enum ShirtPreview {
+        case liveGarment(ShirtGarment)
+        case ghostOutline(ShirtCoverage)
+    }
+    private var shirtPreview: ShirtPreview?
     private var shirtFramingDebouncer = ShirtFramingDebouncer()
     private var onTheShirtFramingSettled: (@Sendable (ShirtFramingKind) -> Void)?
     /// The armed capture, with the countdown number last reported so only a change goes to the main actor.
@@ -266,7 +275,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             self.onTheSurfaceLostOrFound = onTheSurfaceLostOrFound
             theSurfaceIsLostAsLastReported = false
             shirtTryOnIsOn = false
-            shirtGarment = nil
+            shirtPreview = nil
             shirtFramingDebouncer = ShirtFramingDebouncer()
             onTheShirtFramingSettled = nil
             shirtCapture = nil
@@ -304,7 +313,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             self.placedArt = nil
             self.crossfadeFrom = nil
             self.shirtTryOnIsOn = false
-            self.shirtGarment = nil
+            self.shirtPreview = nil
             self.shirtCapture = nil
             self.frozenShirt = nil
             self.latestShirtOutline = nil
@@ -321,7 +330,14 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     func wearTheGarment(_ garment: ShirtGarment) {
         processingQueue.async {
             guard self.shirtTryOnIsOn else { return }
-            self.shirtGarment = garment
+            self.shirtPreview = .liveGarment(garment)
+        }
+    }
+
+    func showTheGhostOutline(of coverage: ShirtCoverage) {
+        processingQueue.async {
+            guard self.shirtTryOnIsOn else { return }
+            self.shirtPreview = .ghostOutline(coverage)
         }
     }
 
@@ -377,18 +393,31 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     }
 
     private func freezeTheShirtFrameOnTheQueue(torso: BodyTorso) -> ShirtFrozenFrame? {
-        guard shirtTryOnIsOn, frozenShirt == nil, let latestFrame, let latestPersonMask, let shirtGarment else { return nil }
+        guard shirtTryOnIsOn, frozenShirt == nil, let latestFrame, let latestPersonMask, let shirtPreview else { return nil }
         let frameImage = CIImage(cvPixelBuffer: latestFrame)
         let frameExtent = frameImage.extent
         let personMask = CIImage(cvPixelBuffer: latestPersonMask, options: [.colorSpace: NSNull()])
-        guard let composition = shirtRenderer.composition(frame: frameImage, personMask: personMask, torso: torso, garment: shirtGarment) else { return nil }
         let personMaskAtFrameSize = personMask.transformed(by: CGAffineTransform(
             scaleX: frameExtent.width / personMask.extent.width, y: frameExtent.height / personMask.extent.height
         ))
         guard let cameraImage = ciContext.createCGImage(frameImage, from: frameExtent, format: .RGBA8, colorSpace: sRGBColorSpace),
-              let previewImage = ciContext.createCGImage(composition.image.cropped(to: frameExtent), from: frameExtent, format: .RGBA8, colorSpace: sRGBColorSpace),
-              let personBytes = redChannel(of: personMaskAtFrameSize, extent: frameExtent),
-              let coverageBytes = redChannel(of: composition.totalAlpha, extent: frameExtent) else { return nil }
+              let personBytes = redChannel(of: personMaskAtFrameSize, extent: frameExtent) else { return nil }
+        // The live garment freezes with its drawing on the frame and where it landed. The ghost outline draws nothing on the
+        // camera, so its frozen frame is the camera as filmed with no garment coverage, and the paint mask takes the area
+        // from `ShirtCoverage` alone.
+        let previewImage: CGImage
+        let coverageBytes: [UInt8]
+        switch shirtPreview {
+        case .liveGarment(let shirtGarment):
+            guard let composition = shirtRenderer.composition(frame: frameImage, personMask: personMask, torso: torso, garment: shirtGarment),
+                  let garmentPreviewImage = ciContext.createCGImage(composition.image.cropped(to: frameExtent), from: frameExtent, format: .RGBA8, colorSpace: sRGBColorSpace),
+                  let garmentCoverageBytes = redChannel(of: composition.totalAlpha, extent: frameExtent) else { return nil }
+            previewImage = garmentPreviewImage
+            coverageBytes = garmentCoverageBytes
+        case .ghostOutline:
+            previewImage = cameraImage
+            coverageBytes = [UInt8](repeating: 0, count: cameraImage.width * cameraImage.height)
+        }
         frozenShirt = (preview: CIImage(cgImage: previewImage), painted: nil, paintedArrivedAt: 0)
         // Until the paint mask's outline is in, the loop traces the learner's own top as last traced, held still, or no line
         // before a first trace.
@@ -442,7 +471,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     }
 
     /// Traces the learner's own top on `shirtOutlineQueue` at most every `secondsBetweenShirtOutlines`, one trace at a time,
-    /// from a small copy of the frame and the person mask made here.
+    /// from a small copy of the frame and the person mask made here. Under the ghost outline the traced area is the learner's
+    /// own top joined with the area the garment will cover (`ShirtPaintMask.ghostArea`), which is the outline held up as the
+    /// preview.
     private func traceTheShirtOutlineIfDue(in cameraFrame: CVPixelBuffer, torso: BodyTorso, now: CFTimeInterval) {
         guard !shirtOutlineIsBeingTraced, now - lastShirtOutlineStartedAt >= Self.secondsBetweenShirtOutlines else { return }
         guard let latestPersonMask else {
@@ -473,8 +504,11 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         lastShirtOutlineStartedAt = now
         let sessionWhenStarted = sessionNumber
         let smallTorso = torso.scaled(by: Double(smallWidth) / frameExtent.width)
+        let ghostCoverage: ShirtCoverage? = if case .ghostOutline(let coverage)? = shirtPreview { coverage } else { nil }
         shirtOutlineQueue.async {
-            let outline = ShirtPaintMask.oldGarmentArea(rgba: smallFrame, personMask: smallPerson, torso: smallTorso, width: smallWidth, height: smallHeight)
+            let ownTopArea = ShirtPaintMask.oldGarmentArea(rgba: smallFrame, personMask: smallPerson, torso: smallTorso, width: smallWidth, height: smallHeight)
+            let tracedArea = ghostCoverage.map { ShirtPaintMask.ghostArea(ownTop: ownTopArea, coverage: $0, torso: smallTorso, width: smallWidth, height: smallHeight) } ?? ownTopArea
+            let outline = tracedArea
                 .flatMap { ShirtOutline.outline(of: $0, width: smallWidth, height: smallHeight) }
                 .map { ShirtOutline.scaled($0, fromMaskScale: Double(smallWidth) / frameExtent.width) }
             self.processingQueue.async {
@@ -553,7 +587,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         if shirtTryOnIsOn {
             shirtTorsoToDraw = torsoForTheShirt(in: cameraFrame, frameSize: CGSize(width: frameWidth, height: frameHeight))
             // A capture freezes only on a torso found for this frame, never on where the learner stood seconds ago.
-            advanceTheShirtCapture(torso: shirtGarment == nil ? nil : shirtTorsoToDraw)
+            advanceTheShirtCapture(torso: shirtPreview == nil ? nil : shirtTorsoToDraw)
         }
 
         var artCorners: [CGPoint]?
@@ -666,7 +700,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         let secondsInTheWindow = Date().timeIntervalSince(statistics.windowStartedAt)
         guard secondsInTheWindow >= 5 else { return }
         // Logged only while the item or the live shirt shows, since that is when every stage runs.
-        if placedArt != nil || (shirtGarment != nil && frozenShirt == nil) {
+        if placedArt != nil || (shirtPreview != nil && frozenShirt == nil) {
             let framesDrawn = Double(statistics.framesDrawn)
             let frameRateReport = RoomArtFrameRateReport(
                 framesPerSecond: framesDrawn / secondsInTheWindow,
@@ -709,7 +743,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                     ])
                 }
             }
-        } else if let shirtTorso, let shirtGarment, let latestPersonMask {
+        } else if let shirtTorso, case .liveGarment(let shirtGarment)? = shirtPreview, let latestPersonMask {
             // The renderer reads the mask's values as they are, which a mask tagged with no color space keeps.
             let personMask = CIImage(cvPixelBuffer: latestPersonMask, options: [.colorSpace: NSNull()])
             composedImage = shirtRenderer.composite(frame: frameImage, personMask: personMask, torso: shirtTorso, garment: shirtGarment)
@@ -1147,7 +1181,8 @@ final class RoomArtPreviewController: ObservableObject {
         /// main actor.
         var cutOutTheFurniture: (_ picture: CGImage, _ itemCorners: RoomArtCorners) async -> CGImage?
         /// The top cut out of its product photo, nil when no garment is found: `ShirtGarment.make` for a flat lay and
-        /// `make(onModelPhoto:itemCorners:)` for a photo of it worn by a model. It runs off the main actor.
+        /// `make(onModelPhoto:itemCorners:)` for a photo of it worn by a model. It runs off the main actor, and only for a
+        /// garment the live preview may draw (`shirtLiveGarmentMayWork`).
         var makeTheShirtGarment: (_ picture: CGImage, _ itemCorners: RoomArtCorners, _ photoShows: RoomArtGarmentPhoto) async -> ShirtGarment?
         var makeFrameSource: () -> RoomFrameSource
         /// Clears a scene or pop-out on screen, whose window sits above the panel's and would hide it.
@@ -1181,9 +1216,9 @@ final class RoomArtPreviewController: ObservableObject {
         /// The same wait counted from the placement, which covers a placement whose request never goes out, such as while the
         /// learner covers the box. A test returns when it chooses.
         var waitTheLongestAfterAFurniturePlacement: () async -> Void = { try? await Task.sleep(for: .seconds(roomFurnitureSecondsToWaitForALook)) }
-        /// The masks a painting of the shirt is made with, from Vision's faces and hands in the frozen frame
-        /// (`ShirtPaintMask.make`), off the main actor, or nil when the old top cannot be found.
-        var makeTheShirtPaintMasks: (ShirtFrozenFrame) async -> ShirtPaintMasks? = { _ in nil }
+        /// The masks a painting of the shirt is made with, from Vision's faces and hands in the frozen frame and the area the
+        /// garment covers (`ShirtPaintMask.make`), off the main actor, or nil when the old top cannot be found.
+        var makeTheShirtPaintMasks: (ShirtFrozenFrame, ShirtCoverage) async -> ShirtPaintMasks? = { _, _ in nil }
         /// Paints the shirt into the frozen frame through the Worker and pastes it back (`ShirtPaintingClient`).
         var paintTheShirt: (ShirtPaintingRequest) async throws -> CGImage = { _ in throw ShirtPaintingFailure.serviceIsNotSetUp }
         /// The learner asked the open panel for something: a painting or a return to the preview, by voice or by its button,
@@ -1273,9 +1308,9 @@ final class RoomArtPreviewController: ObservableObject {
                         return composite.layers
                     }.value
                 },
-                makeTheShirtPaintMasks: { frozenFrame in
+                makeTheShirtPaintMasks: { frozenFrame, coverage in
                     await Task.detached(priority: .userInitiated) { () -> ShirtPaintMasks? in
-                        ShirtPaintMask.make(frame: frozenFrame, bodyParts: shirtPaintBodyParts(in: frozenFrame.cameraImage))
+                        ShirtPaintMask.make(frame: frozenFrame, bodyParts: shirtPaintBodyParts(in: frozenFrame.cameraImage), coverage: coverage)
                     }.value
                 },
                 paintTheShirt: { paintingRequest in try await shirtPaintingClient.paint(paintingRequest) },
@@ -1333,9 +1368,10 @@ final class RoomArtPreviewController: ObservableObject {
     private var shirtCoachingWasSaid = false
     /// The framing last settled on ready, so a garment that is ready later shows the shirt at once.
     private var theLearnerIsInFrame = false
-    /// The top being tried on, its garment, and the page picture that shows its front, which a painting describes to the
-    /// Worker and crops the product photo from, since the reading's corners are in that picture.
-    private var shirtBeingTried: (reading: RoomArtClothingReading, garment: ShirtGarment, frontPicture: CGImage)?
+    /// The clothing being tried on, its main cloth color measured from the page picture that shows its front, and that
+    /// picture, which a painting describes to the Worker and crops the product photo from, since the reading's corners are in
+    /// that picture. There is no garment cutout here: only the live preview has one, and it lives in the frame processor.
+    private var shirtBeingTried: (reading: RoomArtClothingReading, baseColorHex: String, frontPicture: CGImage)?
     /// Freezes the frame and paints the shirt into it. Going back or a close cancels it.
     private var shirtPaintingTask: Task<Void, Never>?
     private var lastShirtPaintingNumber = 0
@@ -1853,7 +1889,7 @@ final class RoomArtPreviewController: ObservableObject {
             )))
 
         case .tryOnTheShirt(let clothingReading):
-            print("Room art: \"\(clothingReading.title)\" is a \(clothingReading.garment.rawValue) photographed \(clothingReading.photoShows.rawValue), size \(clothingReading.chosenSizeLabel)")
+            print("Room art: \"\(clothingReading.title)\" is a \(clothingReading.garment.rawValue) with \(clothingReading.sleeves.rawValue) sleeves to the \(clothingReading.length.rawValue), photographed \(clothingReading.photoShows.rawValue), size \(clothingReading.chosenSizeLabel)")
             // A shirt measures no surface, so the keyframe taken during the page read is not tracked.
             earlyMeasurement?.cancel()
             earlyMeasurement = nil
@@ -1870,20 +1906,28 @@ final class RoomArtPreviewController: ObservableObject {
             let frontPicture = clothingReading.frontPictureIndex == 0 ? pictureImage : pageRequest.picture.picture(numbered: clothingReading.frontPictureIndex).flatMap { picture in
                 CGImageSourceCreateWithData(picture.jpegData as CFData, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
             }
-            guard let frontPicture else {
-                apply(phase.afterTheGarmentFailed())
+            guard let frontPicture, let baseColorHex = shirtBaseColorHex(picture: frontPicture, itemCorners: clothingReading.itemCorners) else {
+                apply(phase.afterTheShirtsPictureCouldNotBeRead())
                 return
             }
-            print("Room art: the garment's front is picture \(clothingReading.frontPictureIndex) of \(1 + pageRequest.picture.otherPictures.count)")
-            let garment = await environment.makeTheShirtGarment(frontPicture, clothingReading.itemCorners, clothingReading.photoShows)
+            print("Room art: the garment's front is picture \(clothingReading.frontPictureIndex) of \(1 + pageRequest.picture.otherPictures.count), its cloth is \(baseColorHex)")
+            // The live preview is tried only where it can work, and a cutout that fails falls to the ghost outline of the area
+            // the painting will cover, so no garment is refused for its cut or its photo (`shirtPreviewKind`).
+            let mayDrawTheGarmentLive = shirtLiveGarmentMayWork(photoShows: clothingReading.photoShows, sleeves: clothingReading.sleeves, length: clothingReading.length)
+            let garment = mayDrawTheGarmentLive ? await environment.makeTheShirtGarment(frontPicture, clothingReading.itemCorners, clothingReading.photoShows) : nil
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
-            guard let garment else {
-                apply(phase.afterTheGarmentFailed())
-                return
+            let preview: ShirtPreviewKind
+            if shirtPreviewKind(photoShows: clothingReading.photoShows, sleeves: clothingReading.sleeves, length: clothingReading.length, garmentWasCutOut: garment != nil) == .liveGarment,
+               let garment {
+                frameProcessor.wearTheGarment(garment)
+                preview = .liveGarment
+            } else {
+                frameProcessor.showTheGhostOutline(of: ShirtCoverage(reading: clothingReading))
+                preview = .ghostOutline
             }
-            frameProcessor.wearTheGarment(garment)
-            shirtBeingTried = (clothingReading, garment, frontPicture)
-            apply(phase.withTheGarmentReady(learnerIsInFrame: theLearnerIsInFrame))
+            print("Room art: the shirt shows as \(preview)")
+            shirtBeingTried = (clothingReading, baseColorHex, frontPicture)
+            apply(phase.withTheShirtPreviewReady(preview, learnerIsInFrame: theLearnerIsInFrame))
         }
     }
 
@@ -1939,7 +1983,7 @@ final class RoomArtPreviewController: ObservableObject {
     /// What the armed capture reports. Each event names the capture it came from, so one from a capture the learner
     /// restarted, cancelled, or left changes nothing.
     private func theShirtCaptureReported(_ event: ShirtCaptureEvent, id paintingID: ShirtPaintingID) {
-        guard case .waitingForTheLearnerToStepBack(_, let armedID) = phase, armedID == paintingID else { return }
+        guard case .waitingForTheLearnerToStepBack(_, let armedID, _) = phase, armedID == paintingID else { return }
         if let countdownSound = shirtCountdownSound(for: event) {
             environment.playTheShirtCountdownSound(countdownSound)
         }
@@ -1967,7 +2011,7 @@ final class RoomArtPreviewController: ObservableObject {
             @MainActor func isStillThisPainting() -> Bool { !Task.isCancelled && thisOpening == self.openingNumber }
             // A go back before this task first ran resumed nothing yet, so nothing may be sent after it.
             guard isStillThisPainting() else { return }
-            guard let masks = await environment.makeTheShirtPaintMasks(frozenFrame) else {
+            guard let masks = await environment.makeTheShirtPaintMasks(frozenFrame, ShirtCoverage(reading: shirtBeingTried.reading)) else {
                 guard isStillThisPainting() else { return }
                 theShirtPaintingFailed(.maskNotMade, id: paintingID)
                 return
@@ -1991,7 +2035,8 @@ final class RoomArtPreviewController: ObservableObject {
                 garment: ShirtPaintingGarment(
                     kind: shirtBeingTried.reading.garment,
                     sleeves: shirtBeingTried.reading.sleeves,
-                    baseColorHex: sRGBHex(ofLinear: shirtBeingTried.garment.baseColor),
+                    length: shirtBeingTried.reading.length,
+                    baseColorHex: shirtBeingTried.baseColorHex,
                     printDescription: shirtBeingTried.reading.printDescription
                 )
             )
@@ -2240,11 +2285,11 @@ final class RoomArtPreviewController: ObservableObject {
             guard !floorNotFoundWasSaid else { return }
             floorNotFoundWasSaid = true
             environment.speak(RoomArtFailure.floorNotFound.spokenLine, true)
-        case .showingTheShirt:
+        case .showingTheShirt(_, let preview):
             // The way back from a painting keeps the coaching of a learner still out of view, which the framing reports only
             // when it changes.
             if theLearnerIsInFrame { shirtCoachingLine = nil }
-            sayHereItIsOnce(roomArtShirtPreviewLine)
+            sayHereItIsOnce(preview.spokenLine)
         case .showingThePaintedShirt:
             // Said each time a painting shows, since each is a new look the learner asked for.
             environment.speak(roomArtShirtPaintedLine, false)
