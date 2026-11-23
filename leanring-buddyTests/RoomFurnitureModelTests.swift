@@ -187,6 +187,21 @@ struct RoomFurnitureFrameShareTests {
     }
 }
 
+struct RoomFurnitureAdviceForACutOffPieceTests {
+    @Test func aPieceTheFrameCutsOffByMoreThanATenthGetsAdviceAndAWholePieceGetsNone() {
+        #expect(roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: 1, floorIsInferredFromTheWall: false) == nil)
+        // 95 percent is within the margin for a sofa's feet on a desk camera, so it was never worth a line.
+        #expect(roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: 0.95, floorIsInferredFromTheWall: false) == nil)
+        #expect(roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: 0.9, floorIsInferredFromTheWall: false) == nil)
+        #expect(roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: 0.89, floorIsInferredFromTheWall: false) == roomFurnitureStepBackLine)
+    }
+
+    @Test func aLaptopCameraIsToldToTiltTheScreenDownBecauseItCannotStepBackFromTheWall() {
+        #expect(roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: 0.5, floorIsInferredFromTheWall: true) == "Tilt the screen down so I can show the whole piece.")
+        #expect(roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: 0.95, floorIsInferredFromTheWall: true) == nil)
+    }
+}
+
 struct RoomFurnitureOcclusionTests {
     @Test func theLearnerStaysInFrontUnlessThePiecesBaseIsBelowTheirFeet() {
         #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 500, personLowestRow: 719, frameHeight: 720))

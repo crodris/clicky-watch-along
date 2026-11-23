@@ -471,8 +471,19 @@ nonisolated struct RoomFurnitureSpot: Equatable, Sendable {
 nonisolated let roomFurnitureFrameMarginShare = 0.04
 /// A furniture spot may lie this much farther along the floor than the measured one, which a measuring difference covers.
 nonisolated let farthestBeyondTheMeasuredSpotMeters = 0.1
-/// What Clicky says once when no spot on the floor shows the whole piece.
+/// What Clicky adds to "Here it is" when the frame cuts off the placed piece and the floor was measured.
 nonisolated let roomFurnitureStepBackLine = "Step back so I can show the whole piece."
+/// What Clicky adds instead on a floor inferred from the wall: a laptop camera sees no floor, and stepping back from it
+/// changes nothing about how the frame cuts off the piece, while tilting the screen down shows more of the floor.
+nonisolated let roomFurnitureTiltTheScreenDownLine = "Tilt the screen down so I can show the whole piece."
+
+/// The advice that follows "Here it is" when more of the placed piece's box than `roomFurnitureShareOfTheBoxThatShowsWhole`
+/// allows is outside the frame, or nil when the whole piece shows. It is said in the same line as "Here it is", since a
+/// second line started in the same turn cancels the first before it plays.
+nonisolated func roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheFrame: Double, floorIsInferredFromTheWall: Bool) -> String? {
+    guard shareOfTheBoxInTheFrame < roomFurnitureShareOfTheBoxThatShowsWhole else { return nil }
+    return floorIsInferredFromTheWall ? roomFurnitureTiltTheScreenDownLine : roomFurnitureStepBackLine
+}
 
 /// The spot on the measured floor where the piece stands: of the floor points whose whole box (footprint and full height,
 /// from the page's size) fits inside the frame with `roomFurnitureFrameMarginShare` to spare, the one nearest the lower

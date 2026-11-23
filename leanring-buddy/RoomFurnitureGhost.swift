@@ -379,9 +379,10 @@ nonisolated enum RoomFurnitureNudgeDirection: String, CaseIterable, Sendable {
 
 /// How far a nudge moves the piece when the learner names no distance.
 nonisolated let roomFurnitureDefaultNudgeCentimeters = 30.0
-/// The share of the box in the frame above which the whole piece counts as showing, which leaves room for the clipping's
-/// rounding, so Clicky asks the learner to step back only for a piece the frame cuts off.
-nonisolated let roomFurnitureShareOfTheBoxThatShowsWhole = 0.99
+/// The share of the box in the frame above which the whole piece counts as showing. The last tenth is a margin for the
+/// clipping's rounding and for a piece only a little past an edge, since a laptop camera on a desk usually cuts off a
+/// sofa's feet and Clicky should advise the learner only when the cut is large.
+nonisolated let roomFurnitureShareOfTheBoxThatShowsWhole = 0.9
 /// Why a spoken nudge left the ghost where it was, in words the router's model reads back to the learner.
 nonisolated enum RoomFurnitureNudgeRefusal: Equatable, Sendable {
     case noGhost

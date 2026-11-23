@@ -1245,8 +1245,7 @@ struct RoomArtPreviewControllerTests {
         // step back once.
         #expect(harness.spokenLines() == [
             "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor.",
-            "Here it is, 21.5 inches wide and 17.5 tall.",
-            roomFurnitureStepBackLine,
+            "Here it is, 21.5 inches wide and 17.5 tall. \(roomFurnitureStepBackLine)",
         ])
         harness.controller.close()
     }
@@ -1274,16 +1273,60 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
-    @Test func withTheFeetBelowTheFrameTheLoopTracesTheVisibleBoxAndThePainterIsToldTheFrameCutsThemOff() async throws {
+    /// A worker that sees no floor and a wall 2.8 m away, which puts a floor 1.05 m below the camera at row 367 of the 360 row
+    /// frame, so the side table's whole footprint is below the picture, as a laptop camera that sees no floor puts it.
+    private func workerWithTheFeetBelowTheFrame() -> WorkerStub {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)
         worker.floorReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"No floor under that point"}"#))
-        // A wall 2.8 m away puts a floor 1.05 m below the camera at row 367 of the 360 row frame, so the table's whole
-        // footprint is below the picture, as a laptop camera that sees no floor puts it.
         worker.wallReply = .success(WallPlane(
             center: SIMD3(-0.3, -0.2, 2.8), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 500,
             principalPoint: SIMD2(320, 180), distanceMeters: 2.8, wallAngleDegrees: 0, planeInlierShare: 0.9
         ))
+        return worker
+    }
+
+    @Test func onAFloorInferredFromTheWallHereItIsAndTheAdviceToTiltTheScreenDownAreOneLine() async throws {
+        let harness = RoomArtHarness(worker: workerWithTheFeetBelowTheFrame(), furnitureLooks: FurnitureLookStub.thatPaintsAtOnce())
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the table to stand against the wall") { harness.artIsShowing() }
+        await letTheQueuedMainActorWorkRun()
+        // A laptop cannot step back from the wall behind it, and a second line started in this turn would cancel the first.
+        #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall. \(roomFurnitureTiltTheScreenDownLine)"])
+        #expect(harness.recorder.spokenLineFailureFlags == [false])
+        harness.controller.close()
+    }
+
+    @Test func aLaterPlacementTheFrameCutsOffStillGetsTheAdviceOnceAfterAWholePieceDidNot() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: FurnitureLookStub.thatPaintsAtOnce())
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the first painting") { harness.artIsShowing() }
+        #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
+
+        // The learner picks the table up and moves it toward the camera until the frame cuts it off.
+        let ghostCenter = try #require(harness.ghostCenterInTheFrame())
+        harness.recorder.ghostPlacer = nil
+        harness.controller.pointerPressed(atCameraPixel: ghostCenter)
+        harness.controller.pointerReleased()
+        #expect(harness.controller.nudgeTheFurniture(.closer, distanceCentimeters: 230, turnDegrees: nil) == nil)
+        let cutOffGhost = try #require(harness.controller.furnitureGhost)
+        #expect(cutOffGhost.shareOfTheBoxInTheFrame < roomFurnitureShareOfTheBoxThatShowsWhole)
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        try await waitFor("the second painting") { harness.frameProcessor.furnitureLayersShown.count == 2 }
+        await letTheQueuedMainActorWorkRun()
+
+        // "Here it is" was said, so only the advice follows, and only once.
+        #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall.", roomFurnitureStepBackLine])
+        harness.controller.close()
+    }
+
+    @Test func withTheFeetBelowTheFrameTheLoopTracesTheVisibleBoxAndThePainterIsToldTheFrameCutsThemOff() async throws {
+        let worker = workerWithTheFeetBelowTheFrame()
         let looks = FurnitureLookStub.thatPaintsAtOnce()
         let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
 
@@ -1828,9 +1871,11 @@ struct RoomArtPreviewControllerTests {
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this sofa look in my room")
 
-        try await waitFor("the sofa and the step back line") { harness.spokenLines().count == 2 }
-        #expect(harness.spokenLines().last == roomFurnitureStepBackLine)
-        #expect(harness.recorder.spokenLineFailureFlags.last == false)
+        try await waitFor("the sofa's line") { !harness.spokenLines().isEmpty }
+        await letTheQueuedMainActorWorkRun()
+        // One line holds both sentences: a second line started in the same turn cancels the first before it plays.
+        #expect(harness.spokenLines() == ["Here it is, 236 inches wide and 33.5 tall. \(roomFurnitureStepBackLine)"])
+        #expect(harness.recorder.spokenLineFailureFlags == [false])
         harness.controller.close()
     }
 

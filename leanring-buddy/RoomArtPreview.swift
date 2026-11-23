@@ -2136,11 +2136,23 @@ final class RoomArtPreviewController: ObservableObject {
                 guard let keyframeCorners = surface.keyframeCorners(of: item) else { return }
                 frameProcessor.showTheWallArt(artwork.flattenedImage, keyframeCorners: keyframeCorners)
             }
-            sayHereItIsOnce(item.hereItIsLine)
             // Whether the whole piece shows is read from where the learner placed its ghost, not from the spot search.
-            if case .furniture = item, let furnitureGhost, furnitureGhost.shareOfTheBoxInTheFrame < roomFurnitureShareOfTheBoxThatShowsWhole, !stepBackWasSaid {
+            var adviceForACutOffPiece: String?
+            if case .furniture = item, case .floor(let floor) = surface, let furnitureGhost {
+                adviceForACutOffPiece = roomFurnitureAdviceForAPieceTheFrameCutsOff(
+                    shareOfTheBoxInTheFrame: furnitureGhost.shareOfTheBoxInTheFrame, floorIsInferredFromTheWall: floor.inferredFromTheWall
+                )
+            }
+            // "Here it is" and the advice are one line: each line cancels the one waiting before it, so two lines started
+            // in this turn would play only the advice.
+            if !hereItIsWasSaid {
+                hereItIsWasSaid = true
+                stepBackWasSaid = stepBackWasSaid || adviceForACutOffPiece != nil
+                environment.speak([item.hereItIsLine, adviceForACutOffPiece].compactMap { $0 }.joined(separator: " "), false)
+            } else if let adviceForACutOffPiece, !stepBackWasSaid {
+                // A later placement that the frame cuts off, after one that it did not, still gets the advice once.
                 stepBackWasSaid = true
-                environment.speak(roomFurnitureStepBackLine, false)
+                environment.speak(adviceForACutOffPiece, false)
             }
         case .placingTheFurniture(_, let item, let surface):
             stopTheFurnituresLooks()
