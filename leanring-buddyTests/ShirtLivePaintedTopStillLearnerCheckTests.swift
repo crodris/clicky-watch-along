@@ -14,8 +14,8 @@
 //  It prints each pose run's hip and elbow confidences. With SHIRT_POSE_FIXTURE_OUT_DIR set, it writes the 480 pixel a second
 //  run's pose results there, in the form ShirtMotionBlurredPoseRecording.swift holds them for the ungated replay test.
 //  Under that blur the elbows' confidence drops around Vision's 0.3 floor, so they drop in and out of the pose.
-//  At 480 pixels a second in a 1/15 s exposure Vision finds no body at all for about 0.45 s at each fast pass, longer than
-//  the smoother's 0.4 s hold, so the still shows then (`noTorso`), and that case is left out as a known limit.
+//  At 480 pixels a second in a 1/15 s exposure, Vision finds no body at all for about 0.45 s at each fast pass. That is
+//  longer than the smoother's 0.4 s hold, so the still shows then (`noTorso`). That case is a known limit and is left out.
 //
 
 import CoreGraphics

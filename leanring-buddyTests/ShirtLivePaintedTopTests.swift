@@ -311,19 +311,24 @@ struct ShirtLivePaintedTopFollowerTests {
         let bent = replacingTheHips(of: frozenTorso(), leftHip: CGPoint(x: 230, y: 420), rightHip: CGPoint(x: 370, y: 420), hipsWereEstimated: false)
         _ = follower.advance(currentTorso: bent, at: 0.5)
         #expect(follower.reach == .outOfReach(.torsoShortened))
-        let armRaised = replacingTheLeftElbow(of: frozenTorso(), with: turned(CGPoint(x: 185, y: 350), about: CGPoint(x: 200, y: 200), degrees: 40))
-        _ = follower.advance(currentTorso: armRaised, at: 0.6)
+        // Estimated hips with the arm raised: the arm problem is recorded and the hip problem holds, so both are held.
+        let estimatedHips = replacingTheHips(of: frozenTorso(), leftHip: CGPoint(x: 230, y: 500), rightHip: CGPoint(x: 370, y: 500), hipsWereEstimated: true)
+        let armRaisedWithEstimatedHips = replacingTheLeftElbow(of: estimatedHips, with: turned(CGPoint(x: 185, y: 350), about: CGPoint(x: 200, y: 200), degrees: 40))
+        _ = follower.advance(currentTorso: armRaisedWithEstimatedHips, at: 0.6)
         #expect(follower.reach == .outOfReach(.upperArmMoved))
-        // Real hips back in place clear the hips, but the elbow is not seen, so the arm problem holds.
+        _ = follower.advance(currentTorso: replacingTheLeftElbow(of: estimatedHips, with: nil), at: 0.65)
+        #expect(follower.reach == .outOfReach(.torsoShortened))
+        // Real hips back in place clear the hip problem. The elbow is not seen, so the arm problem holds.
         _ = follower.advance(currentTorso: replacingTheLeftElbow(of: frozenTorso(), with: nil), at: 0.7)
         #expect(follower.reach == .outOfReach(.upperArmMoved))
-        _ = follower.advance(currentTorso: frozenTorso(), at: 0.8)
+        // The elbow seen back in place with estimated hips clears the arm problem, and the hips stay cleared.
+        _ = follower.advance(currentTorso: estimatedHips, at: 0.8)
         #expect(follower.reach == .follows)
     }
 
     @Test func anElbowThePaintingSawThatIsNeverSeenAgainLeavesTheArmUnjudged() {
-        // A known limit: an arm that leaves the frame, or that the blur hides through a whole raise, is not judged, so the
-        // live top keeps following with the sleeve where the painting drew it.
+        // A known limit: an arm that leaves the frame, or that the blur hides through a whole raise, is not judged. The live
+        // top keeps following, with the sleeve where the painting drew it.
         var follower = follower()
         for step in 0...10 { _ = follower.advance(currentTorso: replacingTheLeftElbow(of: frozenTorso(), with: nil), at: Double(step) * 0.1) }
         #expect(follower.reach == .follows && follower.visibility == 1)
@@ -331,9 +336,9 @@ struct ShirtLivePaintedTopFollowerTests {
 
     /// Replays Vision's results for a learner who stands still, is frozen for the painting, and then sways sideways with a
     /// webcam's motion blur, through the pose tracker's smoother at 30 frames a second, reset when the follow starts as the
-    /// frame processor resets it. The elbows drop in and out of the results under the blur. On the fast sway the still came
-    /// back while a held elbow stayed at its old pixel as the shoulder moved on, and on the slow sway with a long blur it came
-    /// back while an elbow was missing for longer than the smoother holds it.
+    /// frame processor resets it. The elbows go missing from some results under the blur. On the fast sway, the still showed
+    /// again while a held elbow stayed at its old pixel as the shoulder moved. On the slow sway with a long blur, it showed
+    /// again while an elbow was missing for longer than the smoother holds it.
     @Test(arguments: [("fast sway", fastSwayPoseRuns), ("slow sway with a long blur", slowSwayWithLongBlurPoseRuns)])
     func aSwayingLearnerWithBlurredElbowsNeverGoesBackToTheStill(recordingName: String, recordedRuns: [RecordedPoseRun]) throws {
         let frameSeconds = 1.0 / 30

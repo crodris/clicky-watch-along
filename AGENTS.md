@@ -361,9 +361,11 @@ A frame that finds an arm problem records it (`ShirtLivePaintedTopFollower`'s `l
 Only a frame that follows and sees every arm part the painting saw clears it (`ShirtLivePaintedTopReach.seesEveryArmPartThePaintingSaw`).
 Every elbow counts, and every wrist under a long sleeve, so a frame that misses one keeps the last verdict.
 A webcam's motion blur drops an elbow's confidence around the 0.3 floor while the learner moves.
-When a missing elbow counted as a moved arm, the view switched between the live top and the still each time an elbow dropped out.
-Known limit: an arm that leaves the frame, or that the blur hides through a whole raise, is not judged, so the sleeve stays where the painting drew it.
-Known limit: at a 1/15 s exposure, as in a dim room, a fast move can hide the whole body from Vision for longer than the smoother's 0.4 s hold, so the still shows for that moment.
+When a missing elbow counted as a moved arm, the view switched to the still each time an elbow was missing.
+Known limit: an arm that leaves the frame, or that the blur hides through a whole raise, is not judged.
+The sleeve then stays where the painting drew it.
+Known limit: at a 1/15 s exposure, as in a dim room, a fast move can hide the whole body from Vision.
+When that lasts longer than the smoother's 0.4 s hold, the still shows for that moment.
 Angles are measured from the shoulder line, so a rolled body keeps its arms' angles.
 A shoulder roll the hips do not share counts as sway.
 So with real hips on a torso 1.5 shoulder widths long, the sway limit ends the follow at about 8 degrees of roll, before the 25 degree roll limit does.
@@ -410,7 +412,8 @@ With both elbows seen, the sleeves are cut apart from the torso and drawn as the
 While each arm hangs below its sleeve, the sleeve keeps the angle the whole garment gives it, since a worn short sleeve stands off a hanging arm, and its opening moves further along its own axis until the old sleeve's hem is covered, to at most twice the sleeve's length (`wholeGarmentSleeveLanding(_:lengthenedToCover:...)`).
 Once an arm rises 10 degrees past its sleeve, the sleeves lie along the upper arms, each opening across its arm and moved down and widened to cover the old sleeve, and they go back once both arms are within 4 degrees (`wholeGarmentSleevesHoldTheArms`).
 A garment from a photo on a model is drawn the same way, with its own sleeves (see below).
-With an elbow missing the garment is drawn in one piece, and `ShirtTorsoSmoother` holds an elbow that drops out of one pose run for up to 0.4 seconds, moved with its own shoulder, since the motion blur that drops it means the body is moving.
+With an elbow missing the garment is drawn in one piece, and `ShirtTorsoSmoother` holds a missing elbow for up to 0.4 seconds.
+The held elbow moves with its own shoulder, since motion blur is what hides it.
 The garment is drawn only where the person mask is over 0.5, fully over 0.9, and inside that soft edge, wherever the garment or the fill reaches, the room behind the person shows instead of the old shirt's dark blend with the wall, so neither a light halo nor a dark outline is left.
 The torso's hip corners move out, by at most 0.15 shoulder widths, until its sides cover the old shirt's width measured down the body (`hipWidening`), so little fill is needed at the sides.
 Where the old shirt still shows past the garment, the fill draws the garment's base color, the mean in linear light of a band near its hem, with the same light and shading as the cloth, out to the person's edge and onto the tops of the shoulders above the shoulder line.

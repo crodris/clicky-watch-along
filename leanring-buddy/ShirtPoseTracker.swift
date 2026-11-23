@@ -64,8 +64,8 @@ nonisolated struct ShirtTorsoSmoother: Equatable, Sendable {
         let imageLeftShoulder = moved(current.imageLeftShoulder, latestResult.imageLeftShoulder)
         let imageRightShoulder = moved(current.imageRightShoulder, latestResult.imageRightShoulder)
         // An elbow or wrist in the result moves toward it, or appears there. One missing from it holds while it was seen
-        // recently, and moves with its own shoulder: motion blur is what drops it, so the body is moving, and an elbow left at
-        // its old pixel while the shoulder moved on read as an arm turned past the painted top's limit.
+        // recently, and moves with its own shoulder. Motion blur is what hides it, so the body is moving. An elbow kept at its
+        // old pixel while the shoulder moves reads as an arm turned past the painted top's limit.
         func smoothedJoint(current currentJoint: CGPoint?, latest latestJoint: CGPoint?, seenAt: TimeInterval?, shoulderMovedFrom oldShoulder: CGPoint, to newShoulder: CGPoint) -> CGPoint? {
             if let latestJoint { return currentJoint.map { moved($0, latestJoint) } ?? latestJoint }
             guard let seenAt, time - seenAt <= Self.secondsBeforeTheTorsoIsLost else { return nil }

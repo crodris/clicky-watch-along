@@ -360,8 +360,8 @@ nonisolated enum ShirtLivePaintedTopReachProblem: Equatable, Sendable {
         }
     }
 
-    /// The problem is one only a seen elbow or wrist can show, so a frame that misses one can neither find it nor clear it
-    /// (`ShirtLivePaintedTopFollower` holds it until a frame that sees every arm part the painting saw clears it).
+    /// Only a seen elbow or wrist can show this problem, so a frame that misses one can neither find it nor clear it.
+    /// `ShirtLivePaintedTopFollower` holds it until a frame sees every arm part the painting saw.
     var isAboutTheArms: Bool {
         switch self {
         case .upperArmMoved, .forearmMoved: true
@@ -517,8 +517,8 @@ nonisolated struct ShirtLivePaintedTopFollower: Sendable {
     /// turn, a bend, or a sway, so the hips' verdict changes only on a frame with real hips and holds through the frames
     /// between, whatever else those frames find.
     private var lastHipProblemSeenOnRealHips: ShirtLivePaintedTopReachProblem?
-    /// The arm problem the last arm check found, nil when the arms were fine. A frame that finds an arm problem records it, and
-    /// only a frame that follows and sees every arm part the painting saw clears it, so it holds through frames that miss one.
+    /// The arm problem the last arm check found, nil when the arms were fine. A frame that finds an arm problem records it.
+    /// Only a frame that follows and sees every arm part the painting saw clears it, so it holds through frames that miss one.
     private var lastArmProblemSeenWithTheArms: ShirtLivePaintedTopReachProblem?
 
     init(top: ShirtLivePaintedTop) {
