@@ -2,13 +2,14 @@
 //  ShirtLivePaintedTop.swift
 //  leanring-buddy
 //
-//  Paint once, then track it. OpenAI paints the store's top into one frozen frame (`ShirtPaintedStill`), and the painted
-//  still used to stay frozen until the learner went back. Here the painted top is cut out of that still and moves with the
-//  learner in the live camera view, so the one paid painting stays on them as they move.
+//  Paint once, then track it. OpenAI paints the store's top into one frozen frame (`ShirtPaintedStill`). The painted top is
+//  cut out of that still and moves with the learner in the live camera view, so the one paid painting stays on them as
+//  they move.
 //
 //  - `ShirtLivePaintedTop` is the cut-out layer (the painting inside the paint mask, with the hands, the face, and the neck
-//    left transparent so the live ones show), the whole still, and the torso the frame was frozen on. It maps the layer
-//    from the frozen torso to the current one and draws it over the live frame, clipped to the live person mask.
+//    left transparent so the live ones show), the whole still, and the torso the frame was frozen on. It moves the layer
+//    with the shoulders from the frozen torso to the current one and draws it over the live frame, its band past the paint
+//    mask clipped to the live person mask.
 //  - `ShirtLivePaintedTopReach` decides whether the learner is still close enough to the frozen pose for the layer to look
 //    right, with hysteresis so a learner at a limit does not flicker.
 //  - `ShirtLivePaintedTopFollower` is the state the frame processor keeps: the reach, how visible the live top is, and when
@@ -111,7 +112,9 @@ nonisolated struct ShirtLivePaintedTop: @unchecked Sendable {
     }
 
     /// The layer's bytes, premultiplied, first row at the top: the still where the paste took the painting (`pasteWeights`),
-    /// and clear where the mask protects the neck, the face, and the hands, so the layer over the frozen frame is the still.
+    /// and clear where the mask protects the neck, the face, and the hands. Over the frozen frame it is the still wherever its
+    /// alpha is 0 or 1, and a little softer in the 4 pixel feather and the protected regions' fades, where the paste had
+    /// already blended the painting with the frame.
     ///
     /// A hand resting on the top is a hole in the mask, and a hand that moves away must not reveal the old shirt, so a hole
     /// the top encloses below the shoulder line is filled: opaque, with colors from a normalized blur of the painted top
@@ -247,25 +250,16 @@ nonisolated struct ShirtLivePaintedTop: @unchecked Sendable {
 
     // MARK: Following the learner
 
-    /// The motion that carries the frozen torso onto `currentTorso`, in camera pixels with y down. With real hips on both it
-    /// is the affine map of the two shoulders and the hips' middle, which follows a lean and a turn of the shoulders. With a
-    /// hip estimated on either, it is the turn, scale, and shift of the shoulders alone, since an estimated hip says nothing
-    /// the shoulders do not.
+    /// The motion that carries the frozen torso onto `currentTorso`, in camera pixels with y down: the turn, scale, and shift
+    /// of the shoulders alone. A map through the hips as well would squash or shear the print with every lean, and would jump
+    /// each time a hip's confidence crosses the floor and the hips become estimated, so a torso whose hips moved against its
+    /// shoulders goes out of reach instead (`ShirtLivePaintedTopReach`).
     func transform(to currentTorso: BodyTorso) -> CGAffineTransform {
-        if !frozenTorso.hipsWereEstimated, !currentTorso.hipsWereEstimated,
-           let affine = ShirtTryOnRenderer.affineTransform(from: Self.anchors(of: frozenTorso), to: Self.anchors(of: currentTorso)) {
-            return affine
-        }
-        return ShirtTryOnRenderer.motion(from: frozenTorso, to: currentTorso)
-    }
-
-    private static func anchors(of torso: BodyTorso) -> [CGPoint] {
-        [torso.imageLeftShoulder, torso.imageRightShoulder, torso.hipMidpoint]
+        ShirtTryOnRenderer.motion(from: frozenTorso, to: currentTorso)
     }
 
     /// The frame with the layer moved by `transform` (y down) drawn over it, its band past the paint mask clipped to the live
-    /// person mask, dissolved with
-    /// the painted still by `visibility`: 0 is the still, 1 is the live top. `personMask` is white where the person is, at any
+    /// person mask, dissolved with the painted still by `visibility`: 0 is the still, 1 is the live top. `personMask` is white where the person is, at any
     /// size, read as its values are (made with no color space), as the renderer reads it. The still is returned as it is at
     /// 0, and the live image alone at 1, so neither pays for the other.
     func composite(frame: CIImage, personMask: CIImage, transform: CGAffineTransform, visibility: Double) -> CIImage {
@@ -348,6 +342,10 @@ nonisolated enum ShirtLivePaintedTopReachProblem: Equatable, Sendable {
     case shouldersRolled
     /// Turned to the side, so the shoulders are narrow for the torso's length.
     case turnedSideways
+    /// Bent toward the camera or leaned back, so the torso is short for the shoulders' width.
+    case torsoShortened
+    /// The hips swayed sideways under the shoulders.
+    case hipsSwayed
     /// An upper arm moved from where it hung in the painting.
     case upperArmMoved
     /// A forearm moved from where it hung in the painting, which matters only under a long sleeve.
@@ -366,9 +364,13 @@ nonisolated enum ShirtLivePaintedTopReach: Equatable, Sendable {
     /// The shoulder line's tilt from the painting's, in degrees. More turns the picture's body out of its plane.
     static let largestShoulderRollDegrees = 25.0
     /// The shoulder width over the shoulder to hip length, against the painting's. A turn to the side narrows the shoulders
-    /// and not the torso, so below this share the learner is no longer facing the camera. Real hips only, since estimated hips
-    /// make the ratio constant.
-    static let smallestSidewaysShare = 0.8
+    /// and not the torso, so below the lower bound the learner is no longer facing the camera, and a bend toward the camera
+    /// or a lean back shortens the torso, so above the upper bound the hem would no longer meet the hips, since the top moves
+    /// with the shoulders alone. Real hips only, since estimated hips make the ratio constant.
+    static let torsoShapeShareRange = 0.8...1.25
+    /// How far the hips' middle may move sideways under the shoulders' middle, along the shoulder line, against the
+    /// painting's, in shoulder widths. Past this the hem no longer meets the hips. Real hips only.
+    static let largestHipSwayInShoulderWidths = 0.2
     /// An upper arm's angle against the shoulder line, from the painting's, in degrees. The sleeve's cloth bends with the arm.
     static let largestUpperArmTurnDegrees = 15.0
     /// The same for a forearm, which only a long sleeve covers.
@@ -391,7 +393,11 @@ nonisolated enum ShirtLivePaintedTopReach: Equatable, Sendable {
 
         if !frozenTorso.hipsWereEstimated, !currentTorso.hipsWereEstimated,
            let frozenRatio = shoulderWidthOverTorsoLength(of: frozenTorso), let currentRatio = shoulderWidthOverTorsoLength(of: currentTorso) {
-            guard currentRatio / frozenRatio >= 1 - (1 - smallestSidewaysShare) * share else { return .outOfReach(.turnedSideways) }
+            let torsoShape = currentRatio / frozenRatio
+            guard torsoShape >= 1 - (1 - torsoShapeShareRange.lowerBound) * share else { return .outOfReach(.turnedSideways) }
+            guard torsoShape <= 1 + (torsoShapeShareRange.upperBound - 1) * share else { return .outOfReach(.torsoShortened) }
+            let sway = abs(hipSwayInShoulderWidths(of: currentTorso) - hipSwayInShoulderWidths(of: frozenTorso))
+            guard sway <= largestHipSwayInShoulderWidths * share else { return .outOfReach(.hipsSwayed) }
         }
 
         for (frozenArm, currentArm) in zip(armAngles(of: frozenTorso), armAngles(of: currentTorso)) {
@@ -411,6 +417,15 @@ nonisolated enum ShirtLivePaintedTopReach: Equatable, Sendable {
     /// The direction of the line from the image left shoulder to the image right one, in radians.
     private static func shoulderLineAngle(of torso: BodyTorso) -> Double {
         atan2(Double(torso.imageRightShoulder.y - torso.imageLeftShoulder.y), Double(torso.imageRightShoulder.x - torso.imageLeftShoulder.x))
+    }
+
+    /// How far the hips' middle sits along the shoulder line from the shoulders' middle, in shoulder widths, image right
+    /// positive.
+    private static func hipSwayInShoulderWidths(of torso: BodyTorso) -> Double {
+        let shoulderLine = SIMD2(Double(torso.imageRightShoulder.x - torso.imageLeftShoulder.x), Double(torso.imageRightShoulder.y - torso.imageLeftShoulder.y))
+        let hipsFromTheShoulders = SIMD2(Double(torso.hipMidpoint.x - torso.shoulderMidpoint.x), Double(torso.hipMidpoint.y - torso.shoulderMidpoint.y))
+        let shoulderWidthSquared = simd_length_squared(shoulderLine)
+        return shoulderWidthSquared > 1 ? simd_dot(hipsFromTheShoulders, shoulderLine) / shoulderWidthSquared : 0
     }
 
     private static func shoulderWidthOverTorsoLength(of torso: BodyTorso) -> Double? {

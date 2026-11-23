@@ -851,8 +851,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         statistics.trackMillisecondsTotal += trackMilliseconds
         let secondsInTheWindow = Date().timeIntervalSince(statistics.windowStartedAt)
         guard secondsInTheWindow >= 5 else { return }
-        // Logged only while the item or the live shirt shows, since that is when every stage runs.
-        if placedArt != nil || (shirtPreview != nil && frozenShirt == nil) {
+        // Logged only while the item, the live shirt, or the painted top following the learner shows, since that is when
+        // every stage runs.
+        if placedArt != nil || (shirtPreview != nil && frozenShirt == nil) || livePaintedTop?.follower.hasStarted == true {
             let framesDrawn = Double(statistics.framesDrawn)
             let frameRateReport = RoomArtFrameRateReport(
                 framesPerSecond: framesDrawn / secondsInTheWindow,
@@ -962,7 +963,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     }
 
     /// What Save photo writes: the painted still once it has arrived, so a save during its 0.5 s crossfade writes the
-    /// finished still and never a mix of it with the frozen preview, and otherwise the last frame as drawn.
+    /// finished still and never a mix of it with the frozen preview, and otherwise the last frame as drawn. While the painted
+    /// top follows the learner live, the still is saved too: it is the painting itself, and the live top is the same
+    /// painting moved with the shoulders, which is close to it only while the learner stands near the frozen pose.
     static func imageToSave(lastComposedImage: CIImage?, paintedStill: CIImage?) -> CIImage? {
         guard let paintedStill else { return lastComposedImage }
         return paintedStill.cropped(to: lastComposedImage?.extent ?? paintedStill.extent)

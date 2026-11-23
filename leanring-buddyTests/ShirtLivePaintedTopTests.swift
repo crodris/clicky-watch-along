@@ -69,6 +69,15 @@ private func replacingTheLeftWrist(of torso: BodyTorso, with wrist: CGPoint?) ->
     )
 }
 
+/// `torso` with both hips replaced.
+private func replacingTheHips(of torso: BodyTorso, leftHip: CGPoint, rightHip: CGPoint, hipsWereEstimated: Bool) -> BodyTorso {
+    BodyTorso(
+        imageLeftShoulder: torso.imageLeftShoulder, imageRightShoulder: torso.imageRightShoulder,
+        imageLeftHip: leftHip, imageRightHip: rightHip, hipsWereEstimated: hipsWereEstimated, shouldersAreSeen: torso.shouldersAreSeen,
+        imageLeftElbow: torso.imageLeftElbow, imageRightElbow: torso.imageRightElbow, imageLeftWrist: torso.imageLeftWrist, imageRightWrist: torso.imageRightWrist
+    )
+}
+
 // MARK: - The reach rule
 
 struct ShirtLivePaintedTopReachTests {
@@ -141,6 +150,31 @@ struct ShirtLivePaintedTopReachTests {
         // Estimated hips are always 1.45 shoulder widths down, so their ratio says nothing, and the painting's own hips do not count either.
         #expect(decide(narrowed(hipsWereEstimated: true)) == .follows)
         #expect(decide(narrowed(hipsWereEstimated: false), frozen: frozenTorso(hipsWereEstimated: true)) == .follows)
+    }
+
+    @Test func aBendTowardTheCameraShortensTheTorsoAndGoesOutOfReach() {
+        func hipsAt(y hipsY: Double, hipsWereEstimated: Bool = false) -> BodyTorso { replacingTheHips(of: frozenTorso(), leftHip: CGPoint(x: 230, y: hipsY), rightHip: CGPoint(x: 370, y: hipsY), hipsWereEstimated: hipsWereEstimated) }
+        // The frozen torso is 300 pixels from shoulders to hips. At 220 the shoulders are 1.36 times as wide for its length.
+        #expect(decide(hipsAt(y: 420)) == .outOfReach(.torsoShortened))
+        // At 250 (1.2) it follows, and coming back takes being within 0.7 of the way to 1.25, which is 1.175.
+        #expect(decide(hipsAt(y: 450), wasFollowing: true) == .follows)
+        #expect(decide(hipsAt(y: 450), wasFollowing: false) == .outOfReach(.torsoShortened))
+        #expect(decide(hipsAt(y: 460), wasFollowing: false) == .follows)
+        // Estimated hips say nothing about a bend.
+        #expect(decide(hipsAt(y: 420, hipsWereEstimated: true)) == .follows)
+    }
+
+    @Test func hipsThatSwaySidewaysUnderTheShouldersGoOutOfReach() {
+        func hipsShifted(by shift: Double, hipsWereEstimated: Bool = false) -> BodyTorso {
+            replacingTheHips(of: frozenTorso(), leftHip: CGPoint(x: 230 + shift, y: 500), rightHip: CGPoint(x: 370 + shift, y: 500), hipsWereEstimated: hipsWereEstimated)
+        }
+        // The shoulders are 200 pixels apart, so the 0.2 shoulder width limit is 40 pixels.
+        #expect(decide(hipsShifted(by: 50)) == .outOfReach(.hipsSwayed))
+        #expect(decide(hipsShifted(by: -50)) == .outOfReach(.hipsSwayed))
+        #expect(decide(hipsShifted(by: 35), wasFollowing: true) == .follows)
+        #expect(decide(hipsShifted(by: 35), wasFollowing: false) == .outOfReach(.hipsSwayed))
+        #expect(decide(hipsShifted(by: 25), wasFollowing: false) == .follows)
+        #expect(decide(hipsShifted(by: 50, hipsWereEstimated: true)) == .follows)
     }
 
     @Test func anUpperArmMayTurnFifteenDegreesFromTheShoulderLineAndComingBackTakesTenAndAHalf() {
@@ -547,7 +581,7 @@ struct ShirtLivePaintedTopCompositeTests {
         }
     }
 
-    @Test func withAnEstimatedHipOnEitherTorsoTheMotionIsTheShouldersTurnScaleAndShiftAlone() {
+    @Test func theMotionIsTheShouldersTurnScaleAndShiftAloneWhateverTheHipsDo() {
         func torso(hipsY: Double, hipsWereEstimated: Bool) -> BodyTorso {
             BodyTorso(
                 imageLeftShoulder: CGPoint(x: 200, y: 200), imageRightShoulder: CGPoint(x: 400, y: 200),
@@ -557,19 +591,15 @@ struct ShirtLivePaintedTopCompositeTests {
         func top(frozen: BodyTorso) -> ShirtLivePaintedTop {
             ShirtLivePaintedTop(layer: CIImage(color: .clear), still: CIImage(color: .clear), paintedArea: CIImage(color: .clear), frozenTorso: frozen, followsTheForearms: false)
         }
-        // The shoulders have not moved, and the hips are somewhere else, as estimated hips are.
-        for (frozen, current) in [
-            (torso(hipsY: 500, hipsWereEstimated: false), torso(hipsY: 400, hipsWereEstimated: true)),
-            (torso(hipsY: 500, hipsWereEstimated: true), torso(hipsY: 400, hipsWereEstimated: false)),
-        ] {
-            let transform = top(frozen: frozen).transform(to: current)
-            #expect(abs(transform.a - 1) < 1e-9 && abs(transform.d - 1) < 1e-9 && abs(transform.tx) < 1e-9 && abs(transform.ty) < 1e-9)
+        // The shoulders have not moved and the hips have, whether each is seen or estimated: a hip flag that flickers from
+        // frame to frame never moves the top.
+        for (frozenHipsEstimated, currentHipsEstimated) in [(false, false), (false, true), (true, false), (true, true)] {
+            let transform = top(frozen: torso(hipsY: 500, hipsWereEstimated: frozenHipsEstimated)).transform(to: torso(hipsY: 400, hipsWereEstimated: currentHipsEstimated))
+            #expect(abs(transform.a - 1) < 1e-9 && abs(transform.d - 1) < 1e-9 && abs(transform.b) < 1e-9 && abs(transform.c) < 1e-9)
+            #expect(abs(transform.tx) < 1e-9 && abs(transform.ty) < 1e-9)
         }
-        // With real hips on both, the hips' middle is part of the map: the torso is two thirds as long.
-        let withRealHips = top(frozen: torso(hipsY: 500, hipsWereEstimated: false)).transform(to: torso(hipsY: 400, hipsWereEstimated: false))
-        #expect(abs(withRealHips.d - 2.0 / 3) < 1e-9)
-        // A turn and a scale of the shoulders alone is a similarity: no shear, and the same scale along both axes.
-        let turned = moved(frozenTorso(hipsWereEstimated: true), by: turnAndScale(about: CGPoint(x: 300, y: 200), degrees: 6, scale: 1.1))
+        // A turn and a scale of the shoulders is a similarity: no shear, and the same scale along both axes.
+        let turned = moved(frozenTorso(), by: turnAndScale(about: CGPoint(x: 300, y: 200), degrees: 6, scale: 1.1))
         let similarity = top(frozen: frozenTorso()).transform(to: turned)
         #expect(abs(similarity.a - similarity.d) < 1e-9 && abs(similarity.b + similarity.c) < 1e-9)
         for (frozenPoint, currentPoint) in [(frozenTorso().imageLeftShoulder, turned.imageLeftShoulder), (frozenTorso().imageRightShoulder, turned.imageRightShoulder)] {
