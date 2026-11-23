@@ -171,7 +171,7 @@ If you want to do it yourself, here's the deal.
 ### Prerequisites
 
 - macOS 14.2+ (for ScreenCaptureKit)
-- Xcode 27 (CI builds with Xcode 27.2)
+- Xcode 26 or later (CI builds with Xcode 27.2)
 - Node.js 18+ and pnpm 12 (for the Cloudflare Worker)
 - Go 1.27+ (the app's build compiles the task agent's harness in `harness/`)
 - A [Cloudflare](https://cloudflare.com) account (free tier works)

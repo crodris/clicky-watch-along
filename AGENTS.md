@@ -1474,7 +1474,7 @@ The hosted tests need a desktop session to reach `testmanagerd`, so after a rest
 While the Mac sleeps or the runner's user is logged out, these jobs wait, and GitHub cancels a job that waits over 24 hours.
 On the Mac runner, a step fails the job when `xcodebuild -version` is not Xcode 27.2.
 After updating Xcode, update every `27.2` in `ci.yml`, this file, and `README.md`.
-Fork pull requests run on GitHub's `macos-latest`, and the repo requires approval before an outside contributor's workflow runs.
+Fork pull requests run on GitHub's `macos-latest` with Xcode 26.5, since that image has no Xcode 27 yet, and the repo requires approval before an outside contributor's workflow runs.
 A fork can change `runs-on` or add a workflow, so never approve a fork run whose diff touches `.github/`.
 
 ## Verification
