@@ -453,8 +453,8 @@ nonisolated func voiceCommandFurnitureGhostState(_ ghost: RoomFurnitureGhost) ->
 
 /// The ghost draws itself the first time it appears and each time a placed piece is picked back up, the way the theme's
 /// cursor glyph draws the loop: the glyph leaves the measuring loop's line (`handoff`), traces the footprint, rides up
-/// each dashed corner post in turn, then draws the top outline, and the fill, the shadow, and the size pill come in last. Every part is
-/// a pure function of the time since the draw began, so a test reads any moment.
+/// each dashed corner post in turn, then draws the top outline, and the fill, the shadow, and the size pill come in last.
+/// Every part is a pure function of the time since the draw began, so a test reads any moment.
 nonisolated enum RoomFurnitureGhostDrawTimeline {
     static let handoffSeconds = 0.2
     static let footprintSeconds = 0.45

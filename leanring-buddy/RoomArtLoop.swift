@@ -27,9 +27,11 @@ enum RoomArtLoopState: Equatable {
     /// The whole line stays where a click arranges the item again, with no glyph lapping it, since no work runs until the
     /// learner clicks.
     case waitingForAClick(beganAt: TimeInterval)
-    /// `tracesTheLine` is the state it left: a lapping glyph keeps lapping while the line fades, and a still line fades with
-    /// no glyph appearing on it.
-    case fadingOut(beganAt: TimeInterval, tracesTheLine: Bool)
+    /// `tracesTheLine` says whether a glyph laps the line while it fades: a lapping loop keeps lapping, and a still line fades
+    /// with no glyph appearing on it. The ghost appearing fades a lapping loop still, since its glyph leaves for the ghost's
+    /// lines, and `stillDrawnShare` keeps as much of the line as was drawn then, so a loop still in its first trace does not
+    /// finish itself with no glyph drawing it.
+    case fadingOut(beganAt: TimeInterval, tracesTheLine: Bool, stillDrawnShare: Double = 1)
 
     /// The panel's phase changed. The loop starts with a measurement, a first one or a click's, and with a shirt being
     /// prepared, and keeps its clock while the work goes on: while placed furniture waits for its painting around its ghost's
@@ -49,7 +51,10 @@ enum RoomArtLoopState: Equatable {
         // the loop fades whole and still, with no second glyph lapping it.
         case .placingTheFurniture:
             switch self {
-            case .drawing(let beganAt), .waitingForAClick(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)
+            case .drawing(let beganAt):
+                let drawnShare = CursorLoopTimeline.lappingFrame(secondsSinceTheLoopBegan: now - beganAt).drawnShare
+                return .fadingOut(beganAt: beganAt, tracesTheLine: false, stillDrawnShare: drawnShare)
+            case .waitingForAClick(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)
             case .hidden, .fadingOut: return self
             }
         case .showing, .waitingForAFloorClick, .showingTheShirt, .failed:
@@ -81,15 +86,21 @@ enum RoomArtLoopState: Equatable {
     var tracesTheLine: Bool {
         switch self {
         case .waitingForAClick: return false
-        case .fadingOut(_, let tracesTheLine): return tracesTheLine
+        case .fadingOut(_, let tracesTheLine, _): return tracesTheLine
         case .hidden, .drawing: return true
         }
+    }
+
+    /// How much of the line a still loop shows: all of it, except a fade the ghost started during the loop's first trace.
+    var stillDrawnShare: Double {
+        if case .fadingOut(_, _, let stillDrawnShare) = self { return stillDrawnShare }
+        return 1
     }
 
     var beganAt: TimeInterval? {
         switch self {
         case .hidden: return nil
-        case .drawing(let beganAt), .waitingForAClick(let beganAt), .fadingOut(let beganAt, _): return beganAt
+        case .drawing(let beganAt), .waitingForAClick(let beganAt), .fadingOut(let beganAt, _, _): return beganAt
         }
     }
 }
@@ -270,10 +281,14 @@ struct RoomArtLoopDrawingPlan: Equatable {
     let showsTheTracer: Bool
 
     /// The glyph traces the line from the loop's first moment and keeps lapping it, since the panel has no cursor to fly in.
-    /// With Reduce Motion on, the whole line shows at once with no glyph, and the view fades it in.
-    static func at(secondsSinceTheLoopBegan: TimeInterval, reduceMotionIsOn: Bool, tracesTheLine: Bool) -> RoomArtLoopDrawingPlan {
-        if reduceMotionIsOn || !tracesTheLine {
+    /// With Reduce Motion on, the whole line shows at once with no glyph, and the view fades it in. A still line shows
+    /// `stillDrawnShare` of itself with no glyph.
+    static func at(secondsSinceTheLoopBegan: TimeInterval, reduceMotionIsOn: Bool, tracesTheLine: Bool, stillDrawnShare: Double = 1) -> RoomArtLoopDrawingPlan {
+        if reduceMotionIsOn {
             return RoomArtLoopDrawingPlan(frame: CursorLoopTimeline.Frame(drawnShare: 1, tracer: .lapping(lapShare: 0)), showsTheTracer: false)
+        }
+        if !tracesTheLine {
+            return RoomArtLoopDrawingPlan(frame: CursorLoopTimeline.Frame(drawnShare: stillDrawnShare, tracer: .lapping(lapShare: 0)), showsTheTracer: false)
         }
         return RoomArtLoopDrawingPlan(
             frame: CursorLoopTimeline.lappingFrame(secondsSinceTheLoopBegan: secondsSinceTheLoopBegan),
@@ -337,7 +352,9 @@ struct RoomArtLoopView: View {
             // The frame is worked out here, outside the Canvas, because SwiftUI redraws a Canvas only when a value its
             // closure captured changes, and the clock and the tracker are not such values.
             let secondsSinceTheLoopBegan = state.beganAt.map { ProcessInfo.processInfo.systemUptime - $0 } ?? 0
-            let plan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: secondsSinceTheLoopBegan, reduceMotionIsOn: reduceMotion, tracesTheLine: state.tracesTheLine)
+            let plan = RoomArtLoopDrawingPlan.at(
+                secondsSinceTheLoopBegan: secondsSinceTheLoopBegan, reduceMotionIsOn: reduceMotion, tracesTheLine: state.tracesTheLine, stillDrawnShare: state.stillDrawnShare
+            )
             RoomArtLoopCanvas(outline: outlineProvider(), frame: plan.frame, color: color, tracerLook: tracerLook, showsTheTracer: plan.showsTheTracer)
         }
         .opacity(state.isFadingOut || (reduceMotion && !hasAppeared) ? 0 : 1)

@@ -87,6 +87,13 @@ struct RoomArtLoopStateTests {
         #expect(fadingStill.after(phaseChangedTo: arranging, at: 44) == .drawing(beganAt: 44))
         // The ghost appearing fades a tracing loop whole and still, since its glyph leaves for the ghost, so one glyph shows.
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: placing, at: 41) == .fadingOut(beganAt: 10, tracesTheLine: false))
+        // A ghost that appears during the loop's first trace keeps only the part already drawn, with no glyph finishing it.
+        let fadingMidTrace = RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: placing, at: 10.5)
+        let drawnAtTheHandOff = CursorLoopTimeline.lappingFrame(secondsSinceTheLoopBegan: 0.5).drawnShare
+        #expect(drawnAtTheHandOff < 1)
+        #expect(fadingMidTrace == .fadingOut(beganAt: 10, tracesTheLine: false, stillDrawnShare: drawnAtTheHandOff))
+        let midTracePlan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 0.8, reduceMotionIsOn: false, tracesTheLine: false, stillDrawnShare: fadingMidTrace.stillDrawnShare)
+        #expect(midTracePlan.frame.drawnShare == drawnAtTheHandOff && !midTracePlan.showsTheTracer)
         // The piece showing fades a tracing loop with its glyph lapping, and a still line still.
         let showing = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: nil)
         #expect(waiting.after(phaseChangedTo: showing, at: 41) == .fadingOut(beganAt: 10, tracesTheLine: false))
