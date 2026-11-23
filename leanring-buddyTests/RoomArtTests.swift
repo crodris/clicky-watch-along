@@ -728,6 +728,11 @@ struct RoomArtPhraseTests {
         "how would this mug look on my table",
         "put this lamp on my desk",
         "what would this vase look like on my shelf",
+        // A table or shelf already in the room, such as a table Clicky painted there.
+        "how would this lamp look on the table",
+        "put this vase on the shelf",
+        "how would this lamp look on that table",
+        "can I see this plant on the desk",
         // A shirt is drawn on the learner.
         "could I see this shirt on me",
         "how would this look on me",
@@ -763,6 +768,9 @@ struct RoomArtPhraseTests {
         "how would this look next to the lamp in my room",
         "what's on my desk",
         "clean my table",
+        "what's on the table",
+        "what is on that shelf",
+        "clean the table",
         // "On me" or "try on" with no item to place, or "on" that starts another phrase.
         "what's on me",
         "is there something on me",
@@ -917,6 +925,23 @@ struct RoomArtReadingPlanTests {
 struct RoomArtPhaseTests {
     private let firstMeasurement = RoomArtMeasurementID(number: 1)
     private let secondMeasurement = RoomArtMeasurementID(number: 2)
+
+    @Test func onlyAnItemThatShowsKeepsTheRoomForANewItem() {
+        #expect(RoomArtPhase.showing(item: .wallArt(artwork()), surface: .wall(wall), moveFailure: nil).keepsTheRoomForANewItem)
+        #expect(RoomArtPhase.showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil).keepsTheRoomForANewItem)
+        // A ghost the learner still moves, a piece still being arranged, and a shirt start over.
+        let notShowing: [RoomArtPhase] = [
+            .closed, .readingThePage, .waitingForTheCamera(.furniture(furniture())),
+            .placingTheFurniture(id: firstMeasurement, item: .furniture(furniture()), surface: .floor(floor)),
+            .arranging(id: firstMeasurement, item: .furniture(furniture()), surface: .floor(floor)),
+            .couldNotDraw(id: firstMeasurement, item: .furniture(furniture()), surface: .floor(floor)),
+            .waitingForAFloorClick(.furniture(furniture(standsOn: .tableOrShelf))),
+            .showingTheShirt(title: "Linen shirt"), .showingThePaintedShirt(title: "Linen shirt"), .failed(.pageNotRead),
+        ]
+        for phase in notShowing {
+            #expect(!phase.keepsTheRoomForANewItem, "\(phase)")
+        }
+    }
 
     @Test func thePageIsReadFirstThenTheItemWaitsForTheCameraThenItsSurfaceIsMeasured() {
         let reading = RoomArtPhase.closed.opening()

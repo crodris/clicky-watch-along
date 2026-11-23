@@ -1275,9 +1275,18 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
 
     // MARK: Transitions
 
-    /// The learner asked to try the item. A panel already open starts over.
+    /// The learner asked to try the item. A panel already open starts over, or, while an item shows, reads the new page in the
+    /// same room (`keepsTheRoomForANewItem`).
     func opening() -> RoomArtPhase {
         .readingThePage
+    }
+
+    /// A wall item, or a standing item whose painting or render shows. A new request then keeps the room: the item stays in
+    /// it, and the new item is placed into the same keyframe beside or on it, as a lamp on a painted table. Every other open
+    /// phase, a ghost the learner still moves or a shirt included, starts over.
+    var keepsTheRoomForANewItem: Bool {
+        if case .showing = self { return true }
+        return false
     }
 
     /// A wall item or a standing item was read and its picture prepared, so its surface can be measured once the camera has a frame.
@@ -1621,7 +1630,7 @@ nonisolated struct RoomArtRequestRecord: Equatable, Sendable {
 // MARK: - The phrase that asks for it
 
 /// Whether the learner asks to see this item placed in their own room or on themselves: a room phrase ("in my room", "on my
-/// wall", "on my desk", "on the wall behind me", "on me", ...) right after either a placing verb and the item ("show this", "put it",
+/// wall", "on my desk", "on the table", "on that shelf", "on the wall behind me", "on me", ...) right after either a placing verb and the item ("show this", "put it",
 /// "can I see this", "hang that print", "could I see this shirt") or the item and a look ("how would this look", "what
 /// would that poster look like", "would this look good", "how would this look hanging"), or "try" with the item and "on"
 /// ending the request ("can I try this on", "try on that shirt"). The item is "this", "it", or "that", or "this", "that",
@@ -1633,14 +1642,16 @@ nonisolated func asksToSeeArtInMyRoom(_ transcript: String) -> Bool {
         .components(separatedBy: CharacterSet.alphanumerics.union(apostrophes).inverted)
         .map { $0.trimmingCharacters(in: apostrophes) }
         .filter { !$0.isEmpty }
+    // A table or shelf item sits on a surface the learner clicks: "how would this mug look on my desk", or, on a table Clicky
+    // already painted into the room, "how would this lamp look on the table" or "put this vase on that shelf".
+    let surfacePhrases = ["my", "the", "that", "this"].flatMap { owner in
+        ["table", "desk", "shelf", "counter", "dresser", "nightstand"].map { surface in ["on", owner, surface] }
+    }
     let roomPhrases: [[String]] = [
         ["in", "my", "room"], ["on", "my", "wall"], ["in", "my", "living", "room"], ["in", "my", "bedroom"],
         ["in", "my", "office"], ["in", "my", "house"], ["in", "my", "home"], ["in", "my", "apartment"],
-        ["in", "my", "space"], ["on", "the", "wall", "behind", "me"], ["on", "me"],
-        // A table or shelf item sits on a surface the learner clicks: "how would this mug look on my desk".
-        ["on", "my", "table"], ["on", "my", "desk"], ["on", "my", "shelf"], ["on", "my", "counter"],
-        ["on", "my", "dresser"], ["on", "my", "nightstand"], ["on", "my", "floor"],
-    ]
+        ["in", "my", "space"], ["on", "the", "wall", "behind", "me"], ["on", "me"], ["on", "my", "floor"],
+    ] + surfacePhrases
     let placingVerbs: Set<String> = [
         "show", "see", "try", "put", "hang", "place", "preview", "picture", "visualize", "imagine",
     ]

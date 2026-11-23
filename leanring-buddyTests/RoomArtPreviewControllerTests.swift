@@ -10,6 +10,7 @@
 
 import Combine
 import CoreGraphics
+import CoreImage
 import CoreVideo
 import Foundation
 import ImageIO
@@ -74,6 +75,18 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     private var recordedFurnitureLayersShown: [(look: RoomFurnitureLook, keyframeNumber: Int)] = []
     private var recordedLoopOutlines: [(point: CGPoint, keyframeNumber: Int)] = []
     private var keyframesTaken = 0
+    private var recordedSessionsStarted = 0
+    /// The newest furniture look shown and not hidden since, which a fix draws into the keyframe.
+    private var newestItem: RoomArtFrameProcessor.PlacedArt?
+    /// The items fixed into the room, oldest first, and the keyframe with them drawn in by the real bake
+    /// (`RoomArtFrameProcessor.keyframe(_:withTheItemDrawnIn:...)`), which keyframes and painting frames hand out while set.
+    private var recordedBackgroundItemCount = 0
+    private var bakedKeyframe: (jpegData: Data, image: CGImage)?
+    var sessionsStarted: Int { lock.withLock { recordedSessionsStarted } }
+    var backgroundItemCount: Int { lock.withLock { recordedBackgroundItemCount } }
+    var bakedKeyframeJPEG: Data? { lock.withLock { bakedKeyframe?.jpegData } }
+    /// How many keyframes were taken from a new frame, which a keyframe of the room's background is not.
+    var keyframesTakenFromNewFrames: Int { lock.withLock { keyframesTaken } }
     /// The capture's armed and disarmed counts, every event handler it was armed with (the newest last, kept after a disarm
     /// so a test can deliver a stale event), and what the freezes, stills, and resumes were.
     private var recordedArms = 0
@@ -127,6 +140,10 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
             onTheShirtFramingSettled = nil
             recordedShirtTryOnStarted = false
             recordedGarmentWorn = false
+            recordedSessionsStarted += 1
+            newestItem = nil
+            recordedBackgroundItemCount = 0
+            bakedKeyframe = nil
         }
     }
 
@@ -150,6 +167,9 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
         let (keyframeNumber, keyframeJPEGData) = lock.withLock {
             recordedKeyframeAnchors.append(anchorInCameraPixels)
             recordedKeyframeSurfaces.append(surfaceKind)
+            newestItem = nil
+            // While the room has a background, the keyframe stays: the same number, with the background drawn in.
+            if let bakedKeyframe { return (keyframesTaken, bakedKeyframe.jpegData) }
             keyframesTaken += 1
             return (keyframesTaken, keyframeJPEGThatCannotBeDecoded ? Data([1, 2, 3]) : Self.keyframeJPEG)
         }
@@ -169,11 +189,33 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     }
 
     func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int, layerToKeyframe: EuclideanWarp) {
-        lock.withLock { recordedFurnitureLayersShown.append((layers.look, keyframeNumber)) }
+        lock.withLock {
+            recordedFurnitureLayersShown.append((layers.look, keyframeNumber))
+            newestItem = .keyframeLayers(layers, frameSize: CGSize(width: Self.keyframeImage.width, height: Self.keyframeImage.height), layerToKeyframe: layerToKeyframe)
+        }
     }
 
     func hideTheItem() {
-        lock.withLock { recordedTimesTheItemWasHidden += 1 }
+        lock.withLock {
+            recordedTimesTheItemWasHidden += 1
+            newestItem = nil
+        }
+    }
+
+    /// Draws the newest item into the keyframe with the real bake, with no person mask, and hands that keyframe out from now on.
+    func fixTheShownItemIntoTheBackground() {
+        lock.withLock {
+            guard let newestItem else { return }
+            let keyframeImage = CIImage(cgImage: bakedKeyframe?.image ?? Self.keyframeImage)
+            let bakedImage = RoomArtFrameProcessor.keyframe(keyframeImage, withTheItemDrawnIn: newestItem, personMask: nil, personLowestRowShare: nil)
+            let context = CIContext()
+            let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+            guard let bakedCGImage = context.createCGImage(bakedImage, from: keyframeImage.extent, format: .RGBA8, colorSpace: sRGB),
+                  let bakedJPEG = context.jpegRepresentation(of: CIImage(cgImage: bakedCGImage), colorSpace: sRGB) else { return }
+            bakedKeyframe = (bakedJPEG, bakedCGImage)
+            recordedBackgroundItemCount += 1
+            self.newestItem = nil
+        }
     }
 
     func outlineTheLoop(aroundKeyframeQuadrilateral footprint: RoomArtCorners, inKeyframeNumber keyframeNumber: Int) {
@@ -181,7 +223,11 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     }
 
     func forgetTheKeyframe() {
-        lock.withLock { recordedTimesTheKeyframeWasForgotten += 1 }
+        lock.withLock {
+            recordedTimesTheKeyframeWasForgotten += 1
+            recordedBackgroundItemCount = 0
+            bakedKeyframe = nil
+        }
     }
 
     func currentTrackedWarp() -> RoomArtTrackedWarp? {
@@ -193,6 +239,9 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     func aFrameForThePainting(boxInTheKeyframe: [CGPoint]) async -> RoomArtPaintingFrame? {
         lock.withLock {
             recordedPaintingFrameBoxes.append(boxInTheKeyframe)
+            if let bakedKeyframe {
+                return RoomArtPaintingFrame(jpegData: bakedKeyframe.jpegData, image: bakedKeyframe.image, keyframeToFrame: .identity, shareOfTheBoxThePersonCovers: 0)
+            }
             guard !theRoomIsLost else { return nil }
             return RoomArtPaintingFrame(jpegData: Self.keyframeJPEG, image: Self.keyframeImage, keyframeToFrame: trackedWarp, shareOfTheBoxThePersonCovers: personShareOfTheBox)
         }
@@ -346,6 +395,8 @@ nonisolated private final class SyntheticRoomCamera: RoomFrameSource, @unchecked
     var isDeliveringFrames: Bool {
         lock.withLock { frameTimer.map { !$0.isCancelled } ?? false }
     }
+    private var recordedTimesStopped = 0
+    var timesStopped: Int { lock.withLock { recordedTimesStopped } }
 
     func start(deliveringFramesOn deliveryQueue: DispatchQueue, onFrame: @escaping @Sendable (CVPixelBuffer) -> Void) async throws {
         // A cancelled start goes on, as the real camera's does, and the controller stops the source afterward.
@@ -362,7 +413,10 @@ nonisolated private final class SyntheticRoomCamera: RoomFrameSource, @unchecked
     }
 
     func stop() {
-        lock.withLock { frameTimer?.cancel() }
+        lock.withLock {
+            recordedTimesStopped += 1
+            frameTimer?.cancel()
+        }
     }
 }
 
@@ -383,6 +437,33 @@ private let mugReading = RoomArtPageReading.furniture(RoomArtFurnitureReading(
     itemCorners: pictureCorners,
     standsOn: .tableOrShelf
 ))
+
+/// A table lamp, which the learner stands on a table Clicky already painted into the room.
+private let tableLampReading = RoomArtPageReading.furniture(RoomArtFurnitureReading(
+    title: "Ceramic table lamp",
+    chosenSize: RoomArtFurnitureSize(label: "8 x 16 in", widthCentimeters: 20.3, heightCentimeters: 40.6, depthCentimeters: 20.3),
+    whyThisSize: "It is the only size.",
+    itemCorners: pictureCorners,
+    standsOn: .tableOrShelf
+))
+
+/// A pixel's red, green, and blue in sRGB, counting rows from the top.
+nonisolated private func colorOfThePixel(atColumn column: Int, row: Int, of image: CGImage) -> (red: Int, green: Int, blue: Int)? {
+    var pixel = [UInt8](repeating: 0, count: 4)
+    guard let context = CGContext(
+        data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+        space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return nil }
+    context.interpolationQuality = .none
+    // The image is drawn so the wanted pixel lands on the context's one pixel: Core Graphics counts rows up from the bottom.
+    context.draw(image, in: CGRect(x: -column, y: -(image.height - 1 - row), width: image.width, height: image.height))
+    return (Int(pixel[0]), Int(pixel[1]), Int(pixel[2]))
+}
+
+nonisolated private func colorOfThePixel(atColumn column: Int, row: Int, ofJPEG jpegData: Data) -> (red: Int, green: Int, blue: Int)? {
+    guard let source = CGImageSourceCreateWithData(jpegData as CFData, nil), let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+    return colorOfThePixel(atColumn: column, row: row, of: image)
+}
 
 private func shirtReading(photoShows: RoomArtGarmentPhoto = .flatLay, frontPictureIndex: Int = 0) -> RoomArtPageReading {
     .clothing(RoomArtClothingReading(
@@ -792,6 +873,8 @@ private final class HarnessRecorder {
     var timesTheLearnerAskedThePanel = 0
     /// The step-back countdown's sounds, in the order the controller played them.
     var countdownSounds: [ShirtCountdownSound] = []
+    /// What Chrome's front tab holds, which a test may change between requests.
+    var frontTab: RoomArtFrontTab?
 }
 
 @MainActor
@@ -823,10 +906,11 @@ private struct RoomArtHarness {
         let cutouts = givenCutouts ?? CutoutStub()
         let panel = RecordingPanel()
         let recorder = HarnessRecorder()
+        recorder.frontTab = frontTab
         let frameProcessor = StandInFrameProcessor()
         var environment = RoomArtPreviewController.Environment(
                 appSecretIsSet: { appSecretIsSet },
-                readTheFrontTab: { frontTab },
+                readTheFrontTab: { recorder.frontTab },
                 capturePicture: {
                     recorder.pictureCaptureStarted = true
                     // A cancelled capture still returns its picture, so a controller that stopped checking for the cancel would
@@ -1714,6 +1798,178 @@ struct RoomArtPreviewControllerTests {
         #expect(wallReplyGate.cancelledWaitCount == 1)
         #expect(harness.frameProcessor.timesTheKeyframeWasForgotten == 1)
         #expect(worker.floorRequests.isEmpty)
+        harness.controller.close()
+    }
+
+    // MARK: A room with more than one item
+
+    /// A painted LACK side table shows, and the learner asks for a table lamp on it, so the panel waits for a click on the table.
+    /// The stub looks are made here, not as a default argument, since a default argument is not on the main actor.
+    private func harnessWithALampAskedForOnAPaintedTable(looks: FurnitureLookStub? = nil) async throws -> RoomArtHarness {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks ?? .thatPaintsAtOnce())
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the table to show") { harness.artIsShowing() }
+        worker.pageReading = .success(tableLampReading)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this lamp look on the table")
+        try await waitFor("the panel to wait for a click on the table") { harness.controller.phase.waitingForAFloorClickItem != nil }
+        return harness
+    }
+
+    @Test func aSecondRequestWhileAPaintedItemShowsKeepsTheRoomAndPlacesTheNewItemInTheKeyframeThatHoldsIt() async throws {
+        let looks = FurnitureLookStub.thatPaintsAtOnce()
+        let harness = try await harnessWithALampAskedForOnAPaintedTable(looks: looks)
+
+        // The panel never closed or opened again, the camera never stopped, and no new camera session started.
+        #expect(harness.panel.timesShown == 1)
+        #expect(harness.panel.timesHidden == 0)
+        #expect(harness.camera.timesStopped == 0)
+        #expect(harness.camera.isDeliveringFrames)
+        #expect(harness.frameProcessor.sessionsStarted == 1)
+        #expect(harness.recorder.timesTheSpokenLineWasEnded == 0)
+        // The table became part of the room, drawn into the keyframe where its painted layer stands (the layer's bottom left
+        // corner) and nowhere else.
+        #expect(harness.frameProcessor.backgroundItemCount == 1)
+        let bakedJPEG = try #require(harness.frameProcessor.bakedKeyframeJPEG)
+        let bakedWhereTheTableStands = try #require(colorOfThePixel(atColumn: 30, row: 340, ofJPEG: bakedJPEG))
+        let rawWhereTheTableStands = try #require(colorOfThePixel(atColumn: 30, row: 340, ofJPEG: StandInFrameProcessor.keyframeJPEG))
+        #expect(bakedWhereTheTableStands.red - rawWhereTheTableStands.red > 50)
+        let bakedAwayFromTheTable = try #require(colorOfThePixel(atColumn: 320, row: 100, ofJPEG: bakedJPEG))
+        let rawAwayFromTheTable = try #require(colorOfThePixel(atColumn: 320, row: 100, ofJPEG: StandInFrameProcessor.keyframeJPEG))
+        #expect(abs(bakedAwayFromTheTable.red - rawAwayFromTheTable.red) <= 3)
+
+        // The click on the table top is measured on that keyframe, which keeps its number, so no new keyframe is taken.
+        let click = CGPoint(x: 320, y: 300)
+        harness.controller.placeTheItem(atCameraPixel: click)
+        try await waitFor("the lamp to show on the table") { harness.artIsShowing() }
+        #expect(harness.worker.floorRequests.count == 2)
+        let lampFloorRequest = try #require(harness.worker.floorRequests.last)
+        #expect(lampFloorRequest.keyframeJPEGData == bakedJPEG)
+        #expect(lampFloorRequest.keyframeJPEGData != StandInFrameProcessor.keyframeJPEG)
+        #expect(lampFloorRequest.anchor == click)
+        #expect(lampFloorRequest.standsOn == .tableOrShelf)
+        #expect(harness.frameProcessor.keyframesTakenFromNewFrames == 1)
+        // The table was painted on the camera's frame, and the lamp into the keyframe that holds the table, with no turn to undo.
+        #expect(looks.keyframeJPEGsSent.first == StandInFrameProcessor.keyframeJPEG)
+        #expect(looks.keyframeJPEGsSent.last == bakedJPEG)
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.keyframeNumber).allSatisfy { $0 == 1 })
+        // The table was never hidden, and the lamp's line is the one a first item gets.
+        #expect(harness.frameProcessor.timesTheItemWasHidden == 0)
+        #expect(harness.spokenLines() == [
+            "Here it is, 21.5 inches wide and 17.5 tall.",
+            "Click the table or shelf where it should go.",
+            "Here it is, 8 inches wide and 16 tall.",
+        ])
+        #expect(harness.controller.phase.statusLine == "On the table, 8 inches wide and 16 tall")
+        harness.controller.close()
+    }
+
+    @Test func theItemBeforeStaysInTheRoomAndOnlyTheNewestCanBePickedUp() async throws {
+        let looks = FurnitureLookStub.thatPaintsAtOnce()
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the table to show") { harness.artIsShowing() }
+        let tableCenter = try #require(harness.ghostCenterInTheFrame())
+        // While it is the newest item, a press on the table picks it up.
+        #expect(harness.controller.aPressPicksTheFurnitureUp(atCameraPixel: tableCenter))
+
+        worker.pageReading = .success(tableLampReading)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this lamp look on the table")
+        try await waitFor("the panel to wait for a click on the table") { harness.controller.phase.waitingForAFloorClickItem != nil }
+        // The table is part of the room now, so no press picks it up, and a press on it is the click that places the lamp.
+        #expect(!harness.controller.aPressPicksTheFurnitureUp(atCameraPixel: tableCenter))
+        #expect(harness.controller.furnitureGhost == nil)
+        harness.controller.pointerPressed(atCameraPixel: tableCenter)
+        try await waitFor("the lamp to show on the table") { harness.artIsShowing() }
+        #expect(harness.worker.floorRequests.last?.anchor == tableCenter)
+        #expect(harness.frameProcessor.timesTheItemWasHidden == 0)
+
+        // A press on the lamp picks up the lamp alone, and the room keeps the table: nothing forgot the keyframe, and the lamp's
+        // next painting is made in the keyframe that holds the table.
+        harness.recorder.ghostPlacer = nil
+        let lampCenter = try #require(harness.ghostCenterInTheFrame())
+        harness.controller.pointerPressed(atCameraPixel: lampCenter)
+        #expect(harness.controller.phase.furnitureGhostShows)
+        #expect(harness.frameProcessor.timesTheItemWasHidden == 1)
+        #expect(harness.frameProcessor.timesTheKeyframeWasForgotten == 0)
+        #expect(harness.frameProcessor.backgroundItemCount == 1)
+        let paintingsBefore = looks.paintings
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        try await waitFor("the lamp to show again") { harness.artIsShowing() }
+        #expect(looks.paintings > paintingsBefore)
+        #expect(looks.keyframeJPEGsSent.last == harness.frameProcessor.bakedKeyframeJPEG)
+        harness.controller.close()
+    }
+
+    @Test func aSecondRequestWhileNothingIsPlacedClosesThePanelAndOpensItAgain() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let harness = RoomArtHarness(worker: worker, placesTheGhostAtOnce: false)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        // The table's ghost shows, so nothing is placed yet.
+        try await waitFor("the table's ghost") { harness.controller.phase.furnitureGhostShows }
+
+        worker.pageReading = .success(tableLampReading)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this lamp look on the table")
+        try await waitFor("the panel to wait for a click on the table") { harness.controller.phase.waitingForAFloorClickItem != nil }
+        #expect(harness.panel.timesHidden == 1)
+        #expect(harness.panel.timesShown == 2)
+        #expect(harness.camera.timesStopped == 1)
+        #expect(harness.camera.isDeliveringFrames)
+        #expect(harness.frameProcessor.sessionsStarted == 2)
+        #expect(harness.recorder.timesTheSpokenLineWasEnded == 1)
+        #expect(harness.frameProcessor.backgroundItemCount == 0)
+        #expect(harness.controller.furnitureGhost == nil)
+
+        // The click takes a keyframe from a new frame, with nothing drawn in.
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 320, y: 300))
+        try await waitFor("the lamp's floor request") { worker.floorRequests.count == 2 }
+        #expect(worker.floorRequests.last?.keyframeJPEGData == StandInFrameProcessor.keyframeJPEG)
+        harness.controller.close()
+    }
+
+    @Test func escapeClosesTheRoomWithEveryItemInItAndTheNextPanelStartsEmpty() async throws {
+        let harness = try await harnessWithALampAskedForOnAPaintedTable()
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 320, y: 300))
+        try await waitFor("the lamp to show on the table") { harness.artIsShowing() }
+
+        #expect(harness.controller.closeOnEscape())
+        #expect(harness.controller.phase == .closed)
+        #expect(harness.panel.timesHidden == 1)
+        #expect(!harness.camera.isDeliveringFrames)
+        #expect(harness.recorder.timesTheSpokenLineWasEnded == 1)
+
+        // A new request opens a new panel, whose first measurement is made on a new frame with nothing drawn in.
+        harness.worker.pageReading = .success(sideTableReading)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the table to show") { harness.artIsShowing() }
+        #expect(harness.panel.timesShown == 2)
+        #expect(harness.frameProcessor.sessionsStarted == 2)
+        #expect(harness.worker.floorRequests.last?.keyframeJPEGData == StandInFrameProcessor.keyframeJPEG)
+        harness.controller.close()
+    }
+
+    @Test func aSecondRequestWhosePageCannotBeUsedLeavesTheRoomAsItWas() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let harness = RoomArtHarness(worker: worker)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the table to show") { harness.artIsShowing() }
+        let tableShowing = harness.controller.phase
+
+        harness.recorder.frontTab = RoomArtFrontTab(url: "http://shop.example/lamp", title: "Table lamp", text: "16 in tall")
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this lamp look on the table")
+        #expect(harness.spokenLines().last == RoomArtFailure.pageNotHTTPS.spokenLine)
+        // The table still shows as the newest item, so a press on it still picks it up, and the camera runs on.
+        #expect(harness.controller.phase == tableShowing)
+        #expect(harness.panel.timesHidden == 0)
+        #expect(harness.camera.isDeliveringFrames)
+        #expect(harness.frameProcessor.backgroundItemCount == 0)
+        let tableCenter = try #require(harness.ghostCenterInTheFrame())
+        #expect(harness.controller.aPressPicksTheFurnitureUp(atCameraPixel: tableCenter))
         harness.controller.close()
     }
 
@@ -3720,6 +3976,91 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.closeOnEscape())
         #expect(harness.controller.phase == .closed)
         #expect(harness.panel.timesHidden == 1)
+    }
+}
+
+/// The background's bake (`RoomArtFrameProcessor.keyframe(_:withTheItemDrawnIn:personMask:personLowestRowShare:)`) on
+/// small made-up images, read pixel by pixel: the keyframe as the panel draws it with the items placed in it.
+struct RoomArtBackgroundBakeTests {
+    private let width = 64
+    private let height = 36
+
+    /// A 64 by 36 image in sRGB, clear or `background`, with an opaque block of `blockColor` over `columns` and `rows`,
+    /// counting rows from the top.
+    private func image(background: CGColor?, blockColor: CGColor? = nil, columns: Range<Int> = 0..<0, rows: Range<Int> = 0..<0) -> CGImage {
+        let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        if let background {
+            context.setFillColor(background)
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        if let blockColor {
+            context.setFillColor(blockColor)
+            // Core Graphics counts rows up from the bottom.
+            context.fill(CGRect(x: columns.lowerBound, y: height - rows.upperBound, width: columns.count, height: rows.count))
+        }
+        return context.makeImage()!
+    }
+
+    /// Furniture's layer, standing on the top row so it never stands nearer the camera than the learner's feet.
+    private func furnitureItem(_ layer: CGImage) -> RoomArtFrameProcessor.PlacedArt {
+        .keyframeLayers(
+            RoomFurnitureKeyframeLayers(itemLayer: layer, shadowLayer: nil, basePointInTheKeyframe: CGPoint(x: 20, y: 0), cameraNoiseStandardDeviation: 0, look: .paintedComposite),
+            frameSize: CGSize(width: width, height: height),
+            layerToKeyframe: .identity
+        )
+    }
+
+    /// A person mask with the learner over `columns`, top to bottom.
+    private func personMask(columns: Range<Int>) throws -> CVPixelBuffer {
+        var maskReference: CVPixelBuffer?
+        CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_OneComponent8, nil, &maskReference)
+        let mask = try #require(maskReference)
+        CVPixelBufferLockBaseAddress(mask, [])
+        defer { CVPixelBufferUnlockBaseAddress(mask, []) }
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(mask)
+        let maskBytes = try #require(CVPixelBufferGetBaseAddress(mask)).assumingMemoryBound(to: UInt8.self)
+        for row in 0..<height {
+            for column in 0..<width { maskBytes[row * bytesPerRow + column] = columns.contains(column) ? 255 : 0 }
+        }
+        return mask
+    }
+
+    private func rendered(_ image: CIImage) throws -> CGImage {
+        try #require(CIContext().createCGImage(image, from: CGRect(x: 0, y: 0, width: width, height: height), format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!))
+    }
+
+    @Test func anItemIsDrawnWhereItsLayerStandsWithTheLearnerInFrontAndALaterItemDrawsOverIt() throws {
+        let keyframe = CIImage(cgImage: image(background: CGColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1)))
+        let table = furnitureItem(image(background: nil, blockColor: CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1), columns: 10..<30, rows: 5..<20))
+        let lamp = furnitureItem(image(background: nil, blockColor: CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1), columns: 25..<45, rows: 10..<25))
+        let learner = try personMask(columns: 40..<50)
+
+        let withTheTable = RoomArtFrameProcessor.keyframe(keyframe, withTheItemDrawnIn: table, personMask: learner, personLowestRowShare: 1)
+        let withBoth = RoomArtFrameProcessor.keyframe(withTheTable, withTheItemDrawnIn: lamp, personMask: learner, personLowestRowShare: 1)
+        let tableOnly = try rendered(withTheTable)
+        let both = try rendered(withBoth)
+
+        func isGray(_ color: (red: Int, green: Int, blue: Int)?) -> Bool {
+            guard let color else { return false }
+            return [color.red, color.green, color.blue].allSatisfy { (124...132).contains($0) }
+        }
+        func isRed(_ color: (red: Int, green: Int, blue: Int)?) -> Bool { (color?.red ?? 0) > 240 && (color?.blue ?? 255) < 15 }
+        func isBlue(_ color: (red: Int, green: Int, blue: Int)?) -> Bool { (color?.blue ?? 0) > 240 && (color?.red ?? 255) < 15 }
+
+        // The table stands where its layer is, in both bakes, and the room around it is the keyframe as it was.
+        #expect(isRed(colorOfThePixel(atColumn: 15, row: 10, of: tableOnly)))
+        #expect(isRed(colorOfThePixel(atColumn: 15, row: 10, of: both)))
+        #expect(isGray(colorOfThePixel(atColumn: 5, row: 30, of: both)))
+        #expect(isGray(colorOfThePixel(atColumn: 60, row: 5, of: both)))
+        // The lamp, baked second, draws over the table where they overlap.
+        #expect(isRed(colorOfThePixel(atColumn: 27, row: 15, of: tableOnly)))
+        #expect(isBlue(colorOfThePixel(atColumn: 27, row: 15, of: both)))
+        // The learner stays in front of the lamp, as the panel draws them.
+        #expect(isBlue(colorOfThePixel(atColumn: 35, row: 20, of: both)))
+        #expect(isGray(colorOfThePixel(atColumn: 42, row: 20, of: both)))
     }
 }
 
