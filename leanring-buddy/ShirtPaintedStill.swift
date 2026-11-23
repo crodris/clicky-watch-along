@@ -141,7 +141,7 @@ nonisolated let roomArtShirtPaintedLine = "Here it is on you."
 /// The status line while the shirt is painted into the frozen frame.
 nonisolated let roomArtShirtPaintingStatusLine = "Putting it on you…"
 /// The status line while the painted still shows.
-nonisolated let roomArtShirtPaintedStatusLine = "On you · say go back for the live view"
+nonisolated let roomArtShirtPaintedStatusLine = "On you · say go back to the preview"
 /// The crossfade from the frozen preview to the painted still.
 nonisolated let shirtPaintedStillCrossfadeSeconds = 0.5
 

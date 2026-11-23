@@ -3639,7 +3639,7 @@ struct RoomArtPreviewControllerTests {
         #expect(shirtPainting.requests.count == 1)
         #expect(harness.spokenLines().last == "Here it is on you.")
         #expect(harness.recorder.spokenLineFailureFlags.last == false)
-        #expect(harness.statusLine() == "On you · say go back for the live view")
+        #expect(harness.statusLine() == "On you · say go back to the preview")
         #expect(harness.controller.loopState.isFadingOut)
 
         // The Worker hears the garment in its own words: the page's kind and sleeves, and the color the page reader named.
