@@ -339,10 +339,13 @@ nonisolated struct ThemeIdeasRequest: Equatable, Sendable {
     /// 1 to 3, the idea on the card the change applies to. Only set with `currentIdeas`.
     let basedOnIdea: Int?
     let picture: ThemeStudioPicture?
+    /// True when the picture was captured for this design and not kept from the card, so the Worker starts the cursors over
+    /// from it even with ideas on the card. False with no picture.
+    let pictureIsNew: Bool
 
     /// Nil for an empty request. A request over 500 UTF-16 code units is cut, more than 3 current ideas are dropped, and a
     /// `basedOnIdea` outside the current ideas is left out.
-    init?(request requestText: String, currentIdeas: [ClickyTheme], basedOnIdea: Int?, picture: ThemeStudioPicture?) {
+    init?(request requestText: String, currentIdeas: [ClickyTheme], basedOnIdea: Int?, picture: ThemeStudioPicture?, pictureIsNew: Bool = false) {
         let trimmedRequest = requestText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedRequest.isEmpty else { return nil }
         request = textCutToUTF16Count(trimmedRequest, longestUTF16Count: Self.longestRequestText)
@@ -353,6 +356,7 @@ nonisolated struct ThemeIdeasRequest: Equatable, Sendable {
             self.basedOnIdea = nil
         }
         self.picture = picture
+        self.pictureIsNew = pictureIsNew && picture != nil
     }
 
     var json: JSONValue {
@@ -369,6 +373,9 @@ nonisolated struct ThemeIdeasRequest: Equatable, Sendable {
                 "width": .number(Double(picture.width)),
                 "height": .number(Double(picture.height)),
             ])
+        }
+        if pictureIsNew {
+            fields["pictureIsNew"] = .bool(true)
         }
         return .object(fields)
     }

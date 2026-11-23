@@ -427,6 +427,27 @@ describe("checkThemeIdeas on the cursor's source", () => {
     expect(sentBodies(fetchMock)[1].messages[0].content[1].text).toContain("Your last reply broke a rule: No idea comes from the picture.");
   });
 
+  it("treats a new picture over the card's ideas as a first design, and a change to one idea as a refinement", async () => {
+    const wordIdeas = [goodIdea(), goodIdea({ name: "Ember" }), goodIdea({ name: "Forest" })];
+    const newPictureRequest = { request: "make my theme from this picture", currentIdeas: wordIdeas, picture: pictureRequest, pictureIsNew: true };
+    const fetchMock = stubFetch(sonnetReply(goodReply()), sonnetReply(goodReply()));
+
+    const response = await handleThemeIdeas(requestWithBody(newPictureRequest), "key");
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: expect.stringContaining("No idea comes from the picture.") });
+    expect(sentBodies(fetchMock)[0].messages[0].content[1].text).toContain("The attached picture is new, so start the cursors over from it");
+
+    const changeToOneIdea = stubFetch(sonnetReply(goodReply()));
+    const oneIdeaResponse = await handleThemeIdeas(requestWithBody({ ...newPictureRequest, basedOnIdea: 1 }), "key");
+    expect(oneIdeaResponse.status).toBe(200);
+    expect(sentBodies(changeToOneIdea)[0].messages[0].content[1].text).not.toContain("The attached picture is new");
+
+    stubFetch(sonnetReply(goodReply()));
+    const keptPictureResponse = await handleThemeIdeas(requestWithBody({ ...newPictureRequest, pictureIsNew: false }), "key");
+    expect(keptPictureResponse.status).toBe(200);
+  });
+
   it("changes a picture idea into new shapes when a refinement drops the picture", async () => {
     const pictureIdea = goodIdea({ cursorSource: "thePicture", cursor: goodPictureCursor, agents: { ring: "perAgent", colors: ["#7DD3FC", "#C4B5FD", "#FDE68A"], faces: { kind: "picture" } } });
     const newShapes = goodReply({ ideas: [goodIdea({ cursorSource: "aNewShape" }), goodIdea({ cursorSource: "aNewShape" }), goodIdea({ cursorSource: "aNewShape" })] });

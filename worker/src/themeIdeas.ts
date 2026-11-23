@@ -177,6 +177,8 @@ const themeIdeasRequestSchema = z
       .refine((currentIdeas) => JSON.stringify(currentIdeas).length <= maximumCurrentIdeasJSONLength, "currentIdeas is too large")
       .optional(),
     basedOnIdea: z.number().int().min(1).max(requiredIdeaCount).optional(),
+    // True when the app captured the picture for this design, as opposed to keeping the card's picture.
+    pictureIsNew: z.boolean().optional(),
     picture: z
       .object({
         jpegBase64: z.string().min(1).max(maximumPictureBase64Length),
@@ -629,7 +631,8 @@ function withUsableAgentColors(idea: ModelIdea): ModelIdea {
 const sourcesFromThePicture: readonly string[] = ["thePicture", "tracedFromThePicture"];
 
 /**
- * requestIsAFirstDesign is true when the request held no ideas from the card. A first design from a picture needs at
+ * requestIsAFirstDesign is true when the request held no ideas from the card, or a new picture with no basedOnIdea, which
+ * starts the cursors over from it. A first design from a picture needs at
  * least one idea whose cursor is the picture or its subject traced, and only one, so "a star theme from this picture's
  * colors" may still draw two stars.
  */
@@ -887,6 +890,11 @@ function untrustedTextInTag(tagName: string, untrustedText: string): string {
   return `<${tagName}>\n${untrustedText.replaceAll("<", "‹")}\n</${tagName}>`;
 }
 
+/** A picture captured for this design with no idea named starts the cursors over from it, whatever the card held. */
+function startsOverFromANewPicture(themeIdeasRequest: ThemeIdeasRequest): boolean {
+  return themeIdeasRequest.picture !== undefined && themeIdeasRequest.pictureIsNew === true && themeIdeasRequest.basedOnIdea === undefined;
+}
+
 /** priorReplyProblem is the broken rule of the first attempt, named so the second attempt can fix it. */
 function themeIdeasRequestBody(themeIdeasRequest: ThemeIdeasRequest, priorReplyProblem: string | undefined): unknown {
   const { picture, currentIdeas, basedOnIdea } = themeIdeasRequest;
@@ -902,6 +910,9 @@ function themeIdeasRequestBody(themeIdeasRequest: ThemeIdeasRequest, priorReplyP
       ? "There is no picture, so every idea's cursor is shapes and its agents.faces.kind is triangle."
       : `The attached picture is ${picture.width} by ${picture.height} pixels.`,
   );
+  if (startsOverFromANewPicture(themeIdeasRequest)) {
+    textLines.push("The attached picture is new, so start the cursors over from it, as for a first design from a picture, and keep from current_ideas only what the learner asks to keep.");
+  }
   if (priorReplyProblem !== undefined) {
     textLines.push(`Your last reply broke a rule: ${priorReplyProblem.replaceAll("<", "‹")} Reply again with all ${requiredIdeaCount} ideas and fix that rule.`);
   }
@@ -933,7 +944,7 @@ export async function handleThemeIdeas(request: Request, anthropicAPIKey: string
   }
   const themeIdeasRequest = parsedRequest.requestBody;
   const requestHadAPicture = themeIdeasRequest.picture !== undefined;
-  const requestIsAFirstDesign = (themeIdeasRequest.currentIdeas ?? []).length === 0;
+  const requestIsAFirstDesign = (themeIdeasRequest.currentIdeas ?? []).length === 0 || startsOverFromANewPicture(themeIdeasRequest);
 
   // One retry with the broken rule named, because a bad idea leaves the studio card with nothing to show.
   let lastProblem: string | undefined;

@@ -395,6 +395,15 @@ struct ThemeIdeasRequestTests {
         #expect(pictureJSON["jpegBase64"]?.stringValue == Data([0xFF, 0xD8, 0xFF, 0xD9]).base64EncodedString())
         #expect(pictureJSON["width"]?.numberValue == 1280)
         #expect(pictureJSON["height"]?.numberValue == 720)
+        #expect(themeIdeasRequest.json["pictureIsNew"] == nil)
+    }
+
+    @Test func aNewPictureSaysSoAndANewPictureWithNoPictureSaysNothing() throws {
+        let newPictureRequest = try #require(ThemeIdeasRequest(request: "use this one", currentIdeas: [], basedOnIdea: nil, picture: sampleStudioPicture, pictureIsNew: true))
+        #expect(newPictureRequest.json["pictureIsNew"]?.boolValue == true)
+        let noPictureRequest = try #require(ThemeIdeasRequest(request: "use this one", currentIdeas: [], basedOnIdea: nil, picture: nil, pictureIsNew: true))
+        #expect(!noPictureRequest.pictureIsNew)
+        #expect(noPictureRequest.json["pictureIsNew"] == nil)
     }
 }
 

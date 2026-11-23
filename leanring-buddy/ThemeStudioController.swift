@@ -150,13 +150,17 @@ final class ThemeStudioController: ObservableObject {
         ideasThatWereOnTheCard: ThemeStudioIdeas?
     ) async {
         let picture: ThemeStudioPicture?
+        // A capture that found nothing falls back to the card's picture, which is not new.
+        var pictureIsNew = false
         switch pictureChoice {
         case .none:
             picture = nil
         case .keepTheCardsPicture:
             picture = ideasThatWereOnTheCard?.picture
         case .captureAgain:
-            picture = await environment.captureThePicture() ?? ideasThatWereOnTheCard?.picture
+            let capturedPicture = await environment.captureThePicture()
+            pictureIsNew = capturedPicture != nil
+            picture = capturedPicture ?? ideasThatWereOnTheCard?.picture
             if picture == nil {
                 environment.speak(Self.noPictureLine)
             }
@@ -166,7 +170,8 @@ final class ThemeStudioController: ObservableObject {
             request: requestText,
             currentIdeas: ideasThatWereOnTheCard?.ideas ?? [],
             basedOnIdea: basedOnIdea,
-            picture: picture
+            picture: picture,
+            pictureIsNew: pictureIsNew
         ) else {
             print("Theme studio: the request was empty")
             failTheDesign()
