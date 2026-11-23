@@ -22,13 +22,13 @@ struct ShirtPaintedStillPhaseTests {
     private let paintingID = ShirtPaintingID(number: 3)
     private let live = RoomArtPhase.showingTheShirt(title: "Tee")
 
-    @Test func paintingStartsOnlyFromTheLivePreview() {
-        #expect(live.startingToPaintTheShirt(id: paintingID) == .paintingTheShirt(title: "Tee", id: paintingID))
+    @Test func paintingStartsOnlyFromTheLivePreviewOrAWaitingCapture() {
+        #expect(live.armingTheShirtCapture(id: paintingID) == .waitingForTheLearnerToStepBack(title: "Tee", id: paintingID))
         for otherPhase: RoomArtPhase in [
             .closed, .readingThePage, .preparingTheShirt(title: "Tee"), .waitingToSeeTheLearner(title: "Tee"),
             .paintingTheShirt(title: "Tee", id: ShirtPaintingID(number: 1)), .showingThePaintedShirt(title: "Tee"), .failed(.garmentNotCutOut),
         ] {
-            #expect(otherPhase.startingToPaintTheShirt(id: paintingID) == otherPhase)
+            #expect(otherPhase.armingTheShirtCapture(id: paintingID) == otherPhase)
         }
     }
 
@@ -106,6 +106,9 @@ struct ShirtPaintedStillVoiceTests {
         }
         #expect(runs(.paintIt, .livePreview))
         #expect(runs(.backToLive, .paintedStill))
+        // While the capture waits for the learner to step back, "right there" restarts it and "go back" cancels it.
+        #expect(runs(.paintIt, .stepBack) && runs(.backToLive, .stepBack))
+        #expect(!runs(.paintIt, .stepBack, quiz: true))
         #expect(!runs(.paintIt, .paintedStill))
         #expect(!runs(.backToLive, .livePreview))
         #expect(!runs(.paintIt, .none) && !runs(.backToLive, .none))
@@ -125,6 +128,8 @@ struct ShirtPaintedStillVoiceTests {
     @Test func theRouteTakesThePhrasesAheadOfTheRouterWhileTheShirtShows() {
         #expect(transcriptRoute(for: "right there", in: context(.livePreview), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
         #expect(transcriptRoute(for: "go back", in: context(.paintedStill), videoIsInFront: { true }) == .shirtPaintedStill(.backToLive))
+        #expect(transcriptRoute(for: "right there", in: context(.stepBack), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
+        #expect(transcriptRoute(for: "go back", in: context(.stepBack), videoIsInFront: { true }) == .shirtPaintedStill(.backToLive))
         // With no shirt, "right there" and "go back" reach the router or the keyword path as before.
         #expect(transcriptRoute(for: "right there", in: context(.none), videoIsInFront: { true }) == .voiceCommandRouter)
         #expect(transcriptRoute(for: "go back", in: context(.livePreview), videoIsInFront: { false }) == .keywordPath)
@@ -448,12 +453,8 @@ struct ShirtPaintingRequestTests {
         #expect(shirtPaintingFailure(for: RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "")) == .paintingFailed)
         #expect(shirtPaintingFailure(for: URLError(.timedOut)) == .workerUnreachable)
         #expect(shirtPaintingFailure(for: RoomFurnitureGenerationError.workerReturned(statusCode: 401, body: "")) == .appSecretRefused)
-        let lines = [ShirtPaintingFailure.nobodyToPaintOn, .maskNotMade, .serviceIsNotSetUp, .appSecretRefused, .workerUnreachable, .paintingFailed].map(\.spokenLine)
-        #expect(Set(lines).count == 6)
-        // A learner in view but too close hears the framing's advice, not "Step in front of the camera".
-        #expect(ShirtPaintingFailure.nobodyToPaintOn.spokenLine(withCoaching: "Stand back.") == "Stand back. Then say right there.")
-        #expect(ShirtPaintingFailure.nobodyToPaintOn.spokenLine(withCoaching: nil) == ShirtPaintingFailure.nobodyToPaintOn.spokenLine)
-        #expect(ShirtPaintingFailure.maskNotMade.spokenLine(withCoaching: "Stand back.") == ShirtPaintingFailure.maskNotMade.spokenLine)
+        let lines = [ShirtPaintingFailure.maskNotMade, .serviceIsNotSetUp, .appSecretRefused, .workerUnreachable, .paintingFailed].map(\.spokenLine)
+        #expect(Set(lines).count == 5)
     }
 }
 

@@ -81,11 +81,15 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     func startTheShirtTryOn(onTheFramingSettled: @escaping @Sendable (ShirtFramingKind) -> Void)
     /// The garment to draw on every frame where the framing has settled on ready.
     func wearTheGarment(_ garment: ShirtGarment)
-    /// Freezes the panel on the newest frame with the live preview's shirt on it, and returns that frame with what the preview
-    /// knew about it, or nil when no shirt is drawn this moment (no torso in view, no garment, or no person mask yet). The
-    /// loop traces the learner's own top, held still, then the area being painted, until the painted still shows or the
-    /// preview comes back.
-    func freezeTheShirtFrame() async -> ShirtFrozenFrame?
+    /// Arms the capture (`ShirtStepBackCapture`): each frame judges whether the learner stands in the ready framing and holds
+    /// still, and the first frame where they have held for the whole countdown freezes the panel with the live preview's
+    /// shirt on it, paired with the torso found for that same frame. `onEvent` runs on the main actor with the countdown
+    /// numbers, the frozen frame, or the time out. The loop traces the learner's own top, held still, then the area being
+    /// painted, until the painted still shows or the preview comes back. Arming again restarts the capture and leaves any
+    /// frozen frame for the live preview.
+    func armTheShirtCapture(onEvent: @escaping @Sendable (ShirtCaptureEvent) -> Void)
+    /// Stops waiting for the learner to hold still. Safe with no capture armed.
+    func disarmTheShirtCapture()
     /// Crossfades from the frozen preview to the painted still over `shirtPaintedStillCrossfadeSeconds`, and holds it.
     func showThePaintedStill(_ paintedImage: CGImage)
     /// Leaves the frozen frame or the painted still, and the live preview draws again.
@@ -147,8 +151,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     private var shirtGarment: ShirtGarment?
     private var shirtFramingDebouncer = ShirtFramingDebouncer()
     private var onTheShirtFramingSettled: (@Sendable (ShirtFramingKind) -> Void)?
-    /// The torso the live preview last drew the shirt on, which a freeze paints on.
-    private var lastShirtTorsoDrawn: BodyTorso?
+    /// The armed capture, with the countdown number last reported so only a change goes to the main actor.
+    private var shirtCapture: (state: ShirtStepBackCapture, lastReportedNumber: Int?, onEvent: @Sendable (ShirtCaptureEvent) -> Void)?
     /// The frozen frame shown while the shirt is painted into it, and the painted still once it arrives, with when it
     /// arrived for the crossfade. While it is set, no camera frame is drawn.
     private var frozenShirt: (preview: CIImage, painted: CIImage?, paintedArrivedAt: CFTimeInterval)?
@@ -229,7 +233,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             shirtGarment = nil
             shirtFramingDebouncer = ShirtFramingDebouncer()
             onTheShirtFramingSettled = nil
-            lastShirtTorsoDrawn = nil
+            shirtCapture = nil
             frozenShirt = nil
             latestShirtOutline = nil
             shirtOutlineFailureWasLogged = false
@@ -263,7 +267,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             self.crossfadeFrom = nil
             self.shirtTryOnIsOn = false
             self.shirtGarment = nil
-            self.lastShirtTorsoDrawn = nil
+            self.shirtCapture = nil
             self.frozenShirt = nil
             self.latestShirtOutline = nil
         }
@@ -283,14 +287,58 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
     }
 
-    func freezeTheShirtFrame() async -> ShirtFrozenFrame? {
-        await withCheckedContinuation { continuation in
-            processingQueue.async { continuation.resume(returning: self.freezeTheShirtFrameOnTheQueue()) }
+    func armTheShirtCapture(onEvent: @escaping @Sendable (ShirtCaptureEvent) -> Void) {
+        processingQueue.async {
+            guard self.shirtTryOnIsOn else { return }
+            // Arming means the live preview shows, so a frame an earlier capture froze, whose event the controller may have
+            // dropped as stale, is left here.
+            self.frozenShirt = nil
+            self.shirtCapture = (ShirtStepBackCapture(armedAt: CACurrentMediaTime()), nil, onEvent)
         }
     }
 
-    private func freezeTheShirtFrameOnTheQueue() -> ShirtFrozenFrame? {
-        guard shirtTryOnIsOn, frozenShirt == nil, let latestFrame, let latestPersonMask, let shirtGarment, let torso = lastShirtTorsoDrawn else { return nil }
+    func disarmTheShirtCapture() {
+        processingQueue.async {
+            self.shirtCapture = nil
+        }
+    }
+
+    /// Judges this frame for the armed capture, and freezes it when the learner has held still for the whole countdown. The
+    /// torso is the one the renderer draws on this same frame, so the frozen frame and the torso always belong together.
+    private func advanceTheShirtCapture(torso: BodyTorso?) {
+        guard var capture = shirtCapture else { return }
+        let step = capture.state.advance(framingKind: shirtFramingDebouncer.settledKind, torso: torso, at: CACurrentMediaTime())
+        let onEvent = capture.onEvent
+        func report(_ event: ShirtCaptureEvent) { DispatchQueue.main.async { onEvent(event) } }
+        func reportTheNumber(_ number: Int?) {
+            guard number != capture.lastReportedNumber else { return }
+            capture.lastReportedNumber = number
+            report(.countdown(number))
+        }
+        switch step {
+        case .keepWaiting:
+            reportTheNumber(nil)
+        case .counting(let number):
+            reportTheNumber(number)
+        case .freezeNow:
+            if let torso, let frozenFrame = freezeTheShirtFrameOnTheQueue(torso: torso) {
+                shirtCapture = nil
+                report(.frozen(frozenFrame))
+                return
+            }
+            // Nothing could be frozen on this frame, such as no person mask yet, so the hold starts over.
+            capture.state.restartTheHold()
+            reportTheNumber(nil)
+        case .giveUp:
+            shirtCapture = nil
+            report(.timedOut)
+            return
+        }
+        shirtCapture = capture
+    }
+
+    private func freezeTheShirtFrameOnTheQueue(torso: BodyTorso) -> ShirtFrozenFrame? {
+        guard shirtTryOnIsOn, frozenShirt == nil, let latestFrame, let latestPersonMask, let shirtGarment else { return nil }
         let frameImage = CIImage(cvPixelBuffer: latestFrame)
         let frameExtent = frameImage.extent
         let personMask = CIImage(cvPixelBuffer: latestPersonMask, options: [.colorSpace: NSNull()])
@@ -462,9 +510,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         var shirtTorsoToDraw: BodyTorso?
         if shirtTryOnIsOn {
             shirtTorsoToDraw = torsoForTheShirt(in: cameraFrame, frameSize: CGSize(width: frameWidth, height: frameHeight))
-            // Only a torso the shirt is drawn on this frame may be painted on, so a learner out of view is never painted at
-            // where they stood seconds ago.
-            lastShirtTorsoDrawn = shirtGarment == nil ? nil : shirtTorsoToDraw
+            // A capture freezes only on a torso found for this frame, never on where the learner stood seconds ago.
+            advanceTheShirtCapture(torso: shirtGarment == nil ? nil : shirtTorsoToDraw)
         }
 
         var artCorners: [CGPoint]?
@@ -1106,6 +1153,8 @@ final class RoomArtPreviewController: ObservableObject {
     @Published private(set) var theSurfaceIsLost = false
     /// What the settled framing tells the learner while the shirt cannot be drawn, nil once they stand in view.
     @Published private(set) var shirtCoachingLine: String?
+    /// The countdown number the armed capture last reported, 3 then 2 then 1, nil while no hold is under way.
+    @Published private(set) var shirtCaptureCountdownNumber: Int?
     /// The camera's first frame with a person mask has arrived since the panel opened, so the video shows and a keyframe
     /// can be taken. Until then the layer still holds the last session's frame, so the panel covers it.
     @Published private(set) var theFirstFrameIsIn = false
@@ -1344,6 +1393,7 @@ final class RoomArtPreviewController: ObservableObject {
         furnitureLookDeadlineTask = nil
         shirtPaintingTask?.cancel()
         shirtPaintingTask = nil
+        shirtCaptureCountdownNumber = nil
         shirtBeingTried = nil
         furnitureLookSearch = nil
         furniturePlacement = nil
@@ -1502,27 +1552,55 @@ final class RoomArtPreviewController: ObservableObject {
         }
     }
 
-    /// "Right there" or Paint it: freezes the frame the live preview shows and paints the shirt into it. One painting runs at
-    /// a time, and a request before the preview shows changes nothing (`RoomArtPhase.startingToPaintTheShirt`).
+    /// "Right there" or Paint it: arms the capture, so the learner can step back from the keyboard, and the frame freezes
+    /// once they stand in the ready framing and hold still for the countdown (`ShirtStepBackCapture`). Asking again while the
+    /// capture waits restarts it. One painting runs at a time, and a request before the preview shows changes nothing
+    /// (`RoomArtPhase.armingTheShirtCapture`).
     func paintTheShirt() {
         let paintingID = ShirtPaintingID(number: lastShirtPaintingNumber + 1)
-        let paintingPhase = phase.startingToPaintTheShirt(id: paintingID)
-        guard paintingPhase != phase, let shirtBeingTried else { return }
+        let armedPhase = phase.armingTheShirtCapture(id: paintingID)
+        guard armedPhase != phase, shirtBeingTried != nil else { return }
         environment.theLearnerAskedThePanel()
         lastShirtPaintingNumber = paintingID.number
-        apply(paintingPhase)
+        shirtCaptureCountdownNumber = nil
+        apply(armedPhase)
+        environment.speak(roomArtShirtStepBackLine, false)
+        let thisOpening = openingNumber
+        frameProcessor.armTheShirtCapture { [weak self] event in
+            Task { @MainActor in
+                guard let self, thisOpening == self.openingNumber else { return }
+                self.theShirtCaptureReported(event, id: paintingID)
+            }
+        }
+    }
+
+    /// What the armed capture reports. Each event names the capture it came from, so one from a capture the learner
+    /// restarted, cancelled, or left changes nothing.
+    private func theShirtCaptureReported(_ event: ShirtCaptureEvent, id paintingID: ShirtPaintingID) {
+        guard case .waitingForTheLearnerToStepBack(_, let armedID) = phase, armedID == paintingID else { return }
+        switch event {
+        case .countdown(let number):
+            shirtCaptureCountdownNumber = number
+        case .timedOut:
+            print("Shirt painting: the capture gave up, since no hold completed within \(Int(ShirtStepBackCapture.secondsBeforeGivingUp)) s")
+            shirtCaptureCountdownNumber = nil
+            apply(phase.afterTheStepBackTimedOut(id: paintingID))
+            environment.speak(roomArtShirtStepBackTimeoutLine, false)
+        case .frozen(let frozenFrame):
+            shirtCaptureCountdownNumber = nil
+            apply(phase.afterTheLearnerHeldStill(id: paintingID))
+            paintTheShirt(onTheFrozenFrame: frozenFrame, id: paintingID)
+        }
+    }
+
+    private func paintTheShirt(onTheFrozenFrame frozenFrame: ShirtFrozenFrame, id paintingID: ShirtPaintingID) {
+        guard let shirtBeingTried else { return }
         let thisOpening = openingNumber
         let startedAt = Date()
         shirtPaintingTask = Task {
             // Each await below can come back to a panel the learner closed or went back from, which both cancel this task.
             @MainActor func isStillThisPainting() -> Bool { !Task.isCancelled && thisOpening == self.openingNumber }
-            // A go back before this task first ran resumed nothing yet, so the frame must not freeze after it.
-            guard isStillThisPainting() else { return }
-            guard let frozenFrame = await frameProcessor.freezeTheShirtFrame() else {
-                guard isStillThisPainting() else { return }
-                theShirtPaintingFailed(.nobodyToPaintOn, id: paintingID)
-                return
-            }
+            // A go back before this task first ran resumed nothing yet, so nothing may be sent after it.
             guard isStillThisPainting() else { return }
             guard let masks = await environment.makeTheShirtPaintMasks(frozenFrame) else {
                 guard isStillThisPainting() else { return }
@@ -1535,7 +1613,7 @@ final class RoomArtPreviewController: ObservableObject {
             let paintedAreaOutline = await Task.detached(priority: .userInitiated) { ShirtPaintMask.outlineOfThePaintableArea(masks) }.value
             guard isStillThisPainting() else { return }
             if let paintedAreaOutline { frameProcessor.outlineTheAreaBeingPainted(paintedAreaOutline) }
-            print(String(format: "Shirt painting: the mask covers %.1f%% of the frame, %.1f s after the request", masks.paintableShare * 100, Date().timeIntervalSince(startedAt)))
+            print(String(format: "Shirt painting: the mask covers %.1f%% of the frame, %.1f s after the capture froze", masks.paintableShare * 100, Date().timeIntervalSince(startedAt)))
             guard let productJPEG = shirtPaintingProductJPEG(picture: shirtBeingTried.frontPicture, itemCorners: shirtBeingTried.reading.itemCorners) else {
                 theShirtPaintingFailed(.paintingFailed, id: paintingID)
                 return
@@ -1576,8 +1654,19 @@ final class RoomArtPreviewController: ObservableObject {
         environment.theLearnerAskedThePanel()
         shirtPaintingTask?.cancel()
         shirtPaintingTask = nil
+        frameProcessor.disarmTheShirtCapture()
+        shirtCaptureCountdownNumber = nil
         frameProcessor.resumeTheLiveShirt()
         apply(livePhase)
+    }
+
+    /// A push-to-talk press while the capture waits for the learner to step back cancels it, with nothing said, since the
+    /// press is the learner's next request, such as "right there" again, which arms a new capture.
+    func theLearnerPressedPushToTalk() {
+        guard case .waitingForTheLearnerToStepBack = phase else { return }
+        frameProcessor.disarmTheShirtCapture()
+        shirtCaptureCountdownNumber = nil
+        apply(phase.backToTheLiveShirt())
     }
 
     /// What the shirt panel can do by voice now, which the voice route reads.
@@ -1594,7 +1683,7 @@ final class RoomArtPreviewController: ObservableObject {
         }
         switch shirtStillVoiceTargets {
         case .livePreview: paintTheShirt()
-        case .paintedStill: goBackToTheLiveShirt()
+        case .stepBack, .paintedStill: goBackToTheLiveShirt()
         case .none: break
         }
     }
@@ -1603,7 +1692,7 @@ final class RoomArtPreviewController: ObservableObject {
         print("Shirt painting: back to the live preview, because \(failure)")
         frameProcessor.resumeTheLiveShirt()
         apply(phase.afterThePaintingFailed(id: paintingID))
-        environment.speak(failure.spokenLine(withCoaching: shirtCoachingLine), true)
+        environment.speak(failure.spokenLine, true)
     }
 
     // MARK: Measuring
@@ -1721,7 +1810,8 @@ final class RoomArtPreviewController: ObservableObject {
             frameSource = nil
             frameProcessor.endTheSession()
             environment.speak(failure.spokenLine, true)
-        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .retrying, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .paintingTheShirt:
+        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .retrying, .moving, .preparingTheShirt, .waitingToSeeTheLearner,
+             .waitingForTheLearnerToStepBack, .paintingTheShirt:
             break
         }
     }
@@ -2134,6 +2224,9 @@ private struct RoomArtPanelView: View {
             if case .failed = previewController.phase {
                 Color.black.opacity(0.45).allowsHitTesting(false)
             }
+            if let countdownNumber = previewController.shirtCaptureCountdownNumber {
+                ShirtCountdownNumberView(number: countdownNumber, accentColor: previewController.loopAccentColor)
+            }
             VStack {
                 HStack {
                     Spacer()
@@ -2175,7 +2268,7 @@ private struct RoomArtPanelView: View {
     private var shirtButton: some View {
         let shirtButtonTitle: String? = switch previewController.shirtStillVoiceTargets {
         case .livePreview: "Paint it"
-        case .paintedStill: "Back to live"
+        case .stepBack, .paintedStill: "Back to live"
         case .none: nil
         }
         if let shirtButtonTitle {
@@ -2216,6 +2309,26 @@ private struct RoomArtPanelView: View {
                 .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
                 .allowsHitTesting(false)
         }
+    }
+}
+
+/// The 3-2-1 of the step-back capture, big in the middle of the video. Each number pops in from a larger size, or just
+/// appears with Reduce Motion on, and the panel never takes the mouse through it.
+private struct ShirtCountdownNumberView: View {
+    let number: Int
+    let accentColor: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Text(verbatim: "\(number)")
+            .font(.system(size: 120, weight: .bold, design: .rounded))
+            .foregroundStyle(accentColor)
+            .shadow(color: .black.opacity(0.55), radius: 8)
+            .id(number)
+            .transition(reduceMotion ? .identity : .scale(scale: shirtCountdownNumberStartScale(reduceMotionIsOn: false)).combined(with: .opacity))
+            .animation(reduceMotion ? nil : DS.Move.pop.animation(reduceMotionIsOn: false), value: number)
+            .allowsHitTesting(false)
+            .accessibilityLabel("\(number)")
     }
 }
 

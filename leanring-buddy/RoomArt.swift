@@ -1038,8 +1038,12 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     case waitingToSeeTheLearner(title: String)
     /// The shirt is drawn over the learner every frame they stand in view: the live preview.
     case showingTheShirt(title: String)
-    /// The learner said "right there" or clicked Paint it: the frame is frozen and the shirt is painted into it. `id` names
-    /// this painting, so a reply for one the learner left by going back changes nothing.
+    /// The learner said "right there" or clicked Paint it, and the capture waits for them to step back and hold still
+    /// (`ShirtStepBackCapture`), with a 3-2-1 countdown while they do. `id` names this capture, so an event from one the
+    /// learner restarted or left changes nothing.
+    case waitingForTheLearnerToStepBack(title: String, id: ShirtPaintingID)
+    /// The capture froze the frame and the shirt is painted into it. `id` names this painting, so a reply for one the
+    /// learner left by going back changes nothing.
     case paintingTheShirt(title: String, id: ShirtPaintingID)
     /// The painted still shows until the learner goes back to the live preview.
     case showingThePaintedShirt(title: String)
@@ -1084,7 +1088,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
             return .moving(id: id, item: item, surfaceBeforeTheMove: surface)
         // Furniture still being arranged has no look yet, so a click waits as it does during a measurement.
         case .closed, .readingThePage, .measuring, .arranging, .retrying, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt,
-             .paintingTheShirt, .showingThePaintedShirt, .failed:
+             .waitingForTheLearnerToStepBack, .paintingTheShirt, .showingThePaintedShirt, .failed:
             return self
         }
     }
@@ -1175,11 +1179,25 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         return .showingTheShirt(title: title)
     }
 
-    /// The learner asked for the painted look while the live preview shows. One painting runs at a time, so a request during
-    /// one, or before the shirt shows, changes nothing.
-    func startingToPaintTheShirt(id: ShirtPaintingID) -> RoomArtPhase {
-        guard case .showingTheShirt(let title) = self else { return self }
+    /// The learner asked for the painted look while the live preview shows, or asked again while the capture waits, which
+    /// restarts it. One painting runs at a time, so a request during one, or before the shirt shows, changes nothing.
+    func armingTheShirtCapture(id: ShirtPaintingID) -> RoomArtPhase {
+        switch self {
+        case .showingTheShirt(let title), .waitingForTheLearnerToStepBack(let title, _): return .waitingForTheLearnerToStepBack(title: title, id: id)
+        default: return self
+        }
+    }
+
+    /// The learner held still in the ready framing, and the capture for `id` froze that frame.
+    func afterTheLearnerHeldStill(id: ShirtPaintingID) -> RoomArtPhase {
+        guard case .waitingForTheLearnerToStepBack(let title, let armedID) = self, armedID == id else { return self }
         return .paintingTheShirt(title: title, id: id)
+    }
+
+    /// The capture for `id` found no still frame in time, so the live preview comes back.
+    func afterTheStepBackTimedOut(id: ShirtPaintingID) -> RoomArtPhase {
+        guard case .waitingForTheLearnerToStepBack(let title, let armedID) = self, armedID == id else { return self }
+        return .showingTheShirt(title: title)
     }
 
     /// The painting for `id` is pasted into the frozen frame and shows.
@@ -1194,10 +1212,11 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         return .showingTheShirt(title: title)
     }
 
-    /// "Go back" or Back to live: the live preview comes back, from the painted still or from a painting still on its way.
+    /// "Go back" or Back to live: the live preview comes back, from the painted still, from a painting still on its way, or
+    /// from a capture still waiting for the learner to step back.
     func backToTheLiveShirt() -> RoomArtPhase {
         switch self {
-        case .paintingTheShirt(let title, _), .showingThePaintedShirt(let title): return .showingTheShirt(title: title)
+        case .waitingForTheLearnerToStepBack(let title, _), .paintingTheShirt(let title, _), .showingThePaintedShirt(let title): return .showingTheShirt(title: title)
         default: return self
         }
     }
@@ -1238,6 +1257,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         case .preparingTheShirt: return shirtCoachingLine ?? "Getting the shirt ready…"
         case .waitingToSeeTheLearner: return shirtCoachingLine ?? "Looking for you…"
         case .showingTheShirt: return shirtCoachingLine ?? "On you"
+        case .waitingForTheLearnerToStepBack: return roomArtShirtStepBackLine
         // The frame is frozen, so the learner moving out of view changes nothing on screen and no coaching shows.
         case .paintingTheShirt: return roomArtShirtPaintingStatusLine
         case .showingThePaintedShirt: return roomArtShirtPaintedStatusLine
@@ -1251,7 +1271,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         case .failed, .waitingForAFloorClick, .couldNotDraw: return true
         case .showing(_, _, let moveFailure): return moveFailure != nil && !theSurfaceIsLost
         case .closed, .readingThePage, .waitingForTheCamera, .measuring, .arranging, .retrying, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt,
-             .paintingTheShirt, .showingThePaintedShirt:
+             .waitingForTheLearnerToStepBack, .paintingTheShirt, .showingThePaintedShirt:
             return false
         }
     }
