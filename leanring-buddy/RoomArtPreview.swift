@@ -365,6 +365,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 return
             }
             // Nothing could be frozen on this frame, such as no person mask yet, so the hold starts over.
+            print("Shirt painting: nothing could be frozen on the frame that completed the hold, so the hold starts over")
             capture.state.restartTheHold()
             reportTheNumber(nil)
         case .giveUp:
@@ -1328,6 +1329,8 @@ final class RoomArtPreviewController: ObservableObject {
     /// Freezes the frame and paints the shirt into it. Going back or a close cancels it.
     private var shirtPaintingTask: Task<Void, Never>?
     private var lastShirtPaintingNumber = 0
+    /// A press cancelled the waiting capture, and its transcript has not been routed yet.
+    private var aPressCancelledTheCapture = false
 
     /// With no presenter, the real panel shows, and with no frame processor, the real one draws it.
     init(environment: Environment, frameProcessor: RoomArtFrameProcessing = RoomArtFrameProcessor(), panelPresenter: RoomArtPanelPresenting? = nil) {
@@ -1546,6 +1549,7 @@ final class RoomArtPreviewController: ObservableObject {
         furnitureLookDeadlineTask = nil
         shirtPaintingTask?.cancel()
         shirtPaintingTask = nil
+        aPressCancelledTheCapture = false
         shirtCaptureCountdownNumber = nil
         shirtBeingTried = nil
         furnitureLookSearch = nil
@@ -1896,6 +1900,7 @@ final class RoomArtPreviewController: ObservableObject {
         guard armedPhase != phase, shirtBeingTried != nil else { return }
         environment.theLearnerAskedThePanel()
         lastShirtPaintingNumber = paintingID.number
+        aPressCancelledTheCapture = false
         shirtCaptureCountdownNumber = nil
         apply(armedPhase)
         environment.speak(roomArtShirtStepBackLine, false)
@@ -1994,12 +1999,29 @@ final class RoomArtPreviewController: ObservableObject {
     }
 
     /// A push-to-talk press while the capture waits for the learner to step back cancels it, with nothing said, since the
-    /// press is the learner's next request, such as "right there" again, which arms a new capture.
+    /// press is the learner's next request, such as "right there" again, which arms a new capture. The press also resumes the
+    /// live frame, since the processor may have frozen one whose event is still on its way and will be dropped as stale. The
+    /// transcript of that press still reaches the capture's phrases (`shirtStillVoiceTargetsForTheRoute`), so "go back" never
+    /// falls through to the router and seeks a video.
     func theLearnerPressedPushToTalk() {
+        aPressCancelledTheCapture = false
         guard case .waitingForTheLearnerToStepBack = phase else { return }
+        leaveTheStepBack()
+        aPressCancelledTheCapture = true
+    }
+
+    private func leaveTheStepBack() {
         frameProcessor.disarmTheShirtCapture()
         shirtCaptureCountdownNumber = nil
+        frameProcessor.resumeTheLiveShirt()
         apply(phase.backToTheLiveShirt())
+    }
+
+    /// What the voice route reads for the shirt's phrases. Right after a press cancelled the waiting capture, the capture's
+    /// phrases still apply to that press's transcript, until the next press, a new capture, or a close.
+    var shirtStillVoiceTargetsForTheRoute: ShirtStillVoiceTargets {
+        if aPressCancelledTheCapture, case .showingTheShirt = phase { return .stepBack }
+        return phase.shirtStillVoiceTargets
     }
 
     /// What the shirt panel can do by voice now, which the voice route reads.
@@ -2841,8 +2863,8 @@ private struct RoomArtPanelView: View {
     }
 }
 
-/// The 3-2-1 of the step-back capture, big in the middle of the video. Each number pops in from a larger size, or just
-/// appears with Reduce Motion on, and the panel never takes the mouse through it.
+/// The 3-2-1 of the step-back capture, big in the middle of the video. Each number pops in from a larger size, or crossfades
+/// at its own size with Reduce Motion on, and the panel never takes the mouse through it.
 private struct ShirtCountdownNumberView: View {
     let number: Int
     let accentColor: Color
@@ -2854,8 +2876,11 @@ private struct ShirtCountdownNumberView: View {
             .foregroundStyle(accentColor)
             .shadow(color: .black.opacity(0.55), radius: 8)
             .id(number)
-            .transition(reduceMotion ? .identity : .scale(scale: shirtCountdownNumberStartScale(reduceMotionIsOn: false)).combined(with: .opacity))
-            .animation(reduceMotion ? nil : DS.Move.pop.animation(reduceMotionIsOn: false), value: number)
+            // The animation rides on the transition, since a number is a new view each time and takes no animation from its parent.
+            .transition(
+                .scale(scale: shirtCountdownNumberStartScale(reduceMotionIsOn: reduceMotion)).combined(with: .opacity)
+                    .animation(DS.Move.pop.animation(reduceMotionIsOn: reduceMotion))
+            )
             .allowsHitTesting(false)
             .accessibilityLabel("\(number)")
     }

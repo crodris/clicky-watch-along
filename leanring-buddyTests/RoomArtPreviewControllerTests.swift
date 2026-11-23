@@ -2426,6 +2426,12 @@ struct RoomArtPreviewControllerTests {
         harness.controller.theLearnerPressedPushToTalk()
         #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt"))
         #expect(harness.frameProcessor.captureDisarms == 1)
+        // The live frame resumes, since the processor may have frozen one whose event is dropped as stale.
+        #expect(harness.frameProcessor.resumes == 1)
+        // The press's own transcript still reaches the capture's phrases, so "go back" never falls through to the router, but
+        // the panel's button keeps its live preview role.
+        #expect(harness.controller.shirtStillVoiceTargetsForTheRoute == .stepBack)
+        #expect(harness.controller.shirtStillVoiceTargets == .livePreview)
         #expect(harness.controller.shirtCaptureCountdownNumber == nil)
         #expect(harness.spokenLines().count == linesBeforeThePress)
         // A frozen frame that crossed the press changes nothing: a later arming's countdown, heard after it, proves it was handled.
@@ -2437,6 +2443,17 @@ struct RoomArtPreviewControllerTests {
             Issue.record("The stale frozen frame started a painting: \(harness.controller.phase)")
             return
         }
+
+        // A new capture ended the phrases' extra life, so a time out leaves only the live preview's phrases.
+        harness.frameProcessor.reportTheCapture(.timedOut)
+        try await waitFor("the live preview") { harness.controller.phase == .showingTheShirt(title: "Linen shirt") }
+        #expect(harness.controller.shirtStillVoiceTargetsForTheRoute == .livePreview)
+        // The next press ends them too.
+        harness.controller.paintTheShirt()
+        harness.controller.theLearnerPressedPushToTalk()
+        #expect(harness.controller.shirtStillVoiceTargetsForTheRoute == .stepBack)
+        harness.controller.theLearnerPressedPushToTalk()
+        #expect(harness.controller.shirtStillVoiceTargetsForTheRoute == .livePreview)
         harness.controller.close()
     }
 

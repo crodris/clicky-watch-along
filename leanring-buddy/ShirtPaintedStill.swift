@@ -3,8 +3,8 @@
 //  leanring-buddy
 //
 //  The shirt try-on's final look. The live overlay (`ShirtTryOnRenderer`) is the quick preview, and when the learner says
-//  "right there" or clicks Paint it, the panel freezes the camera frame and OpenAI's image edit paints the store's top onto
-//  them in that frame (`POST /room-furniture-composite` with kind "shirt"), which follows their pose, folds, and light the
+//  "right there" or clicks Paint it, the panel arms a capture (`ShirtStepBackCapture`) that freezes the camera frame once they
+//  have stepped back and held still, and OpenAI's image edit paints the store's top onto them in that frame (`POST /room-furniture-composite` with kind "shirt"), which follows their pose, folds, and light the
 //  way a 2D overlay cannot. The painted still crossfades in, and "go back" or Back to live returns to the overlay.
 //
 //  This file holds the pure parts and the Worker client: the phrases, the frozen frame, the mask the painting may draw in,
@@ -30,7 +30,7 @@ import simd
 
 /// What the learner asks of the shirt by voice while the panel shows it.
 nonisolated enum ShirtStillVoiceRequest: Equatable, Sendable {
-    /// "Right there": freeze this frame and paint the shirt into it.
+    /// "Right there": arm the capture, which freezes a frame once the learner has stepped back and held still, and paints the shirt into it.
     case paintIt
     /// "Go back": leave the painted still for the live preview.
     case backToLive

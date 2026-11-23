@@ -1966,7 +1966,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused,
             replayStopsAreRecorded: replayStopsAreRecordedForTheSceneOnScreen,
             furnitureGhostShows: roomArtPreviewController.phase.furnitureGhostShows,
-            shirtStillVoiceTargets: roomArtPreviewController.shirtStillVoiceTargets
+            shirtStillVoiceTargets: roomArtPreviewController.shirtStillVoiceTargetsForTheRoute
         )
     }
 
