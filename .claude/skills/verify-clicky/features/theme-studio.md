@@ -71,7 +71,7 @@ Preconditions:
   Run `$V shot studio-circle` while the ideas are designed: the loop follows the mouse's ellipse around the logo, not a rounded rectangle, and the card hangs off the region's bottom right.
   At least one tile uses the logo as its cursor or token face, and the card's "From your picture" row shows the logo with no loop ink in it.
   A step that does not name a picture, such as `"@<x>,<y>,<width>,<height> make my theme from this logo"`, reads the circle the same way.
-  The panel's Design one card after it designs from words alone, since a design consumes its press's circle and a click has no press.
+  A click on the panel's Design one card after that step designs from words alone, since a design consumes its press's circle and a click makes no press.
 - **From a picture.** With a page image in Chrome's front tab, post `design_theme` with `{"request":"make my theme from this picture","fromPicture":true}`.
   The loop draws around the picture while the ideas are designed, Clicky does not say it sees no picture, and at least one tile shows the picture as its token face.
   Then `{"request":"use this whole image as my cursor and tint it blue"}` leaves `fromPicture` out, which keeps the card's picture: the first tile's cursor is the picture at 32 points, with an outline and a blue tint.

@@ -3,8 +3,8 @@
 //  leanring-buddy
 //
 //  Draws the sparks background agents lap around the loop: one spark for each agent working on the video in front,
-//  in the agent's color, lapping faster as its progress grows and finishing with a full lap. Under a request's loop the
-//  sparks ride the same line. With no request loop, a quiet track of the loop's outline carries them. Reduce Motion
+//  in the agent's color, lapping faster as its progress grows and finishing with a full lap. Under a request's loop
+//  around the media the sparks ride the same line. With no such loop, a quiet track of the loop's outline carries them. Reduce Motion
 //  has no spark: each agent is a still arc along the line, as long as its progress.
 //
 
@@ -17,7 +17,7 @@ struct AgentLoopOnScreen: Equatable {
     let seed: UInt64
     /// The agents in the order they joined the line.
     let agentIDs: [UUID]
-    /// True when no request loop draws the line, so the agents draw a quiet track for their sparks to lap.
+    /// True when no request loop around the media draws the line, so the agents draw a quiet track for their sparks to lap.
     let drawsItsOwnTrack: Bool
     let isFadingOut: Bool
 }
