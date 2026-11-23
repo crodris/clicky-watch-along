@@ -1003,12 +1003,17 @@ struct RoomArtPreviewControllerTests {
         let worker = WorkerStub()
         // The reply would come long after the close, so a loaded machine cannot let it land before the close does.
         worker.secondsBeforeThePageReplies = 60
-        let harness = RoomArtHarness(worker: worker)
-        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        // The camera's start waits at a gate, so no first frame can start the early wall measurement before the close, however
+        // loaded the machine is. On a busy CI runner the first frame came in before the close and the early wall asked once.
+        let cameraStartGate = TestGate()
+        let harness = RoomArtHarness(camera: SyntheticRoomCamera(startHeldAt: cameraStartGate), worker: worker)
+        let openingTask = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
         try await waitFor("the page request") { !worker.pageRequests.isEmpty }
 
         harness.controller.close()
         try await waitFor("the close to cancel the page read") { worker.aPageReadWasCancelled }
+        cameraStartGate.open()
+        await openingTask.value
 
         #expect(harness.controller.phase == .closed)
         #expect(harness.spokenLines().isEmpty)
