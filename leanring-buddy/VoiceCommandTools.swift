@@ -856,6 +856,8 @@ nonisolated func keywordBranchAheadOfTheRouter(
 /// Everything else takes the keyword path, which already pops out or animates from the words.
 /// With the Theme Studio open the words were a number, a change, or "save it", which the keyword path would answer as a
 /// question about the screen, so Clicky says `voiceCommandGaveUpLine` instead (`giveUp`).
+/// While a furniture ghost shows the words were for the panel too, and the keyword path would build a paid 3D scene over it
+/// from "show me how this would look in my room", so Clicky gives up the same way.
 nonisolated enum RouterFailureFallback: Equatable {
     case startExperiment
     case designATheme(ThemeStudioRequest)
@@ -874,7 +876,7 @@ nonisolated func routerFailureFallback(
     furnitureGhostShows: Bool = false,
     aRoomArtItemKeepsTheRoom: Bool = false
 ) -> RouterFailureFallback {
-    if themeStudioIsOpen { return .giveUp }
+    if themeStudioIsOpen || furnitureGhostShows { return .giveUp }
     let skippedKeywordBranch = keywordBranchAheadOfTheRouter(
         for: transcript,
         brainTakesEveryRequest: false,

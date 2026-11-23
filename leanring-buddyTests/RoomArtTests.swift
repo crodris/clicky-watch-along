@@ -945,7 +945,9 @@ struct RoomArtPhraseTests {
 
     @Test func aFailedRouterWhileTheGhostShowsNeverReopensThePanel() {
         #expect(routerFailureFallback(for: "put it on my desk", sceneIsOnScreen: false) == .showArtInMyRoom)
-        #expect(routerFailureFallback(for: "put it on my desk", sceneIsOnScreen: false, furnitureGhostShows: true) != .showArtInMyRoom)
+        #expect(routerFailureFallback(for: "put it on my desk", sceneIsOnScreen: false, furnitureGhostShows: true) == .giveUp)
+        // The keyword path would read "show me" as a request for a paid 3D scene and build it over the panel.
+        #expect(routerFailureFallback(for: "show me how this would look in my room", sceneIsOnScreen: false, furnitureGhostShows: true) == .giveUp)
     }
 
     @Test func aFailedRouterInAKeptRoomStillStacksOnThePaintedTable() {
