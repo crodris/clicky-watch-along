@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleRoomFloor } from "./roomFloor";
+import { handleRoomWall } from "./roomWall";
 
 const depthServiceURL = "http://127.0.0.1:8801";
 
@@ -82,6 +83,52 @@ describe("handleRoomFloor", () => {
     const forwardedHeaders = new Headers(init.headers);
     expect(forwardedHeaders.get("content-type")).toBe("application/json");
     expect(forwardedHeaders.has("origin")).toBe(false);
+  });
+
+  it("forwards standsOn as given, and leaves it out when the app sent none", async () => {
+    // A new Response for each call, since a body can be read once.
+    const fetchMock = stubFetch(async () => new Response(JSON.stringify(goodServiceReply)));
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await handleRoomFloor(requestWithBody({ ...goodRequest, standsOn: "tableOrShelf" }), depthServiceURL);
+    await handleRoomFloor(requestWithBody({ ...goodRequest, standsOn: "floor" }), depthServiceURL);
+    await handleRoomFloor(requestWithBody(goodRequest), depthServiceURL);
+
+    const forwardedBodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init.body)));
+    expect(forwardedBodies[0]).toEqual({ ...goodRequest, standsOn: "tableOrShelf" });
+    expect(forwardedBodies[1]).toEqual({ ...goodRequest, standsOn: "floor" });
+    expect(forwardedBodies[2]).toEqual(goodRequest);
+    expect("standsOn" in forwardedBodies[2]).toBe(false);
+  });
+
+  it("answers 400 for a standsOn that is not floor or tableOrShelf, without calling the service", async () => {
+    const fetchMock = stubFetch(async () => new Response("{}"));
+
+    for (const standsOn of ["ceiling", "", 3, null]) {
+      const response = await handleRoomFloor(requestWithBody({ ...goodRequest, standsOn }), depthServiceURL);
+
+      expect(response.status).toBe(400);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("passes the service's table or shelf 422 through with its words", async () => {
+    stubServiceReply(new Response(JSON.stringify({ error: "No level surface lies at that point: click the top of a table or shelf" }), { status: 422 }));
+
+    const response = await handleRoomFloor(requestWithBody({ ...goodRequest, standsOn: "tableOrShelf" }), depthServiceURL);
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "No level surface lies at that point: click the top of a table or shelf" });
+  });
+
+  it("does not pass standsOn on to /wall, which measures only walls", async () => {
+    const fetchMock = stubServiceReply(new Response(JSON.stringify({ ...goodServiceReply, wallAngleDegrees: 3 })));
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await handleRoomWall(requestWithBody({ ...goodRequest, standsOn: "tableOrShelf" }), depthServiceURL);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual(goodRequest);
   });
 
   it("returns the service's reply unchanged, extra fields included, and logs one line", async () => {

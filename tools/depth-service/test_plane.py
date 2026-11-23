@@ -215,3 +215,98 @@ def test_floor_inliers_tolerate_the_depth_noise_of_a_floor_seen_at_a_grazing_ang
 
     assert frame["planeInlierShare"] > 0.93
     assert angle_between_degrees(np.array(frame["up"]), FLOOR_UP) < 2.0
+
+
+# A table top 1.0 m wide band, level, 0.7 m below the camera and 2 m ahead, in front of a wall 3.5 m away.
+# Seen from a camera pitched 15 degrees down, its band in the image is a thin strip of rows, and the wall above and
+# below it holds far more pixels, as a real table top does beside the wall behind it.
+TABLE_TOP_HEIGHT_BELOW_CAMERA_M = 0.7
+TABLE_TOP_NEAR_ROW, TABLE_TOP_FAR_ROW = 585, 640
+TABLE_TOP_ANCHOR = {"u": 960, "v": 612}
+
+
+def table_top_in_front_of_a_wall_depth():
+    """A vertical wall 3.5 m ahead, with a level table top as a thin band of rows, 5 mm of depth noise."""
+    wall_normal = np.array([0.0, 0.0, -1.0])
+    depth = plane_depth(wall_normal, 3.5)
+    rays_dot_up = pixel_rays() @ FLOOR_UP
+    table_depth = -TABLE_TOP_HEIGHT_BELOW_CAMERA_M / np.minimum(rays_dot_up, -1e-3)
+    depth[TABLE_TOP_NEAR_ROW:TABLE_TOP_FAR_ROW] = table_depth[TABLE_TOP_NEAR_ROW:TABLE_TOP_FAR_ROW]
+    return depth + np.random.default_rng(11).normal(0, 0.005, depth.shape)
+
+
+def test_a_thin_level_table_top_in_front_of_a_wall_is_found_by_the_surface_fit_and_missed_by_the_floor_fit():
+    depth = table_top_in_front_of_a_wall_depth()
+
+    surface = plane.floor_frame(depth, FOCAL_PX, None, TABLE_TOP_ANCHOR, "tableOrShelf")
+    with pytest.raises(plane.NotFloorLikeError):
+        plane.floor_frame(depth, FOCAL_PX, None, TABLE_TOP_ANCHOR)
+
+    assert angle_between_degrees(np.array(surface["up"]), FLOOR_UP) < 2.0
+    assert surface["up"][1] < 0
+    assert surface["planeInlierShare"] > 0.4
+    center = np.array(surface["center"])
+    expected_ray = np.array([(TABLE_TOP_ANCHOR["u"] - FRAME_W / 2) / FOCAL_PX, (TABLE_TOP_ANCHOR["v"] - FRAME_H / 2) / FOCAL_PX, 1.0])
+    assert np.allclose(center / center[2], expected_ray, atol=1e-3)
+    assert abs(FLOOR_UP @ center + TABLE_TOP_HEIGHT_BELOW_CAMERA_M) < 0.03
+
+
+def test_the_surface_fit_returns_the_floors_reply_shape_with_orthonormal_axes():
+    surface = plane.floor_frame(table_top_in_front_of_a_wall_depth(), FOCAL_PX, None, TABLE_TOP_ANCHOR, "tableOrShelf")
+    floor = plane.floor_frame(floor_depth(), FOCAL_PX, None, FLOOR_ANCHOR)
+    right, up, forward = (np.array(surface[name]) for name in ("right", "up", "forward"))
+
+    assert surface.keys() == floor.keys()
+    assert np.allclose(forward, np.cross(up, right), atol=1e-4)
+    for first, second in ((right, up), (right, forward), (up, forward)):
+        assert abs(first @ second) < 1e-4
+
+
+def test_the_surface_fit_still_measures_a_floor():
+    surface = plane.floor_frame(floor_depth(), FOCAL_PX, None, FLOOR_ANCHOR, "tableOrShelf")
+
+    assert angle_between_degrees(np.array(surface["up"]), FLOOR_UP) < 2.0
+    assert abs(FLOOR_UP @ np.array(surface["center"]) + CAMERA_HEIGHT_M) < 0.03
+
+
+def test_a_floor_request_is_unchanged_by_the_surface_parameter():
+    depth = floor_depth()
+
+    assert plane.floor_frame(depth, FOCAL_PX, None, FLOOR_ANCHOR) == plane.floor_frame(depth, FOCAL_PX, None, FLOOR_ANCHOR, "floor")
+
+
+def test_a_wall_where_a_table_was_clicked_is_a_surface_not_measured_that_says_table_or_shelf(noisy_wall_depth):
+    with pytest.raises(plane.NotLevelSurfaceError, match="table or shelf"):
+        plane.floor_frame(noisy_wall_depth, FOCAL_PX, None, ANCHOR, "tableOrShelf")
+
+
+def test_a_surface_click_above_the_horizon_says_table_or_shelf():
+    with pytest.raises(plane.NotLevelSurfaceError, match="table or shelf"):
+        plane.floor_frame(floor_depth(), FOCAL_PX, None, {"u": 960, "v": 60}, "tableOrShelf")
+
+
+def test_too_little_bare_surface_says_table_or_shelf():
+    person_mask = np.ones((FRAME_H, FRAME_W), bool)
+    person_mask[612, 960] = False
+
+    with pytest.raises(plane.TooLittleSurfaceError, match="table or shelf"):
+        plane.floor_frame(table_top_in_front_of_a_wall_depth(), FOCAL_PX, person_mask, TABLE_TOP_ANCHOR, "tableOrShelf")
+
+
+def test_a_surface_plane_with_a_nan_raises_instead_of_writing_nan(monkeypatch):
+    monkeypatch.setattr(
+        plane, "fit_plane_ransac", lambda points, inlier_distance_m, maximum_tilt_degrees: (np.array([np.nan, -1.0, 0.0]), np.array([0.0, 1.2, 3.0]), 0.9)
+    )
+
+    with pytest.raises(plane.NonFinitePlaneError, match="table or shelf"):
+        plane.floor_frame(floor_depth(), FOCAL_PX, None, FLOOR_ANCHOR, "tableOrShelf")
+
+
+def test_ransac_with_a_tilt_limit_never_scores_a_plane_over_the_limit():
+    # Points on a vertical plane only: every candidate is 90 degrees from level, so none may be scored.
+    vertical_wall_points = np.array([[x, y, 3.0] for x in np.linspace(-1, 1, 20) for y in np.linspace(-1, 1, 20)])
+
+    with pytest.raises(plane.NoPlaneFitError):
+        plane.fit_plane_ransac(vertical_wall_points, maximum_tilt_degrees=25.0)
+    normal, _, _ = plane.fit_plane_ransac(vertical_wall_points)
+    assert abs(normal[2]) > 0.99

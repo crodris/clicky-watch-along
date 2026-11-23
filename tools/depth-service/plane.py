@@ -7,7 +7,12 @@ into a placement frame at the anchor pixel: a center, and a right and an up
 direction that lie on the wall and keep the artwork level with the camera.
 `floor_frame` does the same for the floor under the anchor, and returns a
 center, right, up (the floor normal), and forward for standing a box on it.
+`floor_frame` also measures the top of a table or shelf (`stands_on="tableOrShelf"`):
+the same frame, from a small window around the click and a RANSAC that scores only
+level candidate planes, since a table top is a small patch beside a much larger wall.
 """
+
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -30,6 +35,14 @@ MINIMUM_BARE_FLOOR_POINTS = 200
 FLOOR_INLIER_DISTANCE_M = 0.03
 # A plane whose normal is further than this from the camera's vertical is a wall or a table.
 MAXIMUM_FLOOR_TILT_DEGREES = 25.0
+
+# A table or shelf top is a small patch, so its window is a small one around the click: this share of the
+# frame's width to each side, and a smaller share above and below it. The wall behind a table is far larger than
+# the top and would win a RANSAC that scores every plane, so only level candidate planes are scored (tilt at most
+# MAXIMUM_FLOOR_TILT_DEGREES), and the inliers are held to a tighter distance than a floor's.
+SURFACE_WINDOW_HALF_SHARE = 0.06
+SURFACE_WINDOW_VERTICAL_HALF_SHARE = 0.03
+SURFACE_INLIER_DISTANCE_M = 0.015
 
 # The camera's up direction in its own frame (x right, y down, z forward).
 CAMERA_UP = np.array([0.0, -1.0, 0.0])
@@ -63,6 +76,18 @@ class NotFloorLikeError(FloorNotMeasuredError):
     """The plane under the anchor is a wall or a table, not a floor."""
 
 
+class TooLittleSurfaceError(FloorNotMeasuredError):
+    """Fewer than MINIMUM_BARE_FLOOR_POINTS pixels around the click on a table or shelf are free of people."""
+
+
+class NotLevelSurfaceError(FloorNotMeasuredError):
+    """No level plane, or no plane in front of the camera, lies under the click on a table or shelf."""
+
+
+class NoPlaneFitError(ValueError):
+    """RANSAC found no candidate plane: the points are collinear, or none is within the tilt limit."""
+
+
 def sample_bare_pixels(person_mask, window_left, window_right, window_top, window_bottom):
     """Every third pixel in the window that no person covers, as (us, vs) float arrays."""
     grid_vs, grid_us = np.mgrid[window_top:window_bottom:WALL_SAMPLE_STEP_PIXELS, window_left:window_right:WALL_SAMPLE_STEP_PIXELS]
@@ -90,8 +115,18 @@ def plane_distances(points, point_on_plane, normal):
     )
 
 
-def fit_plane_ransac(points, iterations=400, inlier_distance_m=0.015, seed=7, ransac_sample_size=4000):
-    """Returns (unit normal facing the camera, a point on the plane, the share of points within the distance)."""
+def tilt_from_camera_vertical_degrees(normal):
+    """The angle between a plane's normal and the camera's vertical, whichever way the normal points."""
+    return float(np.degrees(np.arccos(min(1.0, abs(normal @ CAMERA_UP)))))
+
+
+def fit_plane_ransac(points, iterations=400, inlier_distance_m=0.015, seed=7, ransac_sample_size=4000, maximum_tilt_degrees=None):
+    """Returns (unit normal facing the camera, a point on the plane, the share of points within the distance).
+
+    With `maximum_tilt_degrees`, a candidate plane whose normal is further than that from the camera's
+    vertical is never scored, so a large wall cannot win over a small level top. Raises NoPlaneFitError
+    when no candidate remains.
+    """
     random_generator = np.random.default_rng(seed)
     # RANSAC on a random subset finds the plane as well as on every point.
     subset = points[random_generator.choice(len(points), min(len(points), ransac_sample_size), replace=False)]
@@ -103,11 +138,13 @@ def fit_plane_ransac(points, iterations=400, inlier_distance_m=0.015, seed=7, ra
         if normal_length < 1e-9:
             continue
         normal /= normal_length
+        if maximum_tilt_degrees is not None and tilt_from_camera_vertical_degrees(normal) > maximum_tilt_degrees:
+            continue
         count = int((plane_distances(subset, sample[0], normal) < inlier_distance_m).sum())
         if count > best_count:
             best_plane, best_count = (sample[0], normal), count
     if best_plane is None:
-        raise ValueError("No plane fits these points")
+        raise NoPlaneFitError("No plane fits these points")
     best_inliers = plane_distances(points, *best_plane) < inlier_distance_m
     inlier_points = points[best_inliers]
     centroid = inlier_points.mean(axis=0)
@@ -172,7 +209,61 @@ def wall_frame(depth_m, focal_px, person_mask, anchor):
     }
 
 
-def floor_frame(depth_m, focal_px, person_mask, anchor):
+@dataclass(frozen=True)
+class SurfaceKind:
+    """What `floor_frame` measures: the window it samples, the fit, and the words of its errors."""
+
+    window_half_share: float
+    window_above_share: float
+    window_below_share: float
+    inlier_distance_m: float
+    maximum_tilt_degrees_for_candidates: "float | None"
+    too_little_error: type
+    not_level_error: type
+    too_little_message: str
+    tilted_message: str
+    horizon_message: str
+    no_plane_message: str
+    non_finite_message: str
+
+
+FLOOR = SurfaceKind(
+    window_half_share=FLOOR_WINDOW_HALF_SHARE,
+    window_above_share=FLOOR_WINDOW_ABOVE_SHARE,
+    window_below_share=FLOOR_WINDOW_BELOW_SHARE,
+    inlier_distance_m=FLOOR_INLIER_DISTANCE_M,
+    maximum_tilt_degrees_for_candidates=None,
+    too_little_error=TooLittleFloorError,
+    not_level_error=NotFloorLikeError,
+    too_little_message="Too little bare floor around that point: aim at floor with no people or furniture on it",
+    tilted_message=(
+        "The surface at that point is tilted {tilt:.0f} degrees from the floor's direction: "
+        "aim at the bare floor where the furniture will stand"
+    ),
+    horizon_message="That point is above the floor's horizon: aim lower, at the floor",
+    no_plane_message="No plane fits the floor points around that point: aim at the bare floor where the furniture will stand",
+    non_finite_message="The floor's plane could not be measured there: aim the camera at bare floor",
+)
+
+TABLE_OR_SHELF = SurfaceKind(
+    window_half_share=SURFACE_WINDOW_HALF_SHARE,
+    window_above_share=SURFACE_WINDOW_VERTICAL_HALF_SHARE,
+    window_below_share=SURFACE_WINDOW_VERTICAL_HALF_SHARE,
+    inlier_distance_m=SURFACE_INLIER_DISTANCE_M,
+    maximum_tilt_degrees_for_candidates=MAXIMUM_FLOOR_TILT_DEGREES,
+    too_little_error=TooLittleSurfaceError,
+    not_level_error=NotLevelSurfaceError,
+    too_little_message="Too little bare table or shelf around that point: click the top of a table or shelf with no people or objects on it",
+    tilted_message="The surface at that point is tilted {tilt:.0f} degrees from level: click the top of a table or shelf",
+    horizon_message="That point is above the table or shelf's top: click the top of a table or shelf",
+    no_plane_message="No level surface lies at that point: click the top of a table or shelf",
+    non_finite_message="The table or shelf's top could not be measured there: click the top of a table or shelf",
+)
+
+SURFACE_KIND_BY_STANDS_ON = {"floor": FLOOR, "tableOrShelf": TABLE_OR_SHELF}
+
+
+def floor_frame(depth_m, focal_px, person_mask, anchor, stands_on="floor"):
     """Measures the floor under `anchor`, the pixel where furniture's front-bottom center stands.
 
     `depth_m`, `person_mask`, and the principal point are as in `wall_frame`. The
@@ -183,6 +274,12 @@ def floor_frame(depth_m, focal_px, person_mask, anchor):
     of the camera (an anchor above the horizon), and NonFinitePlaneError when the
     plane has a NaN or infinite number.
 
+    With `stands_on="tableOrShelf"` the anchor is a click on the top of a table or
+    shelf. The window is small (`SURFACE_WINDOW_HALF_SHARE` of the frame's width to
+    each side and `SURFACE_WINDOW_VERTICAL_HALF_SHARE` above and below), RANSAC scores
+    only level candidate planes, and the errors are TooLittleSurfaceError and
+    NotLevelSurfaceError, which say table or shelf. The reply has the same shape.
+
     The frame is right-handed in the camera's coordinates (x right, y down, z forward):
     `up` is the floor normal pointing up, `right` lies on the floor toward +x of the
     image, and `forward` = up x right lies on the floor pointing away from the camera
@@ -190,33 +287,39 @@ def floor_frame(depth_m, focal_px, person_mask, anchor):
     with its front face from center - right * W/2 to center + right * W/2, rising
     H along up, and its back face D further along forward.
     """
+    kind = SURFACE_KIND_BY_STANDS_ON[stands_on]
     image_height, image_width = depth_m.shape
     anchor_u, anchor_v = float(anchor["u"]), float(anchor["v"])
-    window_half_width = int(FLOOR_WINDOW_HALF_SHARE * image_width)
+    window_half_width = int(kind.window_half_share * image_width)
     window_left = max(0, int(anchor_u) - window_half_width)
     window_right = min(image_width, int(anchor_u) + window_half_width)
-    window_top = max(0, int(anchor_v - FLOOR_WINDOW_ABOVE_SHARE * image_width))
-    window_bottom = min(image_height, int(anchor_v + FLOOR_WINDOW_BELOW_SHARE * image_width))
+    window_top = max(0, int(anchor_v - kind.window_above_share * image_width))
+    window_bottom = min(image_height, int(anchor_v + kind.window_below_share * image_width))
     bare_floor_us, bare_floor_vs = sample_bare_pixels(person_mask, window_left, window_right, window_top, window_bottom)
     if len(bare_floor_us) < MINIMUM_BARE_FLOOR_POINTS:
-        raise TooLittleFloorError("Too little bare floor around that point: aim at floor with no people or furniture on it")
+        raise kind.too_little_error(kind.too_little_message)
 
     principal = (image_width / 2, image_height / 2)
     points = back_project(bare_floor_us, bare_floor_vs, depth_m[bare_floor_vs.astype(int), bare_floor_us.astype(int)], focal_px, principal)
-    facing_camera_normal, plane_point, inlier_share = fit_plane_ransac(points, inlier_distance_m=FLOOR_INLIER_DISTANCE_M)
+    fit_options = {"inlier_distance_m": kind.inlier_distance_m}
+    if kind.maximum_tilt_degrees_for_candidates is not None:
+        fit_options["maximum_tilt_degrees"] = kind.maximum_tilt_degrees_for_candidates
+    try:
+        facing_camera_normal, plane_point, inlier_share = fit_plane_ransac(points, **fit_options)
+    except NoPlaneFitError:
+        if kind.maximum_tilt_degrees_for_candidates is None:
+            raise
+        raise kind.not_level_error(kind.no_plane_message)
 
     up = facing_camera_normal if facing_camera_normal @ CAMERA_UP > 0 else -facing_camera_normal
     floor_tilt_degrees = float(np.degrees(np.arccos(min(1.0, up @ CAMERA_UP))))
     if floor_tilt_degrees > MAXIMUM_FLOOR_TILT_DEGREES:
-        raise NotFloorLikeError(
-            f"The surface at that point is tilted {floor_tilt_degrees:.0f} degrees from the floor's direction: "
-            "aim at the bare floor where the furniture will stand"
-        )
+        raise kind.not_level_error(kind.tilted_message.format(tilt=floor_tilt_degrees))
 
     ray = np.array([(anchor_u - principal[0]) / focal_px, (anchor_v - principal[1]) / focal_px, 1.0])
     ray_distance = (plane_point @ up) / (ray @ up)
     if ray_distance <= 0:
-        raise NotFloorLikeError("That point is above the floor's horizon: aim lower, at the floor")
+        raise kind.not_level_error(kind.horizon_message)
     center = ray * ray_distance
 
     # Level with the camera: the camera's x axis, flattened onto the floor.
@@ -226,7 +329,7 @@ def floor_frame(depth_m, focal_px, person_mask, anchor):
     # A NaN or inf would reach the app as JSON it cannot read, so it is a floor not measured.
     numbers = np.concatenate([center, right, up, forward, [focal_px, inlier_share, floor_tilt_degrees]])
     if not np.all(np.isfinite(numbers)):
-        raise NonFinitePlaneError("The floor's plane could not be measured there: aim the camera at bare floor")
+        raise NonFinitePlaneError(kind.non_finite_message)
     return {
         "center": center.round(4).tolist(),
         "right": right.round(5).tolist(),

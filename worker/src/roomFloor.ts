@@ -6,10 +6,14 @@
  * on it: `center`, a `right` that lies on the floor and is level with the camera, `up` (the floor's normal, pointing up),
  * and `forward` (up x right, on the floor, pointing away from the camera). The forwarding and its error mapping are shared
  * with /room-wall (`depthService.ts`).
+ *
+ * The body takes an optional `standsOn`, "floor" or "tableOrShelf", forwarded to the service as given: with "tableOrShelf"
+ * the anchor is a click on the top of a table or shelf, and the service fits a level surface in a small window around it.
+ * Absent stays absent, which the service reads as the floor. The reply has the same shape either way.
  */
 
 import { z } from "zod";
-import { forwardToDepthService, planeReplyShape } from "./depthService";
+import { floorRequestSchema, forwardToDepthService, planeReplyShape } from "./depthService";
 
 /** A floor nearer than this or farther than this is a misread, not a room. */
 const nearestPlausibleFloorMeters = 0.3;
@@ -53,6 +57,7 @@ export function handleRoomFloor(request: Request, depthServiceURL: string | unde
   return forwardToDepthService(request, depthServiceURL, {
     routeName: "/room-floor",
     servicePath: "/floor",
+    requestSchema: floorRequestSchema,
     replySchema: floorReplySchema,
     implausibility: floorImplausibility,
     successLogLine: (reply, totalSeconds) =>
