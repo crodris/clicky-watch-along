@@ -362,7 +362,10 @@ final class CompanionManager: ObservableObject {
                 captureThePicture: { [weak self] in await self?.captureThePictureForTheThemeStudio() },
                 designIdeas: { themeIdeasRequest in try await themeIdeasClient.designIdeas(for: themeIdeasRequest) }
             ),
-            cardPresenter: ThemeStudioPanelController(onSaveClicked: { saveOutcome in
+            cardPresenter: ThemeStudioPanelController(pictureTheLoopIsAround: { [weak self] in
+                // The picture a design from a picture reads, which the loop is already around when the card opens.
+                self?.cursorLoopController.mediaScreenRectInAppKitCoordinates
+            }, onSaveClicked: { saveOutcome in
                 // The voice tool's chip comes from the router, so only a click on Save needs its own.
                 guard let chipPhrase = saveOutcome.chipPhraseAfterAClickOnSave else { return }
                 let chipSender: VoiceToolCallChipSender

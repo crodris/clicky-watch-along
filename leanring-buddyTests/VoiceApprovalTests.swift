@@ -101,4 +101,51 @@ struct VoiceApprovalTests {
         // In open space it opens below and to the right, as the list always has.
         #expect(approvalListAnchorTopLeft(mouseLocation: CGPoint(x: 700, y: 450), panelSize: panelSize, visibleFrame: visibleFrame, gapFromTheMouse: 12) == CGPoint(x: 712, y: 438))
     }
+
+    // MARK: - Where the Theme Studio card opens
+
+    /// The mandarin duck photo of the 2026-11-23 demo take, in AppKit points, with the mouse near its bottom right.
+    private let duckPhoto = CGRect(x: 504, y: 205, width: 799, height: 532)
+    private let screenFrame = CGRect(x: 0, y: 0, width: 1710, height: 930)
+    private let themeStudioCardSize = CGSize(width: ThemeStudioPanelController.cardWidth, height: ThemeStudioPanelController.tallestCardHeight)
+
+    private func themeStudioCardFrame(pictureRect: CGRect?, mouseLocation: CGPoint) -> CGRect {
+        let anchorTopLeft = themeStudioCardAnchorTopLeft(
+            pictureRect: pictureRect,
+            mouseLocation: mouseLocation,
+            panelSize: themeStudioCardSize,
+            visibleFrame: screenFrame,
+            gapFromTheMouse: 96
+        )
+        return CGRect(origin: agentListPanelOrigin(anchorTopLeft: anchorTopLeft, panelSize: themeStudioCardSize, visibleFrame: screenFrame), size: themeStudioCardSize)
+    }
+
+    private func cardFrameAtTheFirstCornerAroundTheMouse(_ mouseLocation: CGPoint) -> CGRect {
+        let anchorTopLeft = approvalListAnchorTopLeft(mouseLocation: mouseLocation, panelSize: themeStudioCardSize, visibleFrame: screenFrame, gapFromTheMouse: 96)
+        return CGRect(origin: agentListPanelOrigin(anchorTopLeft: anchorTopLeft, panelSize: themeStudioCardSize, visibleFrame: screenFrame), size: themeStudioCardSize)
+    }
+
+    @Test func aDesignFromAPictureOpensTheCardOnThePicturesBottomRightCorner() {
+        let mouseLocation = CGPoint(x: 1109, y: 315)
+        let cardFrame = themeStudioCardFrame(pictureRect: duckPhoto, mouseLocation: mouseLocation)
+        // The card covers the picture's bottom-right corner and reaches past its right edge.
+        #expect(cardFrame.contains(CGPoint(x: duckPhoto.maxX - 1, y: duckPhoto.minY + 1)))
+        #expect(cardFrame.minX == duckPhoto.maxX - themeStudioCardOverlapOfThePicture.width)
+        #expect(cardFrame.maxX > duckPhoto.maxX)
+        #expect(!cardFrame.contains(mouseLocation))
+        #expect(screenFrame.contains(cardFrame))
+    }
+
+    @Test func theCardOpensAroundTheMouseWithNoPictureOrWhenTheCornerWouldCoverThePointer() {
+        let mouseNearThePicture = CGPoint(x: 1109, y: 315)
+        #expect(themeStudioCardFrame(pictureRect: nil, mouseLocation: mouseNearThePicture) == cardFrameAtTheFirstCornerAroundTheMouse(mouseNearThePicture))
+        // The pointer on the picture's bottom-right corner would sit under the card there.
+        let mouseOnTheCorner = CGPoint(x: duckPhoto.maxX - 20, y: duckPhoto.minY + 20)
+        let cardFrame = themeStudioCardFrame(pictureRect: duckPhoto, mouseLocation: mouseOnTheCorner)
+        #expect(cardFrame == cardFrameAtTheFirstCornerAroundTheMouse(mouseOnTheCorner))
+        #expect(!cardFrame.contains(mouseOnTheCorner))
+        // A picture on another screen is not this screen's picture.
+        let pictureOnAnotherScreen = duckPhoto.offsetBy(dx: 2000, dy: 0)
+        #expect(themeStudioCardFrame(pictureRect: pictureOnAnotherScreen, mouseLocation: mouseNearThePicture) == cardFrameAtTheFirstCornerAroundTheMouse(mouseNearThePicture))
+    }
 }

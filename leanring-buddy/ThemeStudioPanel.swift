@@ -14,6 +14,7 @@
 //
 
 import AppKit
+import Combine
 import SwiftUI
 
 // MARK: - Panel
@@ -29,6 +30,9 @@ final class ThemeStudioPanelController {
     /// Below the cursor overlay windows (one level above screen saver), so the previewed cursor is never under the card.
     /// The carrier's moves draw above the cursor, on their own panel.
     private static let panelLevel = NSWindow.Level.screenSaver
+    /// While ideas are being designed, the cursor loop may be around the picture under the card, and the loop draws in the
+    /// cursor overlay, so the card rises above that overlay until the ideas arrive and the previewed cursor matters again.
+    private static let designingPanelLevel = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
     /// How long the saved tile's stamp shows before its cursor leaves it.
     private static let secondsTheStampShowsBeforeTheCursorFlies = 0.15
 
@@ -46,8 +50,15 @@ final class ThemeStudioPanelController {
     private(set) var openingFlight: CarrierFlight?
     /// The studio whose card this is, which a card that closes plays its move with.
     private weak var studio: ThemeStudioController?
+    /// Raises the card above the cursor overlay while ideas are being designed (`designingPanelLevel`).
+    private var levelFollowsTheDesign: AnyCancellable?
 
-    init(onSaveClicked: @escaping (ThemeStudioController.SaveOutcome) -> Void) {
+    /// The picture the cursor loop is drawn around, in AppKit screen coordinates, or nil. A design from a picture opens the
+    /// card at that picture's bottom-right corner.
+    private let pictureTheLoopIsAround: () -> CGRect?
+
+    init(pictureTheLoopIsAround: @escaping () -> CGRect? = { nil }, onSaveClicked: @escaping (ThemeStudioController.SaveOutcome) -> Void) {
+        self.pictureTheLoopIsAround = pictureTheLoopIsAround
         self.onSaveClicked = onSaveClicked
     }
 
@@ -62,7 +73,8 @@ final class ThemeStudioPanelController {
         let mouseLocation = NSEvent.mouseLocation
         let screen = screenUnderTheMouseCursor()
         visibleFrame = screen?.visibleFrame ?? .zero
-        anchorTopLeft = approvalListAnchorTopLeft(
+        anchorTopLeft = themeStudioCardAnchorTopLeft(
+            pictureRect: pictureTheLoopIsAround(),
             mouseLocation: mouseLocation,
             panelSize: CGSize(width: Self.cardWidth, height: Self.tallestCardHeight),
             visibleFrame: visibleFrame,
@@ -93,6 +105,9 @@ final class ThemeStudioPanelController {
         cardPanel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         cardPanel.contentView = hostingView
         panel = cardPanel
+        levelFollowsTheDesign = studio.$state.sink { [weak cardPanel] state in
+            cardPanel?.level = state.isDesigning ? Self.designingPanelLevel : Self.panelLevel
+        }
         resizeObserver = keepThePanelOnScreenAsItResizes(cardPanel) { [weak self] in
             (
                 AgentListWindowMargins.windowTopLeft(forCardTopLeft: self?.anchorTopLeft ?? .zero),
@@ -152,6 +167,7 @@ final class ThemeStudioPanelController {
             NotificationCenter.default.removeObserver(resizeObserver)
             self.resizeObserver = nil
         }
+        levelFollowsTheDesign = nil
         let flightToEnd = openingFlight
         openingFlight = nil
         let closingPanel = panel
@@ -828,3 +844,29 @@ struct ThemeStudioButton: View {
         .hoverAndPointer(isEnabled: isEnabled) { isHovered = $0 }
     }
 }
+
+/// Where the Theme Studio card opens. A design from a picture hangs the card off that picture's bottom-right corner,
+/// overlapping it by `themeStudioCardOverlapOfThePicture`, so the card reads as about that picture. A picture on another
+/// screen, or a corner spot that would cover the pointer, falls back to the first corner around the mouse.
+func themeStudioCardAnchorTopLeft(
+    pictureRect: CGRect?,
+    mouseLocation: CGPoint,
+    panelSize: CGSize,
+    visibleFrame: CGRect,
+    gapFromTheMouse: CGFloat
+) -> CGPoint {
+    if let pictureRect, visibleFrame.intersects(pictureRect) {
+        let atThePicturesBottomRight = CGPoint(
+            x: pictureRect.maxX - themeStudioCardOverlapOfThePicture.width,
+            y: pictureRect.minY + themeStudioCardOverlapOfThePicture.height
+        )
+        let panelOrigin = agentListPanelOrigin(anchorTopLeft: atThePicturesBottomRight, panelSize: panelSize, visibleFrame: visibleFrame)
+        if !CGRect(origin: panelOrigin, size: panelSize).contains(mouseLocation) {
+            return atThePicturesBottomRight
+        }
+    }
+    return approvalListAnchorTopLeft(mouseLocation: mouseLocation, panelSize: panelSize, visibleFrame: visibleFrame, gapFromTheMouse: gapFromTheMouse)
+}
+
+/// How far the card's top-left corner sits inside the picture's bottom-right corner.
+let themeStudioCardOverlapOfThePicture = CGSize(width: 96, height: 64)
