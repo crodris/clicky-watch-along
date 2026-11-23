@@ -1175,9 +1175,12 @@ final class RoomArtPreviewController: ObservableObject {
         var renderTheFurniture: (RoomFurnitureRenderRequest) async -> RoomFurnitureKeyframeLayers? = { _ in nil }
         /// Turns a painted keyframe into its item layer (`RoomFurniturePaintedComposite`), off the main actor.
         var paintedItemLayers: (_ painted: CGImage, _ keyframe: CGImage, _ maskPNG: Data, _ projectedBox: [CGPoint]) async -> RoomFurnitureKeyframeLayers? = { _, _, _, _ in nil }
-        /// Returns when furniture has waited long enough for its first look, `roomFurnitureSecondsToWaitForALook` after its
-        /// floor is measured, so the fallback shows instead. A test returns when it chooses.
+        /// Returns when furniture has waited long enough for its first look, `roomFurnitureSecondsToWaitForALook` after a
+        /// painting request for its placement goes out, so the fallback shows instead. A test returns when it chooses.
         var waitTheLongestForAFurnitureLook: () async -> Void = { try? await Task.sleep(for: .seconds(roomFurnitureSecondsToWaitForALook)) }
+        /// The same wait counted from the placement, which covers a placement whose request never goes out, such as while the
+        /// learner covers the box. A test returns when it chooses.
+        var waitTheLongestAfterAFurniturePlacement: () async -> Void = { try? await Task.sleep(for: .seconds(roomFurnitureSecondsToWaitForALook)) }
         /// The masks a painting of the shirt is made with, from Vision's faces and hands in the frozen frame
         /// (`ShirtPaintMask.make`), off the main actor, or nil when the old top cannot be found.
         var makeTheShirtPaintMasks: (ShirtFrozenFrame) async -> ShirtPaintMasks? = { _ in nil }
@@ -1369,9 +1372,12 @@ final class RoomArtPreviewController: ObservableObject {
     private var furniturePaintingTask: Task<Void, Never>?
     /// Renders the newest placement's model, held back as the painting's fallback. A new placement or a close cancels it.
     private var furnitureRenderTask: Task<Void, Never>?
-    /// Shows the fallback once the newest placement has waited `roomFurnitureSecondsToWaitForALook` with no painting. A new
-    /// placement or a close cancels it.
+    /// Shows the fallback once the newest placement's painting request has been out for `roomFurnitureSecondsToWaitForALook`
+    /// with no painting. A new request, a new placement, or a close cancels it.
     private var furnitureLookDeadlineTask: Task<Void, Never>?
+    /// Shows the fallback once `roomFurnitureSecondsToWaitForALook` have passed since the newest placement, request or not,
+    /// since the learner may cover the box for as long as they like. A new placement or a close cancels it.
+    private var furniturePlacementDeadlineTask: Task<Void, Never>?
     /// The keyframe of the measurement that just finished, kept until its result is applied.
     private var keyframeOfTheLatestMeasurement: RoomArtKeyframe?
     /// The newest furniture placement: its measurement, the furniture, the keyframe it was placed on, and the floor it
@@ -1385,6 +1391,7 @@ final class RoomArtPreviewController: ObservableObject {
     /// wait ran out, and a render is still being made.
     private var furniturePaintingCannotCome = false
     private var furnitureWaitRanOut = false
+    private var furniturePlacementWaitRanOut = false
     /// A painting request is out for the newest placement, so its fallback never gives up on the painting for want of a render.
     private var furniturePaintingRequestIsOut = false
     private var furnitureRenderIsRunning = false
@@ -1556,6 +1563,8 @@ final class RoomArtPreviewController: ObservableObject {
         furnitureRenderTask = nil
         furnitureLookDeadlineTask?.cancel()
         furnitureLookDeadlineTask = nil
+        furniturePlacementDeadlineTask?.cancel()
+        furniturePlacementDeadlineTask = nil
         shirtPaintingTask?.cancel()
         shirtPaintingTask = nil
         aPressCancelledTheCapture = false
@@ -2211,10 +2220,13 @@ final class RoomArtPreviewController: ObservableObject {
                 ghost.shownPose.isSnappedToTheWall ? ", its back on the wall" : "", floor.inferredFromTheWall ? ", on a floor inferred from the wall" : ""
             ))
             // The painting is the piece's first look, and the model's render shows only if none comes in time. The wait
-            // for it starts when its request goes out (`startTheLookDeadline`), not here.
+            // for the request starts when it goes out (`startTheLookDeadline`), and the wait from the placement starts here,
+            // since no request goes out while the learner covers the box.
             furniturePlacement = (measurementID, furniture, keyframe, floor, ghost)
             furniturePaintingCannotCome = false
             furnitureWaitRanOut = false
+            furniturePlacementWaitRanOut = false
+            startThePlacementDeadline(measurementID: measurementID)
             startPaintingTheFurniture()
             startRenderingTheFurnituresModel()
         case .couldNotDraw:
@@ -2248,6 +2260,7 @@ final class RoomArtPreviewController: ObservableObject {
     /// Stops every look on its way for the placement before, for a new placement or a pick-up.
     private func stopTheFurnituresLooks() {
         furnitureLookDeadlineTask?.cancel()
+        furniturePlacementDeadlineTask?.cancel()
         furniturePaintingTask?.cancel()
         // The request itself is not cancelled: a pick-up that puts the piece back in the same box uses it
         // (`startPaintingTheFurniture`), and a move, a new measurement, and a close cancel it (`paintingAhead`).
@@ -2468,6 +2481,21 @@ extension RoomArtPreviewController {
         }
     }
 
+    /// Starts the wait counted from the newest placement, which runs whether or not a request goes out. When it runs out it
+    /// shows a ready render, or says the piece could not be drawn once the model search has ended with no render and no
+    /// request is out (`roomFurnitureFallbackStep`).
+    private func startThePlacementDeadline(measurementID: RoomArtMeasurementID) {
+        furniturePlacementDeadlineTask?.cancel()
+        let thisOpening = openingNumber
+        let waitTheLongestAfterAFurniturePlacement = environment.waitTheLongestAfterAFurniturePlacement
+        furniturePlacementDeadlineTask = Task {
+            await waitTheLongestAfterAFurniturePlacement()
+            guard !Task.isCancelled, thisOpening == openingNumber, furniturePlacement?.measurementID == measurementID else { return }
+            furniturePlacementWaitRanOut = true
+            showTheFurnitureFallbackIfItIsDue()
+        }
+    }
+
     private func stopTheLookDeadline() {
         furnitureLookDeadlineTask?.cancel()
         furnitureLookDeadlineTask = nil
@@ -2555,10 +2583,11 @@ extension RoomArtPreviewController {
     /// a render that finishes after the piece could not be drawn still shows it.
     private func showTheFurnitureFallbackIfItIsDue() {
         guard let furniturePlacement else { return }
-        let reason = furnitureWaitRanOut ? "no painting came within \(Int(roomFurnitureSecondsToWaitForALook)) s" : "no painting can come"
+        let reason = furnitureWaitRanOut || furniturePlacementWaitRanOut ? "no painting came within \(Int(roomFurnitureSecondsToWaitForALook)) s" : "no painting can come"
         let measurementID = furniturePlacement.measurementID
         switch roomFurnitureFallbackStep(
             paintingCannotCome: furniturePaintingCannotCome, theWaitRanOut: furnitureWaitRanOut,
+            thePlacementWaitRanOut: furniturePlacementWaitRanOut,
             aPaintingRequestIsInFlight: furniturePaintingRequestIsOut, render: furnitureRenderState
         ) {
         case .keepWaiting:
