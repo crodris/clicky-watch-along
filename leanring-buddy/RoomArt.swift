@@ -965,7 +965,6 @@ nonisolated struct ShirtPaintingID: Equatable, Sendable {
 
 /// What the panel is doing. The page is read as the panel opens, and its kind picks the rest: wall art and furniture are
 /// measured on their surface and tracked, and a shirt is drawn over the learner with no measurement at all.
-
 nonisolated enum RoomArtPhase: Equatable, Sendable {
     case closed
     /// The panel is open: the camera starts and the page is read at once.

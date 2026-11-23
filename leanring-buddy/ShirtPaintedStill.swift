@@ -131,8 +131,17 @@ nonisolated enum ShirtPaintingFailure: Error, Equatable, Sendable {
     case serviceIsNotSetUp
     /// The Worker refused the app secret, which trying again does not change.
     case appSecretRefused
+    /// The Worker did not answer: not running, or the request timed out.
+    case workerUnreachable
     /// Any other failed call: a refused edit, a timeout, or a reply that could not be pasted.
     case paintingFailed
+
+    /// The line, with the framing's own advice in place of "Step in front of the camera" when the learner is in view but not
+    /// where the shirt can be drawn, such as too close.
+    func spokenLine(withCoaching coachingLine: String?) -> String {
+        guard self == .nobodyToPaintOn, let coachingLine else { return spokenLine }
+        return "\(coachingLine) Then say right there."
+    }
 
     var spokenLine: String {
         switch self {
@@ -140,6 +149,7 @@ nonisolated enum ShirtPaintingFailure: Error, Equatable, Sendable {
         case .maskNotMade: return "I couldn't find your shirt in that frame. Try again with your shirt in view."
         case .serviceIsNotSetUp: return "Painting a shirt on you needs Clicky's OpenAI key."
         case .appSecretRefused: return RoomArtFailure.appSecretMissing.spokenLine
+        case .workerUnreachable: return RoomArtFailure.workerUnreachable.spokenLine
         case .paintingFailed: return "I couldn't put it on you that time. Say right there to try again."
         }
     }
@@ -862,6 +872,8 @@ nonisolated func shirtPaintingFailure(for error: Error) -> ShirtPaintingFailure 
     case RoomFurnitureGenerationError.serviceIsNotSetUp: return .serviceIsNotSetUp
     // Every room art route answers 401 to a missing or wrong app secret.
     case RoomFurnitureGenerationError.workerReturned(statusCode: 401, _): return .appSecretRefused
+    // No answer at all, as the other room art routes read it.
+    case is URLError: return .workerUnreachable
     default: return .paintingFailed
     }
 }

@@ -1584,7 +1584,7 @@ final class RoomArtPreviewController: ObservableObject {
         print("Shirt painting: back to the live preview, because \(failure)")
         frameProcessor.resumeTheLiveShirt()
         apply(phase.afterThePaintingFailed(id: paintingID))
-        environment.speak(failure.spokenLine, true)
+        environment.speak(failure.spokenLine(withCoaching: shirtCoachingLine), true)
     }
 
     // MARK: Measuring
@@ -2159,7 +2159,8 @@ private struct RoomArtPanelView: View {
         case .none: nil
         }
         if let shirtButtonTitle {
-            Button { previewController.pressTheShirtButton() } label: {
+            // The click's own time, so a click queued behind a busy main actor is still measured from when it was made.
+            Button { previewController.pressTheShirtButton(atUptime: NSApp.currentEvent?.timestamp ?? ProcessInfo.processInfo.systemUptime) } label: {
                 Text(shirtButtonTitle)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(DS.Colors.inkOnAccent)

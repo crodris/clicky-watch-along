@@ -1754,16 +1754,18 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
-    @Test func theCoachingStaysWhenTheLearnerIsOutOfViewOnTheWayBack() async throws {
+    @Test func aLearnerTooCloseToPaintHearsTheCoachingAndKeepsItInTheStatusLine() async throws {
         let shirtPainting = ShirtPaintingStub()
-        shirtPainting.secondsBeforeThePaintingReturns = 0.5
         let harness = try await harnessShowingTheLiveShirt(shirtPainting: shirtPainting)
-        harness.controller.paintTheShirt()
-        // The learner steps out of view while the frame is frozen.
+        // The learner steps too close while the preview shows, so no shirt is drawn when they ask.
         harness.frameProcessor.settleTheShirtFraming(on: .standBack)
-        try await waitFor("the coaching to be noted") { harness.controller.shirtCoachingLine != nil }
+        try await waitFor("the coaching in the status line") { harness.controller.shirtCoachingLine != nil }
+        harness.frameProcessor.setAShirtIsDrawn(false)
 
-        harness.controller.goBackToTheLiveShirt()
+        harness.controller.paintTheShirt()
+        try await waitFor("the coaching line") { harness.spokenLines().last == "Stand back so I can see your shoulders and chest. Then say right there." }
+        #expect(harness.controller.phase == .showingTheShirt(title: "Linen shirt"))
+        // The way back keeps the coaching, which the framing reports only when it changes.
         #expect(harness.statusLine() == "Stand back so I can see your shoulders and chest.")
         harness.controller.close()
     }

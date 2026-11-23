@@ -419,9 +419,14 @@ struct ShirtPaintingRequestTests {
     @Test func eachFailureHasItsOwnLine() {
         #expect(shirtPaintingFailure(for: RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")) == .serviceIsNotSetUp)
         #expect(shirtPaintingFailure(for: RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "")) == .paintingFailed)
-        #expect(shirtPaintingFailure(for: URLError(.timedOut)) == .paintingFailed)
-        let lines = [ShirtPaintingFailure.nobodyToPaintOn, .maskNotMade, .serviceIsNotSetUp, .paintingFailed].map(\.spokenLine)
-        #expect(Set(lines).count == 4)
+        #expect(shirtPaintingFailure(for: URLError(.timedOut)) == .workerUnreachable)
+        #expect(shirtPaintingFailure(for: RoomFurnitureGenerationError.workerReturned(statusCode: 401, body: "")) == .appSecretRefused)
+        let lines = [ShirtPaintingFailure.nobodyToPaintOn, .maskNotMade, .serviceIsNotSetUp, .appSecretRefused, .workerUnreachable, .paintingFailed].map(\.spokenLine)
+        #expect(Set(lines).count == 6)
+        // A learner in view but too close hears the framing's advice, not "Step in front of the camera".
+        #expect(ShirtPaintingFailure.nobodyToPaintOn.spokenLine(withCoaching: "Stand back.") == "Stand back. Then say right there.")
+        #expect(ShirtPaintingFailure.nobodyToPaintOn.spokenLine(withCoaching: nil) == ShirtPaintingFailure.nobodyToPaintOn.spokenLine)
+        #expect(ShirtPaintingFailure.maskNotMade.spokenLine(withCoaching: "Stand back.") == ShirtPaintingFailure.maskNotMade.spokenLine)
     }
 }
 
