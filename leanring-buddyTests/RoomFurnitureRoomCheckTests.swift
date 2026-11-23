@@ -21,6 +21,11 @@
 //  writes the render and the painted composite side by side, to judge which looks more real. ROOM_FURNITURE_PAINTING judges a
 //  painting an earlier run wrote (its `-painting.png` when the check refused it) instead of asking for a new one.
 //
+//  PASTE_SEAM_PAINTINGS (the saved paintings' path stems, comma separated, as `clicky-room-furniture-painting-<time>` under
+//  the temporary folder, each with its `-keyframe.jpg` and `-mask.png`) and PASTE_SEAM_OUT run the paste again over each
+//  saved painting and write `<stem>-after.png`, with no request. A saved painting already is a paste, so it stands in for
+//  the reply, which was not saved.
+//
 
 import AppKit
 import CoreImage
@@ -442,5 +447,23 @@ struct RoomFurnitureRoomCheckTests {
             worstError = max(worstError, hypot(trackedBase.x - trueBase.x, trackedBase.y - trueBase.y))
         }
         return worstError
+    }
+}
+
+/// Runs the paste again over paintings a Debug run saved, to see what the paste does to the room around the piece.
+struct RoomFurniturePasteSeamCheck {
+    @Test(.enabled(if: roomCheckEnvironment["PASTE_SEAM_PAINTINGS"] != nil && roomCheckEnvironment["PASTE_SEAM_OUT"] != nil, "Set PASTE_SEAM_PAINTINGS and PASTE_SEAM_OUT"))
+    func theSavedPaintingsPastedAgain() throws {
+        let outputFolder = URL(fileURLWithPath: try #require(roomCheckEnvironment["PASTE_SEAM_OUT"]), isDirectory: true)
+        try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
+        for stem in try #require(roomCheckEnvironment["PASTE_SEAM_PAINTINGS"]).split(separator: ",").map(String.init) {
+            let keyframe = try loadImage(stem + "-keyframe.jpg")
+            let painting = try loadImage(stem + ".png")
+            let mask = try loadImage(stem + "-mask.png")
+            let startedAt = Date()
+            let pasted = try #require(furnitureCompositePasted(keyframe: keyframe, generated: painting, mask: mask, context: CIContext()))
+            print(String(format: "Paste seam check: %@ pasted in %.2f s", URL(fileURLWithPath: stem).lastPathComponent, Date().timeIntervalSince(startedAt)))
+            writePNG(pasted, to: outputFolder.appendingPathComponent(URL(fileURLWithPath: stem).lastPathComponent + "-after.png"))
+        }
     }
 }

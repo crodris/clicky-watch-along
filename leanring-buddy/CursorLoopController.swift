@@ -31,11 +31,14 @@ final class CursorLoopController: ObservableObject {
     /// read, so the media read asks it for the tab instead of reading the tab itself.
     private let readTheMediaInTheFrontTab: (FrontTabReadAtRelease) -> MediaOnTheFrontTab?
     private let readTheFrontTabSample: () -> FrontTabSample?
-    /// The wait between front tab samples. Tests pass one that counts its calls, so they check when the poll waits without
-    /// reading the clock of a busy machine.
+    /// The wait between front tab samples. Tests pass one that counts its calls, or one that suspends until the poll is
+    /// cancelled, so no test reads the clock of a busy machine.
     private let waitBetweenFrontTabPolls: () async -> Void
     /// The wait for a finished agent's spark to complete its last lap. Tests pass one that returns at once.
     private let waitForAFinishingSparkLap: () async -> Void
+    /// The wait an idle must outlast to end a loop. Tests pass one that returns at once, so the voice state it reads afterwards
+    /// is the one the test set, with no clock of a busy machine in between.
+    private let waitForAnIdleToHold: () async -> Void
     /// Whether an agent's spark may join the line and draw now: false while a scene covers the media, a quiz question is open, or
     /// Show Clicky is off (`agentSparksMayDraw(clickyCursorIsEnabled:aSceneIsOnScreen:aQuizQuestionIsOpen:theRoomArtPanelIsOpen:)`). `CompanionManager`
     /// sets it, since the controller does not know those states. It is read when an agent starts, when a release reads the
@@ -54,6 +57,10 @@ final class CursorLoopController: ObservableObject {
     /// The voice state goes idle for a moment after a request is submitted, when the dictation session finishes
     /// and before the request sets its own processing state, so an idle ends a loop only after it holds this long.
     static let secondsAnIdleMustHoldToEndTheLoop: TimeInterval = 0.3
+    /// The real wait an idle must outlast. A newer voice state cancels it early.
+    static func sleepForAnIdleToHold() async {
+        try? await Task.sleep(for: .seconds(secondsAnIdleMustHoldToEndTheLoop))
+    }
     private static let chromeBundleIdentifier = "com.google.Chrome"
     /// The real wait for a finishing lap, as long as the spark takes to run it.
     static func sleepForAFinishingSparkLap() async {
@@ -65,12 +72,14 @@ final class CursorLoopController: ObservableObject {
         readTheFrontTabSample: @escaping () -> FrontTabSample? = CursorLoopController.readTheFrontTabSample,
         waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls,
         waitForAFinishingSparkLap: @escaping () async -> Void = CursorLoopController.sleepForAFinishingSparkLap,
+        waitForAnIdleToHold: @escaping () async -> Void = CursorLoopController.sleepForAnIdleToHold,
         appActivationNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
     ) {
         self.readTheMediaInTheFrontTab = readTheMediaInTheFrontTab
         self.readTheFrontTabSample = readTheFrontTabSample
         self.waitBetweenFrontTabPolls = waitBetweenFrontTabPolls
         self.waitForAFinishingSparkLap = waitForAFinishingSparkLap
+        self.waitForAnIdleToHold = waitForAnIdleToHold
         self.appActivationNotificationCenter = appActivationNotificationCenter
         // The front app changing is a system event, so a notification is the only way to hear it.
         appActivationObserver = appActivationNotificationCenter.addObserver(
@@ -149,7 +158,7 @@ final class CursorLoopController: ObservableObject {
         }
         idleMustHoldTask?.cancel()
         idleMustHoldTask = Task {
-            try? await Task.sleep(for: .seconds(Self.secondsAnIdleMustHoldToEndTheLoop))
+            await waitForAnIdleToHold()
             // A request that has not handed off yet may sit idle for its whole router call, so only a loop that
             // is showing ends here. A cancelled request never hands off, and the next press ends its turn.
             guard !Task.isCancelled, latestVoiceState == .idle, state.loopIsShowing else { return }
@@ -312,17 +321,25 @@ final class CursorLoopController: ObservableObject {
     private func startPollingTheFrontTab() {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let self, let mediaThePollWatches = self.state.mediaThePollWatches else { return }
-                let sampleNow = self.readTheFrontTabSample()
-                guard !Task.isCancelled else { return }
-                if let sampleNow, mediaThePollWatches.isTheSameMediaInTheSameTab(as: sampleNow) {
-                    await self.waitBetweenFrontTabPolls()
-                    continue
-                }
-                self.end(because: .tabOrMediaChanged)
-                return
+                // The controller is held only for the sample, never across the wait, so one nobody keeps goes while its poll
+                // waits.
+                guard let waitBeforeTheNextSample = self?.sampleTheFrontTabOnce() else { return }
+                await waitBeforeTheNextSample()
             }
         }
+    }
+
+    /// One sample of the front tab: the wait before the next one when it still shows the same media, or nil when the poll is
+    /// over, because nothing is watched any more or the sample differed and ended the loop.
+    private func sampleTheFrontTabOnce() -> (() async -> Void)? {
+        guard let mediaThePollWatches = state.mediaThePollWatches else { return nil }
+        let sampleNow = readTheFrontTabSample()
+        guard !Task.isCancelled else { return nil }
+        if let sampleNow, mediaThePollWatches.isTheSameMediaInTheSameTab(as: sampleNow) {
+            return waitBetweenFrontTabPolls
+        }
+        end(because: .tabOrMediaChanged)
+        return nil
     }
 
     // MARK: - Reading Chrome
