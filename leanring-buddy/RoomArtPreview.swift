@@ -146,8 +146,13 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     func armTheShirtCapture(onEvent: @escaping @Sendable (ShirtCaptureEvent) -> Void)
     /// Stops waiting for the learner to hold still. Safe with no capture armed.
     func disarmTheShirtCapture()
-    /// Crossfades from the frozen preview to the painted still over `shirtPaintedStillCrossfadeSeconds`, and holds it.
+    /// Crossfades from the frozen preview to the painted still over `shirtPaintedStillCrossfadeSeconds`, and holds it until
+    /// the painted top follows the learner (`followTheLearnerWithThePaintedTop`).
     func showThePaintedStill(_ paintedImage: CGImage)
+    /// Paint once, then track it: once the painted still shows, the painted top follows the learner in the live camera view
+    /// (`ShirtLivePaintedTop`), and the still shows again while they are out of its reach. `onTheHintChanged` runs on the main
+    /// actor with whether the learner should be told to stand as they did. Does nothing unless the painted still shows.
+    func followTheLearnerWithThePaintedTop(_ paintedTop: ShirtLivePaintedTop, onTheHintChanged: @escaping @Sendable (Bool) -> Void)
     /// Leaves the frozen frame or the painted still, and the live preview draws again.
     func resumeTheLiveShirt()
     /// While the frame is frozen, the loop traces `outline` (camera pixels), the area being painted.
@@ -249,8 +254,12 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     /// The armed capture, with the countdown number last reported so only a change goes to the main actor.
     private var shirtCapture: (state: ShirtStepBackCapture, lastReportedNumber: Int?, onEvent: @Sendable (ShirtCaptureEvent) -> Void)?
     /// The frozen frame shown while the shirt is painted into it, and the painted still once it arrives, with when it
-    /// arrived for the crossfade. While it is set, no camera frame is drawn.
+    /// arrived for the crossfade. While it is set, no camera frame is drawn, except that once the painted still has crossfaded
+    /// in and its top is cut out (`livePaintedTop`), the top is drawn over the live frames.
     private var frozenShirt: (preview: CIImage, painted: CIImage?, paintedArrivedAt: CFTimeInterval)?
+    /// The painted top following the learner once the painted still has crossfaded in, with the closure that reports its hint
+    /// to the main actor. Set only while `frozenShirt` holds the painted still, and cleared with it.
+    private var livePaintedTop: (follower: ShirtLivePaintedTopFollower, onTheHintChanged: @Sendable (Bool) -> Void)?
     /// The outline of the learner's own top, traced on `shirtOutlineQueue` every `secondsBetweenShirtOutlines` while the
     /// try-on is prepared, with the torso it was traced on, so the loop follows the body between traces.
     private var latestShirtOutline: (outline: [CGPoint], torso: BodyTorso)?
@@ -364,6 +373,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             onTheShirtFramingSettled = nil
             shirtCapture = nil
             frozenShirt = nil
+            livePaintedTop = nil
             latestShirtOutline = nil
             shirtOutlineFailureWasLogged = false
             shirtPoseTracker.reset()
@@ -403,6 +413,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             self.shirtPreview = nil
             self.shirtCapture = nil
             self.frozenShirt = nil
+            self.livePaintedTop = nil
             self.latestShirtOutline = nil
         }
     }
@@ -434,6 +445,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             // Arming means the live preview shows, so a frame an earlier capture froze, whose event the controller may have
             // dropped as stale, is left here.
             self.frozenShirt = nil
+            self.livePaintedTop = nil
             self.shirtCapture = (ShirtStepBackCapture(armedAt: CACurrentMediaTime()), nil, onEvent)
         }
     }
@@ -537,9 +549,18 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
     }
 
+    func followTheLearnerWithThePaintedTop(_ paintedTop: ShirtLivePaintedTop, onTheHintChanged: @escaping @Sendable (Bool) -> Void) {
+        processingQueue.async {
+            // A painting the learner went back from has already cleared the frozen frame, so a late top is dropped here.
+            guard self.frozenShirt?.painted != nil else { return }
+            self.livePaintedTop = (ShirtLivePaintedTopFollower(top: paintedTop), onTheHintChanged)
+        }
+    }
+
     func resumeTheLiveShirt() {
         processingQueue.async {
             self.frozenShirt = nil
+            self.livePaintedTop = nil
         }
     }
 
@@ -625,8 +646,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
 
         // A frozen frame holds still while the shirt is painted into it and while the painted still shows, so the camera's
-        // frames only pace the redraw, which plays the crossfade. Nothing is segmented or tracked meanwhile.
+        // frames only pace the redraw, which plays the crossfade. Nothing is segmented or tracked meanwhile, except that once
+        // the painted still has crossfaded in and its top is cut out, the top follows the learner in the live frames.
         if let frozenShirt {
+            if drawThePaintedTopFollowingTheLearner(in: cameraFrame, frozenShirt: frozenShirt) { return }
             if present(frozenShirtImage(frozenShirt), extent: CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)) {
                 noteTheFrame(trackMilliseconds: 0)
             }
@@ -708,6 +731,37 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         if draw(cameraFrame: cameraFrame, backgroundItems: backgroundItemsToDraw, artCorners: artCorners, fadingArtCorners: fadingArtCorners, shirtTorso: shirtTorsoToDraw) {
             noteTheFrame(trackMilliseconds: trackMilliseconds)
         }
+    }
+
+    /// Draws this frame with the painted top following the learner, once the painted still has crossfaded in and its top is cut
+    /// out (`ShirtLivePaintedTop`). The torso comes from the pose tracker directly, not `torsoForTheShirt`, which would report
+    /// framing changes and move the loop. Returns false when the frozen path draws this frame instead.
+    private func drawThePaintedTopFollowingTheLearner(in cameraFrame: CVPixelBuffer, frozenShirt: (preview: CIImage, painted: CIImage?, paintedArrivedAt: CFTimeInterval)) -> Bool {
+        guard var livePaintedTop, frozenShirt.painted != nil,
+              CACurrentMediaTime() - frozenShirt.paintedArrivedAt >= shirtPaintedStillCrossfadeSeconds else { return false }
+        let now = CACurrentMediaTime()
+        if !livePaintedTop.follower.hasStarted {
+            // The person mask and the pose are from before the freeze, seconds old, so the live top waits for new ones.
+            latestPersonMask = nil
+            latestPersonLowestRowShare = nil
+            shirtPoseTracker.reset()
+        }
+        startSegmentingIfIdle(cameraFrame)
+        latestFrame = cameraFrame
+        let torso = shirtPoseTracker.torso(forFrame: cameraFrame, atTime: now)
+        if let hintIsShowing = livePaintedTop.follower.advance(currentTorso: torso, at: now) {
+            print("Shirt painting: the painted top is \(hintIsShowing ? "out of reach (\(livePaintedTop.follower.reach)), so the still shows" : "back in reach")")
+            let onTheHintChanged = livePaintedTop.onTheHintChanged
+            DispatchQueue.main.async { onTheHintChanged(hintIsShowing) }
+        }
+        self.livePaintedTop = livePaintedTop
+        let frameImage = CIImage(cvPixelBuffer: cameraFrame)
+        // The renderer reads the mask's values as they are, which a mask tagged with no color space keeps.
+        let personMask = latestPersonMask.map { CIImage(cvPixelBuffer: $0, options: [.colorSpace: NSNull()]) }
+        if present(livePaintedTop.follower.image(frame: frameImage, personMask: personMask), extent: frameImage.extent) {
+            noteTheFrame(trackMilliseconds: 0)
+        }
+        return true
     }
 
     /// The torso the shirt is drawn on this frame, or nil when it is not drawn. The framing is assessed every frame, but the
@@ -1465,6 +1519,10 @@ final class RoomArtPreviewController: ObservableObject {
         var makeTheShirtPaintMasks: (ShirtFrozenFrame, ShirtCoverage) async -> ShirtPaintMasks? = { _, _ in nil }
         /// Paints the shirt into the frozen frame through the Worker and pastes it back (`ShirtPaintingClient`).
         var paintTheShirt: (ShirtPaintingRequest) async throws -> CGImage = { _ in throw ShirtPaintingFailure.serviceIsNotSetUp }
+        /// The painted top cut out of the painted still so it can follow the learner live (`ShirtLivePaintedTop.make`), off the
+        /// main actor, or nil when it cannot be made. The arguments are the painted still, the masks it was painted with, the
+        /// torso of the frozen frame, and the garment's coverage.
+        var makeTheLivePaintedTop: (CGImage, ShirtPaintMasks, BodyTorso, ShirtCoverage) async -> ShirtLivePaintedTop? = { _, _, _, _ in nil }
         /// The learner asked the open panel for something: a painting or a return to the preview, by voice or by its button,
         /// the furniture placed by voice or the Place button, or moved by voice. The line that answers it lands after any press
         /// they made before, so it must not be dropped as one they moved on from. A drag, click, or scroll that moves the ghost
@@ -1568,6 +1626,13 @@ final class RoomArtPreviewController: ObservableObject {
                     }.value
                 },
                 paintTheShirt: { paintingRequest in try await shirtPaintingClient.paint(paintingRequest) },
+                makeTheLivePaintedTop: { painted, masks, frozenTorso, coverage in
+                    // A CGImage is immutable, so the detached task may read it.
+                    nonisolated(unsafe) let paintedStill = painted
+                    return await Task.detached(priority: .userInitiated) {
+                        ShirtLivePaintedTop.make(painted: paintedStill, masks: masks, frozenTorso: frozenTorso, coverage: coverage)
+                    }.value
+                },
                 theLearnerAskedThePanel: theLearnerAskedThePanel,
                 showTheChip: showTheChip
             )
@@ -1589,6 +1654,9 @@ final class RoomArtPreviewController: ObservableObject {
     @Published private(set) var theSurfaceIsLost = false
     /// What the settled framing tells the learner while the shirt cannot be drawn, nil once they stand in view.
     @Published private(set) var shirtCoachingLine: String?
+    /// The painted top cannot follow the learner now, so the painted still shows and the status line says how to see it live
+    /// (`ShirtLivePaintedTopFollower`). Only the painted still's status line reads it, and each painted still starts it false.
+    @Published private(set) var thePaintedTopIsOutOfReach = false
     /// The countdown number the armed capture last reported, 3 then 2 then 1, nil while no hold is under way.
     @Published private(set) var shirtCaptureCountdownNumber: Int?
     /// The camera's first frame with a person mask has arrived since the panel opened, so the video shows and a keyframe
@@ -2384,6 +2452,16 @@ final class RoomArtPreviewController: ObservableObject {
             print(String(format: "Shirt painting: painted and pasted in %.1f s", Date().timeIntervalSince(startedAt)))
             frameProcessor.showThePaintedStill(painted)
             apply(phase.withThePaintedShirt(id: paintingID))
+            thePaintedTopIsOutOfReach = false
+            // Paint once, then track it: the painted top is cut out of the still, and the still shows until it is ready.
+            let livePaintedTop = await environment.makeTheLivePaintedTop(painted, masks, frozenFrame.torso, ShirtCoverage(reading: shirtBeingTried.reading))
+            guard isStillThisPainting() else { return }
+            guard let livePaintedTop else {
+                print("Shirt painting: the painted top could not be cut out to follow the learner, so the still stays")
+                return
+            }
+            letThePaintedTopFollowTheLearner(livePaintedTop)
+            print(String(format: "Shirt painting: the painted top follows the learner live, %.1f s after the capture froze", Date().timeIntervalSince(startedAt)))
         }
     }
 
@@ -2409,6 +2487,21 @@ final class RoomArtPreviewController: ObservableObject {
                 environment.showTheChip(roomArtPhotoNotSavedChip, true)
             }
         }
+    }
+
+    private func letThePaintedTopFollowTheLearner(_ livePaintedTop: ShirtLivePaintedTop) {
+        frameProcessor.followTheLearnerWithThePaintedTop(livePaintedTop) { [weak self] hintIsShowing in
+            Task { @MainActor in
+                self?.thePaintedTopHintChanged(isShowing: hintIsShowing)
+            }
+        }
+    }
+
+    /// The painted top went out of the learner's reach (so the status line says to stand as they did) or came back. Only
+    /// while the painted still shows, since the line is the still's.
+    private func thePaintedTopHintChanged(isShowing: Bool) {
+        guard case .showingThePaintedShirt = phase else { return }
+        thePaintedTopIsOutOfReach = isShowing
     }
 
     /// "Go back" or Back to live: the live preview comes back, from the painted still or from a painting on its way, which
@@ -3540,7 +3633,10 @@ private struct RoomArtPanelView: View {
     private var statusLine: some View {
         let statusText = previewController.waitingForTheLearnerToStepAside
             ? roomFurnitureStepAsideLine
-            : previewController.phase.statusLine(theSurfaceIsLost: previewController.theSurfaceIsLost, shirtCoachingLine: previewController.shirtCoachingLine)
+            : previewController.phase.statusLine(
+                theSurfaceIsLost: previewController.theSurfaceIsLost, shirtCoachingLine: previewController.shirtCoachingLine,
+                thePaintedTopIsOutOfReach: previewController.thePaintedTopIsOutOfReach
+            )
         if !statusText.isEmpty {
             RoomArtStatusPill(text: statusText, isAFailure: previewController.phase.statusLineIsAFailure(theSurfaceIsLost: previewController.theSurfaceIsLost))
         }
