@@ -69,8 +69,8 @@ struct RoomArtLoopStateTests {
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: arrangingPhase, at: 24) == .drawing(beganAt: 10))
     }
 
-    @Test func aPieceThatCouldNotBeDrawnKeepsItsLineStillUntilARetryClickTracesItAgain() {
-        let couldNotDraw = RoomArtPhase.couldNotDraw(id: RoomArtMeasurementID(number: 1), item: loopTestItem(), surface: .wall(loopTestWall()), retryFailure: nil)
+    @Test func aPieceThatCouldNotBeDrawnKeepsItsLineStillUntilAPickUpAndItsNextPlacementTracesItAgain() {
+        let couldNotDraw = RoomArtPhase.couldNotDraw(id: RoomArtMeasurementID(number: 1), item: loopTestItem(), surface: .wall(loopTestWall()))
         let waiting = RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: couldNotDraw, at: 24)
         #expect(waiting == .waitingForAClick(beganAt: 10))
         #expect(!waiting.tracesTheLine)
@@ -78,15 +78,26 @@ struct RoomArtLoopStateTests {
         let plan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 0.5, reduceMotionIsOn: false, tracesTheLine: waiting.tracesTheLine)
         #expect(!plan.showsTheTracer)
         #expect(plan.frame.drawnShare == 1)
-        // A retry click takes a new keyframe, so its spot gets a fresh trace.
-        let retrying = RoomArtPhase.retrying(id: RoomArtMeasurementID(number: 2), item: loopTestItem(), surfaceBeforeTheRetry: .wall(loopTestWall()))
-        #expect(waiting.after(phaseChangedTo: retrying, at: 40) == .drawing(beganAt: 40))
-        // The piece showing at last fades the still line.
-        let showing = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: nil)
-        let fadingStill = waiting.after(phaseChangedTo: showing, at: 41)
+        // A press picks the ghost back up: the still line fades with no glyph, and the next placement traces a fresh loop.
+        let placing = RoomArtPhase.placingTheFurniture(id: RoomArtMeasurementID(number: 2), item: loopTestItem(), surface: .wall(loopTestWall()))
+        let fadingStill = waiting.after(phaseChangedTo: placing, at: 40)
         #expect(fadingStill == .fadingOut(beganAt: 10, tracesTheLine: false))
-        // No glyph appears on a still line while it fades.
         #expect(!fadingStill.tracesTheLine)
+        let arranging = RoomArtPhase.arranging(id: RoomArtMeasurementID(number: 3), item: loopTestItem(), surface: .wall(loopTestWall()))
+        #expect(fadingStill.after(phaseChangedTo: arranging, at: 44) == .drawing(beganAt: 44))
+        // The ghost appearing after the first trace fades the whole line still, since its glyph leaves for the ghost, so one
+        // glyph shows.
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: placing, at: 41) == .fadingOut(beganAt: 10, tracesTheLine: false))
+        // A ghost that appears during the loop's first trace keeps only the part already drawn, with no glyph finishing it.
+        let fadingMidTrace = RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: placing, at: 10.5)
+        let drawnAtTheHandOff = CursorLoopTimeline.lappingFrame(secondsSinceTheLoopBegan: 0.5).drawnShare
+        #expect(drawnAtTheHandOff < 1)
+        #expect(fadingMidTrace == .fadingOut(beganAt: 10, tracesTheLine: false, stillDrawnShare: drawnAtTheHandOff))
+        let midTracePlan = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 0.8, reduceMotionIsOn: false, tracesTheLine: false, stillDrawnShare: fadingMidTrace.stillDrawnShare)
+        #expect(midTracePlan.frame.drawnShare == drawnAtTheHandOff && !midTracePlan.showsTheTracer)
+        // The piece showing fades a tracing loop with its glyph lapping, and a still line still.
+        let showing = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: nil)
+        #expect(waiting.after(phaseChangedTo: showing, at: 41) == .fadingOut(beganAt: 10, tracesTheLine: false))
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showing, at: 41).tracesTheLine)
     }
 

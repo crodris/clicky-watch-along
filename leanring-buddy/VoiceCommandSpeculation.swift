@@ -21,6 +21,8 @@ nonisolated enum TranscriptRoute: Equatable {
     case putTheSceneBack
     /// "Show me again" replays the narration's recorded stops with no model call.
     case replayTheExplanation
+    /// "Right there" places the furniture's ghost with no model call (`RoomArtConfirmPhrase`).
+    case confirmTheRoomArt
     /// "Right there" paints the shirt the room art panel previews, and "go back" returns to the preview.
     case shirtPaintedStill(ShirtStillVoiceRequest)
     /// "Animate this", "let me try it", and "change my theme" run with no model call.
@@ -48,6 +50,8 @@ nonisolated struct TranscriptRouteContext: Equatable, Sendable {
     var backgroundAgentsArePaused: Bool
     /// The narration of the pop-out on screen recorded stops, so "show me again" replays them.
     var replayStopsAreRecorded: Bool = false
+    /// The furniture's ghost shows, so "right there" places it and the router takes "move it left".
+    var furnitureGhostShows: Bool = false
     /// What the room art panel's shirt can do by voice, so "right there" and "go back" reach it.
     var shirtStillVoiceTargets: ShirtStillVoiceTargets = .none
 }
@@ -77,6 +81,14 @@ nonisolated func transcriptRoute(
     ) {
         return .replayTheExplanation
     }
+    if RoomArtConfirmPhrase.runsAheadOfTheRouter(
+        matches: RoomArtConfirmPhrase.matches(transcript),
+        somethingWaitsToBeConfirmed: context.furnitureGhostShows,
+        quizQuestionIsOpen: context.phaseIsWaitingForAQuizAnswer,
+        themeStudioIsOpen: context.themeStudioIsOpen
+    ) {
+        return .confirmTheRoomArt
+    }
     let shirtStillRequest = shirtStillVoiceRequest(for: transcript)
     if let shirtStillRequest, shirtStillPhraseRunsAheadOfTheRouter(
         request: shirtStillRequest,
@@ -105,6 +117,7 @@ nonisolated func transcriptRoute(
         themeStudioIsOpen: context.themeStudioIsOpen,
         backgroundAgentIsRunning: context.backgroundAgentIsRunning,
         backgroundAgentsArePaused: context.backgroundAgentsArePaused,
+        furnitureGhostShows: context.furnitureGhostShows,
         phaseIsWaitingForAQuizAnswer: context.phaseIsWaitingForAQuizAnswer,
         sceneIsBuilding: context.sceneIsBuilding,
         brainTakesEveryRequest: context.brainTakesEveryRequest
