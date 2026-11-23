@@ -149,6 +149,8 @@ nonisolated enum ShirtPaintingFailure: Error, Equatable, Sendable {
     case maskNotMade
     /// The Worker has no OpenAI key.
     case serviceIsNotSetUp
+    /// OpenAI is out of credit, so asking again fails the same way until someone adds credit.
+    case serviceIsOutOfCredit
     /// The Worker refused the app secret, which trying again does not change.
     case appSecretRefused
     /// The Worker did not answer: not running, or the request timed out.
@@ -160,6 +162,7 @@ nonisolated enum ShirtPaintingFailure: Error, Equatable, Sendable {
         switch self {
         case .maskNotMade: return "I couldn't find your shirt in that frame. Try again with your shirt in view."
         case .serviceIsNotSetUp: return "Painting a shirt on you needs Clicky's OpenAI key."
+        case .serviceIsOutOfCredit: return "OpenAI is out of credit, so I can't paint it on you right now."
         case .appSecretRefused: return RoomArtFailure.appSecretMissing.spokenLine
         case .workerUnreachable: return RoomArtFailure.workerUnreachable.spokenLine
         case .paintingFailed: return "I couldn't put it on you that time. Say right there to try again."
@@ -861,6 +864,7 @@ final class ShirtPaintingClient {
         let responseText = String(decoding: responseData, as: UTF8.self)
         switch statusCode {
         case 200: break
+        case 402: throw RoomFurnitureGenerationError.serviceIsOutOfCredit(body: responseText)
         case 503: throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: responseText)
         default: throw RoomFurnitureGenerationError.workerReturned(statusCode: statusCode, body: responseText)
         }
@@ -889,6 +893,7 @@ final class ShirtPaintingClient {
 nonisolated func shirtPaintingFailure(for error: Error) -> ShirtPaintingFailure {
     switch error {
     case RoomFurnitureGenerationError.serviceIsNotSetUp: return .serviceIsNotSetUp
+    case RoomFurnitureGenerationError.serviceIsOutOfCredit: return .serviceIsOutOfCredit
     // Every room art route answers 401 to a missing or wrong app secret.
     case RoomFurnitureGenerationError.workerReturned(statusCode: 401, _): return .appSecretRefused
     // No answer at all, as the other room art routes read it.

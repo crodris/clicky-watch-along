@@ -24,6 +24,8 @@ import UniformTypeIdentifiers
 nonisolated enum RoomFurnitureGenerationError: Error, Equatable {
     /// The Worker answered 503: the service has no key (`FAL_KEY` for the model, `OPENAI_API_KEY` for the composite), so asking again will not help.
     case serviceIsNotSetUp(body: String)
+    /// The Worker answered 402: OpenAI is out of credit, so no painting can come until someone adds credit.
+    case serviceIsOutOfCredit(body: String)
     /// Any other status that is not 200. 401 is a missing or wrong app secret, 504 a model that took too long, 502 a
     /// failed or refused generation, and 400 a request the Worker refused.
     case workerReturned(statusCode: Int, body: String)
@@ -616,6 +618,7 @@ final class RoomFurnitureGenerationClient {
         let responseText = String(decoding: responseData, as: UTF8.self)
         switch statusCode {
         case 200: return responseData
+        case 402: throw RoomFurnitureGenerationError.serviceIsOutOfCredit(body: responseText)
         case 503: throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: responseText)
         default: throw RoomFurnitureGenerationError.workerReturned(statusCode: statusCode, body: responseText)
         }

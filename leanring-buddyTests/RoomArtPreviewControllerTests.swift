@@ -2171,6 +2171,7 @@ struct RoomArtPreviewControllerTests {
         #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: URLError(.timedOut)))
         #expect(roomFurniturePaintingIsWorthAskingForAgain(after: URLError(.networkConnectionLost)))
         #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")))
+        #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.serviceIsOutOfCredit(body: "")))
         #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 401, body: "")))
         #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.workerReturned(statusCode: 400, body: "")))
         #expect(!roomFurniturePaintingIsWorthAskingForAgain(after: RoomFurnitureGenerationError.inputCouldNotBeRead(reason: "")))

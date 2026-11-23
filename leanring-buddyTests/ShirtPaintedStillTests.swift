@@ -533,11 +533,14 @@ struct ShirtPaintingRequestTests {
 
     @Test func eachFailureHasItsOwnLine() {
         #expect(shirtPaintingFailure(for: RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")) == .serviceIsNotSetUp)
+        #expect(shirtPaintingFailure(for: RoomFurnitureGenerationError.serviceIsOutOfCredit(body: "")) == .serviceIsOutOfCredit)
         #expect(shirtPaintingFailure(for: RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: "")) == .paintingFailed)
         #expect(shirtPaintingFailure(for: URLError(.timedOut)) == .workerUnreachable)
         #expect(shirtPaintingFailure(for: RoomFurnitureGenerationError.workerReturned(statusCode: 401, body: "")) == .appSecretRefused)
-        let lines = [ShirtPaintingFailure.maskNotMade, .serviceIsNotSetUp, .appSecretRefused, .workerUnreachable, .paintingFailed].map(\.spokenLine)
-        #expect(Set(lines).count == 5)
+        let lines = [ShirtPaintingFailure.maskNotMade, .serviceIsNotSetUp, .serviceIsOutOfCredit, .appSecretRefused, .workerUnreachable, .paintingFailed].map(\.spokenLine)
+        #expect(Set(lines).count == 6)
+        // Out of credit, asking again fails the same way, so its line never offers a retry.
+        #expect(!ShirtPaintingFailure.serviceIsOutOfCredit.spokenLine.contains("right there"))
     }
 }
 
@@ -614,6 +617,10 @@ struct ShirtPaintingClientTests {
     @Test func aWorkerWithNoKeyIsNotSetUpAndOtherFailuresAreFailures() async {
         answer(statusCode: 503, body: Data(#"{"error":"OPENAI_API_KEY is not set"}"#.utf8))
         await #expect(throws: RoomFurnitureGenerationError.serviceIsNotSetUp(body: #"{"error":"OPENAI_API_KEY is not set"}"#)) {
+            try await client().paint(paintingRequest())
+        }
+        answer(statusCode: 402, body: Data(#"{"error":"OpenAI is out of credit"}"#.utf8))
+        await #expect(throws: RoomFurnitureGenerationError.serviceIsOutOfCredit(body: #"{"error":"OpenAI is out of credit"}"#)) {
             try await client().paint(paintingRequest())
         }
         answer(statusCode: 502, body: Data(#"{"error":"The shirt could not be drawn on you"}"#.utf8))

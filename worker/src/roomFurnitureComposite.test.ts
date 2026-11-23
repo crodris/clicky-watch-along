@@ -513,6 +513,25 @@ describe("handleRoomFurnitureComposite", () => {
     expect(await response.json()).toEqual({ error: "The furniture could not be drawn into the room" });
   });
 
+  it("answers 402 when OpenAI is out of credit, so the app does not offer a retry", async () => {
+    stubFetch(async () =>
+      new Response(JSON.stringify({ error: { message: "You have no credits remaining.", type: "insufficient_quota", code: "credit_balance_exhausted" } }), { status: 429 }),
+    );
+
+    const response = await handleRoomFurnitureComposite(requestWithBody(goodBody()), openAIAPIKey);
+
+    expect(response.status).toBe(402);
+    expect(await response.json()).toEqual({ error: "OpenAI is out of credit" });
+  });
+
+  it("answers 502 for a rate limit, which passes on its own", async () => {
+    stubFetch(async () => new Response(JSON.stringify({ error: { message: "Rate limit reached.", type: "requests", code: "rate_limit_exceeded" } }), { status: 429 }));
+
+    const response = await handleRoomFurnitureComposite(requestWithBody(goodBody()), openAIAPIKey);
+
+    expect(response.status).toBe(502);
+  });
+
   it("answers 502 for an error status even when its body looks like an image reply", async () => {
     stubFetch(async () => new Response(JSON.stringify(goodOpenAIReply), { status: 500 }));
 

@@ -581,6 +581,24 @@ function garmentLengthSentences(garment: ShirtCompositeRequest["garment"]): stri
   return sentences.join(" ");
 }
 
+/** OpenAI answers 429 both for a rate limit, which passes, and for an account with no credit left, which does not. */
+export function openAIIsOutOfCredit(status: number, replyText: string): boolean {
+  if (status !== 429) {
+    return false;
+  }
+  try {
+    const reply: unknown = JSON.parse(replyText);
+    const error = typeof reply === "object" && reply !== null && "error" in reply ? (reply as { error: unknown }).error : undefined;
+    if (typeof error !== "object" || error === null) {
+      return false;
+    }
+    const { code, type } = error as { code?: unknown; type?: unknown };
+    return code === "credit_balance_exhausted" || code === "insufficient_quota" || type === "insufficient_quota";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Image 1 is the learner's camera frame and Image 2 the store's top, and the mask applies to Image 1. The mask covers the
  * garment the learner wears now as well as where the new one lands, so a narrower new top does not leave the old one
@@ -712,6 +730,10 @@ export async function handleRoomFurnitureComposite(
   if (!editResponse.ok) {
     // A refusal (moderation_blocked) comes back as a 400. Line breaks go, so the error cannot forge a log line.
     console.error(`[${routeName}] OpenAI answered ${editResponse.status}: ${editReplyText.slice(0, 1000).replace(/[\r\n\v\f\u0085\u2028\u2029]/g, " ")}`);
+    // An account out of credit fails every edit until someone adds credit, so the app says so instead of offering a retry.
+    if (openAIIsOutOfCredit(editResponse.status, editReplyText)) {
+      return jsonResponse({ error: "OpenAI is out of credit" }, 402);
+    }
     return jsonResponse({ error: failedEditError }, 502);
   }
   let editReplyJSON: unknown;
