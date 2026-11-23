@@ -518,4 +518,31 @@ struct ThemeStudioCardGlideInCloseTests {
         #expect(glideIn.carriedViewIsHidden)
         #expect(cardPanel.openingFlight == nil)
     }
+
+    /// A design from a picture raises the real card above the cursor overlay while it runs, and a refine that keeps the
+    /// card's picture, which draws no loop, leaves it below, so the previewed cursor still draws over the card.
+    @Test(.enabled(if: !NSScreen.screens.isEmpty, "the card needs a screen"))
+    func theCardRisesOnlyWhileADesignThatReadsThePictureRuns() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }, { try reply(names: ["Ember", "Dusk", "Fern"]) }]
+        var theDesignReadsAPicture = true
+        let cardPanel = ThemeStudioPanelController(
+            pictureTheLoopIsAround: { theDesignReadsAPicture ? CGRect(x: 200, y: 300, width: 600, height: 400) : nil },
+            onSaveClicked: { _ in }
+        )
+        let cursorOverlayLevel = NSWindow.Level.screenSaver.rawValue + 1
+
+        harness.studio.design(request: "a theme from this picture", basedOnIdea: nil, pictureChoice: .none)
+        cardPanel.show(studio: harness.studio)
+        #expect(try #require(cardPanel.windowLevel).rawValue > cursorOverlayLevel)
+        await harness.studio.waitForTheDesign()
+        #expect(try #require(cardPanel.windowLevel).rawValue < cursorOverlayLevel)
+
+        theDesignReadsAPicture = false
+        harness.studio.design(request: "make it round", basedOnIdea: 1, pictureChoice: .keepTheCardsPicture)
+        #expect(harness.studio.state.isDesigning)
+        #expect(try #require(cardPanel.windowLevel).rawValue < cursorOverlayLevel)
+        await harness.studio.waitForTheDesign()
+        cardPanel.hide(because: .dismissed)
+    }
 }
