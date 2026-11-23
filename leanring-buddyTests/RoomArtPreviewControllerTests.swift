@@ -2377,13 +2377,15 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.shirtCaptureCountdownNumber == nil)
         #expect(harness.spokenLines().filter { $0 == "Step back and hold still." }.count == 2)
 
-        // The first capture's events arrive late and change nothing. The second capture's own countdown, sent after them, is
-        // heard, and events reach the main actor in the order they were sent, so by then the late ones have been handled.
+        // The second capture's countdown is heard, then the first capture's events arrive late and change nothing: no painting
+        // starts, the number stays, and the phase stays. The marker runs after them, since events reach the main actor in order.
+        harness.frameProcessor.reportTheCapture(.countdown(3), fromArming: 1)
+        try await waitFor("the second capture's number") { harness.controller.shirtCaptureCountdownNumber == 3 }
         harness.frameProcessor.freezeTheFrame(fromArming: 0)
         harness.frameProcessor.reportTheCapture(.timedOut, fromArming: 0)
         harness.frameProcessor.reportTheCapture(.countdown(1), fromArming: 0)
-        harness.frameProcessor.reportTheCapture(.countdown(3), fromArming: 1)
-        try await waitFor("the second capture's number") { harness.controller.shirtCaptureCountdownNumber == 3 }
+        await untilTheCaptureEventsSentSoFarAreHandled()
+        #expect(shirtPainting.requests.isEmpty && harness.controller.shirtCaptureCountdownNumber == 3)
         #expect(harness.controller.phase == .waitingForTheLearnerToStepBack(title: "Linen shirt", id: secondID))
 
         // The second capture's own frozen frame starts the painting.

@@ -62,6 +62,11 @@ struct ShirtStepBackCaptureTests {
         #expect(capture.advance(framingKind: .ready, torso: nil, at: 1) == .keepWaiting)
     }
 
+    @Test func shouldersOnTopOfEachOtherNeverStartAHold() {
+        var capture = capture()
+        #expect(capture.advance(framingKind: .ready, torso: torso(shoulderWidth: 0), at: 1) == .keepWaiting)
+    }
+
     @Test func movingTheShouldersRestartsTheHoldFromWhereTheyAreNow() {
         var capture = capture()
         _ = capture.advance(framingKind: .ready, torso: torso(centerX: 320), at: 1.0)

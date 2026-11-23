@@ -1899,11 +1899,10 @@ final class RoomArtPreviewController: ObservableObject {
         shirtCaptureCountdownNumber = nil
         apply(armedPhase)
         environment.speak(roomArtShirtStepBackLine, false)
-        let thisOpening = openingNumber
+        // The painting numbers count up across openings, so an event from an earlier panel names an ID no phase holds.
         frameProcessor.armTheShirtCapture { [weak self] event in
             Task { @MainActor in
-                guard let self, thisOpening == self.openingNumber else { return }
-                self.theShirtCaptureReported(event, id: paintingID)
+                self?.theShirtCaptureReported(event, id: paintingID)
             }
         }
     }
