@@ -341,6 +341,57 @@ struct RoomFloorTests {
         #expect(alphaOfThePixel(in: cutout, x: cutout.width / 2, y: cutout.height / 2) > 200)
     }
 
+    /// A wall item keeps every instance Vision finds: IKEA's BONDIS clock split into its face and its hands, and keeping the
+    /// instance under the center hung only the hands. On a generated clock (an orange disc with a white hand and a pivot at the
+    /// center), the disc's edge must stay opaque. When Vision finds no subject, only the nil path runs.
+    @Test func aWallItemKeepsEveryPieceVisionFindsSoAClockKeepsItsFace() throws {
+        let side = 240
+        let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+        context.setFillColor(CGColor(red: 0.9, green: 0.35, blue: 0.1, alpha: 1))
+        context.fillEllipse(in: CGRect(x: 30, y: 30, width: 180, height: 180))
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 117, y: 117, width: 70, height: 6))
+        context.fillEllipse(in: CGRect(x: 112, y: 112, width: 16, height: 16))
+        let picture = try #require(context.makeImage())
+        let corners = RoomArtCorners(
+            topLeft: CGPoint(x: 25, y: 25), topRight: CGPoint(x: 215, y: 25), bottomRight: CGPoint(x: 215, y: 215), bottomLeft: CGPoint(x: 25, y: 215)
+        )
+
+        guard let itemOnly = pictureWithOnlyTheItemOpaque(picture: picture, itemCorners: corners, context: CIContext()) else {
+            print("RoomFloorTests: Vision found no subject in the generated clock, so only the nil path ran")
+            return
+        }
+
+        print("RoomFloorTests: Vision found the generated clock, so its face's edge was checked")
+        // A point on the face near its left edge, well away from the hand and the pivot, stays opaque.
+        #expect(alphaOfThePixel(in: itemOnly, x: 45, y: side / 2) > 200)
+        // The photo's white corner stays clear.
+        #expect(alphaOfThePixel(in: itemOnly, x: 28, y: 28) < 40)
+    }
+
+    /// The labels of a clock Vision split in two: the face is instance 1, and the hands, instance 2, cover the center.
+    @Test func aWallItemKeepsBothPiecesOfASplitClockWhileFurnitureKeepsTheCenterPiece() throws {
+        var pixelBuffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, 20, 20, kCVPixelFormatType_OneComponent8, nil, &pixelBuffer)
+        let labels = try #require(pixelBuffer)
+        CVPixelBufferLockBaseAddress(labels, [])
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(labels)
+        let base = try #require(CVPixelBufferGetBaseAddress(labels)).assumingMemoryBound(to: UInt8.self)
+        for row in 0..<20 {
+            for column in 0..<20 {
+                let distanceFromTheCenter = hypot(Double(row) - 10, Double(column) - 10)
+                base[row * bytesPerRow + column] = distanceFromTheCenter <= 2 ? 2 : (distanceFromTheCenter <= 9 ? 1 : 0)
+            }
+        }
+        CVPixelBufferUnlockBaseAddress(labels, [])
+
+        #expect(foregroundInstancesToKeep(instanceLabels: labels, allInstances: IndexSet([1, 2]), keepsEveryInstance: true) == IndexSet([1, 2]))
+        #expect(foregroundInstancesToKeep(instanceLabels: labels, allInstances: IndexSet([1, 2]), keepsEveryInstance: false) == IndexSet(integer: 2))
+        #expect(foregroundInstancesToKeep(instanceLabels: labels, allInstances: IndexSet(), keepsEveryInstance: true) == nil)
+    }
+
     @Test func theOpaqueBoxIsTheSmallestRectangleHoldingEveryOpaquePixel() throws {
         // A clear 50 by 40 image with an opaque patch from column 10 to 29 and row 5 to 34, top left origin.
         let context = CGContext(data: nil, width: 50, height: 40, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!

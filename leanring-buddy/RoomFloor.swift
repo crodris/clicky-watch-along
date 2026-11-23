@@ -204,10 +204,12 @@ nonisolated func furnitureCutout(picture: CGImage, itemCorners: RoomArtCorners, 
 
 /// The item's own shape cut out of the whole product photo: the photo at its own size, with every pixel outside the item
 /// transparent. A wall item that does not fill its four corners, such as a round clock, is flattened from this picture, so the
-/// flattened art keeps transparent pixels where the photo's background was. The mask is Vision's, as in `furnitureCutout`.
+/// flattened art keeps transparent pixels where the photo's background was. The mask is Vision's, as in `furnitureCutout`,
+/// but it keeps every instance Vision finds, since the corners already hold only the item, and Vision splits a clock into its
+/// face and its hands: keeping the instance under the center kept only the hands of IKEA's BONDIS clock.
 /// Nil when the corners leave under 8 pixels of the photo, when Vision finds no subject, or when it fails.
 nonisolated func pictureWithOnlyTheItemOpaque(picture: CGImage, itemCorners: RoomArtCorners, context: CIContext) -> CGImage? {
-    guard let foreground = foregroundOfTheItem(picture: picture, itemCorners: itemCorners, context: context) else { return nil }
+    guard let foreground = foregroundOfTheItem(picture: picture, itemCorners: itemCorners, keepsEveryInstance: true, context: context) else { return nil }
     return pictureWithTheCutoutPlaced(foreground.cutout, at: foreground.cropRectangle, pictureWidth: picture.width, pictureHeight: picture.height)
 }
 
@@ -226,8 +228,11 @@ nonisolated func pictureWithTheCutoutPlaced(_ cutout: CGImage, at cropRectangle:
 }
 
 /// Vision's foreground instance mask applied to the crop of `itemCorners`: the crop with everything but the kept instance
-/// transparent, and where the crop sits in the photo. Not trimmed. Nil as `furnitureCutout` is.
-nonisolated private func foregroundOfTheItem(picture: CGImage, itemCorners: RoomArtCorners, context: CIContext) -> (cutout: CGImage, cropRectangle: CGRect)? {
+/// transparent, and where the crop sits in the photo. Not trimmed. Nil as `furnitureCutout` is. `keepsEveryInstance` keeps all of
+/// Vision's instances instead of the one `instanceIndexToKeep` picks.
+nonisolated private func foregroundOfTheItem(
+    picture: CGImage, itemCorners: RoomArtCorners, keepsEveryInstance: Bool = false, context: CIContext
+) -> (cutout: CGImage, cropRectangle: CGRect)? {
     guard let cropRectangle = furnitureCropRectangle(for: itemCorners, inPictureOfWidth: picture.width, height: picture.height),
           let croppedPicture = picture.cropping(to: cropRectangle) else { return nil }
 
@@ -236,9 +241,11 @@ nonisolated private func foregroundOfTheItem(picture: CGImage, itemCorners: Room
     do {
         try requestHandler.perform([maskRequest])
         guard let maskObservation = maskRequest.results?.first,
-              let instanceToKeep = instanceIndexToKeep(in: maskObservation.instanceMask) else { return nil }
+              let instancesToKeep = foregroundInstancesToKeep(
+                  instanceLabels: maskObservation.instanceMask, allInstances: maskObservation.allInstances, keepsEveryInstance: keepsEveryInstance
+              ) else { return nil }
         let maskedPixelBuffer = try maskObservation.generateMaskedImage(
-            ofInstances: IndexSet(integer: instanceToKeep),
+            ofInstances: instancesToKeep,
             from: requestHandler,
             croppedToInstancesExtent: false
         )
@@ -261,6 +268,13 @@ nonisolated func furnitureCropRectangle(for itemCorners: RoomArtCorners, inPictu
     let cropRectangle = boundingBox.intersection(CGRect(x: 0, y: 0, width: pictureWidth, height: pictureHeight))
     guard !cropRectangle.isNull, cropRectangle.width >= 8, cropRectangle.height >= 8 else { return nil }
     return cropRectangle
+}
+
+/// The instances a cutout keeps: every instance for a wall item (`keepsEveryInstance`), since its corners already hold only the
+/// item and Vision can split one item into pieces, else the one `instanceIndexToKeep` picks. Nil when there is none.
+nonisolated func foregroundInstancesToKeep(instanceLabels: CVPixelBuffer, allInstances: IndexSet, keepsEveryInstance: Bool) -> IndexSet? {
+    if keepsEveryInstance { return allInstances.isEmpty ? nil : allInstances }
+    return instanceIndexToKeep(in: instanceLabels).map { IndexSet(integer: $0) }
 }
 
 /// The instance label (1 or more) the cutout keeps, from Vision's label buffer, where each pixel holds its instance's index
