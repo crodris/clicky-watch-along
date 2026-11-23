@@ -327,8 +327,15 @@ struct RoomFurnitureSpotTests {
     }
 
     private func cornersAreInsideTheMargins(_ corners: [CGPoint]) -> Bool {
-        let insideTheMargins = CGRect(origin: .zero, size: frameSize).insetBy(dx: frameSize.width * roomFurnitureFrameMarginShare, dy: frameSize.height * roomFurnitureFrameMarginShare)
+        let insideTheMargins = roomFurnitureFrameRectangleThePieceFitsIn(frameSize: frameSize)
         return corners.allSatisfy { insideTheMargins.contains($0) }
+    }
+
+    @Test func thePieceKeepsClearOfTheStatusLineAtTheBottom() {
+        let rectangle = roomFurnitureFrameRectangleThePieceFitsIn(frameSize: CGSize(width: 1280, height: 720))
+        // The status line's top is at about 91 percent of the panel's height, so the box ends above it.
+        #expect(rectangle.maxY <= 720 * 0.9)
+        #expect(abs(rectangle.minY - 720 * 0.04) < 1e-9 && abs(rectangle.minX - 1280 * 0.04) < 1e-9 && abs(rectangle.maxX - 1280 * 0.96) < 1e-9)
     }
 
     @Test func aFloorMovedToAPixelMeetsThatPixelsRayOnTheSamePlane() throws {

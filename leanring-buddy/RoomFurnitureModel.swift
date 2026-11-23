@@ -474,12 +474,27 @@ extension FloorPlane {
 /// Where furniture stands on a measured floor, and whether all of it shows.
 nonisolated struct RoomFurnitureSpot: Equatable, Sendable {
     let floor: FloorPlane
-    /// Every corner of the piece's box is inside the frame by `roomFurnitureFrameMarginShare`.
+    /// Every corner of the piece's box is inside `roomFurnitureFrameRectangleThePieceFitsIn`.
     let wholePieceFits: Bool
 }
 
 /// The piece's whole box stays this share of the frame's size inside each edge, so it never touches the frame.
 nonisolated let roomFurnitureFrameMarginShare = 0.04
+/// The piece's box stays this share of the frame's height above the bottom edge, since the panel's status line and its
+/// Place button cover the bottom 9 percent of the video, and a ghost whose front edge ran under the status line read as cut.
+nonisolated let roomFurnitureBottomMarginShare = 0.11
+
+/// The part of a frame of `frameSize` the whole piece fits in: `roomFurnitureFrameMarginShare` inside the top and the sides,
+/// and `roomFurnitureBottomMarginShare` above the bottom.
+nonisolated func roomFurnitureFrameRectangleThePieceFitsIn(frameSize: CGSize) -> CGRect {
+    let frameWidth = Double(frameSize.width), frameHeight = Double(frameSize.height)
+    return CGRect(
+        x: frameWidth * roomFurnitureFrameMarginShare,
+        y: frameHeight * roomFurnitureFrameMarginShare,
+        width: frameWidth * (1 - 2 * roomFurnitureFrameMarginShare),
+        height: frameHeight * (1 - roomFurnitureFrameMarginShare - roomFurnitureBottomMarginShare)
+    )
+}
 /// A furniture spot may lie this much farther along the floor than the measured one, which a measuring difference covers.
 nonisolated let farthestBeyondTheMeasuredSpotMeters = 0.1
 /// What Clicky adds to "Here it is" when the frame cuts off the placed piece and the floor was measured.
@@ -497,7 +512,7 @@ nonisolated func roomFurnitureAdviceForAPieceTheFrameCutsOff(shareOfTheBoxInTheF
 }
 
 /// The spot on the measured floor where the piece stands: of the floor points whose whole box (footprint and full height,
-/// from the page's size) fits inside the frame with `roomFurnitureFrameMarginShare` to spare, the one nearest the lower
+/// from the page's size) fits inside `roomFurnitureFrameRectangleThePieceFitsIn`, the one nearest the lower
 /// middle of the frame, with bare floor preferred (`texture`, when given). The bare spot the floor was measured at is
 /// often a dark, plain corner where the frame cuts the piece off, which a viewer reads as broken. A spot is never farther
 /// back than the measured one (`farthestBeyondTheMeasuredSpotMeters`), since the plane goes on forever in the math while
@@ -512,8 +527,7 @@ nonisolated func roomFurnitureSpotWhereTheWholePieceFits(
     texture: RoomFloorTextureMap?
 ) -> RoomFurnitureSpot {
     let frameWidth = Double(frameSize.width), frameHeight = Double(frameSize.height)
-    let insideTheMargins = CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
-        .insetBy(dx: frameWidth * roomFurnitureFrameMarginShare, dy: frameHeight * roomFurnitureFrameMarginShare)
+    let insideTheMargins = roomFurnitureFrameRectangleThePieceFitsIn(frameSize: frameSize)
     let lowerMiddle = CGPoint(x: frameWidth * 0.5, y: frameHeight * 0.82)
 
     struct Candidate { let floor: FloorPlane; let fits: Bool; let shareInTheFrame: Double; let score: Double }
