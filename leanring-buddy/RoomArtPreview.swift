@@ -2253,7 +2253,9 @@ extension RoomArtPreviewController {
 
     /// The floor furniture stands on, measured at the keyframe's anchor and checked against the wall measured on the same
     /// keyframe, which the depth service answers from its cached depth in a fraction of a second. A floor that is not level
-    /// with the wall (a desk or a bed) is not the floor. With no floor, a floor inferred from the wall stands the piece with
+    /// with the wall (a desk or a bed) is not the floor, and neither is a plane less than
+    /// `roomFurnitureLeastFloorHeightBelowTheCameraMeters` below the camera unless the learner clicked it, since a desk is
+    /// level with the wall. With no floor, a floor inferred from the wall stands the piece with
     /// its back on the wall, when at least a third of its box is in the frame. A depth service that is down or refuses the
     /// request fails as it is, with no wall measurement.
     fileprivate func measureTheFurnituresFloor(
@@ -2289,8 +2291,14 @@ extension RoomArtPreviewController {
         }
         wallOfTheLatestMeasurement = wall
         if let measuredFloor, let floorForThePiece {
-            guard let wall, !measuredFloor.agrees(withTheWall: wall) else { return floorForThePiece }
-            print("Room furniture: the measured floor is not level with the wall, so it is a desk or a bed, not the floor")
+            if !anchorWasClicked, measuredFloor.heightBelowTheCameraMeters < roomFurnitureLeastFloorHeightBelowTheCameraMeters {
+                // Level with the wall, so the angle check below passes it, but nearer the camera than any floor is.
+                print(String(format: "Room furniture: the measured floor is only %.2f m below the camera, so it is a desk, a bed, or a table, not the floor", measuredFloor.heightBelowTheCameraMeters))
+            } else if let wall, !measuredFloor.agrees(withTheWall: wall) {
+                print("Room furniture: the measured floor is not level with the wall, so it is a desk or a bed, not the floor")
+            } else {
+                return floorForThePiece
+            }
         }
         if let wall, case .furniture(let furniture) = item,
            let inferredFloor = FloorPlane.inferred(fromTheWall: wall, itemDepthMeters: furniture.depthMeters),

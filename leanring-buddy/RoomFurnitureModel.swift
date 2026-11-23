@@ -154,6 +154,13 @@ extension FloorPlane {
         return floor
     }
 
+    /// How far below the camera the plane is, in meters, along its own normal. A laptop on a desk holds its camera about
+    /// `roomFurnitureCameraHeightMeters` above the real floor, and a desk, a bed, or a table top is much nearer.
+    var heightBelowTheCameraMeters: Double {
+        guard simd_length(up) > 1e-6 else { return 0 }
+        return -simd_dot(center, simd_normalize(up))
+    }
+
     /// Whether the measured floor is level with the wall: a desk, a bed, or a sofa seat measured in its place tilts away from
     /// the wall's up when its fit is poor, and a real floor is square to a real wall.
     func agrees(withTheWall wall: WallPlane, withinDegrees maximumDegrees: Double = roomFurnitureFloorAndWallMostDegreesApart) -> Bool {
@@ -167,6 +174,10 @@ extension FloorPlane {
 nonisolated let roomFurnitureCameraHeightMeters = 1.05
 /// A measured floor whose normal is further than this from the wall's up is a desk or a bed, not the floor.
 nonisolated let roomFurnitureFloorAndWallMostDegreesApart = 20.0
+/// A plane measured at the bare spot that is less than this far below the camera is the desk, bed, or table the camera
+/// looks over, not the floor: it is level with the wall, so the angle check keeps it, and a sofa then stands on the desk.
+/// A camera that low would be 60 cm off the floor, lower than a laptop on any desk. A floor the learner clicked is kept.
+nonisolated let roomFurnitureLeastFloorHeightBelowTheCameraMeters = 0.6
 /// A floor inferred from the wall stands the item only when at least this share of its box is inside the frame, since a
 /// piece mostly off screen tells the learner nothing.
 nonisolated let roomFurnitureLeastShareOfTheBoxInTheFrame = 1.0 / 3.0

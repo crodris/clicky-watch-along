@@ -202,6 +202,42 @@ struct RoomFurnitureAdviceForACutOffPieceTests {
     }
 }
 
+struct RoomFurnitureFloorHeightTests {
+    private func plane(heightBelowTheCamera: Double, tiltedAbout up: SIMD3<Double> = SIMD3(0, -1, 0)) -> FloorPlane {
+        // A point on the plane that is `heightBelowTheCamera` along its normal from the camera, and 3 m out and to the side
+        // along the plane, which does not change the height.
+        let normal = simd_normalize(up)
+        let alongThePlane = simd_normalize(simd_cross(normal, SIMD3(1, 0, 0))) * 3 + SIMD3(0.5, 0, 0)
+        return FloorPlane(
+            center: -normal * heightBelowTheCamera + alongThePlane, right: SIMD3(1, 0, 0), up: normal, forward: simd_cross(normal, SIMD3(1, 0, 0)),
+            focalLengthPixels: 1100, principalPoint: SIMD2(640, 360), distanceMeters: 3, floorTiltDegrees: 0, planeInlierShare: 1
+        )
+    }
+
+    @Test func theHeightBelowTheCameraIsAlongThePlanesNormalWhateverPointItWasMeasuredAt() {
+        #expect(abs(plane(heightBelowTheCamera: 0.4).heightBelowTheCameraMeters - 0.4) < 1e-9)
+        #expect(abs(plane(heightBelowTheCamera: 1.1).heightBelowTheCameraMeters - 1.1) < 1e-9)
+        // A camera tilted down 16 degrees sees the same floor, with its normal tilted in the camera's space.
+        #expect(abs(plane(heightBelowTheCamera: 1.1, tiltedAbout: SIMD3(0, -0.96, -0.28)).heightBelowTheCameraMeters - 1.1) < 1e-9)
+        #expect(plane(heightBelowTheCamera: 1.1).moved(toAnchorPixel: CGPoint(x: 900, y: 600)).map { abs($0.heightBelowTheCameraMeters - 1.1) < 1e-9 } == true)
+    }
+
+    @Test func aFloorInferredFromTheWallIsAtTheLaptopCamerasHeight() throws {
+        let wall = WallPlane(
+            center: SIMD3(-0.3, -0.2, 4), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 500,
+            principalPoint: SIMD2(320, 180), distanceMeters: 4, wallAngleDegrees: 0, planeInlierShare: 0.9
+        )
+        let floor = try #require(FloorPlane.inferred(fromTheWall: wall, itemDepthMeters: 0.5))
+        #expect(abs(floor.heightBelowTheCameraMeters - roomFurnitureCameraHeightMeters) < 1e-9)
+        #expect(floor.heightBelowTheCameraMeters >= roomFurnitureLeastFloorHeightBelowTheCameraMeters)
+    }
+
+    @Test func aDeskAndABedAreUnderTheLeastFloorHeightAndARealFloorIsNot() {
+        #expect(plane(heightBelowTheCamera: 0.4).heightBelowTheCameraMeters < roomFurnitureLeastFloorHeightBelowTheCameraMeters)
+        #expect(plane(heightBelowTheCamera: 1.1).heightBelowTheCameraMeters >= roomFurnitureLeastFloorHeightBelowTheCameraMeters)
+    }
+}
+
 struct RoomFurnitureOcclusionTests {
     @Test func theLearnerStaysInFrontUnlessThePiecesBaseIsBelowTheirFeet() {
         #expect(!roomFurnitureDrawsOverThePerson(itemBaseRow: 500, personLowestRow: 719, frameHeight: 720))

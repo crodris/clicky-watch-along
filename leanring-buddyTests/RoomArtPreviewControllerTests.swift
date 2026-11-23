@@ -1353,6 +1353,76 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
+    @Test func aPlaneLessThanSixtyCentimetersBelowTheCameraIsATableAndNotTheFloor() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        // A desk top 0.4 m below the camera, level with the wall behind it, so only its height says it is not the floor.
+        worker.floorReply = .success(FloorPlane(
+            center: SIMD3(0.4, 0.4, 2.0), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), forward: SIMD3(0, 0, 1), focalLengthPixels: 500,
+            principalPoint: SIMD2(320, 180), distanceMeters: 2.0, floorTiltDegrees: 0, planeInlierShare: 0.9
+        ))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        // The wall's 6 m out, so the floor is inferred from it, 1.05 m below the camera.
+        try await waitFor("the table to stand on the floor inferred from the wall") { harness.artIsShowing() }
+        guard case .showing(_, .floor(let floor), nil) = harness.controller.phase else {
+            Issue.record("The table is not on a floor: \(harness.controller.phase)")
+            return
+        }
+        #expect(floor.inferredFromTheWall)
+        #expect(abs(floor.heightBelowTheCameraMeters - roomFurnitureCameraHeightMeters) < 1e-9)
+        harness.controller.close()
+    }
+
+    @Test func aPlaneAMeterBelowTheCameraIsTheFloorAndStaysMeasured() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        worker.floorReply = .success(FloorPlane(
+            center: SIMD3(0.4, 1.1, 4.0), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), forward: SIMD3(0, 0, 1), focalLengthPixels: 500,
+            principalPoint: SIMD2(320, 180), distanceMeters: 4.1, floorTiltDegrees: 0, planeInlierShare: 0.9
+        ))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the table to stand on the measured floor") { harness.artIsShowing() }
+        guard case .showing(_, .floor(let floor), nil) = harness.controller.phase else {
+            Issue.record("The table is not on a floor: \(harness.controller.phase)")
+            return
+        }
+        #expect(!floor.inferredFromTheWall)
+        #expect(abs(floor.heightBelowTheCameraMeters - 1.1) < 1e-9)
+        harness.controller.close()
+    }
+
+    @Test func aLowPlaneTheLearnerClickedIsKeptAsTheFloor() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        worker.floorReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"No floor under that point"}"#))
+        worker.wallReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"Too little bare wall"}"#))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the panel to wait for a click on the floor") { harness.controller.phase.waitingForAFloorClickItem != nil }
+
+        // The learner clicks a low surface, such as a low platform that is the floor in their room: they said so.
+        worker.floorReply = .success(FloorPlane(
+            center: SIMD3(0.4, 0.4, 2.0), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), forward: SIMD3(0, 0, 1), focalLengthPixels: 500,
+            principalPoint: SIMD2(320, 180), distanceMeters: 2.0, floorTiltDegrees: 0, planeInlierShare: 0.9
+        ))
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 320, y: 300))
+        try await waitFor("the table to stand where the learner clicked") { harness.artIsShowing() }
+        guard case .showing(_, .floor(let floor), nil) = harness.controller.phase else {
+            Issue.record("The table is not on a floor: \(harness.controller.phase)")
+            return
+        }
+        #expect(!floor.inferredFromTheWall)
+        #expect(abs(floor.heightBelowTheCameraMeters - 0.4) < 1e-9)
+        harness.controller.close()
+    }
+
     @Test func aDepthServiceThatIsDownFailsTheFloorWithNoWallRequest() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)
