@@ -45,7 +45,7 @@ struct RoomArtFrameProcessorBenchTests {
             focalLengthPixels: 1000, principalPoint: SIMD2(640, 360), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 1
         )
         let keyframeCorners = try #require(wallFacingTheCamera.keyframeCorners(widthMeters: 0.406, heightMeters: 0.508))
-        frameProcessor.showTheItem(try artImage(), keyframeCorners: keyframeCorners, on: .wall)
+        frameProcessor.showTheWallArt(try artImage(), keyframeCorners: keyframeCorners)
 
         let snapshotFolder = benchEnvironment["ROOM_ART_SNAPSHOT_DIR"].map { URL(fileURLWithPath: $0) }
         for snapshotNumber in 0..<6 {

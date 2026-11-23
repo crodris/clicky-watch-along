@@ -23,4 +23,17 @@ describe("frame-popout.html part labels", () => {
     expect(framePopoutSource).toMatch(/entry\.dot\.setAttribute\("cx", anchorX\); entry\.dot\.setAttribute\("cy", anchorY\);/);
     expect(framePopoutSource).not.toMatch(/setAttribute\("x1", pointX\)/);
   });
+
+  it("reports each label's anchor, the point its leader line and dot are drawn at, for the blue cursor to point at", () => {
+    // The cursor flew to the label's words, not the part the label names. The page now sends the clamped anchor next to the
+    // label's box, and the app falls back to the box only for a label with no anchor yet.
+    const readerStart = framePopoutSource.indexOf("async labelRectsOnceTheCameraSettles()");
+    expect(readerStart).toBeGreaterThan(-1);
+    const reader = framePopoutSource.slice(readerStart, framePopoutSource.indexOf("\n};", readerStart));
+    expect(reader).toMatch(/entry\.anchorX === undefined \? null : \{ x: entry\.anchorX, y: entry\.anchorY \}/);
+    expect(reader).toMatch(/return \{ label: entry\.part\.label, left: rect\.left, top: rect\.top, width: rect\.width, height: rect\.height, anchor \};/);
+    // It is the same clamped point the dot is drawn at, so the cursor and the dot cannot disagree.
+    expect(framePopoutSource).toMatch(/entry\.anchorX = anchorX; entry\.anchorY = anchorY;/);
+    expect(framePopoutSource).toMatch(/entry\.dot\.setAttribute\("cx", anchorX\); entry\.dot\.setAttribute\("cy", anchorY\);/);
+  });
 });

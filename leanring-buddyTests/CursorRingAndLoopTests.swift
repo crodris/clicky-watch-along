@@ -142,10 +142,10 @@ func eachEndEventStopsARectInHandFromDrawingLater(reason: CursorLoopEndReason) {
 
 /// A controller that reads `media` from the front tab instead of Chrome, with a turn waiting for a loop.
 /// The poll sees the media's own sample unless a test passes `readTheFrontTabSample`, and a test that counts the poll's
-/// waits passes `waitBetweenFrontTabPolls`. By default the poll waits until it is cancelled, so a loop still showing when its
-/// test returns never polls Chrome's stand-in on the main actor again (`suspendUntilThePollIsCancelled`). It hears app
-/// switches on a center of its own by default, so an app that activates on the machine running the tests never ends a loop
-/// a test is checking.
+/// waits passes `waitBetweenFrontTabPolls`. By default the poll waits until it is cancelled (`suspendUntilThePollIsCancelled`),
+/// and an idle holds as soon as the controller's task runs, so no wait reads the clock of a busy machine. It hears app
+/// switches on a center of its own by default, so an app that activates on the machine running the tests never ends a loop a
+/// test is checking.
 @MainActor
 private func controllerWithATurnWaitingForALoop(
     reading media: MediaOnTheFrontTab?,
@@ -157,6 +157,7 @@ private func controllerWithATurnWaitingForALoop(
         readTheMediaInTheFrontTab: { _ in media },
         readTheFrontTabSample: readTheFrontTabSample,
         waitBetweenFrontTabPolls: waitBetweenFrontTabPolls,
+        waitForAnIdleToHold: {},
         appActivationNotificationCenter: appActivationNotificationCenter
     )
     controller.pushToTalkWasReleased()

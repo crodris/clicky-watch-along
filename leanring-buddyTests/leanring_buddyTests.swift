@@ -932,7 +932,7 @@ struct leanring_buddyTests {
         #expect(companionManager.liveScenePageOnScreen == nil)
     }
 
-    @Test func partLabelBoxBecomesTheGlobalPointUnderItsBottomEdge() async throws {
+    @Test func partLabelWithNoAnchorBecomesTheGlobalPointUnderItsBottomEdge() async throws {
         let labelRect = LiveScenePartLabelRectInPage(label: "Aorta", left: 100, top: 200, width: 60, height: 24)
         // A main display 1512 x 982 points: the page's y of 224 is 224 points down from its top.
         let onMainDisplay = partScreenPoint(of: labelRect, overlayScreenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982))
@@ -945,6 +945,55 @@ struct leanring_buddyTests {
         let pageValue: [String: Any] = ["label": "Aorta", "left": NSNumber(value: 100), "top": NSNumber(value: 200.5), "width": NSNumber(value: 60), "height": NSNumber(value: 24)]
         #expect(LiveScenePartLabelRectInPage(pageValue: pageValue) == LiveScenePartLabelRectInPage(label: "Aorta", left: 100, top: 200.5, width: 60, height: 24))
         #expect(LiveScenePartLabelRectInPage(pageValue: ["label": "Aorta", "left": "100"]) == nil)
+    }
+
+    @Test func partWithAnAnchorPointsAtTheAnchorAndNotTheLabelBox() async throws {
+        // The label sits far from the part it names, as a label does on a pop-out: the anchor is where its leader line ends.
+        let labelRect = LiveScenePartLabelRectInPage(
+            label: "Crater", left: 900, top: 40, width: 80, height: 24,
+            anchor: LiveScenePageAnchor(x: 420, y: 300.5)
+        )
+        let onMainDisplay = partScreenPoint(of: labelRect, overlayScreenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982))
+        #expect(onMainDisplay == LiveScenePartScreenPoint(label: "Crater", globalPoint: CGPoint(x: 420, y: 681.5)))
+        // A second display to the left of the main one and lower, so its frame starts at negative x and positive y.
+        let onSecondDisplay = partScreenPoint(of: labelRect, overlayScreenFrame: CGRect(x: -1920, y: -300, width: 1920, height: 1080))
+        #expect(onSecondDisplay.globalPoint == CGPoint(x: -1500, y: 479.5))
+    }
+
+    @Test func pageReplyReadsItsAnchorAndFallsBackToTheLabelBoxWithoutOne() async throws {
+        let labelFields: [String: Any] = ["label": "Crater", "left": NSNumber(value: 900), "top": NSNumber(value: 40), "width": NSNumber(value: 80), "height": NSNumber(value: 24)]
+
+        let withAnAnchor = labelFields.merging(["anchor": ["x": NSNumber(value: 420), "y": NSNumber(value: 300.5)]]) { _, new in new }
+        #expect(LiveScenePartLabelRectInPage(pageValue: withAnAnchor)?.anchor == LiveScenePageAnchor(x: 420, y: 300.5))
+
+        // A page with no leader line sends no anchor, a null one, or one that is not two numbers, and each falls back to the box.
+        let noAnchorKey = labelFields
+        let nullAnchor = labelFields.merging(["anchor": NSNull()]) { _, new in new }
+        let anchorWithAWord = labelFields.merging(["anchor": ["x": "420", "y": NSNumber(value: 300)]]) { _, new in new }
+        let anchorWithAMissingY = labelFields.merging(["anchor": ["x": NSNumber(value: 420)]]) { _, new in new }
+        let anchorThatIsNotAnObject = labelFields.merging(["anchor": "420,300"]) { _, new in new }
+        let anchorWithAnInfiniteX = labelFields.merging(["anchor": ["x": NSNumber(value: Double.infinity), "y": NSNumber(value: 300)]]) { _, new in new }
+        let anchorWithAnInfiniteY = labelFields.merging(["anchor": ["x": NSNumber(value: 420), "y": NSNumber(value: Double.infinity)]]) { _, new in new }
+        let frame = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        for pageValue in [noAnchorKey, nullAnchor, anchorWithAWord, anchorWithAMissingY, anchorThatIsNotAnObject, anchorWithAnInfiniteX, anchorWithAnInfiniteY] {
+            let labelRect = try #require(LiveScenePartLabelRectInPage(pageValue: pageValue))
+            #expect(labelRect.anchor == nil)
+            // The middle of the box's bottom edge: x 900 + 40, y 40 + 24 = 64 down from the top.
+            #expect(partScreenPoint(of: labelRect, overlayScreenFrame: frame).globalPoint == CGPoint(x: 940, y: 918))
+        }
+    }
+
+    @Test func quizQuestionPointsAtTheAnchorOfTheMarkedPart() async throws {
+        let questionPart = partScreenPoint(
+            of: LiveScenePartLabelRectInPage(label: "Magma chamber", left: 10, top: 10, width: 50, height: 20, anchor: LiveScenePageAnchor(x: 300, y: 500)),
+            overlayScreenFrame: CGRect(x: 0, y: 0, width: 1000, height: 800)
+        )
+        let otherPart = partScreenPoint(
+            of: LiveScenePartLabelRectInPage(label: "Crater", left: 700, top: 10, width: 50, height: 20),
+            overlayScreenFrame: CGRect(x: 0, y: 0, width: 1000, height: 800)
+        )
+        let found = quizQuestionLabelScreenPoint(in: [otherPart, questionPart], quizAnswerPartLabel: "Magma chamber", answerLabel: "Magma")
+        #expect(found?.globalPoint == CGPoint(x: 300, y: 300))
     }
 
     @Test func askingToPutTheSceneBackMatchesOnlyPutBackOrPutAway() async throws {

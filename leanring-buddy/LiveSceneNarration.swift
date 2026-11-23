@@ -210,24 +210,35 @@ func landmarkNarrationLine(for famousPlace: FamousPlace) -> String {
 
 // MARK: - Pointing the blue cursor at a part
 
+/// A point on the overlay page, in CSS pixels from its top left.
+struct LiveScenePageAnchor: Equatable {
+    let x: Double
+    let y: Double
+}
+
 /// A part label's box as the page measures it with getBoundingClientRect, in CSS pixels
 /// from the top left of the overlay page. The overlay page is not zoomed, so a CSS pixel is a point.
+/// A page that draws a leader line from each label to its part also reports where that line ends (`anchor`),
+/// the point on the model the label names. A page with no leader line reports none.
 struct LiveScenePartLabelRectInPage: Equatable {
     let label: String
     let left: Double
     let top: Double
     let width: Double
     let height: Double
+    let anchor: LiveScenePageAnchor?
 
-    init(label: String, left: Double, top: Double, width: Double, height: Double) {
+    init(label: String, left: Double, top: Double, width: Double, height: Double, anchor: LiveScenePageAnchor? = nil) {
         self.label = label
         self.left = left
         self.top = top
         self.width = width
         self.height = height
+        self.anchor = anchor
     }
 
-    /// Nil when the page sent something other than a label and four numbers.
+    /// Nil when the page sent something other than a label and four numbers. An anchor that is missing, null, or
+    /// not two numbers is left out, so the label's box is used instead.
     init?(pageValue: Any) {
         guard let rectFields = pageValue as? [String: Any],
               let label = rectFields["label"] as? String,
@@ -237,7 +248,14 @@ struct LiveScenePartLabelRectInPage: Equatable {
               let height = rectFields["height"] as? Double else {
             return nil
         }
-        self.init(label: label, left: left, top: top, width: width, height: height)
+        var anchor: LiveScenePageAnchor?
+        if let anchorFields = rectFields["anchor"] as? [String: Any],
+           let anchorX = anchorFields["x"] as? Double,
+           let anchorY = anchorFields["y"] as? Double,
+           anchorX.isFinite, anchorY.isFinite {
+            anchor = LiveScenePageAnchor(x: anchorX, y: anchorY)
+        }
+        self.init(label: label, left: left, top: top, width: width, height: height, anchor: anchor)
     }
 }
 
@@ -256,12 +274,14 @@ func quizQuestionLabelScreenPoint(in labelScreenPoints: [LiveScenePartScreenPoin
     return labelScreenPoints.first { labelScreenPoint in labelScreenPoint.label == labelToFind }
 }
 
-/// The middle of the label's bottom edge. The cursor lands just below and right of its target
-/// and points up and left, so it sits under the label pointing at it.
+/// Where the cursor points for a part, in global AppKit points. A page with a leader line gives the anchor, the point
+/// on the model where the leader ends, and the cursor points there so it lands on the part and not on the label's words.
+/// A page with no anchor gives the middle of the label's bottom edge, so the cursor sits under the label pointing at it.
+/// The cursor lands just below and right of either point and points up and left.
 /// The overlay page fills `overlayScreenFrame`, and the page's y grows down while AppKit's grows up.
 func partScreenPoint(of labelRect: LiveScenePartLabelRectInPage, overlayScreenFrame: CGRect) -> LiveScenePartScreenPoint {
-    let pointXInPage = labelRect.left + labelRect.width / 2
-    let pointYInPage = labelRect.top + labelRect.height
+    let pointXInPage = labelRect.anchor?.x ?? labelRect.left + labelRect.width / 2
+    let pointYInPage = labelRect.anchor?.y ?? labelRect.top + labelRect.height
     return LiveScenePartScreenPoint(
         label: labelRect.label,
         globalPoint: CGPoint(

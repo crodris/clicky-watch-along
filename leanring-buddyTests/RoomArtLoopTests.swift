@@ -64,6 +64,9 @@ struct RoomArtLoopStateTests {
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: failed, at: 24) == .fadingOut(beganAt: 10))
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showingAfterAFailedMove, at: 24) == .fadingOut(beganAt: 10))
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .waitingForAFloorClick(loopTestItem()), at: 24) == .fadingOut(beganAt: 10))
+        // Furniture waiting for its painting keeps the loop and its clock around the footprint.
+        let arrangingPhase = RoomArtPhase.arranging(id: RoomArtMeasurementID(number: 1), item: loopTestItem(), surface: .wall(loopTestWall()))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: arrangingPhase, at: 24) == .drawing(beganAt: 10))
     }
 
     @Test func aPhaseWithNoMeasurementShowsNoLoopAndStartsNone() {
@@ -291,23 +294,25 @@ struct RoomArtLoopRenderTests {
     private static func renderedLoop(tracerLook: CursorLoopTracerLook? = nil, tracer: CursorLoopTimeline.TracerPlace = .lapping(lapShare: 0.5), showsTheTracer: Bool = true) async throws -> Render {
         let image = try renderedImage(tracerLook: tracerLook, tracer: tracer, showsTheTracer: showsTheTracer)
         let lineBoundsInPoints = try loopPath().boundingRect
+        // A CGImage never changes after the render, so the detached task may read it.
         nonisolated(unsafe) let imageToRead = image
-        return await Task.detached {
-            Render(bytes: rgbaBytes(of: imageToRead), width: imageToRead.width, height: imageToRead.height, lineBoundsInPoints: lineBoundsInPoints)
-        }.value
+        let bytes = try #require(await Task.detached { rgbaBytes(of: imageToRead) }.value)
+        return Render(bytes: bytes, width: image.width, height: image.height, lineBoundsInPoints: lineBoundsInPoints)
     }
 
-    nonisolated private static func rgbaBytes(of image: CGImage) -> [UInt8] {
+    /// The image's pixels as 8-bit RGBA, or nil when no context could be made to draw them.
+    nonisolated private static func rgbaBytes(of image: CGImage) -> [UInt8]? {
         var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
         // The context writes through the buffer's pointer, so the draw happens inside the closure that lends it.
-        bytes.withUnsafeMutableBytes { buffer in
+        let didDraw: Bool = bytes.withUnsafeMutableBytes { buffer in
             guard let context = CGContext(
                 data: buffer.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else { return }
+            ) else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return true
         }
-        return bytes
+        return didDraw ? bytes : nil
     }
 
     nonisolated private static func isTheAccent(_ bytes: [UInt8], at offset: Int) -> Bool {

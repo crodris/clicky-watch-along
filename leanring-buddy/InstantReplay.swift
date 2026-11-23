@@ -4,7 +4,7 @@
 //
 //  Instant replay of a narrated frame pop-out. As Clicky names each part, the narration records a stop: the part's
 //  label, the sentence, and the camera pose. "Show me again" or the Replay button plays the stops again, silently:
-//  the camera turns back to each recorded pose, the blue cursor flies to the part's label, and its bubble shows the
+//  the camera turns back to each recorded pose, the blue cursor flies to the part's anchor on the model, and its bubble shows the
 //  sentence. Next, Back, and End step through it by voice or click. One generation number cancels every pending
 //  step, so Escape, a step, push-to-talk, or a new scene stops the camera and the cursor where they are.
 //
@@ -215,9 +215,10 @@ struct InstantReplayStage {
     /// Numbers each stop's label, and draws the dotted path up to the stop at `pathReachesStop` (from 0, -1 for none).
     var showStopNumbers: (_ partLabels: [String], _ pathReachesStop: Int) -> Void
     var hideStopNumbers: () -> Void
-    /// Where the part's label sits once the camera has stopped turning, or nil when it is gone.
+    /// Where the cursor points for the part once the camera has stopped turning (its anchor on the model, or its label's box
+    /// on a page with no leader line), or nil when it is gone.
     var labelScreenPointOnceTheCameraSettles: (_ partLabel: String) async -> LiveScenePartScreenPoint?
-    /// Flies the blue cursor to the label and shows the sentence in its bubble, until the replay lets it go. Returns how
+    /// Flies the blue cursor to the part and shows the sentence in its bubble, until the replay lets it go. Returns how
     /// long the flight takes, which the theme's Point move and the distance decide, so the dwell starts when it lands.
     var pointTheCursor: (_ labelScreenPoint: LiveScenePartScreenPoint, _ sentence: String) -> TimeInterval
     /// Stops the cursor where it is, mid-flight included, and hides its bubble, only while it points for the replay.
@@ -438,7 +439,7 @@ final class InstantReplayController: ObservableObject {
         if freezingTheCursor && isOpen { stage.freezeTheCursor() }
     }
 
-    /// Turns the camera to the open stop, waits for it to settle, flies the cursor to the label, and in a play-through
+    /// Turns the camera to the open stop, waits for it to settle, flies the cursor to the part, and in a play-through
     /// holds the sentence for its dwell and moves on. Every wait checks the generation it started with.
     private func travelToTheOpenStop() {
         guard let stopIndex = phase.openStopIndex, stops.indices.contains(stopIndex) else { return }
