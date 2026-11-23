@@ -24,7 +24,9 @@ protocol RoomFurnitureGenerating {
     /// model is cached by, the page picture's JPEG bytes.
     func generateAModel(productJPEG: Data, itemTitle: String, cacheKeyData: Data) async throws -> Data
     /// The keyframe with the item painted in where the mask is white, at the keyframe's size. `orientation` says which way
-    /// the piece faces, which the mask alone cannot: a convex area looks the same turned 180 degrees.
+    /// the piece faces, which the mask alone cannot: a convex area looks the same turned 180 degrees. `projectedBox` is the
+    /// item's box in the keyframe (`FloorPlane.keyframeBoxCorners`), which a piece drawn taller than it is shrunk back into
+    /// (`furniturePaintingFit`).
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data,
         keyframeWidth: Int,
@@ -33,7 +35,8 @@ protocol RoomFurnitureGenerating {
         maskPNG: Data,
         itemTitle: String,
         itemSizeWords: String,
-        orientation: RoomFurniturePaintingOrientation?
+        orientation: RoomFurniturePaintingOrientation?,
+        projectedBox: [CGPoint]?
     ) async throws -> CGImage
 }
 
@@ -44,7 +47,7 @@ extension RoomFurnitureGenerating {
     ) async throws -> CGImage {
         try await paintTheItemIntoTheKeyframe(
             keyframeJPEG: keyframeJPEG, keyframeWidth: keyframeWidth, keyframeHeight: keyframeHeight, productJPEG: productJPEG,
-            maskPNG: maskPNG, itemTitle: itemTitle, itemSizeWords: itemSizeWords, orientation: nil
+            maskPNG: maskPNG, itemTitle: itemTitle, itemSizeWords: itemSizeWords, orientation: nil, projectedBox: nil
         )
     }
 }
@@ -75,10 +78,50 @@ struct RoomFurnitureGenerationNotSetUp: RoomFurnitureGenerating {
 
     func paintTheItemIntoTheKeyframe(
         keyframeJPEG: Data, keyframeWidth: Int, keyframeHeight: Int, productJPEG: Data, maskPNG: Data, itemTitle: String, itemSizeWords: String,
-        orientation: RoomFurniturePaintingOrientation?
+        orientation: RoomFurniturePaintingOrientation?, projectedBox: [CGPoint]?
     ) async throws -> CGImage {
         throw RoomFurnitureGenerationError.serviceIsNotSetUp(body: "")
     }
+}
+
+/// Why `RoomFurniturePaintedComposite.itemLayers` refused a painting, with the numbers the rule compared, for the log.
+nonisolated enum RoomFurniturePaintingRefusal: Equatable, Sendable, CustomStringConvertible {
+    /// The painting is not the keyframe's size, or its mask or layer could not be made.
+    case unreadable
+    case nothingPainted
+    case cutOffAlongTheRegionsTop(shareChanged: Double)
+    case shorterThanTheFront(paintedRows: Int, leastRows: Double)
+    case tallerThanTheOutline(paintedRows: Int, mostRows: Double)
+    /// `contact` is the middle of the lowest painted row, and `footprint` what the frame shows of the box's floor footprint.
+    case floorContactOffTheFootprint(contact: CGPoint, footprint: [CGPoint])
+
+    var description: String {
+        switch self {
+        case .unreadable: return "the painting or its mask could not be read"
+        case .nothingPainted: return "nothing was painted"
+        case .cutOffAlongTheRegionsTop(let shareChanged):
+            return String(format: "it reached past the pasted region's top (%.0f%% of the top changed)", shareChanged * 100)
+        case .shorterThanTheFront(let paintedRows, let leastRows):
+            return String(format: "it is %d rows tall, under the %.0f the box's front allows", paintedRows, leastRows)
+        case .tallerThanTheOutline(let paintedRows, let mostRows):
+            return String(format: "it is %d rows tall, over the %.0f the box's outline allows", paintedRows, mostRows)
+        case .floorContactOffTheFootprint(let contact, let footprint):
+            let footprintColumns = footprint.map(\.x), footprintRows = footprint.map(\.y)
+            return String(
+                format: "its floor contact (%.0f, %.0f) is off the footprint (x %.0f to %.0f, y %.0f to %.0f)",
+                contact.x, contact.y, footprintColumns.min() ?? 0, footprintColumns.max() ?? 0, footprintRows.min() ?? 0, footprintRows.max() ?? 0
+            )
+        }
+    }
+}
+
+/// A painting judged against the measured box: its layers when it is kept, else why not, and its painted height and rows
+/// for the log, each nil when nothing was painted.
+nonisolated struct RoomFurniturePaintingJudgement {
+    let layers: RoomFurnitureKeyframeLayers?
+    let paintedHeightRatio: Double?
+    let paintedRows: ClosedRange<Int>?
+    let refusal: RoomFurniturePaintingRefusal?
 }
 
 nonisolated enum RoomFurniturePaintedComposite {
@@ -93,6 +136,14 @@ nonisolated enum RoomFurniturePaintedComposite {
     /// and measured a LACK side table and a Blu Dot chair at 75 to 87 percent of their height.
     static let shareOfARowThatMustChange = 0.02
     static let fewestChangedPixelsInARow = 6
+
+    /// How many changed pixels make a row count as painted, from the pasted region's pixels in that row: the more of
+    /// `fewestChangedPixelsInARow` and `shareOfARowThatMustChange` of them. The judge and the fit (`furniturePaintingFit`)
+    /// both count rows by it, so a thin top such as a chair's back counts for both or for neither.
+    static func changedPixelsARowNeeds(regionPixelsInTheRow: Int) -> Int {
+        max(fewestChangedPixelsInARow, Int((Double(regionPixelsInTheRow) * shareOfARowThatMustChange).rounded(.up)))
+    }
+
     /// A painting that changed at least this share of the pasted region's top `pixelsAlongTheRegionsTop` pixels, counted
     /// row by row from its top, reached past the region and was cut off by the paste. On the live check the service's
     /// redrawn wall changed 8 to 20 percent of them above a Blu Dot chair and none above a LACK side table, while a piece
@@ -120,10 +171,11 @@ nonisolated enum RoomFurniturePaintedComposite {
         maskPNG: Data,
         projectedBox: [CGPoint],
         ciContext: CIContext = CIContext()
-    ) -> (layers: RoomFurnitureKeyframeLayers?, paintedHeightRatio: Double?, paintedRows: ClosedRange<Int>?) {
+    ) -> RoomFurniturePaintingJudgement {
+        let unreadable = RoomFurniturePaintingJudgement(layers: nil, paintedHeightRatio: nil, paintedRows: nil, refusal: .unreadable)
         guard painted.width == keyframe.width, painted.height == keyframe.height, projectedBox.count == 8,
               let maskSource = CGImageSourceCreateWithData(maskPNG as CFData, nil),
-              let maskImage = CGImageSourceCreateImageAtIndex(maskSource, 0, nil) else { return (nil, nil, nil) }
+              let maskImage = CGImageSourceCreateImageAtIndex(maskSource, 0, nil) else { return unreadable }
         let frameRectangle = CGRect(x: 0, y: 0, width: keyframe.width, height: keyframe.height)
         let paintedImage = CIImage(cgImage: painted)
         // The client pasted its painting inside the mask grown by its slack, with its feather, and left the rest of the
@@ -131,7 +183,7 @@ nonisolated enum RoomFurniturePaintedComposite {
         guard let pastedRegion = grownMaskImage(
             maskImage, frameExtent: frameRectangle, radiusPixels: furnitureCompositePasteSlackPixels,
             blurPixels: furnitureCompositePasteFeatherPixels, context: ciContext
-        ) else { return (nil, nil, nil) }
+        ) else { return unreadable }
         let mask = CIImage(cgImage: pastedRegion)
 
         // The painted item must stand between two heights the measured box sets: no shorter than its front face (less
@@ -151,15 +203,21 @@ nonisolated enum RoomFurniturePaintedComposite {
         guard let (paintedRowSpan, shareChangedAlongTheRegionsTop, lowestRowMiddleColumn) = rowsThePaintingChanged(
             painted: paintedImage, keyframe: CIImage(cgImage: keyframe), mask: mask, frameRectangle: frameRectangle, lowestItemRow: lowestItemRow, ciContext: ciContext
         ) else {
-            return (nil, nil, nil)
+            return RoomFurniturePaintingJudgement(layers: nil, paintedHeightRatio: nil, paintedRows: nil, refusal: .nothingPainted)
         }
         let paintedRows = Double(paintedRowSpan.count)
         let paintedHeightRatio = paintedRows / max(boxOutlineHeight, 1)
         // The client pasted nothing above the region, so a piece the service painted taller than it is cut off along the
         // region's top, where the height measured above cannot see it: the cut piece measures no taller than the region.
-        guard shareChangedAlongTheRegionsTop < mostOfTheRegionsTopThatMayChange else { return (nil, paintedHeightRatio, paintedRowSpan) }
-        guard paintedRows >= frontFaceHeight * (1 - mostHeightDifference),
-              paintedRows <= boxOutlineHeight * (1 + mostHeightDifference) else { return (nil, paintedHeightRatio, paintedRowSpan) }
+        func refused(_ refusal: RoomFurniturePaintingRefusal) -> RoomFurniturePaintingJudgement {
+            RoomFurniturePaintingJudgement(layers: nil, paintedHeightRatio: paintedHeightRatio, paintedRows: paintedRowSpan, refusal: refusal)
+        }
+        guard shareChangedAlongTheRegionsTop < mostOfTheRegionsTopThatMayChange else {
+            return refused(.cutOffAlongTheRegionsTop(shareChanged: shareChangedAlongTheRegionsTop))
+        }
+        let leastRows = frontFaceHeight * (1 - mostHeightDifference), mostRows = boxOutlineHeight * (1 + mostHeightDifference)
+        guard paintedRows >= leastRows else { return refused(.shorterThanTheFront(paintedRows: paintedRowSpan.count, leastRows: leastRows)) }
+        guard paintedRows <= mostRows else { return refused(.tallerThanTheOutline(paintedRows: paintedRowSpan.count, mostRows: mostRows)) }
         let floorContact = CGPoint(x: lowestRowMiddleColumn, y: Double(paintedRowSpan.upperBound))
         let footprintInTheFrame = [boxInTheFrame[2], boxInTheFrame[3], boxInTheFrame[6], boxInTheFrame[7]]
         // The frame clamps a footprint below its bottom row to a line there, whose own height says nothing: the slack comes
@@ -168,7 +226,7 @@ nonisolated enum RoomFurniturePaintedComposite {
         let footprintYs = [projectedBox[2], projectedBox[3], projectedBox[6], projectedBox[7]].map(\.y)
         let footprintHeightBeforeClamping = (footprintYs.max() ?? 0) - (footprintYs.min() ?? 0)
         guard floorContactLandsOnTheFootprint(floorContact, footprint: footprintInTheFrame, footprintHeightBeforeClamping: footprintHeightBeforeClamping) else {
-            return (nil, paintedHeightRatio, paintedRowSpan)
+            return refused(.floorContactOffTheFootprint(contact: floorContact, footprint: footprintInTheFrame))
         }
 
         let itemLayer = paintedImage.applyingFilter("CIBlendWithMask", parameters: [
@@ -176,7 +234,7 @@ nonisolated enum RoomFurniturePaintedComposite {
             kCIInputMaskImageKey: mask,
         ]).cropped(to: frameRectangle)
         guard let itemLayerImage = ciContext.createCGImage(itemLayer, from: frameRectangle, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()) else {
-            return (nil, paintedHeightRatio, paintedRowSpan)
+            return refused(.unreadable)
         }
         let layers = RoomFurnitureKeyframeLayers(
             itemLayer: itemLayerImage,
@@ -187,7 +245,7 @@ nonisolated enum RoomFurniturePaintedComposite {
             cameraNoiseStandardDeviation: 0,
             look: .paintedComposite
         )
-        return (layers, paintedHeightRatio, paintedRowSpan)
+        return RoomFurniturePaintingJudgement(layers: layers, paintedHeightRatio: paintedHeightRatio, paintedRows: paintedRowSpan, refusal: nil)
     }
 
     /// Whether a floor contact point, in y-down keyframe pixels, lies on the footprint's bounding box grown by
@@ -242,7 +300,7 @@ nonisolated enum RoomFurniturePaintedComposite {
                 regionTopPixels += maskPixels
                 regionTopPixelsChanged += changedPixels
             }
-            guard maskPixels > 0, changedPixels >= max(fewestChangedPixelsInARow, Int((Double(maskPixels) * shareOfARowThatMustChange).rounded(.up))) else { continue }
+            guard maskPixels > 0, changedPixels >= changedPixelsARowNeeds(regionPixelsInTheRow: maskPixels) else { continue }
             firstPaintedRow = firstPaintedRow ?? row
             lastPaintedRow = row
             lastPaintedRowColumnTotal = changedColumnTotal
@@ -380,4 +438,13 @@ nonisolated func roomFurnitureFallbackStep(
     case .none: return aPaintingRequestIsInFlight ? .keepWaiting : .sayItCouldNotBeDrawn
     case .coming: return theWaitRanOut && !aPaintingRequestIsInFlight ? .sayItCouldNotBeDrawn : .keepWaiting
     }
+}
+
+/// Whether this process is the Debug app itself, which saves each furniture painting it receives for verification,
+/// and not a test run. `tools/swift-check.sh` runs the tests in a runner with another bundle ID, and Xcode's test host
+/// is Clicky.app with `XCTestConfigurationFilePath` or `XCTestBundlePath` set and XCTest loaded (`xcTestIsLoaded`, which
+/// the caller reads as `NSClassFromString("XCTestCase") != nil`).
+func debugAppKeepsItsPaintings(bundleIdentifier: String?, environment: [String: String], xcTestIsLoaded: Bool) -> Bool {
+    guard let bundleIdentifier, bundleIdentifier.hasPrefix("com.crodris.clicky-watch-along") else { return false }
+    return environment["XCTestConfigurationFilePath"] == nil && environment["XCTestBundlePath"] == nil && !xcTestIsLoaded
 }

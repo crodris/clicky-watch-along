@@ -1620,6 +1620,7 @@ final class RoomArtPreviewController: ObservableObject {
                         if let ratio = composite.paintedHeightRatio, let rows = composite.paintedRows {
                             print(String(format: "Room furniture: the painted item is %.0f%% of the measured box's outline (%@)", ratio * 100, roomFurniturePaintedRowsAgainstTheBox(rows, projectedBox)))
                         }
+                        if let refusal = composite.refusal { print("Room furniture: the painting is refused, since \(refusal)") }
                         return composite.layers
                     }.value
                 },
@@ -3163,7 +3164,8 @@ extension RoomArtPreviewController {
                     maskPNG: maskPNG,
                     itemTitle: furniture.title,
                     itemSizeWords: furniture.sizeInWords,
-                    orientation: orientation
+                    orientation: orientation,
+                    projectedBox: projectedBox
                 )
                 guard !Task.isCancelled, thisOpening == openingNumber else { return nil }
                 #if DEBUG
@@ -3196,6 +3198,13 @@ extension RoomArtPreviewController {
 
     #if DEBUG
     private func writeThePaintingForVerification(_ painted: CGImage, keyframeJPEG: Data, maskPNG: Data, projectedBox: [CGPoint]) {
+        // Only the running Debug app keeps its paintings. A test run's stub paintings left about 21,000 files in the
+        // temporary folder on 2026-11-23, so neither `tools/swift-check.sh`'s runner nor Xcode's test host writes them.
+        guard debugAppKeepsItsPaintings(
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            environment: ProcessInfo.processInfo.environment,
+            xcTestIsLoaded: NSClassFromString("XCTestCase") != nil
+        ) else { return }
         let stem = "clicky-room-furniture-painting-\(Int(Date().timeIntervalSince1970 * 1000))"
         let folder = FileManager.default.temporaryDirectory
         let fileURL = folder.appendingPathComponent("\(stem).png")

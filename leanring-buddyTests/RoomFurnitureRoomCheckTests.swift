@@ -21,6 +21,10 @@
 //  writes the render and the painted composite side by side, to judge which looks more real. ROOM_FURNITURE_PAINTING judges a
 //  painting an earlier run wrote (its `-painting.png` when the check refused it) instead of asking for a new one.
 //
+//  SAVED_PAINTINGS (path stems, comma separated, each with its `-keyframe.jpg`, `-mask.png`, and `-box.json`, as a Debug run
+//  saves them) judges each saved painting again with `RoomFurniturePaintedComposite.itemLayers` and prints the rule that
+//  refused it, with no request.
+//
 //  PASTE_SEAM_PAINTINGS (the saved paintings' path stems, comma separated, as `clicky-room-furniture-painting-<time>` under
 //  the temporary folder, each with its `-keyframe.jpg` and `-mask.png`) and PASTE_SEAM_OUT run the paste again over each
 //  saved painting and write `<stem>-after.png`, with no request. A saved painting already is a paste, so it stands in for
@@ -465,5 +469,50 @@ struct RoomFurniturePasteSeamCheck {
             print(String(format: "Paste seam check: %@ pasted in %.2f s", URL(fileURLWithPath: stem).lastPathComponent, Date().timeIntervalSince(startedAt)))
             writePNG(pasted, to: outputFolder.appendingPathComponent(URL(fileURLWithPath: stem).lastPathComponent + "-after.png"))
         }
+    }
+}
+
+/// Judges paintings a Debug run saved again, with the box and mask they were judged against, and prints each verdict.
+struct RoomFurnitureSavedPaintingCheck {
+    @Test(.enabled(if: roomCheckEnvironment["SAVED_PAINTINGS"] != nil, "Set SAVED_PAINTINGS"))
+    func theSavedPaintingsJudgedAgain() throws {
+        for stem in try #require(roomCheckEnvironment["SAVED_PAINTINGS"]).split(separator: ",").map(String.init) {
+            let keyframe = try loadImage(stem + "-keyframe.jpg")
+            let painting = try loadImage(stem + ".png")
+            let maskPNG = try Data(contentsOf: URL(fileURLWithPath: stem + "-mask.png"))
+            let boxNumbers = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: stem + "-box.json"))) as? [Double])
+            let projectedBox = stride(from: 0, to: boxNumbers.count - 1, by: 2).map { CGPoint(x: boxNumbers[$0], y: boxNumbers[$0 + 1]) }
+            let judgement = RoomFurniturePaintedComposite.itemLayers(painted: painting, keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
+            print(String(
+                format: "Saved painting check: %@ %@, %.0f%% of the outline (%@)",
+                URL(fileURLWithPath: stem).lastPathComponent, judgement.refusal.map { "refused, \($0)" } ?? "kept",
+                (judgement.paintedHeightRatio ?? 0) * 100, judgement.paintedRows.map { roomFurniturePaintedRowsAgainstTheBox($0, projectedBox) } ?? "nothing painted"
+            ))
+        }
+    }
+}
+
+/// Pastes a raw reply the composite route returned into its saved keyframe with the client's own paste, the fit included,
+/// writes the result, and judges it, with no request.
+struct RoomFurnitureRawReplyCheck {
+    @Test(.enabled(if: ["RAW_REPLY_STEM", "RAW_REPLY_IMAGE", "RAW_REPLY_OUT"].allSatisfy { roomCheckEnvironment[$0] != nil }, "Set RAW_REPLY_STEM, RAW_REPLY_IMAGE, and RAW_REPLY_OUT"))
+    func theRawReplyPastedAndJudged() throws {
+        let stem = try #require(roomCheckEnvironment["RAW_REPLY_STEM"])
+        let keyframe = try loadImage(stem + "-keyframe.jpg")
+        let maskPNG = try Data(contentsOf: URL(fileURLWithPath: stem + "-mask.png"))
+        let mask = try loadImage(stem + "-mask.png")
+        let reply = try loadImage(try #require(roomCheckEnvironment["RAW_REPLY_IMAGE"]))
+        let boxNumbers = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: stem + "-box.json"))) as? [Double])
+        let projectedBox = stride(from: 0, to: boxNumbers.count - 1, by: 2).map { CGPoint(x: boxNumbers[$0], y: boxNumbers[$0 + 1]) }
+        let startedAt = Date()
+        let pasted = try #require(furnitureCompositePasted(keyframe: keyframe, generated: reply, mask: mask, projectedBox: projectedBox, context: CIContext()))
+        let pasteSeconds = Date().timeIntervalSince(startedAt)
+        let judgement = RoomFurniturePaintedComposite.itemLayers(painted: pasted, keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
+        print(String(
+            format: "Raw reply check: pasted in %.2f s, %@, %.0f%% of the outline (%@)", pasteSeconds,
+            judgement.refusal.map { "refused, \($0)" } ?? "kept", (judgement.paintedHeightRatio ?? 0) * 100,
+            judgement.paintedRows.map { roomFurniturePaintedRowsAgainstTheBox($0, projectedBox) } ?? "nothing painted"
+        ))
+        writePNG(pasted, to: URL(fileURLWithPath: try #require(roomCheckEnvironment["RAW_REPLY_OUT"])))
     }
 }
