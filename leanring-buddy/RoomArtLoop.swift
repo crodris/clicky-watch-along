@@ -29,7 +29,7 @@ enum RoomArtLoopState: Equatable {
     case waitingForAClick(beganAt: TimeInterval)
     /// `tracesTheLine` is the state it left: a lapping glyph keeps lapping while the line fades, and a still line fades with
     /// no glyph appearing on it.
-    case fadingOut(beganAt: TimeInterval, tracesTheLine: Bool = true)
+    case fadingOut(beganAt: TimeInterval, tracesTheLine: Bool)
 
     /// The panel's phase changed. The loop starts with a measurement, a first one or a click's, a retry click included, and
     /// with a shirt being prepared, and keeps its clock while the work goes on: while furniture waits for its first look
@@ -69,7 +69,8 @@ enum RoomArtLoopState: Equatable {
 
     var isHidden: Bool { self == .hidden }
 
-    /// Whether the theme's glyph traces and laps the line. A loop waiting for a click shows its whole line still.
+    /// Whether the theme's glyph traces and laps the line. A loop waiting for a click, and the fade that follows it, show the
+    /// whole line still.
     var tracesTheLine: Bool {
         switch self {
         case .waitingForAClick: return false

@@ -47,23 +47,23 @@ struct RoomArtLoopStateTests {
 
         #expect(RoomArtLoopState.hidden.after(phaseChangedTo: moving, at: 30) == .drawing(beganAt: 30))
         // A loop still fading from the item that showed before starts over instead of finishing its fade.
-        #expect(RoomArtLoopState.fadingOut(beganAt: 10).after(phaseChangedTo: moving, at: 30) == .drawing(beganAt: 30))
+        #expect(RoomArtLoopState.fadingOut(beganAt: 10, tracesTheLine: true).after(phaseChangedTo: moving, at: 30) == .drawing(beganAt: 30))
     }
 
     @Test func theItemOrTheShirtShowingFadesTheLoopWhereItsClockWas() {
         let showing = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: nil)
 
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showing, at: 24) == .fadingOut(beganAt: 10))
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .showingTheShirt(title: "Tee"), at: 24) == .fadingOut(beganAt: 10))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showing, at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .showingTheShirt(title: "Tee"), at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
     }
 
     @Test func aFailedMeasurementAFailedMoveAndAFloorNotFoundFadeTheLoop() {
         let failed = RoomArtPhase.failed(.wallNotMeasured)
         let showingAfterAFailedMove = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: .wallNotMeasured)
 
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: failed, at: 24) == .fadingOut(beganAt: 10))
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showingAfterAFailedMove, at: 24) == .fadingOut(beganAt: 10))
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .waitingForAFloorClick(loopTestItem()), at: 24) == .fadingOut(beganAt: 10))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: failed, at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showingAfterAFailedMove, at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .waitingForAFloorClick(loopTestItem()), at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
         // Furniture waiting for its painting keeps the loop and its clock around the footprint.
         let arrangingPhase = RoomArtPhase.arranging(id: RoomArtMeasurementID(number: 1), item: loopTestItem(), surface: .wall(loopTestWall()))
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: arrangingPhase, at: 24) == .drawing(beganAt: 10))
@@ -95,18 +95,18 @@ struct RoomArtLoopStateTests {
 
         #expect(RoomArtLoopState.hidden.after(phaseChangedTo: showing, at: 5) == .hidden)
         #expect(RoomArtLoopState.hidden.after(phaseChangedTo: .failed(.noCamera), at: 5) == .hidden)
-        #expect(RoomArtLoopState.fadingOut(beganAt: 1).after(phaseChangedTo: showing, at: 5) == .fadingOut(beganAt: 1))
+        #expect(RoomArtLoopState.fadingOut(beganAt: 1, tracesTheLine: true).after(phaseChangedTo: showing, at: 5) == .fadingOut(beganAt: 1, tracesTheLine: true))
     }
 
     @Test func closingThePanelOrReadingThePageRemovesTheLoopAtOnce() {
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .closed, at: 11) == .hidden)
-        #expect(RoomArtLoopState.fadingOut(beganAt: 10).after(phaseChangedTo: .closed, at: 11) == .hidden)
+        #expect(RoomArtLoopState.fadingOut(beganAt: 10, tracesTheLine: true).after(phaseChangedTo: .closed, at: 11) == .hidden)
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .readingThePage, at: 11) == .hidden)
         #expect(RoomArtLoopState.hidden.after(phaseChangedTo: .waitingForTheCamera(loopTestItem()), at: 11) == .hidden)
     }
 
     @Test func onlyAFadingLoopLeavesWhenTheFadeFinishes() {
-        #expect(RoomArtLoopState.fadingOut(beganAt: 10).afterTheFadeFinished() == .hidden)
+        #expect(RoomArtLoopState.fadingOut(beganAt: 10, tracesTheLine: true).afterTheFadeFinished() == .hidden)
         #expect(RoomArtLoopState.drawing(beganAt: 10).afterTheFadeFinished() == .drawing(beganAt: 10))
         #expect(RoomArtLoopState.hidden.afterTheFadeFinished() == .hidden)
     }

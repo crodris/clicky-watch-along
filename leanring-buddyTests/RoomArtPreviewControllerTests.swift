@@ -1824,7 +1824,7 @@ struct RoomArtPreviewControllerTests {
 
         wallReplyGate.open()
         try await waitFor("the art to show on the wall") { harness.artIsShowing() }
-        #expect(harness.controller.loopState == .fadingOut(beganAt: try #require(beganAt)))
+        #expect(harness.controller.loopState == .fadingOut(beganAt: try #require(beganAt), tracesTheLine: true))
 
         harness.controller.theLoopFadeFinished()
         #expect(harness.controller.loopState == .hidden)
