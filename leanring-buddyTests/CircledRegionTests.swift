@@ -20,6 +20,17 @@ private func circlePath(center: CGPoint, radius: CGFloat, turns: Double = 1, poi
     }
 }
 
+private let exampleMedia = MediaOnTheFrontTab(
+    screenRect: ScreenRectInChromeCoordinates(rectX: 0, rectY: 0, rectWidth: 300, rectHeight: 200),
+    sample: FrontTabSample(
+        windowID: 1, tabID: 1, tabURL: "https://example.com",
+        pageGeometry: ChromePageGeometry(
+            screenX: 0, screenY: 0, outerWidth: 1400, outerHeight: 900, innerWidth: 1400, innerHeight: 800,
+            devicePixelRatio: 2, left: 0, top: 0, width: 300, height: 200, imageSourceURL: nil
+        )
+    )
+)
+
 // MARK: - Which paths close a loop
 
 @Test func aCircleAroundAPictureClosesALoopAroundItsBox() throws {
@@ -48,7 +59,7 @@ private func circlePath(center: CGPoint, radius: CGFloat, turns: Double = 1, poi
     #expect(abs(box.rectY - 200) < 8 && abs(box.rectHeight - 200) < 16)
 }
 
-@Test func aCircleThatStopsAlittleShortOfItsStartStillCloses() {
+@Test func aCircleThatStopsALittleShortOfItsStartStillCloses() {
     #expect(CircledRegion.closedLoop(fromMousePath: circlePath(center: CGPoint(x: 500, y: 300), radius: 100, turns: 0.95)) != nil)
 }
 
@@ -58,9 +69,18 @@ private func ellipsePath(width: CGFloat, height: CGFloat) -> [CGPoint] {
         .map { CGPoint(x: 300 + width / 2 + ($0.x - 300 - width / 2) * width / (width + 24), y: 300 + height / 2 + ($0.y - 300 - height / 2) * height / (height + 24)) }
 }
 
-@Test func aLoopAroundOneLineOfTextClosesButASliverDoesNot() {
-    #expect(CircledRegion.closedLoop(fromMousePath: ellipsePath(width: 160, height: 30)) != nil)
+@Test func aLoopAroundOneLineOfTextClosesAroundTheWholeLineButASliverDoesNot() throws {
+    for (width, height) in [(CGFloat(160), CGFloat(30)), (400, 30), (500, 45)] {
+        let circledRegion = try #require(CircledRegion.closedLoop(fromMousePath: ellipsePath(width: width, height: height)))
+        // The loop closes back at its start, the top middle, and never on its bottom pass halfway along.
+        #expect(abs(circledRegion.boundingRect.rectWidth - width) < width * 0.08)
+    }
     #expect(CircledRegion.closedLoop(fromMousePath: ellipsePath(width: 200, height: 12)) == nil)
+}
+
+@Test func aSmallCircleAroundAnIconCloses() throws {
+    let circledRegion = try #require(CircledRegion.closedLoop(fromMousePath: circlePath(center: CGPoint(x: 500, y: 300), radius: 27)))
+    #expect(abs(circledRegion.boundingRect.rectWidth - 54) < 6)
 }
 
 @Test func anOpenArcClosesNoLoop() {
@@ -80,7 +100,7 @@ private func ellipsePath(width: CGFloat, height: CGFloat) -> [CGPoint] {
 }
 
 @Test func aCircleTooSmallToFrameAPictureClosesNoLoop() {
-    #expect(CircledRegion.closedLoop(fromMousePath: circlePath(center: CGPoint(x: 500, y: 300), radius: 15)) == nil)
+    #expect(CircledRegion.closedLoop(fromMousePath: circlePath(center: CGPoint(x: 500, y: 300), radius: 8)) == nil)
 }
 
 @Test func theEnclosedAreaIsTheSameWhicheverWayTheLoopWasDrawn() {
@@ -109,17 +129,7 @@ private func ellipsePath(width: CGFloat, height: CGFloat) -> [CGPoint] {
     #expect(state.mediaTheLoopIsAround == nil)
     #expect(state.mediaThePollWatches == nil)
     // The front tab's media read for the same release comes back later and changes nothing.
-    let media = MediaOnTheFrontTab(
-        screenRect: ScreenRectInChromeCoordinates(rectX: 0, rectY: 0, rectWidth: 300, rectHeight: 200),
-        sample: FrontTabSample(
-            windowID: 1, tabID: 1, tabURL: "https://example.com",
-            pageGeometry: ChromePageGeometry(
-                screenX: 0, screenY: 0, outerWidth: 1400, outerHeight: 900, innerWidth: 1400, innerHeight: 800,
-                devicePixelRatio: 2, left: 0, top: 0, width: 300, height: 200, imageSourceURL: nil
-            )
-        )
-    )
-    state.mediaRectArrived(media, at: 10.1, agentsMayJoinTheLine: true)
+    state.mediaRectArrived(exampleMedia, at: 10.1, agentsMayJoinTheLine: true)
     #expect(state.loopOnTheMedia?.target == .circledRegion(circledRegion))
     state.end(because: .newPushToTalk)
     #expect(state.loop == .fadingOut(.circledRegion(circledRegion), since: 10, shimmerSlowsAt: nil))
@@ -134,6 +144,26 @@ private func ellipsePath(width: CGFloat, height: CGFloat) -> [CGPoint] {
     #expect(state.loopIsShowing)
     state.end(because: .scrolled)
     #expect(!state.loopIsShowing)
+}
+
+@Test func anAgentsTrackStaysUnderACircledLoopButNotUnderALoopAroundTheMedia() throws {
+    let circledRegion = try #require(CircledRegion.closedLoop(fromMousePath: circlePath(center: CGPoint(x: 500, y: 300), radius: 100)))
+    var state = CursorLoopState()
+    #expect(state.agentLineDrawsItsOwnTrack)
+    state.requestBecameALookAtTheCircledRegion(circledRegion, at: 10)
+    #expect(state.agentLineDrawsItsOwnTrack)
+    var stateWithALoopAroundTheMedia = CursorLoopState()
+    stateWithALoopAroundTheMedia.pushToTalkWasReleased()
+    stateWithALoopAroundTheMedia.mediaRectArrived(exampleMedia, at: 9, agentsMayJoinTheLine: true)
+    stateWithALoopAroundTheMedia.requestBecameALookAtTheMedia(at: 10)
+    #expect(!stateWithALoopAroundTheMedia.agentLineDrawsItsOwnTrack)
+}
+
+@Test func aCircleDrawnWhileAskingForAThemeIsItsPictureWhateverTheWordsSay() {
+    for requested in [ThemeStudioPictureChoice.none, .keepTheCardsPicture, .captureAgain] {
+        #expect(themePictureChoice(requested: requested, aRegionWasCircled: true) == .captureAgain)
+        #expect(themePictureChoice(requested: requested, aRegionWasCircled: false) == requested)
+    }
 }
 
 @Test func theLoopOnScreenFollowsTheLearnersOwnLineInsteadOfTheRoundedRectangle() {

@@ -1108,6 +1108,8 @@ final class CompanionManager: ObservableObject {
     /// The "Design one" card: the panel closes and the Theme Studio opens next to the mouse with three new ideas.
     func designAThemeFromThePanel() {
         NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+        // A click starts no press, so a loop the last press drew is not this design's picture.
+        circledRegionOfThePress = nil
         startDesigningATheme(request: "a new theme", basedOnIdea: nil, pictureChoice: .none)
     }
 
@@ -4175,7 +4177,9 @@ final class CompanionManager: ObservableObject {
     /// Opens the studio or asks for new ideas, and returns at once, so the card and its spoken line say the result. The
     /// thinking state stays up while a picture is captured and designed from, so the loop around the picture shows what
     /// Clicky is looking at. Like any hand-off, it takes over the reply, so a router turn that called it ends here.
-    private func startDesigningATheme(request: String, basedOnIdea: Int?, pictureChoice: ThemeStudioPictureChoice) {
+    private func startDesigningATheme(request: String, basedOnIdea: Int?, pictureChoice requestedPictureChoice: ThemeStudioPictureChoice) {
+        let circledRegion = circledRegionOfTheCurrentPress
+        let pictureChoice = themePictureChoice(requested: requestedPictureChoice, aRegionWasCircled: circledRegion != nil)
         // The request that started this design already pressed push-to-talk, so only a later press is the learner's next request.
         pushToTalkPressCountWhenTheThemeDesignStarted = pushToTalkPressCount
         currentResponseTask?.cancel()
@@ -4183,8 +4187,7 @@ final class CompanionManager: ObservableObject {
         // The panel's Design one card starts a design with no press, so a replay still playing ends here, before the card opens.
         instantReplay.endForAnotherAnswer()
         cancelTheSceneStillBuilding()
-        // A loop the learner drew around something while asking names the picture, instead of the largest one in Chrome's front tab.
-        themeDesignCircledRegion = pictureChoice == .captureAgain ? circledRegionOfTheCurrentPress : nil
+        themeDesignCircledRegion = circledRegion
         if pictureChoice == .captureAgain {
             if let themeDesignCircledRegion {
                 theRequestBecameALookAtTheCircledRegion(themeDesignCircledRegion)

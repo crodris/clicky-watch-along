@@ -208,6 +208,10 @@ struct CursorLoopState: Equatable {
         return nil
     }
 
+    /// A request's loop around the media draws the whole line the agents' sparks ride, so their own track shows only when
+    /// none does. A loop around a region the learner circled is somewhere else, so the track stays.
+    var agentLineDrawsItsOwnTrack: Bool { mediaTheLoopIsAround == nil }
+
     var agentLineIsShowing: Bool {
         if case .showing = agentLine { return true }
         return false

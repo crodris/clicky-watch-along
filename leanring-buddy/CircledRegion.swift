@@ -20,13 +20,13 @@ struct CircledRegion: Equatable {
 
     /// The rectangle around the loop, which is what gets captured as the picture.
     var boundingRect: ScreenRectInChromeCoordinates {
-        let xs = outline.map(\.x), ys = outline.map(\.y)
-        let minX = xs.min() ?? 0, minY = ys.min() ?? 0
+        let outlineXValues = outline.map(\.x), outlineYValues = outline.map(\.y)
+        let minX = outlineXValues.min() ?? 0, minY = outlineYValues.min() ?? 0
         return ScreenRectInChromeCoordinates(
             rectX: Double(minX),
             rectY: Double(minY),
-            rectWidth: Double((xs.max() ?? 0) - minX),
-            rectHeight: Double((ys.max() ?? 0) - minY)
+            rectWidth: Double((outlineXValues.max() ?? 0) - minX),
+            rectHeight: Double((outlineYValues.max() ?? 0) - minY)
         )
     }
 
@@ -35,9 +35,12 @@ struct CircledRegion: Equatable {
     /// A loop narrower or shorter than this frames nothing worth reading. A loop around one line of text is about 30 tall.
     static let smallestSideInPoints: CGFloat = 20
     /// The path must come back this close to its start, or this share of its box's diagonal when that is larger, since a
-    /// hand drawn loop rarely closes exactly. It must first go twice this far from the start, so a jiggle never closes.
+    /// hand drawn loop rarely closes exactly.
     static let closingGapInPoints: CGFloat = 30
     static let closingGapShareOfTheDiagonal: CGFloat = 0.2
+    /// The path's heading must have turned this far before it may close: 300 degrees, most of a full turn, which a hand
+    /// drawn loop reaches a little before its start, and a line drawn out and back (half a turn) never does.
+    static let headingTurnToCloseInRadians = CGFloat.pi * 5 / 3
     /// The loop must enclose this share of its box. A jiggle back and forth, or a line drawn out and back, encloses almost
     /// nothing, while a hand drawn circle encloses about 0.78 of its box and a rough one well over 0.5.
     static let smallestShareOfTheBoxEnclosed: CGFloat = 0.3
@@ -57,22 +60,27 @@ struct CircledRegion: Equatable {
         return CircledRegion(outline: ShirtOutline.smoothed(ShirtOutline.simplified(largestLoop.points), passes: 2))
     }
 
-    /// The loop that starts at `startIndex` and comes back to it, or nil. The path must first leave the start, by twice the
-    /// closing gap, and the loop closes at the first sample after that within the closing gap of the start, so an overshoot
-    /// or a wander after the close is dropped.
+    /// The loop that starts at `startIndex` and comes back to it, or nil. The loop closes at the first sample within the
+    /// closing gap of the start once the path's heading has turned most of a full turn, so a wide, short loop around a line
+    /// of text never closes on its bottom pass under its start, and an overshoot or a wander after the close is dropped.
     private static func loopClosingBack(toTheSampleAt startIndex: Int, of path: [CGPoint]) -> (points: [CGPoint], enclosedArea: CGFloat)? {
         let start = path[startIndex]
         func distanceFromTheStart(_ index: Int) -> CGFloat { hypot(path[index].x - start.x, path[index].y - start.y) }
         var box = CGRect(origin: start, size: .zero)
-        var theLineLeftTheStart = false
+        var headingTurnedInRadians: CGFloat = 0
+        var previousStep: CGVector?
         var closingIndex: Int?
         var index = startIndex + 1
         while index < path.count, closingIndex == nil {
             box = box.union(CGRect(origin: path[index], size: .zero))
-            let distance = distanceFromTheStart(index)
-            if !theLineLeftTheStart {
-                theLineLeftTheStart = distance > 2 * closingGapInPoints
-            } else if distance <= max(closingGapInPoints, closingGapShareOfTheDiagonal * hypot(box.width, box.height)) {
+            let step = CGVector(dx: path[index].x - path[index - 1].x, dy: path[index].y - path[index - 1].y)
+            if let previousStep {
+                // The signed angle from the last step's heading to this one's, so turns one way add and turns back cancel.
+                headingTurnedInRadians += atan2(previousStep.dx * step.dy - previousStep.dy * step.dx, previousStep.dx * step.dx + previousStep.dy * step.dy)
+            }
+            previousStep = step
+            if abs(headingTurnedInRadians) >= headingTurnToCloseInRadians,
+               distanceFromTheStart(index) <= max(closingGapInPoints, closingGapShareOfTheDiagonal * hypot(box.width, box.height)) {
                 closingIndex = index
             }
             index += 1
@@ -80,8 +88,8 @@ struct CircledRegion: Equatable {
         guard let closingIndex else { return nil }
         let loopPoints = Array(path[startIndex...closingIndex])
         guard loopPoints.count >= fewestSamples else { return nil }
-        let xs = loopPoints.map(\.x), ys = loopPoints.map(\.y)
-        guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else { return nil }
+        let loopXValues = loopPoints.map(\.x), loopYValues = loopPoints.map(\.y)
+        guard let minX = loopXValues.min(), let maxX = loopXValues.max(), let minY = loopYValues.min(), let maxY = loopYValues.max() else { return nil }
         let boxWidth = maxX - minX, boxHeight = maxY - minY
         guard boxWidth >= smallestSideInPoints, boxHeight >= smallestSideInPoints else { return nil }
         let area = enclosedArea(of: loopPoints)
@@ -106,6 +114,12 @@ struct CircledRegion: Equatable {
         let overlayTopInChromeCoordinates = mainDisplayHeight - overlayScreenFrame.maxY
         return outline.map { CGPoint(x: $0.x - overlayScreenFrame.minX, y: $0.y - overlayTopInChromeCoordinates) }
     }
+}
+
+/// The picture a theme design reads: a loop the learner drew while asking names the picture whatever the words say about
+/// one, since closing a loop is deliberate, so "make my theme from this logo" reads it too. Without one, the words decide.
+func themePictureChoice(requested requestedPictureChoice: ThemeStudioPictureChoice, aRegionWasCircled: Bool) -> ThemeStudioPictureChoice {
+    aRegionWasCircled ? .captureAgain : requestedPictureChoice
 }
 
 /// Records the mouse's path while push-to-talk is held, 60 times a second, in global points with the origin at the top

@@ -153,7 +153,8 @@ nonisolated enum ThemeStudioPictureChoice: Equatable, Sendable {
     case none
     /// The picture the card already has, so a refinement keeps designing from it.
     case keepTheCardsPicture
-    /// The largest picture in Chrome's front tab now, or the card's own picture when there is none to capture.
+    /// The region the learner circled while asking, or else the largest picture in Chrome's front tab now, or the card's own
+    /// picture when there is none to capture.
     case captureAgain
 
     /// What `design_theme`'s `fromPicture` input means: true when the learner points at a picture, false when they drop the

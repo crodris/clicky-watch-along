@@ -322,7 +322,7 @@ final class CursorLoopController: ObservableObject {
             seed: CursorLoopOutline.seed(for: mediaRect),
             agentIDs: agentLineOnTheMedia.line.agentIDs,
             // A request's loop draws the whole line itself, so the agents' track shows only when none does.
-            drawsItsOwnTrack: !state.loopIsShowing,
+            drawsItsOwnTrack: state.agentLineDrawsItsOwnTrack,
             isFadingOut: agentLineOnTheMedia.isFadingOut
         )
     }

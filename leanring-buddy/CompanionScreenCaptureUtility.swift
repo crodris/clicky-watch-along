@@ -131,12 +131,13 @@ enum CompanionScreenCaptureUtility {
     }
 
     /// Captures just this rect of the screen at the display's pixel density (up to 1280 pixels on the
-    /// longest side), showing only Google Chrome's windows and no mouse pointer, so a pop-out can lift
-    /// a page image no matter which site serves it. Capturing only Chrome keeps another app's window
-    /// that covers Chrome out of the crop, and leaves out Clicky's own windows too.
-    /// Nil when Chrome has no on-screen window or no display intersects the rect.
-    /// `windows` is `.everythingButClicky` for a region the learner circled, which may be in any app: every window shows but
+    /// longest side), with no mouse pointer.
+    /// With `.chromeOnly`, the default, it shows only Google Chrome's windows, so a pop-out can lift a page image no matter
+    /// which site serves it: another app's window that covers Chrome and Clicky's own windows stay out of the crop, and it
+    /// returns nil when Chrome has no on-screen window.
+    /// With `.everythingButClicky`, for a region the learner circled, which may be in any app, every window shows but
     /// Clicky's own, so the loop's ink drawn over the region stays out of the picture.
+    /// Nil when no display intersects the rect.
     static func captureScreenRectAsJPEG(
         _ screenRect: ScreenRectInChromeCoordinates,
         windows windowsToCapture: CapturedWindows = .chromeOnly
