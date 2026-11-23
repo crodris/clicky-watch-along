@@ -78,8 +78,12 @@ jobs:
       - run: pnpm test
       # The committed results must still parse, since the charts are built from them.
       - run: node report.ts --out "$RUNNER_TEMP/bench-report" results/*.json
+      # swift-check.sh builds at a lower CPU priority, so the apps in use get the CPU first. This test pins that and the build folder's checkout record.
+      - run: bash ../tools/swift-check.test.sh
       # verify-clicky's build checks that the app is newer than every Swift file under leanring-buddy/, and this test pins that check.
       - run: bash ../.claude/skills/verify-clicky/verify-clicky.test.sh
+      # The Swift check deletes the build folders of checkouts that are gone, and this test pins which folders that removes.
+      - run: bash ../tools/swift-check/prune-build-folders.test.sh
       # Every PNG the AppIcon set names must have its exact size and transparent corners, or macOS shows a black square behind the icon.
       - run: python3 -I ../tools/app-icon/check-app-icon.py
       # The Icon Composer file is written by the icon script, so a shape changed in the script must be written to it too.
