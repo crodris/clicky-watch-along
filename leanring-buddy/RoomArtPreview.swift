@@ -227,8 +227,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     /// Forgets the last session, so a reopened panel starts with no keyframe, no item, and no shirt. `onFirstSegmentedFrame`
     /// runs once, on the main actor, when the first frame with a person mask has arrived. `onTheSurfaceLostOrFound` runs on
     /// the main actor each time the tracker loses the room long enough to hide the item (true), and when it finds it again
-    /// or a new keyframe, item, or put-back resets the tracker's state (false), after which the next frame reports a room
-    /// still lost. `forgetTheKeyframe` and `endTheSession` report nothing, since a shirt and a failed panel show no lost line.
+    /// or a new keyframe, wall art shown, the item hidden, or a failed move put back resets the tracker's state (false), after
+    /// which the next frame reports a room still lost. `forgetTheKeyframe` and `endTheSession` report nothing, since a shirt
+    /// and a failed panel show no lost line, and neither does `showTheFurnitureLayers`, so a painting that arrives while the
+    /// room is lost keeps the lost line.
     func startASession(onFirstSegmentedFrame: @escaping @Sendable () -> Void, onTheSurfaceLostOrFound: @escaping @Sendable (Bool) -> Void) {
         processingQueue.sync {
             sessionNumber += 1
@@ -396,7 +398,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     }
 
     /// Tells the main actor when the item hides because the room is lost, and when it shows again, once per change. The
-    /// panel's copy follows only these reports, so each reset of the tracker or the item reports a found room through here.
+    /// panel's copy follows only these reports while it is open: a new keyframe, wall art shown, the item hidden, and a failed
+    /// move put back report a found room through here.
     private func reportWhetherTheSurfaceIsLost(_ theSurfaceIsLost: Bool) {
         guard theSurfaceIsLost != theSurfaceIsLostAsLastReported else { return }
         theSurfaceIsLostAsLastReported = theSurfaceIsLost

@@ -1645,7 +1645,9 @@ struct RoomArtPreviewControllerTests {
         let lostLine = RoomArtSurfaceKind.floor.lostLine
         #expect(harness.statusLine() == lostLine)
 
-        // The panel follows only the frame processor's reports, so placing, painting, and picking up keep the room lost.
+        // The panel follows only the frame processor's reports, so placing, painting, and picking up keep the room lost. The
+        // stand-in's tracked warp and painting frame stay found on purpose, which the real processor's never do while lost,
+        // so each step runs here and any reset the panel makes on its own shows.
         #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
         #expect(harness.statusLine() == lostLine)
         try await waitFor("the painting") { harness.artIsShowing() }
