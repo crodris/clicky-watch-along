@@ -233,7 +233,6 @@ struct ShirtStepBackProcessorCheckTests {
         }
     }
 
-    /// `ghostCoverage` runs the ghost outline's path: no flat lay product photo is needed, and no garment is worn.
     private func makeTheSetup() throws -> Setup {
         let photosFolder = URL(fileURLWithPath: try #require(processorCheckEnvironment["SHIRT_TRYON_PHOTOS_DIR"]))
         let context = CIContext()

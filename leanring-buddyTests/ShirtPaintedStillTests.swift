@@ -443,8 +443,7 @@ extension CPUHeavyTests {
 
         @Test func theNewTopsCollarCoversTheOldCollarBesideTheNeckUpToJustAboveTheNeckline() throws {
             // The learner's neckline is row 74 on the middle of the neck, so the new top's collar reaches 0.05 shoulder widths
-            // (4 pixels) above it, row 70. The old collar beside the neck up to there is painted, as the 2D preview's garment
-            // covered it, and nothing above it is.
+            // (4 pixels) above it, row 70. The old collar beside the neck up to there is painted, and nothing above it is.
             let masks = try #require(ShirtPaintMask.make(frame: MadeUpPerson.frame(hasAHighCollar: true), bodyParts: MadeUpPerson.bodyParts, coverage: shortTopToTheHip))
             func paintable(_ column: Int, _ row: Int) -> Bool { masks.paintable[row * MadeUpPerson.width + column] > 127 }
             #expect(paintable(145, 71) && paintable(174, 71))

@@ -143,7 +143,7 @@ nonisolated let roomArtShirtPaintedLine = "Here it is on you."
 nonisolated let roomArtShirtPaintingStatusLine = "Putting it on you…"
 /// The status line while the painted still shows.
 nonisolated let roomArtShirtPaintedStatusLine = "On you · keep this pose to see it live"
-/// The crossfade from the frozen preview to the painted still.
+/// The crossfade from the frozen frame to the painted still.
 nonisolated let shirtPaintedStillCrossfadeSeconds = 0.5
 
 /// Why the shirt could not be painted, each with its line. Every one goes back to the live camera.
@@ -247,8 +247,7 @@ nonisolated enum ShirtPaintMask {
     /// The new top's collar sits this far above the learner's own neckline, in shoulder widths, as a worn top's collar rides
     /// over the old one. The band from the shoulder line up to it, within `collarHalfWidthInShoulderWidths` of the middle,
     /// is the new top's, so the old collar and the tops of the shoulders beside the neck are painted over and never put back
-    /// with the neck. The 2D preview this replaced drew its collar there, and without it the old collar showed between the new
-    /// collar and the neck.
+    /// with the neck. Without it the old collar showed between the new collar and the neck.
     static let collarRiseAboveTheOldNecklineInShoulderWidths = 0.05
     static let collarHalfWidthInShoulderWidths = 0.4
     /// Pieces of the mask under this share of the frame are specks, not garment.
@@ -460,16 +459,16 @@ nonisolated enum ShirtPaintMask {
             geometry.distanceAboveTheNeckBase(SIMD2(geometry.neckBase.x, neckRow))
         } ?? 0
         let collarTopAboveTheNeckBase = necklineAboveTheNeckBase + collarRiseAboveTheOldNecklineInShoulderWidths * shoulderWidth
-        let shoulderLineBelowTheNeckBase = -0.10 * shoulderWidth
+        let shoulderLineBelowTheNeckBase = -TorsoGeometry.neckBaseAboveTheShouldersInShoulderWidths * shoulderWidth
         func isInTheCollarBand(_ point: SIMD2<Double>) -> Bool {
             let aboveTheNeckBase = geometry.distanceAboveTheNeckBase(point)
             return aboveTheNeckBase >= shoulderLineBelowTheNeckBase && aboveTheNeckBase <= collarTopAboveTheNeckBase
                 && abs(geometry.distanceAcross(point)) < collarHalfWidthInShoulderWidths * shoulderWidth
         }
 
-        // The torso itself covers a print on the old top whose colors are not its own. So does the area the new garment covers on the body (`ShirtCoverage`), where the
-        // person is: a short sleeve over a bare upper arm, a long sleeve down the bare forearm, a coat's hem past the
-        // old top's. It stays within a little of the person, so the room beside a flared hem stays the room.
+        // The torso itself covers a print on the old top whose colors are not its own. So does the area the new garment
+        // covers on the body (`ShirtCoverage`), where the person is: a short sleeve over a bare upper arm, a long sleeve
+        // down the bare forearm, a coat's hem past the old top's. It stays within a little of the person, so the room beside a flared hem stays the room.
         let torsoQuad = ShirtTryOnRenderer.bodyTorsoCorners(of: torso).map { SIMD2(Double($0.x), Double($0.y)) }
         let growthRadius = max(1, Int((outlineGrowthInShoulderWidths * shoulderWidth).rounded()))
         let personNearby = dilated(personMask.map { $0 > 127 }, width: width, height: height, radius: growthRadius)
@@ -499,8 +498,8 @@ nonisolated enum ShirtPaintMask {
         }
 
         // Bare skin the new top does not cover is taken away here. The hands, the face, and the neck's skin are taken
-        // away at the frame's size, where their edges are exact. The mask never reaches above the neck's base, so the
-        // neck cut only decides what the paste puts back. Only skin under a new sleeve, an upper arm or a forearm, is
+        // away at the frame's size, where their edges are exact. The mask reaches no higher than the new top's collar
+        // band, and the neck cut above that band is taken back out, so the neck cut only decides what the paste puts back. Only skin under a new sleeve, an upper arm or a forearm, is
         // painted. Skin inside the new garment's body (a forearm across the belly under a short sleeve, an inner upper
         // arm beside a vest) is not covered by it, so it is taken away like any other bare skin.
         for index in 0..<(width * height) where paintable[index] {
@@ -732,6 +731,8 @@ nonisolated private struct TorsoGeometry {
     let upward: SIMD2<Double>
     let neckBase: SIMD2<Double>
     let torsoLength: Double
+    /// The neck's base sits this far above the shoulder midpoint, as the frame analysis puts it.
+    static let neckBaseAboveTheShouldersInShoulderWidths = 0.10
 
     init(torso: BodyTorso) {
         shoulderMidpoint = SIMD2(Double(torso.shoulderMidpoint.x), Double(torso.shoulderMidpoint.y))
@@ -742,7 +743,7 @@ nonisolated private struct TorsoGeometry {
         var upDirection = SIMD2(along.y, -along.x)
         if upDirection.y > 0 { upDirection = -upDirection }
         upward = upDirection
-        neckBase = shoulderMidpoint + upDirection * 0.10 * torso.shoulderWidth
+        neckBase = shoulderMidpoint + upDirection * Self.neckBaseAboveTheShouldersInShoulderWidths * torso.shoulderWidth
     }
 
     func distanceDownTheTorso(_ point: SIMD2<Double>) -> Double { simd_dot(point - shoulderMidpoint, torsoAxis) }

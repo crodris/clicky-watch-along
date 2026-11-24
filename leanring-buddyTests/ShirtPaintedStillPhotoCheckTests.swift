@@ -56,7 +56,7 @@ struct ShirtPaintedStillMetrics: Codable {
     var faceExactShare = 0.0
     var handsExactShare = 0.0
     var neckExactShare = 0.0
-    var printSharpnessAgainstThePreview = 0.0
+    var printSharpnessAgainstTheFlatLayReference = 0.0
     var oldTopAtTheNeckPixelsPerShoulderWidth = 0.0
     var bareArmsChangedShare = 0.0
     var seconds = 0.0
@@ -87,7 +87,7 @@ private func meanGradient(of pixels: [UInt8], width: Int, box: CGRect) -> Double
     return count > 0 ? total / Double(count) : 0
 }
 
-/// Side by side at one height: the photo, the product, the live preview, and the painted still.
+/// Side by side at one height: the photo, the product, and the painted still.
 private func sideBySide(_ images: [CGImage], height: Int) -> CGImage? {
     let scaledWidths = images.map { Int(Double($0.width) * Double(height) / Double($0.height)) }
     let gap = 12
@@ -295,7 +295,7 @@ struct ShirtPaintedStillPhotoCheckTests {
             metrics.neckExactShare = exactShare(ShirtPaintMask.eroded(
                 neckRegion, width: width, height: height, radius: ShirtPaintMask.neckEdgeFadePixels + ShirtPaintMask.neckEdgeSmoothingRadiusPixels
             ))
-            metrics.printSharpnessAgainstThePreview = sharpnessReferencePixels.map { meanGradient(of: paintedPixels, width: width, box: chestBox) / max(meanGradient(of: $0, width: width, box: chestBox), 0.001) } ?? 0
+            metrics.printSharpnessAgainstTheFlatLayReference = sharpnessReferencePixels.map { meanGradient(of: paintedPixels, width: width, box: chestBox) / max(meanGradient(of: $0, width: width, box: chestBox), 0.001) } ?? 0
 
             // The old top at the neck: pixels in the band where the new collar meets the neck that the paste put back as
             // filmed (within 2 levels) and that look like the old top, as its collar and the tops of its shoulders did when

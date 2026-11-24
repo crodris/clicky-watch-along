@@ -136,7 +136,7 @@ nonisolated struct RoomArtSize: Equatable, Sendable {
 }
 
 /// What `POST /try-it-item` read from the page and its picture, by where the item goes. A flat item of any outline hangs on the
-/// wall, a standing item stands on the floor or on a table or shelf, and a top is drawn over the learner
+/// wall, a standing item stands on the floor or on a table or shelf, and a top is painted on the learner
 /// (`roomArtReadingPlan`). An item that cannot be shown carries the reason Clicky says right after the page read.
 nonisolated enum RoomArtPageReading: Equatable, Sendable {
     /// An item that hangs flat on the wall, of any outline: a print, a poster, a framed photo, a mirror, a round clock, a
@@ -1228,7 +1228,7 @@ nonisolated struct ShirtPaintingID: Equatable, Sendable {
 }
 
 /// What the panel is doing. The page is read as the panel opens, and its kind picks the rest: wall art and standing items are
-/// measured on their surface and tracked, and a shirt is drawn over the learner with no measurement at all.
+/// measured on their surface and tracked, and a shirt is painted on the learner with no measurement at all.
 nonisolated enum RoomArtPhase: Equatable, Sendable {
     case closed
     /// The panel is open: the camera starts and the page is read at once.
@@ -1535,7 +1535,7 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
 
     /// The panel's one-line status. `theSurfaceIsLost` says the tracker lost the room long enough to hide the item, which
     /// only matters while the item shows, or while furniture's ghost shows or its painting comes, and `shirtCoachingLine` is the
-    /// settled framing's advice while the shirt cannot be drawn. `thePaintedTopIsOutOfReach` matters only while the painted
+    /// settled framing's advice while the learner is out of view or too close for the capture. `thePaintedTopIsOutOfReach` matters only while the painted
     /// still shows: the painted top cannot follow the learner, so the line says to stand as they did.
     func statusLine(theSurfaceIsLost: Bool, shirtCoachingLine: String?, thePaintedTopIsOutOfReach: Bool = false) -> String {
         switch self {

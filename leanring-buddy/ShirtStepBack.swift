@@ -139,7 +139,7 @@ nonisolated struct ShirtStepBackCapture: Equatable, Sendable {
         self.armedAt = armedAt
     }
 
-    /// Takes one frame. `framingKind` is the debounced kind and `torso` the smoothed one the renderer draws on this frame,
+    /// Takes one frame. `framingKind` is the debounced kind and `torso` the smoothed one found for this frame,
     /// nil when no one is in view. A hold counts only in the ready framing, so a learner still leaning in never freezes.
     mutating func advance(framingKind: ShirtFramingKind?, torso: BodyTorso?, at time: TimeInterval) -> Step {
         let torsoInTheReadyFraming: BodyTorso? = framingKind == .ready ? torso : nil

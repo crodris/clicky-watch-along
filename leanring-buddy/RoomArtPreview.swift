@@ -424,7 +424,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     }
 
     /// Judges this frame for the armed capture, and freezes it when the learner has held still for the whole countdown. The
-    /// torso is the one the renderer draws on this same frame, so the frozen frame and the torso always belong together.
+    /// torso is the one found for this same frame, so the frozen frame and the torso always belong together.
     private func advanceTheShirtCapture(torso: BodyTorso?) {
         guard var capture = shirtCapture else { return }
         let step = capture.state.advance(framingKind: shirtFramingDebouncer.settledKind, torso: torso, at: CACurrentMediaTime())
