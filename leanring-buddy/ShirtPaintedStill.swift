@@ -468,7 +468,8 @@ nonisolated enum ShirtPaintMask {
 
         // The torso itself covers a print on the old top whose colors are not its own. So does the area the new garment
         // covers on the body (`ShirtCoverage`), where the person is: a short sleeve over a bare upper arm, a long sleeve
-        // down the bare forearm, a coat's hem past the old top's. It stays within a little of the person, so the room beside a flared hem stays the room.
+        // down the bare forearm, a coat's hem past the old top's. It stays within a little of the person, so the room beside
+        // a flared hem stays the room.
         let torsoQuad = ShirtTryOnRenderer.bodyTorsoCorners(of: torso).map { SIMD2(Double($0.x), Double($0.y)) }
         let growthRadius = max(1, Int((outlineGrowthInShoulderWidths * shoulderWidth).rounded()))
         let personNearby = dilated(personMask.map { $0 > 127 }, width: width, height: height, radius: growthRadius)
@@ -499,9 +500,10 @@ nonisolated enum ShirtPaintMask {
 
         // Bare skin the new top does not cover is taken away here. The hands, the face, and the neck's skin are taken
         // away at the frame's size, where their edges are exact. The mask reaches no higher than the new top's collar
-        // band, and the neck cut above that band is taken back out, so the neck cut only decides what the paste puts back. Only skin under a new sleeve, an upper arm or a forearm, is
-        // painted. Skin inside the new garment's body (a forearm across the belly under a short sleeve, an inner upper
-        // arm beside a vest) is not covered by it, so it is taken away like any other bare skin.
+        // band, and the neck cut above that band is taken back out, so the neck cut only decides what the paste puts back.
+        // Only skin under a new sleeve, an upper arm or a forearm, is painted. Skin inside the new garment's body (a
+        // forearm across the belly under a short sleeve, an inner upper arm beside a vest) is not covered by it, so it
+        // is taken away like any other bare skin.
         for index in 0..<(width * height) where paintable[index] {
             guard personMask[index] > 127, !oldShirt[index], !newSleevesCover[index] else { continue }
             if looksLikeSkin(red: rgba[index * 4], green: rgba[index * 4 + 1], blue: rgba[index * 4 + 2]) { paintable[index] = false }
@@ -731,7 +733,7 @@ nonisolated private struct TorsoGeometry {
     let upward: SIMD2<Double>
     let neckBase: SIMD2<Double>
     let torsoLength: Double
-    /// The neck's base sits this far above the shoulder midpoint, as the frame analysis puts it.
+    /// The neck's base sits this far above the shoulder midpoint. `ShirtFrameAnalysis` uses the same 0.10 for its own neck base.
     static let neckBaseAboveTheShouldersInShoulderWidths = 0.10
 
     init(torso: BodyTorso) {

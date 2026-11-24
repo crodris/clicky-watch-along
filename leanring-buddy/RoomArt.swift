@@ -1534,9 +1534,10 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     }
 
     /// The panel's one-line status. `theSurfaceIsLost` says the tracker lost the room long enough to hide the item, which
-    /// only matters while the item shows, or while furniture's ghost shows or its painting comes, and `shirtCoachingLine` is the
-    /// settled framing's advice while the learner is out of view or too close for the capture. `thePaintedTopIsOutOfReach` matters only while the painted
-    /// still shows: the painted top cannot follow the learner, so the line says to stand as they did.
+    /// only matters while the item shows, or while furniture's ghost shows or its painting comes, and `shirtCoachingLine` is
+    /// the settled framing's advice while the learner is out of view or too close for the capture. `thePaintedTopIsOutOfReach`
+    /// matters only while the painted still shows: the painted top cannot follow the learner, so the line says to stand as
+    /// they did.
     func statusLine(theSurfaceIsLost: Bool, shirtCoachingLine: String?, thePaintedTopIsOutOfReach: Bool = false) -> String {
         switch self {
         case .closed: return ""
@@ -1633,7 +1634,7 @@ nonisolated struct RoomArtRequestRecord: Equatable, Sendable {
     }
 
     /// The learner asked the open panel for something by voice or by a click, such as "right there" or Place for the
-    /// furniture's ghost, "move it left", or the shirt's "right there" or its button, so a line about it that lands after
+    /// furniture's ghost, "move it left", or the shirt's "paint it" or its button, so a line about it that lands after
     /// this press, such as "Step aside for a second." or "Here it is", is still theirs. The panel is already open, so the
     /// opening flag is left as it is.
     mutating func continued(atPushToTalkPressCount pushToTalkPressCount: Int) {

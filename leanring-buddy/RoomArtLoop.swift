@@ -8,9 +8,10 @@
 //  each around a shape the learner can recognize: the shirt being painted (`ShirtOutline`, the outline of the learner's own
 //  top as the frame freezes, then the outline of the area being painted until the painted still shows), the placed
 //  furniture's footprint while its painting comes, and that footprint again after the piece could not be drawn. The
-//  footprint's four corners go through the tracker's current warp each frame, and the line is bent onto the mapped corners, so it follows the room as the camera turns. While a surface is measured, whether a
-//  wall, a floor, or a clicked table top, no loop shows at all: the only shape known then is a bare window the spot search
-//  scored, which says nothing about the item, so the status line is all the panel draws.
+//  footprint's four corners go through the tracker's current warp each frame, and the line is bent onto the mapped
+//  corners, so it follows the room as the camera turns. While a surface is measured, whether a wall, a floor, or a
+//  clicked table top, no loop shows at all: the only shape known then is a bare window the spot search scored, which says
+//  nothing about the item, so the status line is all the panel draws.
 //
 //  This file holds the pure rules (when the loop shows and clears, the corner mapping, the camera to panel fit, the bent
 //  outline) and the views that draw it.

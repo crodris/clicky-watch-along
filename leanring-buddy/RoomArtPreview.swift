@@ -1586,7 +1586,8 @@ final class RoomArtPreviewController: ObservableObject {
     @Published private(set) var loopState = RoomArtLoopState.hidden
     /// The tracker lost the room long enough to hide the item, so the status line says so.
     @Published private(set) var theSurfaceIsLost = false
-    /// What the settled framing tells the learner while the shirt cannot be drawn, nil once they stand in view.
+    /// What the settled framing tells the learner while they are out of view or too close for the capture, nil once they
+    /// stand in the ready framing.
     @Published private(set) var shirtCoachingLine: String?
     /// The painted top cannot follow the learner now, so the painted still shows and the status line says how to see it live
     /// (`ShirtLivePaintedTopFollower`). Only the painted still's status line reads it, and each painted still starts it false.
