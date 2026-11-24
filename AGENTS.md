@@ -550,7 +550,7 @@ A layer keeps a copy of the frame it was made on, at the track size, with its pe
 A painting keeps its painting frame's copy (`RoomArtPaintingFrame.roomLight`, carried in `RoomFurnitureKeyframeLayers.roomLightWhenMade`).
 A render, or a painting made on the baked keyframe, keeps the keyframe's copy.
 A painting frame taken while the tracker misses the room gets no copy, and takes the keyframe's.
-While a furniture layer shows, the processor copies the live frame 5 times a second, and at once for a look with no gains yet.
+While a furniture layer shows, the processor copies the live frame 5 times a second, and at once, one time, for a new look.
 It compares the two copies pixel by pixel through the tracker's turn, reading every second pixel of every second row.
 Only pixels both copies show as room, with no learner and no clipped channel, count.
 The ratio of their summed linear light, per channel and held to 0.4 to 2.5, is the layer's gains.
@@ -562,7 +562,8 @@ No measurement runs while the tracker misses the room, since its last turn would
 Each frame's mean taken on its own compared different pixels when a lamp clipped the bright wall in one frame.
 It measured a room 1.35 times brighter as 0.4 times as bright.
 The bake into the keyframe relights a layer made on a later frame to the keyframe's light.
-The log says `Room furniture: the room's light changed, so the item is relit by R, G, B` when the newest item's gains move by more than 0.05.
+The log says `Room furniture: the room's light changed, so the item is relit by R, G, B`.
+It prints when the newest item's gains move by more than 0.05.
 When the tone fit is refused, the piece can still cover the whole region (see below), and the relight only scales that room.
 A Debug run saves them as `<stem>-region.png` and `<stem>-piece.png`.
 The painter takes the mask and the size words only as guidance, and it draws a small item too big.

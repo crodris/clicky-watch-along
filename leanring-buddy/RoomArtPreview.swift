@@ -225,6 +225,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     /// How many frames in a row the tracker has missed the room, so a light copy is never paired through a turn it only guessed.
     private var latestFramesLostInARow = 0
     private var lastRoomLightMeasuredAt: CFTimeInterval = 0
+    /// The references in use at the last measurement, so a new one is measured at once, and only once.
+    private var referenceIDsMeasuredAtOnce: Set<UUID> = []
     private var loggedLightGains = RoomArtLightReference.unchangedGains
     /// The live room's light is measured this often while a furniture layer shows, a few times a second.
     private static let secondsBetweenRoomLightMeasurements = 0.2
@@ -403,6 +405,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             crossfadeFrom = nil
             smoothedLightGains = [:]
             lastRoomLightMeasuredAt = 0
+            referenceIDsMeasuredAtOnce = []
             loggedLightGains = RoomArtLightReference.unchangedGains
             latestFramesLostInARow = 0
             latestFrame = nil
@@ -1298,10 +1301,12 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             return
         }
         // A look just shown has no gains yet, so it is measured at once instead of drawn unrelit until the next measurement.
-        let aReferenceHasNoGains = referencesInUse.contains { smoothedLightGains[$0.id] == nil }
+        // Only once per look: one whose light cannot be measured waits for the usual interval after that.
+        let aReferenceIsNew = referencesInUse.contains { !referenceIDsMeasuredAtOnce.contains($0.id) }
         let now = CACurrentMediaTime()
-        guard aReferenceHasNoGains || now - lastRoomLightMeasuredAt >= Self.secondsBetweenRoomLightMeasurements else { return }
+        guard aReferenceIsNew || now - lastRoomLightMeasuredAt >= Self.secondsBetweenRoomLightMeasurements else { return }
         lastRoomLightMeasuredAt = now
+        referenceIDsMeasuredAtOnce = Set(referencesInUse.map(\.id))
         guard let currentLight = roomLight(of: CIImage(cvPixelBuffer: cameraFrame), personMask: latestPersonMask, keyframeToThisFrame: keyframeToThisFrame) else { return }
         smoothedLightGains = RoomArtLightReference.smoothedGainsInUse(references: referencesInUse, current: currentLight, previous: smoothedLightGains)
         // The log shows the newest item's gains each time they move by more than a few percent, so a live check sees the relight.

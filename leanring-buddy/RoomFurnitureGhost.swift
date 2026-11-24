@@ -311,7 +311,6 @@ nonisolated func convexPolygon(_ polygon: [CGPoint], contains point: CGPoint) ->
 // MARK: - The drag in the current frame
 
 nonisolated extension EuclideanWarp {
-    /// The warp that takes the current frame back to the keyframe.
     /// This warp applied after `first`: x' = R (R_first x + t_first) + t, which is one turn and one shift.
     func after(_ first: EuclideanWarp) -> EuclideanWarp {
         let cosine = cos(angleRadians), sine = sin(angleRadians)
@@ -322,6 +321,7 @@ nonisolated extension EuclideanWarp {
         )
     }
 
+    /// The warp that takes the current frame back to the keyframe.
     var inverted: EuclideanWarp {
         let cosine = cos(angleRadians), sine = sin(angleRadians)
         // The inverse of x' = R x + t is x = R^T (x' - t).
