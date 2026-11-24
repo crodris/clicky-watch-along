@@ -311,6 +311,16 @@ nonisolated func convexPolygon(_ polygon: [CGPoint], contains point: CGPoint) ->
 // MARK: - The drag in the current frame
 
 nonisolated extension EuclideanWarp {
+    /// This warp applied after `first`: x' = R (R_first x + t_first) + t, which is one turn and one shift.
+    func after(_ first: EuclideanWarp) -> EuclideanWarp {
+        let cosine = cos(angleRadians), sine = sin(angleRadians)
+        return EuclideanWarp(
+            angleRadians: angleRadians + first.angleRadians,
+            translationX: cosine * first.translationX - sine * first.translationY + translationX,
+            translationY: sine * first.translationX + cosine * first.translationY + translationY
+        )
+    }
+
     /// The warp that takes the current frame back to the keyframe.
     var inverted: EuclideanWarp {
         let cosine = cos(angleRadians), sine = sin(angleRadians)
@@ -621,6 +631,9 @@ nonisolated struct RoomArtPaintingFrame: @unchecked Sendable {
     let keyframeToFrame: EuclideanWarp
     /// How much of the ghost's box the learner covers in this frame, from 0 to 1.
     let shareOfTheBoxThePersonCovers: Double
+    /// The room's light in this frame, which a painting made on it is relit from as the light changes. Nil when it could
+    /// not be measured, and the keyframe's light stands in.
+    var roomLight: RoomArtLightReference? = nil
 
     /// The box's corners in this frame's pixels.
     func boxInThisFrame(_ boxInTheKeyframe: [CGPoint]) -> [CGPoint] {

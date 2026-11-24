@@ -72,6 +72,11 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     private var recordedShirtTryOnStarted = false
     private var latestLoop: RoomArtLoopSnapshot?
     private var recordedFurnitureLayersShown: [(look: RoomFurnitureLook, keyframeNumber: Int)] = []
+    private var recordedLightReferencesShown: [RoomArtLightReference?] = []
+    /// The room's light in the stand-in's painting frame, which a painting made on it must carry to the processor.
+    static let paintingFrameLight = RoomArtLightReference(
+        width: 2, height: 2, rgbaBytes: [UInt8](repeating: 100, count: 16), personConfidence: nil, keyframeToThisFrame: .identity
+    )
     private var keyframesTaken = 0
     private var recordedSessionsStarted = 0
     /// The newest furniture look shown and not hidden since, which a fix draws into the keyframe.
@@ -110,6 +115,7 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
 
     /// Each furniture look the controller handed over, with the keyframe it was made for.
     var furnitureLayersShown: [(look: RoomFurnitureLook, keyframeNumber: Int)] { lock.withLock { recordedFurnitureLayersShown } }
+    var lightReferencesShown: [RoomArtLightReference?] { lock.withLock { recordedLightReferencesShown } }
 
     var artHungCount: Int { lock.withLock { recordedSurfacesShownOn.count } }
     var surfacesShownOn: [RoomArtSurfaceKind] { lock.withLock { recordedSurfacesShownOn } }
@@ -190,7 +196,8 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int, layerToKeyframe: EuclideanWarp) {
         lock.withLock {
             recordedFurnitureLayersShown.append((layers.look, keyframeNumber))
-            newestItem = .keyframeLayers(layers, frameSize: CGSize(width: Self.keyframeImage.width, height: Self.keyframeImage.height), layerToKeyframe: layerToKeyframe)
+            recordedLightReferencesShown.append(layers.roomLightWhenMade)
+            newestItem = .keyframeLayers(layers, frameSize: CGSize(width: Self.keyframeImage.width, height: Self.keyframeImage.height), layerToKeyframe: layerToKeyframe, roomLightWhenMade: layers.roomLightWhenMade)
         }
     }
 
@@ -242,7 +249,10 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
                 return RoomArtPaintingFrame(jpegData: bakedKeyframe.jpegData, image: bakedKeyframe.image, keyframeToFrame: .identity, shareOfTheBoxThePersonCovers: 0)
             }
             guard !theRoomIsLost else { return nil }
-            return RoomArtPaintingFrame(jpegData: Self.keyframeJPEG, image: Self.keyframeImage, keyframeToFrame: trackedWarp, shareOfTheBoxThePersonCovers: personShareOfTheBox)
+            return RoomArtPaintingFrame(
+                jpegData: Self.keyframeJPEG, image: Self.keyframeImage, keyframeToFrame: trackedWarp, shareOfTheBoxThePersonCovers: personShareOfTheBox,
+                roomLight: Self.paintingFrameLight
+            )
         }
     }
 
@@ -796,7 +806,7 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
         let wholeFrameRegion = try #require(grayImage(
             bytes: [UInt8](repeating: 255, count: paintedImage.width * paintedImage.height), width: paintedImage.width, height: paintedImage.height
         ))
-        return RoomFurniturePaintedKeyframe(image: paintedImage, pastedRegion: wholeFrameRegion)
+        return RoomFurniturePaintedKeyframe(image: paintedImage, pastedRegion: wholeFrameRegion, pieceLayer: paintedImage)
     }
 
     static func thatPaintsAtOnce() -> FurnitureLookStub {
@@ -1504,6 +1514,8 @@ struct RoomArtPreviewControllerTests {
         // The painting is the piece's look, and the flat cutout is never drawn.
         #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
         #expect(harness.frameProcessor.surfacesShownOn.isEmpty)
+        // The painting carries the light of the frame it was made on, which the processor relights it from.
+        #expect(harness.frameProcessor.lightReferencesShown.map { $0?.id } == [StandInFrameProcessor.paintingFrameLight.id])
         guard case .showing(.furniture(let furniture), .floor, nil) = harness.controller.phase else {
             Issue.record("The table is not showing on the floor: \(harness.controller.phase)")
             return
@@ -4396,7 +4408,8 @@ struct RoomArtBackgroundBakeTests {
         .keyframeLayers(
             RoomFurnitureKeyframeLayers(itemLayer: layer, shadowLayer: nil, basePointInTheKeyframe: CGPoint(x: 20, y: 0), cameraNoiseStandardDeviation: 0, look: .paintedComposite),
             frameSize: CGSize(width: width, height: height),
-            layerToKeyframe: .identity
+            layerToKeyframe: .identity,
+            roomLightWhenMade: nil
         )
     }
 
@@ -4448,6 +4461,36 @@ struct RoomArtBackgroundBakeTests {
         // The learner stays in front of the lamp, as the panel draws them.
         #expect(isBlue(colorOfThePixel(atColumn: 35, row: 20, of: both)))
         #expect(isGray(colorOfThePixel(atColumn: 42, row: 20, of: both)))
+    }
+
+    @Test func aLayerMadeOnALaterFrameIsBakedInTheKeyframesLight() throws {
+        // The table was painted on a frame twice as bright as the keyframe, in linear light, so it is baked half as bright.
+        func flatLight(_ byte: UInt8) -> RoomArtLightReference {
+            RoomArtLightReference(
+                width: width, height: height, rgbaBytes: (0..<(width * height)).flatMap { _ in [byte, byte, byte, 255] },
+                personConfidence: nil, keyframeToThisFrame: .identity
+            )
+        }
+        let paintingFrameByte = sRGBByte(ofLinearLight: RoomArtLightReference.linearLight(ofSRGBByte: 100) * 2)
+        let keyframe = CIImage(cgImage: image(background: CGColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1)))
+        let gray = CGColor(srgbRed: 0.6, green: 0.6, blue: 0.6, alpha: 1)
+        let table = RoomArtFrameProcessor.PlacedArt.keyframeLayers(
+            RoomFurnitureKeyframeLayers(
+                itemLayer: image(background: nil, blockColor: gray, columns: 10..<30, rows: 5..<20), shadowLayer: nil,
+                basePointInTheKeyframe: CGPoint(x: 20, y: 0), cameraNoiseStandardDeviation: 0, look: .paintedComposite
+            ),
+            frameSize: CGSize(width: width, height: height), layerToKeyframe: .identity, roomLightWhenMade: flatLight(paintingFrameByte)
+        )
+        let baked = try rendered(RoomArtFrameProcessor.keyframe(
+            keyframe, withTheItemDrawnIn: table, personMask: nil, personLowestRowShare: nil, keyframeRoomLight: flatLight(100)
+        ))
+        let tableByte = Int(UInt8((0.6 * 255).rounded()))
+        let expected = Int(sRGBByte(ofLinearLight: RoomArtLightReference.linearLight(ofSRGBByte: UInt8(tableByte)) / 2))
+        let bakedRed = try #require(colorOfThePixel(atColumn: 15, row: 10, of: baked)).red
+        #expect(abs(bakedRed - expected) <= 2, "baked \(bakedRed), expected \(expected)")
+        // With no light for the keyframe, the table is baked as it was made.
+        let unrelit = try rendered(RoomArtFrameProcessor.keyframe(keyframe, withTheItemDrawnIn: table, personMask: nil, personLowestRowShare: nil))
+        #expect(abs(try #require(colorOfThePixel(atColumn: 15, row: 10, of: unrelit)).red - tableByte) <= 1)
     }
 }
 
