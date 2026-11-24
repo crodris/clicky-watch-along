@@ -2,14 +2,10 @@
 //  ShirtCoverage.swift
 //  leanring-buddy
 //
-//  Where a garment goes on the learner, and which preview shows it. Any garment the page reader says can be drawn on the
-//  learner is tried on, so two pure rules decide everything that depends on the garment's cut:
-//
-//  - `ShirtCoverage` (sleeves and length) is the single source of truth for the area the new garment covers on the body.
-//    The paint mask adds it to what the painting may draw in, so a long sleeve is painted over the bare forearm and a coat
-//    down over the thighs, and the ghost outline draws it, so what the learner sees is what will be painted.
-//  - `shirtPreviewKind` picks the live preview: the 2D garment drawn over the learner where that works today, and the
-//    ghost outline of the covered area for everything else.
+//  Where a garment goes on the learner. Any garment the page reader says can be drawn on the learner is painted on, and
+//  `ShirtCoverage` (sleeves and length) is the single source of truth for the area the new garment covers on the body. The
+//  paint mask adds it to what the painting may draw in, so a long sleeve is painted over the bare forearm and a coat down
+//  over the thighs, and the live painted top cuts its layer with it.
 //
 //  Every point is in camera pixels with the origin at the top left and y growing down, as `BodyTorso` is.
 //
@@ -17,53 +13,6 @@
 import CoreGraphics
 import Foundation
 import simd
-
-// MARK: - The preview
-
-/// What the live preview draws over the learner before the painting.
-nonisolated enum ShirtPreviewKind: Equatable, Sendable {
-    /// The garment cut out of its product photo, drawn over the learner's own top (`ShirtTryOnRenderer`).
-    case liveGarment
-    /// The camera as filmed, with a ghost outline of the area the painting will cover (`ShirtCoverage`) around the learner's
-    /// own top, since that garment cannot be drawn flat over the learner.
-    case ghostOutline
-
-    /// What Clicky says once, when this preview first shows, so the learner knows how to get the painted look.
-    var spokenLine: String {
-        switch self {
-        case .liveGarment: return roomArtShirtPreviewLine
-        case .ghostOutline: return roomArtShirtGhostLine
-        }
-    }
-
-    /// The panel's status line while this preview shows over the learner.
-    var statusLine: String {
-        switch self {
-        case .liveGarment: return "On you"
-        case .ghostOutline: return roomArtShirtGhostStatusLine
-        }
-    }
-}
-
-/// Whether the live 2D garment can draw this garment at all, before its cutout is tried: a top laid flat, or worn by a model
-/// with no long sleeves (the model's forearms are cut away with the arms, so each sleeve would end at the upper arm), that
-/// ends at the waist or the hip. A hanger photo, a long garment, and any other photo shape have no flat garment to map onto
-/// the learner's torso.
-nonisolated func shirtLiveGarmentMayWork(photoShows: RoomArtGarmentPhoto, sleeves: RoomArtSleeves, length: RoomArtGarmentLength) -> Bool {
-    let photoWorks: Bool
-    switch photoShows {
-    case .flatLay: photoWorks = true
-    case .onModel: photoWorks = sleeves != .long
-    case .onHanger, .other: photoWorks = false
-    }
-    return photoWorks && (length == .waist || length == .hip)
-}
-
-/// The one rule that picks the preview: the live garment only where it works and its cutout was made, the ghost outline for
-/// everything else, a failed cutout included.
-nonisolated func shirtPreviewKind(photoShows: RoomArtGarmentPhoto, sleeves: RoomArtSleeves, length: RoomArtGarmentLength, garmentWasCutOut: Bool) -> ShirtPreviewKind {
-    shirtLiveGarmentMayWork(photoShows: photoShows, sleeves: sleeves, length: length) && garmentWasCutOut ? .liveGarment : .ghostOutline
-}
 
 // MARK: - The area
 

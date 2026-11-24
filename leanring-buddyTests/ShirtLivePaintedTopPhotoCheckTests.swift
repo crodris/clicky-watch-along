@@ -138,12 +138,8 @@ struct ShirtLivePaintedTopPhotoCheckTests {
                 Issue.record("\(shirtName): the painting is \(painted.width)x\(painted.height) and the photo \(width)x\(height), so it is not from this photo")
                 continue
             }
-            // The masks the painting was made with, worked out again from the photo. The live preview's garment coverage is
-            // not known here, so the area comes from the cut alone, as the ghost outline's does.
-            let frozenFrame = ShirtFrozenFrame(
-                cameraImage: standingPhoto, previewImage: standingPhoto, personMask: personBytes,
-                previewGarmentCoverage: [UInt8](repeating: 0, count: width * height), torso: torso
-            )
+            // The masks the painting was made with, worked out again from the photo and the garment's cut.
+            let frozenFrame = ShirtFrozenFrame(cameraImage: standingPhoto, personMask: personBytes, torso: torso)
             let masks = try #require(ShirtPaintMask.make(frame: frozenFrame, bodyParts: bodyParts, coverage: coverage), "no masks for \(shirtName)")
             let madeAt = Date()
             let top = try #require(ShirtLivePaintedTop.make(painted: painted, masks: masks, frozenTorso: torso, coverage: coverage), "no live top for \(shirtName)")

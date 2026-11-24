@@ -1826,7 +1826,7 @@ final class CompanionManager: ObservableObject {
                 print("Shirt painting: arming the capture on request")
                 roomArtPreviewController.paintTheShirt()
             case .backToLive:
-                print("Shirt painting: back to the live preview on request")
+                print("Shirt painting: back to the live camera on request")
                 roomArtPreviewController.goBackToTheLiveShirt()
             }
         case .saveTheRoomArtPhoto:

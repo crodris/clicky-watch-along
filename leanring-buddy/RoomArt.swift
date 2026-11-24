@@ -989,9 +989,8 @@ nonisolated enum RoomArtFailure: Equatable, Sendable {
 
 /// What the panel does with the page's reading. Only a wall item and a standing item whose page states a size are placed, so
 /// a size the model guessed never reaches the room, and clothing is tried on whenever the page reader says it can be drawn
-/// on the learner (`RoomArtClothingReading.canBeDrawnOnTheLearner`), whatever its kind, length, or photo. How the try-on
-/// previews it is a separate rule (`shirtPreviewKind`). An item the page reader says cannot be shown fails with that
-/// reason's line before any measurement.
+/// on the learner (`RoomArtClothingReading.canBeDrawnOnTheLearner`), whatever its kind, length, or photo. An item the page
+/// reader says cannot be shown fails with that reason's line before any measurement.
 nonisolated enum RoomArtReadingPlan: Equatable, Sendable {
     case hangOnTheWall(RoomArtWallArtReading)
     /// A standing item stands on the floor or on a table or shelf, as `RoomArtFurnitureReading.standsOn` says.
@@ -1269,25 +1268,19 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// (`RoomArtStandsOn.needsAClickOnItsSurface`). `aClickFoundNothing` says the learner's click on a table or shelf found no
     /// flat surface, which changes its prompt (`RoomArtPlacedItem.surfaceClickPrompt`). A floor item never records it.
     case waitingForAFloorClick(RoomArtPlacedItem, aClickFoundNothing: Bool = false, inTheKeptRoom: Bool = false)
-    /// Clothing the page reader says can be drawn on the learner: the picture is being prepared while the camera looks for
-    /// the learner. Which preview shows is decided once the garment's cutout was tried (`shirtPreviewKind`), and every phase
-    /// after this one records it, so going back from a painting returns to the same preview.
-    case preparingTheShirt(title: String)
-    /// The preview is ready, and the learner is not yet standing where it can be drawn.
-    case waitingToSeeTheLearner(title: String, preview: ShirtPreviewKind)
-    /// The preview shows over the learner every frame they stand in view: the live 2D garment, or the ghost outline of the
-    /// area that will be painted.
-    case showingTheShirt(title: String, preview: ShirtPreviewKind)
-    /// The learner said "paint it" (or its alias "right there") or clicked Paint it, and the capture waits for them to step back and hold still
-    /// (`ShirtStepBackCapture`), with a 3-2-1 countdown while they do. `id` names this capture, so an event from one the
-    /// learner restarted or left changes nothing.
-    case waitingForTheLearnerToStepBack(title: String, id: ShirtPaintingID, preview: ShirtPreviewKind)
+    /// Clothing the page reader says can be drawn on the learner: the camera shows the learner as filmed, with nothing drawn
+    /// on them, until they say "paint it". The painting is the try-on, so there is no preview before it.
+    case readyToPaintTheShirt(title: String)
+    /// The learner said "paint it" (or its alias "right there") or clicked Paint it, and the capture waits for them to step
+    /// back and hold still (`ShirtStepBackCapture`), with a 3-2-1 countdown while they do. `id` names this capture, so an
+    /// event from one the learner restarted or left changes nothing.
+    case waitingForTheLearnerToStepBack(title: String, id: ShirtPaintingID)
     /// The capture froze the frame and the shirt is painted into it. `id` names this painting, so a reply for one the
     /// learner left by going back changes nothing.
-    case paintingTheShirt(title: String, id: ShirtPaintingID, preview: ShirtPreviewKind)
+    case paintingTheShirt(title: String, id: ShirtPaintingID)
     /// The painted still shows, and the painted top follows the learner in the live frames while it can (`ShirtLivePaintedTop`),
-    /// until the learner goes back to the preview.
-    case showingThePaintedShirt(title: String, preview: ShirtPreviewKind)
+    /// until the learner goes back to the live camera.
+    case showingThePaintedShirt(title: String)
     case failed(RoomArtFailure)
     /// The page read for a new item in a kept room failed, or the item's first measurement did, so the camera runs on and the
     /// room keeps its placed items: the status line says why, and the next request places its item among them.
@@ -1320,11 +1313,11 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         return .waitingForTheCamera(item, inTheKeptRoom: self == .readingThePageInTheKeptRoom)
     }
 
-    /// Clothing the reader says can be drawn on the learner was read, so its picture is prepared while the camera looks for
-    /// the learner.
+    /// Clothing the reader says can be drawn on the learner was read, and the picture of its front was decoded, so the
+    /// camera shows the learner and Clicky waits for "paint it".
     func startingTheShirt(title: String) -> RoomArtPhase {
         guard isReadingThePage else { return self }
-        return .preparingTheShirt(title: title)
+        return .readyToPaintTheShirt(title: title)
     }
 
     /// The page could not be read, or what it shows cannot be tried, so the panel says why. A fresh panel fails, and a kept
@@ -1363,8 +1356,8 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         case .showing(let item, let surface, _):
             return .moving(id: id, item: item, surfaceBeforeTheMove: surface)
         case .closed, .readingThePage, .readingThePageInTheKeptRoom, .measuring, .placingTheFurniture, .arranging, .couldNotDraw, .moving,
-             .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt, .waitingForTheLearnerToStepBack, .paintingTheShirt,
-             .showingThePaintedShirt, .failed, .roomKeptAfterAFailedItem:
+             .readyToPaintTheShirt, .waitingForTheLearnerToStepBack, .paintingTheShirt, .showingThePaintedShirt, .failed,
+             .roomKeptAfterAFailedItem:
             return self
         }
     }
@@ -1473,65 +1466,52 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         .waitingForAFloorClick(item, aClickFoundNothing: aClickFoundNothing && item.standsOn?.needsAClickOnItsSurface == true, inTheKeptRoom: inTheKeptRoom)
     }
 
-    /// The preview is chosen (`shirtPreviewKind`) and ready. `learnerIsInFrame` says the framing already settled on ready, so
-    /// the preview shows at once.
-    func withTheShirtPreviewReady(_ preview: ShirtPreviewKind, learnerIsInFrame: Bool) -> RoomArtPhase {
-        guard case .preparingTheShirt(let title) = self else { return self }
-        return learnerIsInFrame ? .showingTheShirt(title: title, preview: preview) : .waitingToSeeTheLearner(title: title, preview: preview)
-    }
-
-    /// The picture that shows the garment's front could not be read, so there is nothing to preview or paint from.
+    /// The picture that shows the garment's front could not be read, so there is nothing to paint from.
     func afterTheShirtsPictureCouldNotBeRead() -> RoomArtPhase {
-        guard case .preparingTheShirt = self else { return self }
+        guard isReadingThePage else { return self }
         return .failed(.pageNotRead)
     }
 
-    /// The framing settled on ready for the first time since the preview was ready.
-    func afterTheLearnerStoodInFrame() -> RoomArtPhase {
-        guard case .waitingToSeeTheLearner(let title, let preview) = self else { return self }
-        return .showingTheShirt(title: title, preview: preview)
-    }
-
-    /// The learner asked for the painted look while the live preview shows, or asked again while the capture waits, which
-    /// restarts it. One painting runs at a time, so a request during one, or before the shirt shows, changes nothing.
+    /// The learner asked for the painted look, or asked again while the capture waits, which restarts it. One painting runs
+    /// at a time, so a request during one changes nothing.
     func armingTheShirtCapture(id: ShirtPaintingID) -> RoomArtPhase {
         switch self {
-        case .showingTheShirt(let title, let preview), .waitingForTheLearnerToStepBack(let title, _, let preview):
-            return .waitingForTheLearnerToStepBack(title: title, id: id, preview: preview)
+        case .readyToPaintTheShirt(let title), .waitingForTheLearnerToStepBack(let title, _):
+            return .waitingForTheLearnerToStepBack(title: title, id: id)
         default: return self
         }
     }
 
     /// The learner held still in the ready framing, and the capture for `id` froze that frame.
     func afterTheLearnerHeldStill(id: ShirtPaintingID) -> RoomArtPhase {
-        guard case .waitingForTheLearnerToStepBack(let title, let armedID, let preview) = self, armedID == id else { return self }
-        return .paintingTheShirt(title: title, id: id, preview: preview)
+        guard case .waitingForTheLearnerToStepBack(let title, let armedID) = self, armedID == id else { return self }
+        return .paintingTheShirt(title: title, id: id)
     }
 
-    /// The capture for `id` found no still frame in time, so the preview comes back.
+    /// The capture for `id` found no still frame in time, so the panel waits for "paint it" again.
     func afterTheStepBackTimedOut(id: ShirtPaintingID) -> RoomArtPhase {
-        guard case .waitingForTheLearnerToStepBack(let title, let armedID, let preview) = self, armedID == id else { return self }
-        return .showingTheShirt(title: title, preview: preview)
+        guard case .waitingForTheLearnerToStepBack(let title, let armedID) = self, armedID == id else { return self }
+        return .readyToPaintTheShirt(title: title)
     }
 
     /// The painting for `id` is pasted into the frozen frame and shows.
     func withThePaintedShirt(id: ShirtPaintingID) -> RoomArtPhase {
-        guard case .paintingTheShirt(let title, let paintingID, let preview) = self, paintingID == id else { return self }
-        return .showingThePaintedShirt(title: title, preview: preview)
+        guard case .paintingTheShirt(let title, let paintingID) = self, paintingID == id else { return self }
+        return .showingThePaintedShirt(title: title)
     }
 
-    /// The painting for `id` failed, so the preview comes back and a line says why.
+    /// The painting for `id` failed, so the panel waits for "paint it" again and a line says why.
     func afterThePaintingFailed(id: ShirtPaintingID) -> RoomArtPhase {
-        guard case .paintingTheShirt(let title, let paintingID, let preview) = self, paintingID == id else { return self }
-        return .showingTheShirt(title: title, preview: preview)
+        guard case .paintingTheShirt(let title, let paintingID) = self, paintingID == id else { return self }
+        return .readyToPaintTheShirt(title: title)
     }
 
-    /// "Go back" or Back to live: the preview comes back, the same one the shirt had, from the painted still, from a painting
-    /// still on its way, or from a capture still waiting for the learner to step back.
+    /// "Go back" or Back to live: the live camera comes back, from the painted still, from a painting still on its way, or
+    /// from a capture still waiting for the learner to step back.
     func backToTheLiveShirt() -> RoomArtPhase {
         switch self {
-        case .waitingForTheLearnerToStepBack(let title, _, let preview), .paintingTheShirt(let title, _, let preview), .showingThePaintedShirt(let title, let preview):
-            return .showingTheShirt(title: title, preview: preview)
+        case .waitingForTheLearnerToStepBack(let title, _), .paintingTheShirt(let title, _), .showingThePaintedShirt(let title):
+            return .readyToPaintTheShirt(title: title)
         default: return self
         }
     }
@@ -1571,10 +1551,11 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
             if theSurfaceIsLost { return item.lostLine }
             return moveFailure?.statusLine ?? item.showingStatusLine
         case .waitingForAFloorClick(let item, let aClickFoundNothing, _): return item.surfaceClickPrompt(afterAClickFoundNothing: aClickFoundNothing).statusLine
-        case .preparingTheShirt: return shirtCoachingLine ?? "Getting it ready…"
-        case .waitingToSeeTheLearner: return shirtCoachingLine ?? "Looking for you…"
-        case .showingTheShirt(_, let preview): return shirtCoachingLine ?? preview.statusLine
-        case .waitingForTheLearnerToStepBack: return roomArtShirtStepBackLine
+        // Nothing is drawn on the learner before the painting, so the line says how to start it, wherever they stand.
+        case .readyToPaintTheShirt: return roomArtShirtReadyStatusLine
+        // The capture is where the framing matters: the coaching says to step in or back, and once the learner stands in
+        // the ready framing, to hold still.
+        case .waitingForTheLearnerToStepBack: return shirtCoachingLine ?? roomArtShirtStepBackLine
         // The frame is frozen, so the learner moving out of view changes nothing on screen and no coaching shows.
         case .paintingTheShirt: return roomArtShirtPaintingStatusLine
         // The framing's coaching means nothing here, since the frame is frozen or the painted top follows the learner. Out of
@@ -1593,8 +1574,8 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         case .roomKeptAfterAFailedItem: return !theSurfaceIsLost
         case .waitingForAFloorClick(let item, let aClickFoundNothing, _): return item.surfaceClickPrompt(afterAClickFoundNothing: aClickFoundNothing).isAFailure
         case .showing(_, _, let moveFailure): return moveFailure != nil && !theSurfaceIsLost
-        case .closed, .readingThePage, .readingThePageInTheKeptRoom, .waitingForTheCamera, .measuring, .placingTheFurniture, .arranging, .moving, .preparingTheShirt, .waitingToSeeTheLearner,
-             .showingTheShirt, .waitingForTheLearnerToStepBack, .paintingTheShirt, .showingThePaintedShirt:
+        case .closed, .readingThePage, .readingThePageInTheKeptRoom, .waitingForTheCamera, .measuring, .placingTheFurniture, .arranging, .moving, .readyToPaintTheShirt,
+             .waitingForTheLearnerToStepBack, .paintingTheShirt, .showingThePaintedShirt:
             return false
         }
     }

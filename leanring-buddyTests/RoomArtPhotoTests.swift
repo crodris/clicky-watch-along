@@ -14,12 +14,12 @@ import Testing
 
 struct RoomArtPhotoTests {
     @Test func onlyAResultIsOfferedForSaving() {
-        #expect(RoomArtPhase.showingThePaintedShirt(title: "Pokémon UT", preview: .liveGarment).photoTitleToSave == "Pokémon UT")
+        #expect(RoomArtPhase.showingThePaintedShirt(title: "Pokémon UT").photoTitleToSave == "Pokémon UT")
         // A kept room still shows the items placed before the one that failed.
         #expect(RoomArtPhase.roomKeptAfterAFailedItem(.pageNotRead).photoTitleToSave == "room")
-        // A live preview, a painting still on its way, a page being read, or a closed panel shows no result yet.
-        #expect(RoomArtPhase.showingTheShirt(title: "Tee", preview: .liveGarment).photoTitleToSave == nil)
-        #expect(RoomArtPhase.paintingTheShirt(title: "Tee", id: ShirtPaintingID(number: 1), preview: .liveGarment).photoTitleToSave == nil)
+        // A shirt not yet painted, a painting still on its way, a page being read, or a closed panel shows no result yet.
+        #expect(RoomArtPhase.readyToPaintTheShirt(title: "Tee").photoTitleToSave == nil)
+        #expect(RoomArtPhase.paintingTheShirt(title: "Tee", id: ShirtPaintingID(number: 1)).photoTitleToSave == nil)
         #expect(RoomArtPhase.readingThePage.photoTitleToSave == nil)
         #expect(RoomArtPhase.failed(.pageNotRead).photoTitleToSave == nil)
         #expect(RoomArtPhase.closed.photoTitleToSave == nil)

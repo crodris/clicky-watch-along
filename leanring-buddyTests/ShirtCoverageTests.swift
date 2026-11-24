@@ -2,8 +2,8 @@
 //  ShirtCoverageTests.swift
 //  leanring-buddyTests
 //
-//  The two rules that decide what depends on a garment's cut: which preview shows it (`shirtPreviewKind`), and where it lands
-//  on the learner's body (`ShirtCoverage`), plus the wrists the pose reading gains for it. Pure rules on made-up poses, so
+//  Where a garment lands on the learner's body (`ShirtCoverage`), the one rule that depends on a garment's cut, plus the
+//  wrists the pose reading gains for it. Pure rules on made-up poses, so
 //  they need no Vision, no camera, and no window.
 //
 
@@ -11,63 +11,6 @@ import CoreGraphics
 import Foundation
 import Testing
 @testable import Clicky
-
-// MARK: - Which preview
-
-struct ShirtPreviewCase: Sendable, CustomTestStringConvertible {
-    let photoShows: RoomArtGarmentPhoto
-    let sleeves: RoomArtSleeves
-    let length: RoomArtGarmentLength
-    let garmentWasCutOut: Bool
-    let expected: ShirtPreviewKind
-
-    var testDescription: String { "\(photoShows) \(sleeves) \(length) cutOut \(garmentWasCutOut) -> \(expected)" }
-}
-
-struct ShirtPreviewKindTests {
-    @Test(arguments: [
-        // A flat lay, or a photo on a model without long sleeves, that ends at the waist or the hip, and whose cutout was made.
-        ShirtPreviewCase(photoShows: .flatLay, sleeves: .short, length: .hip, garmentWasCutOut: true, expected: .liveGarment),
-        ShirtPreviewCase(photoShows: .flatLay, sleeves: .none, length: .waist, garmentWasCutOut: true, expected: .liveGarment),
-        ShirtPreviewCase(photoShows: .flatLay, sleeves: .long, length: .hip, garmentWasCutOut: true, expected: .liveGarment),
-        ShirtPreviewCase(photoShows: .onModel, sleeves: .short, length: .hip, garmentWasCutOut: true, expected: .liveGarment),
-        ShirtPreviewCase(photoShows: .onModel, sleeves: .none, length: .waist, garmentWasCutOut: true, expected: .liveGarment),
-        // Long sleeves on a model: the model's forearms are cut away with the arms, so each sleeve would end at the upper arm.
-        ShirtPreviewCase(photoShows: .onModel, sleeves: .long, length: .hip, garmentWasCutOut: true, expected: .ghostOutline),
-        // A hanger photo and any other photo have no flat garment, or no body, to map from.
-        ShirtPreviewCase(photoShows: .onHanger, sleeves: .short, length: .hip, garmentWasCutOut: true, expected: .ghostOutline),
-        ShirtPreviewCase(photoShows: .other, sleeves: .short, length: .hip, garmentWasCutOut: true, expected: .ghostOutline),
-        // A hem lower than the hip reaches past where the overlay's torso ends.
-        ShirtPreviewCase(photoShows: .flatLay, sleeves: .short, length: .thigh, garmentWasCutOut: true, expected: .ghostOutline),
-        ShirtPreviewCase(photoShows: .flatLay, sleeves: .short, length: .knee, garmentWasCutOut: true, expected: .ghostOutline),
-        ShirtPreviewCase(photoShows: .onModel, sleeves: .none, length: .ankle, garmentWasCutOut: true, expected: .ghostOutline),
-        // A failed cutout takes the ghost, whatever the photo and the cut.
-        ShirtPreviewCase(photoShows: .flatLay, sleeves: .short, length: .hip, garmentWasCutOut: false, expected: .ghostOutline),
-        ShirtPreviewCase(photoShows: .onModel, sleeves: .short, length: .hip, garmentWasCutOut: false, expected: .ghostOutline),
-        ShirtPreviewCase(photoShows: .onHanger, sleeves: .long, length: .ankle, garmentWasCutOut: false, expected: .ghostOutline),
-    ])
-    func theRuleChoosesTheLiveGarmentOnlyWhereItWorksTodayAndItsCutoutWasMade(previewCase: ShirtPreviewCase) {
-        #expect(shirtPreviewKind(
-            photoShows: previewCase.photoShows, sleeves: previewCase.sleeves, length: previewCase.length, garmentWasCutOut: previewCase.garmentWasCutOut
-        ) == previewCase.expected)
-    }
-
-    @Test func theLiveGarmentIsOnlyTriedWhereItMayWork() {
-        // The controller cuts the garment out only for these, so a coat or a hanger photo never pays for a cutout it cannot use.
-        #expect(shirtLiveGarmentMayWork(photoShows: .flatLay, sleeves: .long, length: .hip))
-        #expect(shirtLiveGarmentMayWork(photoShows: .onModel, sleeves: .short, length: .waist))
-        #expect(!shirtLiveGarmentMayWork(photoShows: .onModel, sleeves: .long, length: .hip))
-        #expect(!shirtLiveGarmentMayWork(photoShows: .onHanger, sleeves: .none, length: .hip))
-        #expect(!shirtLiveGarmentMayWork(photoShows: .flatLay, sleeves: .short, length: .thigh))
-    }
-
-    @Test func eachPreviewSaysItsOwnLines() {
-        #expect(ShirtPreviewKind.liveGarment.statusLine == "On you")
-        #expect(ShirtPreviewKind.liveGarment.spokenLine == "Here's a preview. Say paint it to put it on you.")
-        #expect(ShirtPreviewKind.ghostOutline.statusLine == "Where it will go · say paint it")
-        #expect(ShirtPreviewKind.ghostOutline.spokenLine == "This outline is where it will go. Say paint it to put it on you.")
-    }
-}
 
 // MARK: - The area
 

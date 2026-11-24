@@ -73,51 +73,24 @@ struct RoomArtLoopStateTests {
         #expect(RoomArtLoopState.hidden.after(phaseChangedTo: arranging, at: 10) == .drawing(beganAt: 10))
     }
 
-    @Test func theLoopKeepsItsClockWhileTheShirtGoesFromPreparedToWaitingForTheLearner() {
-        // The garment is ready before the learner stands in view, so the phase changes while the loop already traces them.
-        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: .preparingTheShirt(title: "Tee"), at: 10) == .drawing(beganAt: 10))
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .waitingToSeeTheLearner(title: "Tee", preview: .liveGarment), at: 12) == .drawing(beganAt: 10))
-    }
-
-    @Test func theGhostOutlineStaysUpAsAStillFilledLineUntilThePaintingStarts() {
+    @Test func aShirtHasNoLoopUntilItsFrameFreezesAndThenTracesWhileItIsPainted() {
         let id = ShirtPaintingID(number: 1)
-        // The learner's own top is traced while the preview is chosen, then the ghost holds the line instead of fading it.
-        let drawing = RoomArtLoopState.hidden.after(phaseChangedTo: .preparingTheShirt(title: "Coat"), at: 10)
-        let waiting = drawing.after(phaseChangedTo: .waitingToSeeTheLearner(title: "Coat", preview: .ghostOutline), at: 12)
-        #expect(waiting == .holdingTheGhost(beganAt: 10))
-        #expect(waiting.isHoldingTheGhost && !waiting.tracesTheLine && !waiting.isFadingOut && waiting.stillDrawnShare == 1)
-        let showing = waiting.after(phaseChangedTo: .showingTheShirt(title: "Coat", preview: .ghostOutline), at: 14)
-        #expect(showing == waiting)
-        // The ghost stays up through the step-back countdown, and leaves for the painted area's loop when the painting starts.
-        let armed = showing.after(phaseChangedTo: .waitingForTheLearnerToStepBack(title: "Coat", id: id, preview: .ghostOutline), at: 20)
-        #expect(armed == waiting)
-        let painting = armed.after(phaseChangedTo: .paintingTheShirt(title: "Coat", id: id, preview: .ghostOutline), at: 30)
-        #expect(painting == .drawing(beganAt: 30) && !painting.isHoldingTheGhost)
-        // The painted still fades the line with no glyph appearing on it, and going back holds the ghost again.
-        let painted = painting.after(phaseChangedTo: .showingThePaintedShirt(title: "Coat", preview: .ghostOutline), at: 40)
-        #expect(painted == .fadingOut(beganAt: 30, tracesTheLine: true))
-        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: .showingTheShirt(title: "Coat", preview: .ghostOutline), at: 50) == .holdingTheGhost(beganAt: 50))
-        // A ghost that is held fades still when the panel fails.
-        #expect(waiting.after(phaseChangedTo: .failed(.noCamera), at: 60) == .fadingOut(beganAt: 10, tracesTheLine: false))
-        #expect(waiting.after(phaseChangedTo: .closed, at: 60) == .hidden)
-    }
-
-    @Test func theLiveGarmentsLoopIsNotAGhostAndFadesWhenItShows() {
-        let id = ShirtPaintingID(number: 1)
-        for phase in [
-            RoomArtPhase.showingTheShirt(title: "Tee", preview: .liveGarment),
-            .waitingForTheLearnerToStepBack(title: "Tee", id: id, preview: .liveGarment),
-        ] {
-            let faded = RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: phase, at: 24)
-            #expect(faded == .fadingOut(beganAt: 10, tracesTheLine: true) && !faded.isHoldingTheGhost)
-        }
+        // Nothing is drawn on the learner before the painting: no loop while Clicky waits for "paint it" or for the step back.
+        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: .readyToPaintTheShirt(title: "Tee"), at: 10) == .hidden)
+        #expect(RoomArtLoopState.hidden.after(phaseChangedTo: .waitingForTheLearnerToStepBack(title: "Tee", id: id), at: 12) == .hidden)
+        // The frame froze: the loop traces the shirt being painted, and the painted still fades it with the glyph lapping.
+        let painting = RoomArtLoopState.hidden.after(phaseChangedTo: .paintingTheShirt(title: "Tee", id: id), at: 20)
+        #expect(painting == .drawing(beganAt: 20))
+        #expect(painting.after(phaseChangedTo: .showingThePaintedShirt(title: "Tee"), at: 30) == .fadingOut(beganAt: 20, tracesTheLine: true))
+        // A painting the learner left, or that failed, fades it too.
+        #expect(painting.after(phaseChangedTo: .readyToPaintTheShirt(title: "Tee"), at: 30) == .fadingOut(beganAt: 20, tracesTheLine: true))
     }
 
     @Test func theItemOrTheShirtShowingFadesTheLoopWhereItsClockWas() {
         let showing = RoomArtPhase.showing(item: loopTestItem(), surface: .wall(loopTestWall()), moveFailure: nil)
 
         #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: showing, at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
-        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .showingTheShirt(title: "Tee", preview: .liveGarment), at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
+        #expect(RoomArtLoopState.drawing(beganAt: 10).after(phaseChangedTo: .showingThePaintedShirt(title: "Tee"), at: 24) == .fadingOut(beganAt: 10, tracesTheLine: true))
     }
 
     @Test func aFailedMeasurementAFailedMoveAndAFloorNotFoundFadeTheLoop() {
@@ -316,14 +289,13 @@ struct RoomArtLoopRenderTests {
         return try #require(RoomArtLoopOutline.path(for: snapshot, fit: RoomArtVideoFit(cameraSize: cameraFrame, viewSize: panelSize)))
     }
 
-    private static func renderedImage(tracerLook: CursorLoopTracerLook?, tracer: CursorLoopTimeline.TracerPlace, showsTheTracer: Bool, fillOpacity: Double = 0) throws -> CGImage {
+    private static func renderedImage(tracerLook: CursorLoopTracerLook?, tracer: CursorLoopTimeline.TracerPlace, showsTheTracer: Bool) throws -> CGImage {
         let canvas = RoomArtLoopCanvas(
             outline: try loopPath(),
             frame: CursorLoopTimeline.Frame(drawnShare: 1, tracer: tracer),
             color: Color(hex: "#F97316"),
             tracerLook: tracerLook,
-            showsTheTracer: showsTheTracer,
-            fillOpacity: fillOpacity
+            showsTheTracer: showsTheTracer
         )
         let renderer = ImageRenderer(content: canvas.frame(width: panelSize.width, height: panelSize.height))
         renderer.scale = 2
@@ -385,35 +357,6 @@ struct RoomArtLoopRenderTests {
             }
             return LineScan(drawnBounds: drawnBounds, accentPixelCount: accentPixelCount, anythingDrawnAtTheEdge: anythingDrawnAtTheEdge)
         }.value
-    }
-
-    @Test func theGhostOutlineFillsTheInsideOfTheLineSoftlyAndAPlainLoopDoesNot() async throws {
-        let center = try Self.loopPath().boundingRect
-        // The center of the outline's box is well inside the line, 2 pixels per point.
-        let centerPixel = (x: Int(center.midX * 2), y: Int(center.midY * 2))
-        let plain = try Self.renderedImage(tracerLook: nil, tracer: .lapping(lapShare: 0.5), showsTheTracer: false)
-        let filled = try Self.renderedImage(tracerLook: nil, tracer: .lapping(lapShare: 0.5), showsTheTracer: false, fillOpacity: RoomArtLoopView.ghostFillOpacity(secondsSinceTheLoopBegan: 0, reduceMotionIsOn: true))
-        // A CGImage never changes after the render, so the detached task may read it.
-        nonisolated(unsafe) let plainImage = plain, filledImage = filled
-        let alphas = await Task.detached { () -> (plain: Int, filled: Int) in
-            func alphaAtTheCenter(_ image: CGImage) -> Int {
-                let bytes = Self.rgbaBytes(of: image) ?? []
-                return Int(bytes[(centerPixel.y * image.width + centerPixel.x) * 4 + 3])
-            }
-            return (alphaAtTheCenter(plainImage), alphaAtTheCenter(filledImage))
-        }.value
-        #expect(alphas.plain == 0)
-        // Soft: visible, and far from opaque, so the learner shows through their own ghost.
-        #expect(alphas.filled > 15 && alphas.filled < 90, "the fill's alpha at the center was \(alphas.filled)")
-    }
-
-    @Test func theGhostsFillBreathesAndHoldsStillWithReduceMotion() {
-        let resting = RoomArtLoopView.ghostFillOpacity(secondsSinceTheLoopBegan: 0, reduceMotionIsOn: false)
-        let atAPeak = RoomArtLoopView.ghostFillOpacity(secondsSinceTheLoopBegan: RoomFurnitureGhostGlow.secondsPerBreath / 4, reduceMotionIsOn: false)
-        #expect(atAPeak > resting)
-        for seconds in [0.0, 0.6, 1.8, 5.0] {
-            #expect(RoomArtLoopView.ghostFillOpacity(secondsSinceTheLoopBegan: seconds, reduceMotionIsOn: true) == RoomArtLoopView.ghostFillOpacity(secondsSinceTheLoopBegan: 0, reduceMotionIsOn: true))
-        }
     }
 
     @Test func theLineIsDrawnInTheAccentColorAndStaysInsideThePanel() async throws {
