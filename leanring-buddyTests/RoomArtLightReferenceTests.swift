@@ -83,6 +83,20 @@ struct RoomArtLightReferenceTests {
         #expect(abs(gains.x - 1.1) < 0.01, "\(gains)")
     }
 
+    @Test func aWarpAfterAnotherIsTheTwoAppliedInTurn() {
+        let first = EuclideanWarp(angleRadians: 0.2, translationX: 5, translationY: -3)
+        let second = EuclideanWarp(angleRadians: -0.05, translationX: -2, translationY: 7)
+        let point = CGPoint(x: 120, y: 40)
+        let inTurn = second.apply(to: first.apply(to: point)), composed = second.after(first).apply(to: point)
+        #expect(abs(inTurn.x - composed.x) < 1e-9 && abs(inTurn.y - composed.y) < 1e-9)
+    }
+
+    @Test func copiesOfDifferentSizesMeasureNothing() {
+        let bytes = frameBytes(width: 10, height: 10, color: [100, 100, 100])
+        let smaller = frameBytes(width: 5, height: 5, color: [100, 100, 100])
+        #expect(RoomArtLightReference.gains(from: reference(bytes, width: 10, height: 10), to: reference(smaller, width: 5, height: 5)) == nil)
+    }
+
     @Test func aBigChangeIsHeldToTheRangeAndADarkChannelIsLeftAlone() throws {
         let before = frameBytes(width: 10, height: 10, color: [10, 100, 0])
         let gains = try #require(RoomArtLightReference.gains(
@@ -123,13 +137,13 @@ struct RoomArtLightReferenceTests {
         let gains = RoomArtLightReference.smoothedGainsInUse(
             references: [madeInTheRoom, madeInADimmerRoom, hiddenByTheLearner, madeInTheRoom],
             current: current,
-            previous: [ObjectIdentifier(hiddenByTheLearner): SIMD3(1.3, 1.3, 1.3), ObjectIdentifier(noLongerShown): SIMD3(2, 2, 2)]
+            previous: [hiddenByTheLearner.id: SIMD3(1.3, 1.3, 1.3), noLongerShown.id: SIMD3(2, 2, 2)]
         )
         #expect(gains.count == 3)
-        #expect(abs(try #require(gains[ObjectIdentifier(madeInTheRoom)]).x - 1.2) < 0.02)
-        #expect(abs(try #require(gains[ObjectIdentifier(madeInADimmerRoom)]).x - 2.4) < 0.05)
-        #expect(gains[ObjectIdentifier(hiddenByTheLearner)] == SIMD3(1.3, 1.3, 1.3))
-        #expect(gains[ObjectIdentifier(noLongerShown)] == nil)
+        #expect(abs(try #require(gains[madeInTheRoom.id]).x - 1.2) < 0.02)
+        #expect(abs(try #require(gains[madeInADimmerRoom.id]).x - 2.4) < 0.05)
+        #expect(gains[hiddenByTheLearner.id] == SIMD3(1.3, 1.3, 1.3))
+        #expect(gains[noLongerShown.id] == nil)
     }
 
     @Test @MainActor func aFurnitureLayerIsDrawnWithItsGains() throws {

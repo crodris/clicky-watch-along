@@ -5,9 +5,9 @@
 //  The two looks of a piece of furniture that the generation service makes: a generated 3D model, and a photo composite
 //  where the item is painted into the keyframe. `RoomFurnitureGenerating` is the seam to that service's client
 //  (`RoomFurnitureGenerationClient`), so the controller and its tests never depend on the network.
-//  `RoomFurniturePaintedComposite` turns a painted keyframe into the layer the frame processor draws: the region the client
-//  pasted (the mask grown by `furnitureCompositePasteSlackPixels` with a `furnitureCompositePasteFeatherPixels` feather),
-//  kept only when the painted item stands as tall as the measured box says it should.
+//  `RoomFurniturePaintedComposite` turns a painted keyframe into the layer the frame processor draws: the piece alone, as
+//  the client cut it (`RoomFurniturePaintedKeyframe.pieceLayer`). It is kept only when the painted item, measured in the
+//  region the client pasted, stands as tall as the measured box says it should.
 //
 
 import CoreGraphics
@@ -23,8 +23,8 @@ protocol RoomFurnitureGenerating {
     /// GLB bytes of a model of the product in `productJPEG`, the furniture's cutout over white. `cacheKeyData` is what the
     /// model is cached by, the page picture's JPEG bytes.
     func generateAModel(productJPEG: Data, itemTitle: String, cacheKeyData: Data) async throws -> Data
-    /// The keyframe with the item painted in where the mask is white, at the keyframe's size, and the region the painting
-    /// was pasted in (`furnitureCompositePastedWithItsRegion`). `orientation` says which way the piece faces, which the mask
+    /// The keyframe with the item painted in where the mask is white, at the keyframe's size, the region the painting was
+    /// pasted in, and the piece alone (`furnitureCompositePastedWithItsRegion`). `orientation` says which way the piece faces, which the mask
     /// alone cannot: a convex area looks the same turned 180 degrees. `projectedBox` is the item's box in the keyframe
     /// (`FloorPlane.keyframeBoxCorners`), which a piece drawn taller than it is shrunk back into (`furniturePaintingFit`).
     func paintTheItemIntoTheKeyframe(

@@ -219,9 +219,11 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         /// The room's light in the keyframe as the camera filmed it, which a look made on the keyframe is relit from.
         let roomLight: RoomArtLightReference?
     }
-    /// For each furniture layer's light reference in use, the gains that relight it to the room now, smoothed over the
-    /// last few measurements.
-    private var smoothedLightGains: [ObjectIdentifier: SIMD3<Double>] = [:]
+    /// For each furniture layer's light reference in use, by its `id`, the gains that relight it to the room now, smoothed
+    /// over the last few measurements.
+    private var smoothedLightGains: [UUID: SIMD3<Double>] = [:]
+    /// How many frames in a row the tracker has missed the room, so a light copy is never paired through a turn it only guessed.
+    private var latestFramesLostInARow = 0
     private var lastRoomLightMeasuredAt: CFTimeInterval = 0
     private var loggedLightGains = RoomArtLightReference.unchangedGains
     /// The live room's light is measured this often while a furniture layer shows, a few times a second.
@@ -399,6 +401,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             latestKeyframe = nil
             background = nil
             crossfadeFrom = nil
+            smoothedLightGains = [:]
+            lastRoomLightMeasuredAt = 0
+            loggedLightGains = RoomArtLightReference.unchangedGains
+            latestFramesLostInARow = 0
             latestFrame = nil
             latestPersonMask = nil
             latestPersonLowestRowShare = nil
@@ -742,7 +748,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             }
             self.background = background
         }
-        if let trackStep, !trackStep.theArtIsHidden, let cameraWarp {
+        latestFramesLostInARow = trackStep?.framesLostInARow ?? 0
+        // While the tracker misses the room it keeps its last turn, which no longer pairs the copies' pixels.
+        if let trackStep, trackStep.framesLostInARow == 0, let cameraWarp {
             measureTheRoomLightIfDue(in: cameraFrame, keyframeToThisFrame: cameraWarp)
         }
         // A frame that found no drawable was not shown, so it does not count toward the frame rate.
@@ -1276,7 +1284,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     /// The gains that relight `placedArt` to the room now: the smoothed gains of its light reference, or none before the
     /// first measurement and for wall art.
     private func lightGains(for placedArt: PlacedArt) -> SIMD3<Double> {
-        placedArt.roomLightWhenMade.flatMap { smoothedLightGains[ObjectIdentifier($0)] } ?? RoomArtLightReference.unchangedGains
+        placedArt.roomLightWhenMade.flatMap { smoothedLightGains[$0.id] } ?? RoomArtLightReference.unchangedGains
     }
 
     /// Measures the live room's light a few times a second while a furniture layer shows, and moves each layer's smoothed
@@ -1289,13 +1297,15 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             smoothedLightGains = [:]
             return
         }
+        // A look just shown has no gains yet, so it is measured at once instead of drawn unrelit until the next measurement.
+        let aReferenceHasNoGains = referencesInUse.contains { smoothedLightGains[$0.id] == nil }
         let now = CACurrentMediaTime()
-        guard now - lastRoomLightMeasuredAt >= Self.secondsBetweenRoomLightMeasurements else { return }
+        guard aReferenceHasNoGains || now - lastRoomLightMeasuredAt >= Self.secondsBetweenRoomLightMeasurements else { return }
         lastRoomLightMeasuredAt = now
         guard let currentLight = roomLight(of: CIImage(cvPixelBuffer: cameraFrame), personMask: latestPersonMask, keyframeToThisFrame: keyframeToThisFrame) else { return }
         smoothedLightGains = RoomArtLightReference.smoothedGainsInUse(references: referencesInUse, current: currentLight, previous: smoothedLightGains)
         // The log shows the newest item's gains each time they move by more than a few percent, so a live check sees the relight.
-        if let newestReference = placedArt?.roomLightWhenMade, let newestGains = smoothedLightGains[ObjectIdentifier(newestReference)],
+        if let newestReference = placedArt?.roomLightWhenMade, let newestGains = smoothedLightGains[newestReference.id],
            max(abs(newestGains.x - loggedLightGains.x), abs(newestGains.y - loggedLightGains.y), abs(newestGains.z - loggedLightGains.z)) > 0.05 {
             loggedLightGains = newestGains
             print(String(format: "Room furniture: the room's light changed, so the item is relit by %.2f, %.2f, %.2f", newestGains.x, newestGains.y, newestGains.z))
@@ -1451,7 +1461,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         } ?? 0
         return RoomArtPaintingFrame(
             jpegData: jpegData, image: cgImage, keyframeToFrame: latestCameraWarp, shareOfTheBoxThePersonCovers: shareCovered,
-            roomLight: roomLight(of: frameImage, personMask: latestPersonMask, keyframeToThisFrame: latestCameraWarp)
+            // A turn the tracker only guessed would pair the wrong pixels later, so the keyframe's light stands in then.
+            roomLight: latestFramesLostInARow == 0 ? roomLight(of: frameImage, personMask: latestPersonMask, keyframeToThisFrame: latestCameraWarp) : nil
         )
     }
 

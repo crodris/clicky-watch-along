@@ -9,8 +9,11 @@ import Foundation
 /// mean of each frame on its own counted different pixels whenever a lamp pushed the bright wall to clipping in one frame,
 /// and measured a room 1.35 times brighter as 0.4 times as bright.
 ///
-/// A class, so the processor can keep one smoothed gain per reference by its identity. Every field is a constant.
+/// A class, so two items made on one frame share one smoothed gain, kept by its `id`. Every field is a constant.
 nonisolated final class RoomArtLightReference: Sendable {
+    /// What the processor keeps each reference's smoothed gains by. An object's address is reused once it is freed, so it
+    /// is no key.
+    let id = UUID()
     /// The copy's size, in pixels.
     let width: Int
     let height: Int
@@ -44,24 +47,33 @@ nonisolated final class RoomArtLightReference: Sendable {
     /// within about a second, as the camera's own exposure does, and one noisy measurement does not flicker the piece.
     static let smoothingShare = 0.3
     static let unchangedGains = SIMD3<Double>(1, 1, 1)
+    /// Every second pixel of every second row is compared, a quarter of the copy, which holds the mean as well.
+    static let sampleStep = 2
+    /// Each sRGB byte in linear light, worked out once, since a measurement reads thousands of pixels.
+    private static let linearLightOfEachByte: [Double] = (0...255).map { byte in
+        let encoded = Double(byte) / 255
+        return encoded <= 0.04045 ? encoded / 12.92 : pow((encoded + 0.055) / 1.055, 2.4)
+    }
 
     /// The per-channel gains, in linear light, that take an item made in `reference`'s light to `current`'s: the summed
     /// light of the pixels both frames show as unclipped room, where each reference pixel is found in `current` through the
-    /// keyframe, as a ratio per channel held to `gainRange`. Nil when too few pixels are shared.
+    /// keyframe, as a ratio per channel held to `gainRange`. Every `sampleStep`-th pixel of every `sampleStep`-th row is read,
+    /// since the measurement runs on the queue that draws each camera frame. Nil when too few pixels are shared, or when the
+    /// copies differ in size, which copies made at the track size never do.
     static func gains(from reference: RoomArtLightReference, to current: RoomArtLightReference) -> SIMD3<Double>? {
-        let referenceToKeyframe = reference.keyframeToThisFrame.inverted
-        // The copies may differ in size, as a keyframe's and a live frame's do not, so a point moves between their scales.
-        let currentPixelsPerReferencePixel = Double(current.width) / Double(max(reference.width, 1))
+        guard reference.width == current.width, reference.height == current.height else { return nil }
+        // One turn takes a reference pixel to the current pixel: back to the keyframe, then on to the current frame.
+        let referenceToCurrent = current.keyframeToThisFrame.after(reference.keyframeToThisFrame.inverted)
+        let cosine = cos(referenceToCurrent.angleRadians), sine = sin(referenceToCurrent.angleRadians)
         var referenceTotal = SIMD3<Double>(0, 0, 0), currentTotal = SIMD3<Double>(0, 0, 0)
-        var sharedPixels = 0
-        for row in 0..<reference.height {
-            for column in 0..<reference.width {
-                let referenceIndex = row * reference.width + column
-                guard let referenceLight = reference.roomLight(atPixel: referenceIndex) else { continue }
-                let keyframePoint = referenceToKeyframe.apply(to: CGPoint(x: Double(column), y: Double(row)))
-                let keyframePointAtTheCurrentScale = CGPoint(x: keyframePoint.x * currentPixelsPerReferencePixel, y: keyframePoint.y * currentPixelsPerReferencePixel)
-                let currentPoint = current.keyframeToThisFrame.apply(to: keyframePointAtTheCurrentScale)
-                let currentColumn = Int(currentPoint.x.rounded()), currentRow = Int(currentPoint.y.rounded())
+        var sharedPixels = 0, sampledPixels = 0
+        for row in stride(from: 0, to: reference.height, by: sampleStep) {
+            for column in stride(from: 0, to: reference.width, by: sampleStep) {
+                sampledPixels += 1
+                guard let referenceLight = reference.roomLight(atPixel: row * reference.width + column) else { continue }
+                let currentX = cosine * Double(column) - sine * Double(row) + referenceToCurrent.translationX
+                let currentY = sine * Double(column) + cosine * Double(row) + referenceToCurrent.translationY
+                let currentColumn = Int(currentX.rounded()), currentRow = Int(currentY.rounded())
                 guard currentColumn >= 0, currentColumn < current.width, currentRow >= 0, currentRow < current.height,
                       let currentLight = current.roomLight(atPixel: currentRow * current.width + currentColumn) else { continue }
                 referenceTotal += referenceLight
@@ -69,7 +81,7 @@ nonisolated final class RoomArtLightReference: Sendable {
                 sharedPixels += 1
             }
         }
-        guard Double(sharedPixels) >= Double(reference.width * reference.height) * leastSharedRoomShare else { return nil }
+        guard sampledPixels > 0, Double(sharedPixels) >= Double(sampledPixels) * leastSharedRoomShare else { return nil }
         func gain(_ currentChannel: Double, over referenceChannel: Double) -> Double {
             guard referenceChannel / Double(sharedPixels) >= darkestReferenceChannel else { return 1 }
             return min(max(currentChannel / referenceChannel, gainRange.lowerBound), gainRange.upperBound)
@@ -90,13 +102,13 @@ nonisolated final class RoomArtLightReference: Sendable {
 
     /// Each in-use reference's smoothed gains after `current` is measured: a reference whose gains can be measured moves
     /// toward them from its gains in `previous`, one that cannot keeps its gains from before, and a reference no longer in use
-    /// is dropped. References are told apart by identity, so two items made on one frame share one entry.
+    /// is dropped. References are told apart by `id`, so two items made on one frame share one entry.
     static func smoothedGainsInUse(
-        references: [RoomArtLightReference], current: RoomArtLightReference, previous: [ObjectIdentifier: SIMD3<Double>]
-    ) -> [ObjectIdentifier: SIMD3<Double>] {
-        var gainsInUse: [ObjectIdentifier: SIMD3<Double>] = [:]
+        references: [RoomArtLightReference], current: RoomArtLightReference, previous: [UUID: SIMD3<Double>]
+    ) -> [UUID: SIMD3<Double>] {
+        var gainsInUse: [UUID: SIMD3<Double>] = [:]
         for reference in references {
-            let key = ObjectIdentifier(reference)
+            let key = reference.id
             guard gainsInUse[key] == nil else { continue }
             if let measured = gains(from: reference, to: current) {
                 gainsInUse[key] = smoothed(previous: previous[key], measured: measured)
@@ -109,8 +121,7 @@ nonisolated final class RoomArtLightReference: Sendable {
 
     /// An sRGB byte in linear light, 0 to 1.
     static func linearLight(ofSRGBByte byte: UInt8) -> Double {
-        let encoded = Double(byte) / 255
-        return encoded <= 0.04045 ? encoded / 12.92 : pow((encoded + 0.055) / 1.055, 2.4)
+        linearLightOfEachByte[Int(byte)]
     }
 
     /// The pixel's light in linear light, or nil when it is the learner or clipped.
