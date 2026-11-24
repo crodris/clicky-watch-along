@@ -2,19 +2,19 @@
 //  ShirtPaintedStill.swift
 //  leanring-buddy
 //
-//  The shirt try-on's final look. The live overlay (`ShirtTryOnRenderer`) is the quick preview, and when the learner says
-//  "paint it" or clicks Paint it, the panel arms a capture (`ShirtStepBackCapture`) that freezes the camera frame once they
-//  have stepped back and held still, and OpenAI's image edit paints the store's top onto them in that frame (`POST /room-furniture-composite` with kind "shirt"), which follows their pose, folds, and light the
-//  way a 2D overlay cannot. The painted still crossfades in, the painted top then follows the learner live
-//  (`ShirtLivePaintedTop.swift`), and "go back" or Back to live returns to the overlay.
+//  The shirt try-on's look. The camera shows the learner as filmed until they say "paint it" or click Paint it, and then
+//  the panel arms a capture (`ShirtStepBackCapture`) that freezes the camera frame once they have stepped back and held
+//  still, and OpenAI's image edit paints the store's top onto them in that frame (`POST /room-furniture-composite` with kind
+//  "shirt"), which follows their pose, folds, and light. The painted still crossfades in, the painted top then follows the
+//  learner live (`ShirtLivePaintedTop.swift`), and "go back" or Back to live returns to the live camera.
 //
 //  This file holds the pure parts and the Worker client: the phrases, the frozen frame, the mask the painting may draw in,
 //  the regions the paste must leave exactly as filmed, and the paste.
 //
 //  The mask covers the whole garment the learner wears now, not only where the new one lands, since a narrower new top
 //  painted inside a torso shape left the old top's sleeve stub and hem showing past it in the spike. It starts from the
-//  old top (`ShirtFrameAnalysis`'s old shirt pixels, down to its hem and along its sleeves), the torso, where the live
-//  overlay's garment landed, and the area the new garment covers on the body (`ShirtCoverage`: down to its hem, along
+//  old top (`ShirtFrameAnalysis`'s old shirt pixels, down to its hem and along its sleeves), the torso, and the area the
+//  new garment covers on the body (`ShirtCoverage`: down to its hem, along
 //  the upper arm for short sleeves, and along each arm to the wrist for long sleeves), fills the holes a print leaves,
 //  and takes away the neck and head (the analysis's neck cut), the face, the hands, and the bare skin the new top does
 //  not cover, which is not skin a new sleeve reaches, such as a bare upper arm under a new tee's sleeve or a forearm a
@@ -37,7 +37,7 @@ import simd
 nonisolated enum ShirtStillVoiceRequest: Equatable, Sendable {
     /// "Paint it" (or its quiet alias "right there"): arm the capture, which freezes a frame once the learner has stepped back and held still, and paints the shirt into it.
     case paintIt
-    /// "Go back": leave the painted still for the live preview.
+    /// "Go back": leave the painted still for the live camera.
     case backToLive
 }
 
@@ -94,7 +94,7 @@ extension RoomArtPhase {
     /// What the shirt panel can do by voice or by its button in this phase.
     nonisolated var shirtStillVoiceTargets: ShirtStillVoiceTargets {
         switch self {
-        case .showingTheShirt: return .livePreview
+        case .readyToPaintTheShirt: return .readyToPaint
         case .waitingForTheLearnerToStepBack: return .stepBack
         case .paintingTheShirt, .showingThePaintedShirt: return .paintedStill
         default: return .none
@@ -106,11 +106,11 @@ extension RoomArtPhase {
 nonisolated enum ShirtStillVoiceTargets: Equatable, Sendable {
     /// No shirt shows, so the phrases go to the router as before.
     case none
-    /// The live preview shows, so "paint it" paints it.
-    case livePreview
+    /// The camera shows the learner, so "paint it" arms the capture.
+    case readyToPaint
     /// The capture waits for the learner to step back, so "paint it" restarts it and "go back" cancels it.
     case stepBack
-    /// A painting is on its way or the painted still shows, so "go back" returns to the preview.
+    /// A painting is on its way or the painted still shows, so "go back" returns to the live camera.
     case paintedStill
 }
 
@@ -124,29 +124,29 @@ nonisolated func shirtStillPhraseRunsAheadOfTheRouter(
 ) -> Bool {
     guard let request, !quizQuestionIsOpen, !themeStudioIsOpen else { return false }
     switch (request, targets) {
-    case (.paintIt, .livePreview), (.paintIt, .stepBack), (.backToLive, .stepBack), (.backToLive, .paintedStill): return true
+    case (.paintIt, .readyToPaint), (.paintIt, .stepBack), (.backToLive, .stepBack), (.backToLive, .paintedStill): return true
     default: return false
     }
 }
 
 // MARK: - The lines
 
-/// What Clicky says when the live preview first shows, so the learner knows how to get the real look.
-nonisolated let roomArtShirtPreviewLine = "Here's a preview. Say paint it to put it on you."
-/// What Clicky says when the ghost outline first shows, for a garment the live preview cannot draw.
-nonisolated let roomArtShirtGhostLine = "This outline is where it will go. Say paint it to put it on you."
-/// The status line while the ghost outline shows over the learner.
-nonisolated let roomArtShirtGhostStatusLine = "Where it will go · say paint it"
+/// What Clicky says once the page reads as clothing it can paint on the learner, before any painting. The painted top
+/// follows the learner only near the pose it was painted in (`ShirtLivePaintedTopReach`), and switches back to the still
+/// photo past it, so the line says that up front. A hint, not a failure.
+nonisolated let roomArtShirtReadyLine = "Say paint it when you're ready, then step back and hold still. Afterward, stay in about the same pose, or I'll switch back to the still photo."
+/// The status line while the camera shows the learner and Clicky waits for "paint it".
+nonisolated let roomArtShirtReadyStatusLine = "Say paint it when you're ready"
 /// What Clicky says when the painted still has crossfaded in.
 nonisolated let roomArtShirtPaintedLine = "Here it is on you."
 /// The status line while the shirt is painted into the frozen frame.
 nonisolated let roomArtShirtPaintingStatusLine = "Putting it on you…"
 /// The status line while the painted still shows.
-nonisolated let roomArtShirtPaintedStatusLine = "On you · say go back to the preview"
-/// The crossfade from the frozen preview to the painted still.
+nonisolated let roomArtShirtPaintedStatusLine = "On you · keep this pose to see it live"
+/// The crossfade from the frozen frame to the painted still.
 nonisolated let shirtPaintedStillCrossfadeSeconds = 0.5
 
-/// Why the shirt could not be painted, each with its line. Every one goes back to the live preview.
+/// Why the shirt could not be painted, each with its line. Every one goes back to the live camera.
 nonisolated enum ShirtPaintingFailure: Error, Equatable, Sendable {
     /// The mask could not be made from the frozen frame, such as an old shirt that could not be found.
     case maskNotMade
@@ -175,20 +175,15 @@ nonisolated enum ShirtPaintingFailure: Error, Equatable, Sendable {
 
 // MARK: - The frozen frame
 
-/// The camera frame the panel froze for a painting, with what the live preview knew about it. Every byte array is the
+/// The camera frame the panel froze for a painting, as filmed, with the person and the torso found for it. Every byte array is the
 /// frame's size, first row at the top.
 nonisolated struct ShirtFrozenFrame: @unchecked Sendable {
     // @unchecked because CGImage is immutable, so sharing one across queues is safe.
 
     /// The camera frame as filmed, with nothing drawn on it.
     let cameraImage: CGImage
-    /// The frame with the live preview's shirt drawn on it, which the panel shows while the painting is made.
-    let previewImage: CGImage
     /// 0 to 255, where the person is.
     let personMask: [UInt8]
-    /// 0 to 255, where the live preview drew the garment and its base color fill: where the new top lands. All 0 under the
-    /// ghost outline, which draws no garment, so the area the painting covers comes from `ShirtCoverage` alone.
-    let previewGarmentCoverage: [UInt8]
     let torso: BodyTorso
 
     var width: Int { cameraImage.width }
@@ -249,6 +244,12 @@ nonisolated enum ShirtPaintMask {
     /// Past this height above the neck's base, in shoulder widths, the analysis's cut is the head whatever its width, as the
     /// analysis's own rule has it.
     static let headStartsAboveTheNeckBaseInShoulderWidths = 0.30
+    /// The new top's collar sits this far above the learner's own neckline, in shoulder widths, as a worn top's collar rides
+    /// over the old one. The band from the shoulder line up to it, within `collarHalfWidthInShoulderWidths` of the middle,
+    /// is the new top's, so the old collar and the tops of the shoulders beside the neck are painted over and never put back
+    /// with the neck. Without it the old collar showed between the new collar and the neck.
+    static let collarRiseAboveTheOldNecklineInShoulderWidths = 0.05
+    static let collarHalfWidthInShoulderWidths = 0.4
     /// Pieces of the mask under this share of the frame are specks, not garment.
     static let smallestPieceShare = 0.0005
 
@@ -263,16 +264,15 @@ nonisolated enum ShirtPaintMask {
         let width = frame.width, height = frame.height
         let torso = frame.torso
         // The analysis reads the old top below the shoulders, so the shoulders must be in the frame.
-        guard width >= 3, height >= 3, frame.personMask.count == width * height, frame.previewGarmentCoverage.count == width * height,
+        guard width >= 3, height >= 3, frame.personMask.count == width * height,
               torso.shouldersAreSeen, torso.shoulderWidth > 2,
               (0..<Double(width)).contains(Double(torso.shoulderMidpoint.x)), (0..<Double(height)).contains(Double(torso.shoulderMidpoint.y)) else { return nil }
         let scale = min(1, Double(workingLongestSide) / Double(max(width, height)))
         let workWidth = max(3, Int((Double(width) * scale).rounded())), workHeight = max(3, Int((Double(height) * scale).rounded()))
         guard let workRGBA = rgbaBytes(of: frame.cameraImage, width: workWidth, height: workHeight),
               let workPerson = resizedGrayBytes(frame.personMask, width: width, height: height, toWidth: workWidth, toHeight: workHeight),
-              let workCoverage = resizedGrayBytes(frame.previewGarmentCoverage, width: width, height: height, toWidth: workWidth, toHeight: workHeight),
               let work = workingMasks(
-                  rgba: workRGBA, personMask: workPerson, previewGarmentCoverage: workCoverage, coverage: coverage,
+                  rgba: workRGBA, personMask: workPerson, coverage: coverage,
                   torso: torso.scaled(by: scale), width: workWidth, height: workHeight
               )
         else { return nil }
@@ -399,7 +399,7 @@ nonisolated enum ShirtPaintMask {
     /// The mask at the working size: where the painting may draw, the analysis's neck cut, and the old top as found.
     /// `coverage` is where the new garment lands on `torso`, nil while the learner's own top alone is traced.
     static func workingMasks(
-        rgba: [UInt8], personMask: [UInt8], previewGarmentCoverage: [UInt8], coverage: ShirtCoverage? = nil, torso: BodyTorso, width: Int, height: Int
+        rgba: [UInt8], personMask: [UInt8], coverage: ShirtCoverage? = nil, torso: BodyTorso, width: Int, height: Int
     ) -> (paintable: [Bool], cut: [Bool], oldShirt: [Bool])? {
         let analysisFrame = ShirtSmallFrame(width: width, height: height, rgba: rgba, personMask: personMask, torso: torso)
         guard let oldShirtColor = analysisFrame.measureOldShirtColor() else { return nil }
@@ -428,7 +428,7 @@ nonisolated enum ShirtPaintMask {
         let headHeight = headStartsAboveTheNeckBaseInShoulderWidths * shoulderWidth
         for index in 0..<(width * height) {
             // The analysis's cut also marks the tops of the shoulders above the line through the joints where the old top
-            // does not read as its own color, which the live preview's fill covers. Here only the neck and the head above
+            // does not read as its own color. Here only the neck and the head above
             // it are cut, so the old top on the shoulders is painted over, not put back.
             if analysis.maskPixels[index * 4] > 127 {
                 let point = SIMD2(Double(index % width), Double(index / width))
@@ -453,10 +453,23 @@ nonisolated enum ShirtPaintMask {
             }
         }
 
-        // The torso itself covers a print on the old top whose colors are not its own, and the preview's garment is
-        // where the new top lands. So does the area the new garment covers on the body (`ShirtCoverage`), where the
-        // person is: a short sleeve over a bare upper arm, a long sleeve down the bare forearm, a coat's hem past the
-        // old top's. It stays within a little of the person, so the room beside a flared hem stays the room.
+        // The new top's collar band: from the shoulder line up to the learner's own neckline (the neck's base when it is not
+        // found) plus the collar's rise. Skin in it is taken away below, so only the old collar and the shoulder tops are painted.
+        let necklineAboveTheNeckBase = analysisFrame.bodyNeckRow(oldShirtColor: oldShirtColor).map { neckRow in
+            geometry.distanceAboveTheNeckBase(SIMD2(geometry.neckBase.x, neckRow))
+        } ?? 0
+        let collarTopAboveTheNeckBase = necklineAboveTheNeckBase + collarRiseAboveTheOldNecklineInShoulderWidths * shoulderWidth
+        let shoulderLineBelowTheNeckBase = -TorsoGeometry.neckBaseAboveTheShouldersInShoulderWidths * shoulderWidth
+        func isInTheCollarBand(_ point: SIMD2<Double>) -> Bool {
+            let aboveTheNeckBase = geometry.distanceAboveTheNeckBase(point)
+            return aboveTheNeckBase >= shoulderLineBelowTheNeckBase && aboveTheNeckBase <= collarTopAboveTheNeckBase
+                && abs(geometry.distanceAcross(point)) < collarHalfWidthInShoulderWidths * shoulderWidth
+        }
+
+        // The torso itself covers a print on the old top whose colors are not its own. So does the area the new garment
+        // covers on the body (`ShirtCoverage`), where the person is: a short sleeve over a bare upper arm, a long sleeve
+        // down the bare forearm, a coat's hem past the old top's. It stays within a little of the person, so the room beside
+        // a flared hem stays the room.
         let torsoQuad = ShirtTryOnRenderer.bodyTorsoCorners(of: torso).map { SIMD2(Double($0.x), Double($0.y)) }
         let growthRadius = max(1, Int((outlineGrowthInShoulderWidths * shoulderWidth).rounded()))
         let personNearby = dilated(personMask.map { $0 > 127 }, width: width, height: height, radius: growthRadius)
@@ -465,9 +478,10 @@ nonisolated enum ShirtPaintMask {
         let newSleevesCover = newGarmentArea?.sleeveMask(width: width, height: height) ?? [Bool](repeating: false, count: width * height)
         var paintable = [Bool](repeating: false, count: width * height)
         for index in 0..<(width * height) {
-            if oldShirt[index] || previewGarmentCoverage[index] > 127 || (newGarmentCovers[index] && personNearby[index]) { paintable[index] = true; continue }
+            if oldShirt[index] || (newGarmentCovers[index] && personNearby[index]) { paintable[index] = true; continue }
             guard personMask[index] > 127 else { continue }
-            paintable[index] = isInside(SIMD2(Double(index % width) + 0.5, Double(index / width) + 0.5), convexQuad: torsoQuad)
+            let point = SIMD2(Double(index % width) + 0.5, Double(index / width) + 0.5)
+            paintable[index] = isInside(point, convexQuad: torsoQuad) || (newGarmentArea != nil && isInTheCollarBand(point))
         }
         let closingRadius = max(1, Int((closingRadiusInShoulderWidths * shoulderWidth).rounded()))
         paintable = eroded(dilated(paintable, width: width, height: height, radius: closingRadius), width: width, height: height, radius: closingRadius)
@@ -475,14 +489,23 @@ nonisolated enum ShirtPaintMask {
         // Grown past the outline, but only within a little of the person, so the room around stays the room.
         let grown = dilated(paintable, width: width, height: height, radius: growthRadius)
         for index in paintable.indices { paintable[index] = grown[index] && (personNearby[index] || paintable[index]) }
+        // The closing and the growth reach a few pixels past the collar band, so the neck cut above the new top's collar, such
+        // as a beard just above the old collar, is taken back out and stays as filmed.
+        if newGarmentArea != nil {
+            for index in paintable.indices where paintable[index] && cut[index] {
+                let point = SIMD2(Double(index % width) + 0.5, Double(index / width) + 0.5)
+                if geometry.distanceAboveTheNeckBase(point) > collarTopAboveTheNeckBase { paintable[index] = false }
+            }
+        }
 
         // Bare skin the new top does not cover is taken away here. The hands, the face, and the neck's skin are taken
-        // away at the frame's size, where their edges are exact. The mask never reaches above the neck's base, so the
-        // neck cut only decides what the paste puts back. Only skin under a new sleeve, an upper arm or a forearm, is
-        // painted. Skin inside the new garment's body (a forearm across the belly under a short sleeve, an inner upper
-        // arm beside a vest) is not covered by it, so it is taken away like any other bare skin.
+        // away at the frame's size, where their edges are exact. The mask reaches no higher than the new top's collar
+        // band, and the neck cut above that band is taken back out, so the neck cut only decides what the paste puts back.
+        // Only skin under a new sleeve, an upper arm or a forearm, is painted. Skin inside the new garment's body (a
+        // forearm across the belly under a short sleeve, an inner upper arm beside a vest) is not covered by it, so it
+        // is taken away like any other bare skin.
         for index in 0..<(width * height) where paintable[index] {
-            guard personMask[index] > 127, previewGarmentCoverage[index] <= 127, !oldShirt[index], !newSleevesCover[index] else { continue }
+            guard personMask[index] > 127, !oldShirt[index], !newSleevesCover[index] else { continue }
             if looksLikeSkin(red: rgba[index * 4], green: rgba[index * 4 + 1], blue: rgba[index * 4 + 2]) { paintable[index] = false }
         }
         paintable = withoutSmallPieces(paintable, width: width, height: height, smallestPieceSize: Int(smallestPieceShare * Double(width * height)))
@@ -710,6 +733,9 @@ nonisolated private struct TorsoGeometry {
     let upward: SIMD2<Double>
     let neckBase: SIMD2<Double>
     let torsoLength: Double
+    /// The neck's base sits this far above the shoulder midpoint.
+    /// `ShirtFrameAnalysis` uses the same 0.10 for its own neck base.
+    static let neckBaseAboveTheShouldersInShoulderWidths = 0.10
 
     init(torso: BodyTorso) {
         shoulderMidpoint = SIMD2(Double(torso.shoulderMidpoint.x), Double(torso.shoulderMidpoint.y))
@@ -720,7 +746,7 @@ nonisolated private struct TorsoGeometry {
         var upDirection = SIMD2(along.y, -along.x)
         if upDirection.y > 0 { upDirection = -upDirection }
         upward = upDirection
-        neckBase = shoulderMidpoint + upDirection * 0.10 * torso.shoulderWidth
+        neckBase = shoulderMidpoint + upDirection * Self.neckBaseAboveTheShouldersInShoulderWidths * torso.shoulderWidth
     }
 
     func distanceDownTheTorso(_ point: SIMD2<Double>) -> Double { simd_dot(point - shoulderMidpoint, torsoAxis) }

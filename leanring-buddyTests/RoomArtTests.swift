@@ -852,7 +852,7 @@ struct RoomArtPhraseTests {
         "how would this mug look on my table",
         "put this lamp on my desk",
         "what would this vase look like on my shelf",
-        // A shirt is drawn on the learner.
+        // A shirt is painted on the learner.
         "could I see this shirt on me",
         "how would this look on me",
         "what would this hoodie look like on me",
@@ -1087,7 +1087,7 @@ struct RoomArtPhaseTests {
             .arranging(id: firstMeasurement, item: .furniture(furniture()), surface: .floor(floor)),
             .couldNotDraw(id: firstMeasurement, item: .furniture(furniture()), surface: .floor(floor)),
             .waitingForAFloorClick(.furniture(furniture(standsOn: .tableOrShelf))),
-            .showingTheShirt(title: "Linen shirt", preview: .liveGarment), .showingThePaintedShirt(title: "Linen shirt", preview: .ghostOutline), .failed(.pageNotRead),
+            .readyToPaintTheShirt(title: "Linen shirt"), .showingThePaintedShirt(title: "Linen shirt"), .failed(.pageNotRead),
         ]
         for phase in notShowing {
             #expect(!phase.keepsTheRoomForANewItem, "\(phase)")
@@ -1433,50 +1433,32 @@ struct RoomArtPhaseTests {
         #expect(RoomArtPhase.readingThePage.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Reading the page…")
     }
 
-    @Test func theShirtIsPreparedThenWaitsForTheLearnerThenShows() {
-        let preparing = RoomArtPhase.readingThePage.startingTheShirt(title: "Linen shirt")
-        #expect(preparing == .preparingTheShirt(title: "Linen shirt"))
-        #expect(preparing.statusLine == "Getting it ready…")
-        // The coaching takes the status line while the learner is not where the shirt can be drawn.
-        #expect(preparing.statusLine(theSurfaceIsLost: false, shirtCoachingLine: "Stand back so I can see your shoulders and chest.") == "Stand back so I can see your shoulders and chest.")
-        let waiting = preparing.withTheShirtPreviewReady(.liveGarment, learnerIsInFrame: false)
-        #expect(waiting == .waitingToSeeTheLearner(title: "Linen shirt", preview: .liveGarment))
-        let showing = waiting.afterTheLearnerStoodInFrame()
-        #expect(showing == .showingTheShirt(title: "Linen shirt", preview: .liveGarment))
-        #expect(showing.statusLine == "On you")
-        // A learner already in view when the garment is ready sees the shirt at once.
-        #expect(preparing.withTheShirtPreviewReady(.liveGarment, learnerIsInFrame: true) == .showingTheShirt(title: "Linen shirt", preview: .liveGarment))
-        // The learner standing in view before the garment is ready changes nothing until it is.
-        #expect(preparing.afterTheLearnerStoodInFrame() == preparing)
-        // A click does nothing on a shirt, and a picture that cannot be read ends the panel while it is prepared.
-        #expect(showing.startingAMeasurement(id: firstMeasurement) == showing)
-        #expect(preparing.afterTheShirtsPictureCouldNotBeRead() == .failed(.pageNotRead))
-        #expect(waiting.afterTheShirtsPictureCouldNotBeRead() == waiting)
+    @Test func aShirtGoesStraightToWaitingForPaintItWithNothingDrawnOnTheLearner() {
+        let ready = RoomArtPhase.readingThePage.startingTheShirt(title: "Linen shirt")
+        #expect(ready == .readyToPaintTheShirt(title: "Linen shirt"))
+        #expect(RoomArtPhase.readingThePageInTheKeptRoom.startingTheShirt(title: "Linen shirt") == ready)
+        #expect(ready.statusLine == roomArtShirtReadyStatusLine)
+        // A click does nothing on a shirt.
+        #expect(ready.startingAMeasurement(id: firstMeasurement) == ready)
+        // A picture of the garment's front that cannot be read ends the panel while the page is read, and only then.
+        #expect(RoomArtPhase.readingThePage.afterTheShirtsPictureCouldNotBeRead() == .failed(.pageNotRead))
+        #expect(ready.afterTheShirtsPictureCouldNotBeRead() == ready)
     }
 
-    @Test func theGhostOutlineIsAPreviewThatEveryLaterPhaseKeeps() {
-        let preparing = RoomArtPhase.readingThePage.startingTheShirt(title: "Coat")
-        let waiting = preparing.withTheShirtPreviewReady(.ghostOutline, learnerIsInFrame: false)
-        #expect(waiting == .waitingToSeeTheLearner(title: "Coat", preview: .ghostOutline))
-        let showing = waiting.afterTheLearnerStoodInFrame()
-        #expect(showing == .showingTheShirt(title: "Coat", preview: .ghostOutline))
-        #expect(showing.statusLine == "Where it will go · say paint it")
-        // The preview is carried through the capture, the painting, and the painted still, and comes back after each.
+    @Test func everyWayBackFromAPaintingWaitsForPaintItAgain() {
+        let ready = RoomArtPhase.readyToPaintTheShirt(title: "Coat")
         let id = ShirtPaintingID(number: 1)
-        let armed = showing.armingTheShirtCapture(id: id)
-        #expect(armed == .waitingForTheLearnerToStepBack(title: "Coat", id: id, preview: .ghostOutline))
+        let armed = ready.armingTheShirtCapture(id: id)
+        #expect(armed == .waitingForTheLearnerToStepBack(title: "Coat", id: id))
         let painting = armed.afterTheLearnerHeldStill(id: id)
-        #expect(painting == .paintingTheShirt(title: "Coat", id: id, preview: .ghostOutline))
+        #expect(painting == .paintingTheShirt(title: "Coat", id: id))
         let painted = painting.withThePaintedShirt(id: id)
-        #expect(painted == .showingThePaintedShirt(title: "Coat", preview: .ghostOutline))
+        #expect(painted == .showingThePaintedShirt(title: "Coat"))
         for phase in [armed, painting, painted] {
-            #expect(phase.backToTheLiveShirt() == showing)
+            #expect(phase.backToTheLiveShirt() == ready)
         }
-        #expect(painting.afterThePaintingFailed(id: id) == showing)
-        #expect(armed.afterTheStepBackTimedOut(id: id) == showing)
-        // The live garment's phases keep their own preview and statusLine.
-        #expect(RoomArtPhase.showingTheShirt(title: "Tee", preview: .liveGarment).statusLine == "On you")
-        #expect(RoomArtPhase.showingTheShirt(title: "Tee", preview: .liveGarment).armingTheShirtCapture(id: id).backToTheLiveShirt() == .showingTheShirt(title: "Tee", preview: .liveGarment))
+        #expect(painting.afterThePaintingFailed(id: id) == ready)
+        #expect(armed.afterTheStepBackTimedOut(id: id) == ready)
     }
 
     @Test func aReplyAfterThePanelClosedChangesNothing() {
@@ -1486,7 +1468,7 @@ struct RoomArtPhaseTests {
         #expect(closed.withTheItemReady(.wallArt(artwork())) == .closed)
         #expect(closed.startingTheShirt(title: "Tee") == .closed)
         #expect(closed.afterThePageFailed(.pageNotRead) == .closed)
-        #expect(closed.withTheShirtPreviewReady(.liveGarment, learnerIsInFrame: true) == .closed)
+        #expect(closed.afterTheShirtsPictureCouldNotBeRead() == .closed)
         #expect(closed.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .closed)
         #expect(closed.afterTheCameraFailed(.noCamera) == .closed)
     }
@@ -1517,7 +1499,7 @@ struct RoomArtPhaseTests {
         #expect(RoomArtPhase.readingThePage.afterThePageFailed(.sizeNotOnThePage) == .failed(.sizeNotOnThePage))
         // The camera starts while the page is read, so its failure counts in every open phase but a failed one.
         #expect(RoomArtPhase.readingThePage.afterTheCameraFailed(.cameraAccessDenied) == .failed(.cameraAccessDenied))
-        #expect(RoomArtPhase.preparingTheShirt(title: "Tee").afterTheCameraFailed(.noCamera) == .failed(.noCamera))
+        #expect(RoomArtPhase.readyToPaintTheShirt(title: "Tee").afterTheCameraFailed(.noCamera) == .failed(.noCamera))
         #expect(RoomArtPhase.failed(.sizeNotOnThePage).afterTheCameraFailed(.noCamera) == .failed(.sizeNotOnThePage))
         // A page failure counts only while the page is read.
         #expect(measuring.afterThePageFailed(.pageNotRead) == measuring)

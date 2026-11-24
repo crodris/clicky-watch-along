@@ -390,7 +390,7 @@ final class CompanionManager: ObservableObject {
     )
     private var themeStudioSpeechTask: Task<Void, Never>?
     /// "Show me how this would look in my room" and "could I see this shirt on me": the live camera panel with the item on
-    /// Chrome's front tab on the learner's wall or floor, or a shirt drawn over the learner.
+    /// Chrome's front tab on the learner's wall or floor, or a shirt painted on the learner.
     private lazy var roomArtPreviewController = RoomArtPreviewController(environment: .live(
         workerBaseURL: Self.workerBaseURL,
         clearTheLiveScene: { [weak self] in self?.clearTheLiveSceneForTheRoomArtPanel() },
@@ -402,7 +402,7 @@ final class CompanionManager: ObservableObject {
             self.map { CursorLoopTracerLook(theme: $0.themeSettings.shownTheme, picture: $0.themeSettings.shownThemePicture) }
         },
         endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() },
-        // A painting or a return to the preview, by voice or by its button, or the furniture placed by voice or the Place
+        // A painting or a return to the live camera, by voice or by its button, or the furniture placed by voice or the Place
         // button or moved by voice, is this request's own, so its line is not dropped.
         theLearnerAskedThePanel: { [weak self] in
             guard let self else { return }
@@ -1361,7 +1361,7 @@ final class CompanionManager: ObservableObject {
 
             pushToTalkPressCount += 1
             startRecordingTheMousePath()
-            // A press while the shirt capture waits for the learner to step back cancels it, so "right there" again arms a new one.
+            // A press while the shirt capture waits for the learner to step back cancels it, so "paint it" again arms a new one.
             roomArtPreviewController.theLearnerPressedPushToTalk()
             approvalAtThePress = agentHarness.approvalDesk.approvalAtPress(at: Date())
             pushToTalkPressAcceptance.pressWasAccepted()
@@ -1622,7 +1622,7 @@ final class CompanionManager: ObservableObject {
             LiveSceneStatusLabel.shared.hide()
             VoiceToolCallChip.shared.recall()
             pushToTalkPressCount += 1
-            // A press while the shirt capture waits for the learner to step back cancels it, so "right there" again arms a new one.
+            // A press while the shirt capture waits for the learner to step back cancels it, so "paint it" again arms a new one.
             roomArtPreviewController.theLearnerPressedPushToTalk()
             approvalAtThePress = agentHarness.approvalDesk.approvalAtPress(at: Date())
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
@@ -1826,7 +1826,7 @@ final class CompanionManager: ObservableObject {
                 print("Shirt painting: arming the capture on request")
                 roomArtPreviewController.paintTheShirt()
             case .backToLive:
-                print("Shirt painting: back to the live preview on request")
+                print("Shirt painting: back to the live camera on request")
                 roomArtPreviewController.goBackToTheLiveShirt()
             }
         case .saveTheRoomArtPhoto:

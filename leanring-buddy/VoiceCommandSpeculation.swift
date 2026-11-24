@@ -23,7 +23,7 @@ nonisolated enum TranscriptRoute: Equatable {
     case replayTheExplanation
     /// "Right there" places the furniture's ghost with no model call (`RoomArtConfirmPhrase`).
     case confirmTheRoomArt
-    /// "Paint it" paints the shirt the room art panel previews, and "go back" returns to the preview.
+    /// "Paint it" paints the shirt on the learner the room art panel shows, and "go back" returns to the live camera.
     case shirtPaintedStill(ShirtStillVoiceRequest)
     /// "Save this photo" saves what the room art panel shows (`asksToSaveTheRoomArtPhoto`).
     case saveTheRoomArtPhoto

@@ -129,10 +129,10 @@ struct SetupChecklistTests {
             #expect(setupCaptureDisclosure.contains(roomArtWords))
         }
         // The shirt try-on uses the camera too. One frame goes to the depth service during the page read, before the kind is
-        // known. After that its live preview stays on this Mac, and painting the shirt sends one frame out.
+        // known. After that its camera view stays on this Mac, and painting the shirt sends one frame out.
         #expect(setupCaptureDisclosure.contains("Showing an item in your room, or clothing on you, uses your camera."))
         #expect(setupCaptureDisclosure.contains("one camera frame also goes to the depth service to measure the wall, before Clicky knows the item is clothing"))
-        #expect(setupCaptureDisclosure.contains("After that, clothing's live preview stays on this Mac, and painting it on you sends one camera frame and the product photo through Clicky's own server to OpenAI."))
+        #expect(setupCaptureDisclosure.contains("After that, clothing's camera view stays on this Mac until you say paint it, which sends one camera frame and the product photo through Clicky's own server to OpenAI."))
         #expect(!setupCaptureDisclosure.contains("A shirt's camera frames stay on this Mac."))
         // Reading the store page sends its text and its product photos to Anthropic, which the disclosure names too.
         #expect(setupCaptureDisclosure.contains("Reading the store page also sends its text and up to four of its pictures through Clicky's own server to Anthropic."))

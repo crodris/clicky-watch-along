@@ -2,8 +2,8 @@
 //  ShirtOutline.swift
 //  leanring-buddy
 //
-//  The line Clicky's loop draws around a shirt: the outline of the learner's own top while the try-on is prepared, and of
-//  the area being painted while "Putting it on you…" shows, instead of a box over the body. The outline is the outer contour
+//  The line Clicky's loop draws around a shirt: the outline of the learner's own top as the frame freezes, and of the area
+//  being painted while "Putting it on you…" shows, instead of a box over the body. The outline is the outer contour
 //  of a mask (`ShirtPaintMask`), smoothed and simplified to about 40 to 80 points, so it reads as a hand-drawn line around
 //  the shoulders, sleeves, sides, and hem, with the neckline dipping in at the top. Every step is a pure function.
 //
@@ -217,22 +217,13 @@ nonisolated extension ShirtPaintMask {
     /// The long side the learner's own top is traced at for the loop, small enough to trace twice a second.
     static let outlineLongestSide = 200
 
-    /// The learner's own top while the try-on is prepared, at `outlineLongestSide`: the old top, the torso, closed and with
+    /// The learner's own top, traced for the loop that shows as the frame freezes, at `outlineLongestSide`: the old top, the torso, closed and with
     /// its holes filled, without the neck, the head, and bare skin (`workingMasks` with no new top landed yet). `rgba` and
     /// `personMask` are at `width` by `height`, and so is the result. Nil when the old top's color cannot be read.
     static func oldGarmentArea(rgba: [UInt8], personMask: [UInt8], torso: BodyTorso, width: Int, height: Int) -> [Bool]? {
         guard width >= 3, height >= 3, rgba.count == width * height * 4, personMask.count == width * height,
               (0..<Double(width)).contains(Double(torso.shoulderMidpoint.x)), (0..<Double(height)).contains(Double(torso.shoulderMidpoint.y)) else { return nil }
-        return workingMasks(rgba: rgba, personMask: personMask, previewGarmentCoverage: [UInt8](repeating: 0, count: width * height), torso: torso, width: width, height: height)?.paintable
-    }
-
-    /// The area the ghost outline traces at `width` by `height`: the learner's own top (`oldGarmentArea`, nil when its color
-    /// cannot be read) joined with the area the new garment covers on `torso`, which is in the same pixels. With no own top the
-    /// coverage alone, so the ghost still shows.
-    static func ghostArea(ownTop: [Bool]?, coverage: ShirtCoverage, torso: BodyTorso, width: Int, height: Int) -> [Bool] {
-        let covered = coverage.area(for: torso).mask(width: width, height: height)
-        guard let ownTop, ownTop.count == covered.count else { return covered }
-        return zip(ownTop, covered).map { $0 || $1 }
+        return workingMasks(rgba: rgba, personMask: personMask, torso: torso, width: width, height: height)?.paintable
     }
 
     /// The paint mask's outline in the frame's pixels, traced on a copy scaled down to `outlineLongestSide`.

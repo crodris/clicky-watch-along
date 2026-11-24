@@ -20,21 +20,21 @@ import UniformTypeIdentifiers
 
 struct ShirtPaintedStillPhaseTests {
     private let paintingID = ShirtPaintingID(number: 3)
-    private let live = RoomArtPhase.showingTheShirt(title: "Tee", preview: .liveGarment)
+    private let live = RoomArtPhase.readyToPaintTheShirt(title: "Tee")
 
-    @Test func paintingStartsOnlyFromTheLivePreviewOrAWaitingCapture() {
-        #expect(live.armingTheShirtCapture(id: paintingID) == .waitingForTheLearnerToStepBack(title: "Tee", id: paintingID, preview: .liveGarment))
+    @Test func paintingStartsOnlyWhileWaitingForPaintItOrFromAWaitingCapture() {
+        #expect(live.armingTheShirtCapture(id: paintingID) == .waitingForTheLearnerToStepBack(title: "Tee", id: paintingID))
         for otherPhase: RoomArtPhase in [
-            .closed, .readingThePage, .preparingTheShirt(title: "Tee"), .waitingToSeeTheLearner(title: "Tee", preview: .liveGarment),
-            .paintingTheShirt(title: "Tee", id: ShirtPaintingID(number: 1), preview: .liveGarment), .showingThePaintedShirt(title: "Tee", preview: .liveGarment), .failed(.cannotBeDrawnOnYou),
+            .closed, .readingThePage,
+            .paintingTheShirt(title: "Tee", id: ShirtPaintingID(number: 1)), .showingThePaintedShirt(title: "Tee"), .failed(.cannotBeDrawnOnYou),
         ] {
             #expect(otherPhase.armingTheShirtCapture(id: paintingID) == otherPhase)
         }
     }
 
     @Test func onlyThisPaintingsReplyShowsTheStillOrGoesBackOnAFailure() {
-        let painting = RoomArtPhase.paintingTheShirt(title: "Tee", id: paintingID, preview: .liveGarment)
-        #expect(painting.withThePaintedShirt(id: paintingID) == .showingThePaintedShirt(title: "Tee", preview: .liveGarment))
+        let painting = RoomArtPhase.paintingTheShirt(title: "Tee", id: paintingID)
+        #expect(painting.withThePaintedShirt(id: paintingID) == .showingThePaintedShirt(title: "Tee"))
         #expect(painting.withThePaintedShirt(id: ShirtPaintingID(number: 2)) == painting)
         #expect(painting.afterThePaintingFailed(id: paintingID) == live)
         #expect(painting.afterThePaintingFailed(id: ShirtPaintingID(number: 2)) == painting)
@@ -43,27 +43,27 @@ struct ShirtPaintedStillPhaseTests {
         #expect(live.afterThePaintingFailed(id: paintingID) == live)
     }
 
-    @Test func goingBackReturnsToTheLivePreviewFromAPaintingOrTheStill() {
-        #expect(RoomArtPhase.paintingTheShirt(title: "Tee", id: paintingID, preview: .liveGarment).backToTheLiveShirt() == live)
-        #expect(RoomArtPhase.showingThePaintedShirt(title: "Tee", preview: .liveGarment).backToTheLiveShirt() == live)
+    @Test func goingBackReturnsToTheLiveCameraFromAPaintingOrTheStill() {
+        #expect(RoomArtPhase.paintingTheShirt(title: "Tee", id: paintingID).backToTheLiveShirt() == live)
+        #expect(RoomArtPhase.showingThePaintedShirt(title: "Tee").backToTheLiveShirt() == live)
         #expect(live.backToTheLiveShirt() == live)
         #expect(RoomArtPhase.closed.backToTheLiveShirt() == .closed)
     }
 
     @Test func theStatusLinesSayWhatIsHappeningAndIgnoreCoaching() {
-        let painting = RoomArtPhase.paintingTheShirt(title: "Tee", id: paintingID, preview: .liveGarment)
-        let still = RoomArtPhase.showingThePaintedShirt(title: "Tee", preview: .liveGarment)
+        let painting = RoomArtPhase.paintingTheShirt(title: "Tee", id: paintingID)
+        let still = RoomArtPhase.showingThePaintedShirt(title: "Tee")
         #expect(painting.statusLine(theSurfaceIsLost: false, shirtCoachingLine: "Stand back") == "Putting it on you…")
-        #expect(still.statusLine(theSurfaceIsLost: false, shirtCoachingLine: "Stand back") == "On you · say go back to the preview")
+        #expect(still.statusLine(theSurfaceIsLost: false, shirtCoachingLine: "Stand back") == "On you · keep this pose to see it live")
         #expect(!painting.statusLineIsAFailure(theSurfaceIsLost: false) && !still.statusLineIsAFailure(theSurfaceIsLost: false))
         #expect(!painting.theItemIsPlacedByClicking && !still.theItemIsPlacedByClicking)
     }
 
     @Test func theLoopTracesTheTorsoWhilePaintingAndFadesWhenTheStillShows() {
-        let drawing = RoomArtLoopState.hidden.after(phaseChangedTo: .paintingTheShirt(title: "Tee", id: paintingID, preview: .liveGarment), at: 10)
+        let drawing = RoomArtLoopState.hidden.after(phaseChangedTo: .paintingTheShirt(title: "Tee", id: paintingID), at: 10)
         #expect(drawing == .drawing(beganAt: 10))
-        #expect(drawing.after(phaseChangedTo: .showingThePaintedShirt(title: "Tee", preview: .liveGarment), at: 20) == .fadingOut(beganAt: 10, tracesTheLine: true))
-        // A failed or abandoned painting fades it too, as the live preview showing does.
+        #expect(drawing.after(phaseChangedTo: .showingThePaintedShirt(title: "Tee"), at: 20) == .fadingOut(beganAt: 10, tracesTheLine: true))
+        // A failed or abandoned painting fades it too.
         #expect(drawing.after(phaseChangedTo: live, at: 20) == .fadingOut(beganAt: 10, tracesTheLine: true))
     }
 
@@ -104,17 +104,17 @@ struct ShirtPaintedStillVoiceTests {
         func runs(_ request: ShirtStillVoiceRequest?, _ targets: ShirtStillVoiceTargets, quiz: Bool = false, studio: Bool = false) -> Bool {
             shirtStillPhraseRunsAheadOfTheRouter(request: request, targets: targets, quizQuestionIsOpen: quiz, themeStudioIsOpen: studio)
         }
-        #expect(runs(.paintIt, .livePreview))
+        #expect(runs(.paintIt, .readyToPaint))
         #expect(runs(.backToLive, .paintedStill))
-        // While the capture waits for the learner to step back, "right there" restarts it and "go back" cancels it.
+        // While the capture waits for the learner to step back, "paint it" restarts it and "go back" cancels it.
         #expect(runs(.paintIt, .stepBack) && runs(.backToLive, .stepBack))
         #expect(!runs(.paintIt, .stepBack, quiz: true))
         #expect(!runs(.paintIt, .paintedStill))
-        #expect(!runs(.backToLive, .livePreview))
+        #expect(!runs(.backToLive, .readyToPaint))
         #expect(!runs(.paintIt, .none) && !runs(.backToLive, .none))
-        #expect(!runs(nil, .livePreview))
-        #expect(!runs(.paintIt, .livePreview, quiz: true))
-        #expect(!runs(.paintIt, .livePreview, studio: true))
+        #expect(!runs(nil, .readyToPaint))
+        #expect(!runs(.paintIt, .readyToPaint, quiz: true))
+        #expect(!runs(.paintIt, .readyToPaint, studio: true))
     }
 
     private func context(_ targets: ShirtStillVoiceTargets) -> TranscriptRouteContext {
@@ -127,14 +127,14 @@ struct ShirtPaintedStillVoiceTests {
 
     @Test func theRouteTakesThePhrasesAheadOfTheRouterWhileTheShirtShows() {
         // "Paint it" is the phrase every shirt prompt offers, and "right there" stays a quiet alias.
-        #expect(transcriptRoute(for: "Paint it.", in: context(.livePreview), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
-        #expect(transcriptRoute(for: "right there", in: context(.livePreview), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
+        #expect(transcriptRoute(for: "Paint it.", in: context(.readyToPaint), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
+        #expect(transcriptRoute(for: "right there", in: context(.readyToPaint), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
         #expect(transcriptRoute(for: "go back", in: context(.paintedStill), videoIsInFront: { true }) == .shirtPaintedStill(.backToLive))
         #expect(transcriptRoute(for: "right there", in: context(.stepBack), videoIsInFront: { true }) == .shirtPaintedStill(.paintIt))
         #expect(transcriptRoute(for: "go back", in: context(.stepBack), videoIsInFront: { true }) == .shirtPaintedStill(.backToLive))
         // With no shirt, "right there" and "go back" reach the router or the keyword path as before.
         #expect(transcriptRoute(for: "right there", in: context(.none), videoIsInFront: { true }) == .voiceCommandRouter)
-        #expect(transcriptRoute(for: "go back", in: context(.livePreview), videoIsInFront: { false }) == .keywordPath)
+        #expect(transcriptRoute(for: "go back", in: context(.readyToPaint), videoIsInFront: { false }) == .keywordPath)
     }
 }
 
@@ -175,23 +175,27 @@ private struct MadeUpPerson {
         imageLeftWrist: CGPoint(x: 82, y: 203), imageRightWrist: CGPoint(x: 238, y: 203)
     )
 
+    /// The old top's collar rising beside the neck to 10 pixels above the neck's base (row 72), as a crew neck's does.
+    static func isTheHighCollar(column: Int, row: Int) -> Bool {
+        ((132..<148).contains(column) || (172..<188).contains(column)) && (62..<72).contains(row)
+    }
+
     /// A bare forearm lying across the belly, over the old top and away from both sleeves.
     static func isTheBellyForearm(column: Int, row: Int) -> Bool { (135..<185).contains(column) && (150..<162).contains(row) }
 
-    /// `previewCoversTheTorso` false leaves the preview's garment coverage empty, as a ghost outline does, so only the new
-    /// garment's own area (`ShirtCoverage`) decides what the painting may cover.
+    /// The new garment's own area (`ShirtCoverage`), passed to the mask, decides what the painting may cover past the old top.
     static func frame(
         oldTopColor: (UInt8, UInt8, UInt8) = (30, 40, 80), hasABeard: Bool = false, torso: BodyTorso = torso,
-        hasABareForearmAcrossTheBelly: Bool = false, previewCoversTheTorso: Bool = true
+        hasABareForearmAcrossTheBelly: Bool = false, hasAHighCollar: Bool = false
     ) -> ShirtFrozenFrame {
         var rgba = [UInt8](repeating: 255, count: width * height * 4)
         var person = [UInt8](repeating: 0, count: width * height)
-        var coverage = [UInt8](repeating: 0, count: width * height)
         for row in 0..<height {
             for column in 0..<width {
                 let index = row * width + column
                 let color: (UInt8, UInt8, UInt8)
-                switch hasABareForearmAcrossTheBelly && isTheBellyForearm(column: column, row: row) ? Region.skin : region(column: column, row: row) {
+                switch hasABareForearmAcrossTheBelly && isTheBellyForearm(column: column, row: row) ? Region.skin
+                    : hasAHighCollar && isTheHighCollar(column: column, row: row) ? Region.oldTop : region(column: column, row: row) {
                 case .wall: color = (150, 150, 150)
                 case .skin: color = (200, 150, 120)
                 case .oldTop: color = oldTopColor
@@ -202,12 +206,10 @@ private struct MadeUpPerson {
                 let colorHere = hasABeard && (150..<170).contains(column) && (60..<71).contains(row) ? (25, 25, 25) : color
                 rgba[index * 4] = colorHere.0; rgba[index * 4 + 1] = colorHere.1; rgba[index * 4 + 2] = colorHere.2
                 if region(column: column, row: row) != .wall { person[index] = 255 }
-                // The new top is narrower and shorter than the old one, with no sleeves past the torso.
-                if previewCoversTheTorso, (110..<210).contains(column), (76..<196).contains(row) { coverage[index] = 255 }
             }
         }
         let image = rgbImage(bytes: rgba, width: width, height: height)!
-        return ShirtFrozenFrame(cameraImage: image, previewImage: image, personMask: person, previewGarmentCoverage: coverage, torso: torso)
+        return ShirtFrozenFrame(cameraImage: image, personMask: person, torso: torso)
     }
 
     static var bodyParts: ShirtPaintBodyParts {
@@ -255,10 +257,8 @@ private struct TankTopLearner {
             }
         }
         let image = rgbImage(bytes: rgba, width: width, height: height)!
-        // A ghost outline preview, so no garment coverage: only the new tee's own area says where its sleeves land.
-        return ShirtFrozenFrame(
-            cameraImage: image, previewImage: image, personMask: person, previewGarmentCoverage: [UInt8](repeating: 0, count: width * height), torso: torso
-        )
+        // Only the new tee's own area says where its sleeves land.
+        return ShirtFrozenFrame(cameraImage: image, personMask: person, torso: torso)
     }
 }
 
@@ -393,8 +393,8 @@ extension CPUHeavyTests {
         }
 
         @Test func aBareForearmAcrossTheBellyStaysAsFilmedWhateverTheSleevesAndForearmsUnderLongSleevesArePainted() throws {
-            // A ghost outline preview (no preview coverage), so only the new garment's own area is in play.
-            let frame = MadeUpPerson.frame(torso: MadeUpPerson.torsoWithWrists, hasABareForearmAcrossTheBelly: true, previewCoversTheTorso: false)
+            // Only the new garment's own area is in play.
+            let frame = MadeUpPerson.frame(torso: MadeUpPerson.torsoWithWrists, hasABareForearmAcrossTheBelly: true)
             func paints(_ masks: ShirtPaintMasks, _ column: Int, _ row: Int) -> Bool { masks.paintable[row * MadeUpPerson.width + column] > 127 }
             let short = try #require(ShirtPaintMask.make(frame: frame, bodyParts: MadeUpPerson.bodyParts, coverage: shortTopToTheHip))
             let long = try #require(ShirtPaintMask.make(frame: frame, bodyParts: MadeUpPerson.bodyParts, coverage: ShirtCoverage(sleeves: .long, length: .hip)))
@@ -439,6 +439,18 @@ extension CPUHeavyTests {
             #expect(masks.paintable[174 * MadeUpPerson.width + 130] == 0)
             #expect(masks.protected[174 * MadeUpPerson.width + 130] == 255)
             #expect(masks.paintable[174 * MadeUpPerson.width + 160] == 255)
+        }
+
+        @Test func theNewTopsCollarCoversTheOldCollarBesideTheNeckUpToJustAboveTheNeckline() throws {
+            // The learner's neckline is row 74 on the middle of the neck, so the new top's collar reaches 0.05 shoulder widths
+            // (4 pixels) above it, row 70. The old collar beside the neck up to there is painted, and nothing above it is.
+            let masks = try #require(ShirtPaintMask.make(frame: MadeUpPerson.frame(hasAHighCollar: true), bodyParts: MadeUpPerson.bodyParts, coverage: shortTopToTheHip))
+            func paintable(_ column: Int, _ row: Int) -> Bool { masks.paintable[row * MadeUpPerson.width + column] > 127 }
+            #expect(paintable(145, 71) && paintable(174, 71))
+            #expect(paintable(145, 70) && paintable(174, 70))
+            #expect(!paintable(145, 64) && !paintable(174, 64))
+            // The neck itself stays as filmed.
+            #expect(!paintable(160, 70))
         }
 
         @Test func aBeardJustAboveTheCollarIsKeptFromThePaste() throws {
@@ -493,8 +505,8 @@ extension CPUHeavyTests {
         @Test func noMaskWhenTheOldTopCannotBeRead() {
             let frame = MadeUpPerson.frame()
             let nobody = ShirtFrozenFrame(
-                cameraImage: frame.cameraImage, previewImage: frame.previewImage,
-                personMask: [UInt8](repeating: 0, count: frame.personMask.count), previewGarmentCoverage: [UInt8](repeating: 0, count: frame.personMask.count),
+                cameraImage: frame.cameraImage,
+                personMask: [UInt8](repeating: 0, count: frame.personMask.count),
                 torso: BodyTorso(imageLeftShoulder: CGPoint(x: 400, y: 400), imageRightShoulder: CGPoint(x: 401, y: 400), imageLeftHip: CGPoint(x: 400, y: 401), imageRightHip: CGPoint(x: 401, y: 401), hipsWereEstimated: true, shouldersAreSeen: false)
             )
             #expect(ShirtPaintMask.make(frame: nobody, bodyParts: ShirtPaintBodyParts(), coverage: shortTopToTheHip) == nil)

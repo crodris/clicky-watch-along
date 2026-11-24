@@ -5,14 +5,13 @@
 //  Clicky's loop around a real shape in the room art panel. It is the cursor loop's own line (`CursorLoopOutline`,
 //  `CursorLoopTimeline`, `CursorLoopDrawing`) in the theme's accent, drawn by the theme's own cursor glyph
 //  (`CursorLoopTracerGlyph`), which traces it and keeps lapping it while the work runs. It shows in three places only,
-//  each around a shape the learner can recognize: the shirt (`ShirtOutline`, the outline of the learner's own top from the
-//  moment the panel knows it is a shirt until the live garment first shows, held still with a soft fill as the ghost
-//  outline for a garment the live preview cannot draw until the painting starts, and the outline of the area being
-//  painted until the painted still shows), the placed furniture's footprint while its painting comes, and that footprint
-//  again after the piece could not be drawn. The footprint's four corners go through the tracker's current warp each frame, and the line
-//  is bent onto the mapped corners, so it follows the room as the camera turns. While a surface is measured, whether a
-//  wall, a floor, or a clicked table top, no loop shows at all: the only shape known then is a bare window the spot search
-//  scored, which says nothing about the item, so the status line is all the panel draws.
+//  each around a shape the learner can recognize: the shirt being painted (`ShirtOutline`, the outline of the learner's own
+//  top as the frame freezes, then the outline of the area being painted until the painted still shows), the placed
+//  furniture's footprint while its painting comes, and that footprint again after the piece could not be drawn. The
+//  footprint's four corners go through the tracker's current warp each frame, and the line is bent onto the mapped
+//  corners, so it follows the room as the camera turns. While a surface is measured, whether a wall, a floor, or a
+//  clicked table top, no loop shows at all: the only shape known then is a bare window the spot search scored, which says
+//  nothing about the item, so the status line is all the panel draws.
 //
 //  This file holds the pure rules (when the loop shows and clears, the corner mapping, the camera to panel fit, the bent
 //  outline) and the views that draw it.
@@ -30,9 +29,6 @@ enum RoomArtLoopState: Equatable {
     case drawing(beganAt: TimeInterval)
     /// The whole line stays where a press picks the ghost back up, with no glyph lapping it, since no work runs until then.
     case waitingForAClick(beganAt: TimeInterval)
-    /// The whole line stays up with a soft accent fill, with no glyph lapping it: the ghost outline of the area a garment will
-    /// cover, which is the preview for a garment the live 2D preview cannot draw. It stays until the painting starts.
-    case holdingTheGhost(beganAt: TimeInterval)
     /// `tracesTheLine` says whether a glyph laps the line while it fades: a lapping loop keeps lapping, and a still line fades
     /// with no glyph appearing on it. The ghost appearing fades a lapping loop still, since its glyph leaves for the ghost's
     /// lines, and `stillDrawnShare` keeps as much of the line as was drawn then, so a loop still in its first trace does not
@@ -40,31 +36,19 @@ enum RoomArtLoopState: Equatable {
     case fadingOut(beganAt: TimeInterval, tracesTheLine: Bool, stillDrawnShare: Double = 1)
 
     /// The panel's phase changed. The loop starts with placed furniture waiting for its painting, around its ghost's
-    /// footprint, with a shirt being prepared, and with a shirt being painted, and keeps its clock while the work goes on,
-    /// as when the live garment is ready before the learner stands in view. After the furniture could not be drawn, the line
-    /// stays still until a press picks the ghost back up. The ghost appearing, the item or the live garment showing, a floor
-    /// that was not found, or a failure fades it. A panel that closes, is still reading the page, or measures a surface, a
-    /// first measurement or a click's, has no loop at all, since no shape of the item is known until the measurement is back.
-    /// A shirt's ghost outline is the preview, so its loop stays up as a still line with a fill (`holdingTheGhost`) through
-    /// the step-back countdown, until the painting starts.
+    /// footprint, and with a shirt being painted, and keeps its clock while the work goes on. After the furniture could not
+    /// be drawn, the line stays still until a press picks the ghost back up. The ghost appearing, the item or the painted
+    /// still showing, a floor that was not found, or a failure fades it, and so does a shirt painting the learner left or
+    /// that failed. A panel that closes, is still reading the page, or measures a surface, a first measurement or a
+    /// click's, has no loop at all, since no shape of the item is known until the measurement is back. Nothing is drawn on
+    /// the learner before a shirt is painted, so the shirt has no loop until its frame freezes.
     func after(phaseChangedTo phase: RoomArtPhase, at now: TimeInterval) -> RoomArtLoopState {
         switch phase {
-        case .arranging, .preparingTheShirt, .paintingTheShirt:
+        case .arranging, .paintingTheShirt:
             if case .drawing = self { return self }
             return .drawing(beganAt: now)
-        case .waitingToSeeTheLearner(_, let preview), .showingTheShirt(_, let preview), .waitingForTheLearnerToStepBack(_, _, let preview):
-            switch preview {
-            case .ghostOutline:
-                if case .holdingTheGhost = self { return self }
-                return .holdingTheGhost(beganAt: beganAt ?? now)
-            case .liveGarment:
-                // The live garment keeps the loop tracing the learner's own top until it first shows, and then fades it.
-                if case .waitingToSeeTheLearner = phase {
-                    if case .drawing = self { return self }
-                    return .drawing(beganAt: now)
-                }
-                return fadingOutAsTheItemShows()
-            }
+        case .readyToPaintTheShirt, .waitingForTheLearnerToStepBack:
+            return fadingOutAsTheItemShows()
         case .couldNotDraw:
             if let beganAt { return .waitingForAClick(beganAt: beganAt) }
             return .waitingForAClick(beganAt: now)
@@ -76,7 +60,7 @@ enum RoomArtLoopState: Equatable {
             case .drawing(let beganAt):
                 let drawnShare = CursorLoopTimeline.lappingFrame(secondsSinceTheLoopBegan: now - beganAt).drawnShare
                 return .fadingOut(beganAt: beganAt, tracesTheLine: false, stillDrawnShare: drawnShare)
-            case .waitingForAClick(let beganAt), .holdingTheGhost(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)
+            case .waitingForAClick(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)
             case .hidden, .fadingOut: return self
             }
         case .showing, .waitingForAFloorClick, .showingThePaintedShirt, .failed, .roomKeptAfterAFailedItem:
@@ -91,7 +75,7 @@ enum RoomArtLoopState: Equatable {
     private func fadingOutAsTheItemShows() -> RoomArtLoopState {
         switch self {
         case .drawing(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: true)
-        case .waitingForAClick(let beganAt), .holdingTheGhost(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)
+        case .waitingForAClick(let beganAt): return .fadingOut(beganAt: beganAt, tracesTheLine: false)
         case .hidden, .fadingOut: return self
         }
     }
@@ -113,7 +97,7 @@ enum RoomArtLoopState: Equatable {
     /// whole line still.
     var tracesTheLine: Bool {
         switch self {
-        case .waitingForAClick, .holdingTheGhost: return false
+        case .waitingForAClick: return false
         case .fadingOut(_, let tracesTheLine, _): return tracesTheLine
         case .hidden, .drawing: return true
         }
@@ -128,14 +112,8 @@ enum RoomArtLoopState: Equatable {
     var beganAt: TimeInterval? {
         switch self {
         case .hidden: return nil
-        case .drawing(let beganAt), .waitingForAClick(let beganAt), .holdingTheGhost(let beganAt), .fadingOut(let beganAt, _, _): return beganAt
+        case .drawing(let beganAt), .waitingForAClick(let beganAt), .fadingOut(let beganAt, _, _): return beganAt
         }
-    }
-
-    /// Whether the line is the ghost outline of a garment's area, which the view fills softly.
-    var isHoldingTheGhost: Bool {
-        if case .holdingTheGhost = self { return true }
-        return false
     }
 }
 
@@ -356,17 +334,12 @@ struct RoomArtLoopCanvas: View {
     let color: Color
     let tracerLook: CursorLoopTracerLook?
     let showsTheTracer: Bool
-    /// How strongly the line's inside is filled with the accent, 0 for no fill: the ghost outline of a garment's area.
-    var fillOpacity: Double = 0
 
     var body: some View {
         let line = outline.map(CursorLoopLine.init(outline:))
         ZStack {
             Canvas { context, _ in
                 guard let line else { return }
-                if fillOpacity > 0, let outline {
-                    context.fill(outline, with: .color(color.opacity(fillOpacity)))
-                }
                 CursorLoopDrawing.drawTheInk(of: line, upToShare: frame.drawnShare, color: color, in: &context)
             }
             if showsTheTracer, let line, let tracerLook {
@@ -401,14 +374,6 @@ struct RoomArtLoopView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hasAppeared = false
 
-    /// The ghost outline's fill is the furniture ghost's glow at this share, since it lies over the learner's own face and
-    /// body. It breathes slowly and holds still with Reduce Motion.
-    static let ghostFillShareOfTheFurnitureGlow = 0.6
-
-    static func ghostFillOpacity(secondsSinceTheLoopBegan: TimeInterval, reduceMotionIsOn: Bool) -> Double {
-        RoomFurnitureGhostGlow.fillOpacity(secondsSinceDrawn: secondsSinceTheLoopBegan, reduceMotionIsOn: reduceMotionIsOn) * ghostFillShareOfTheFurnitureGlow
-    }
-
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
             // The frame is worked out here, outside the Canvas, because SwiftUI redraws a Canvas only when a value its
@@ -418,8 +383,7 @@ struct RoomArtLoopView: View {
                 secondsSinceTheLoopBegan: secondsSinceTheLoopBegan, reduceMotionIsOn: reduceMotion, tracesTheLine: state.tracesTheLine, stillDrawnShare: state.stillDrawnShare
             )
             RoomArtLoopCanvas(
-                outline: outlineProvider(), frame: plan.frame, color: color, tracerLook: tracerLook, showsTheTracer: plan.showsTheTracer,
-                fillOpacity: state.isHoldingTheGhost ? Self.ghostFillOpacity(secondsSinceTheLoopBegan: secondsSinceTheLoopBegan, reduceMotionIsOn: reduceMotion) : 0
+                outline: outlineProvider(), frame: plan.frame, color: color, tracerLook: tracerLook, showsTheTracer: plan.showsTheTracer
             )
         }
         .opacity(state.isFadingOut || (reduceMotion && !hasAppeared) ? 0 : 1)

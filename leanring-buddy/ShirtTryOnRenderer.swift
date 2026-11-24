@@ -242,9 +242,8 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     /// Each old sleeve, image left first, in shoulder widths.
     private var smoothedOldSleevesInShoulderWidths: [ShirtOldSleeveExtent?] = [nil, nil]
     /// Where the garment and its fill covered the last frame drawn, 0 to 1 in the red channel (the composition's
-    /// `totalAlpha`), nil before a frame is drawn and after `reset()`. The painted still of the shirt reads it as the area
-    /// to paint the shirt inside, so the painting lands where the live preview showed it. Read it on the queue that calls
-    /// `composite`.
+    /// `totalAlpha`), nil before a frame is drawn and after `reset()`. Nothing in the app reads it since the shirt is painted
+    /// with no live preview, and only tests do. Read it on the queue that calls `composite`.
     private(set) var lastDrawnGarmentArea: CIImage?
     private var lastFrameDrewTheSleevesApart = false
     private var lastFrameLaidTheSleevesAlongTheArms = false

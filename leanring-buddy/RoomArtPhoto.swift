@@ -23,10 +23,10 @@ extension RoomArtPlacedItem {
 extension RoomArtPhase {
     /// What a saved photo is named after when the panel shows a result worth keeping, and nil otherwise: the painted shirt
     /// still, an item on its surface, or a kept room whose newest item failed, which still shows the items placed before it.
-    /// A live preview, a ghost, or a painting still on its way shows nothing that is a result yet.
+    /// A shirt not yet painted, a ghost, or a painting still on its way shows nothing that is a result yet.
     nonisolated var photoTitleToSave: String? {
         switch self {
-        case .showingThePaintedShirt(let title, _): return title
+        case .showingThePaintedShirt(let title): return title
         case .showing(let item, _, _): return item.title
         case .roomKeptAfterAFailedItem: return "room"
         default: return nil

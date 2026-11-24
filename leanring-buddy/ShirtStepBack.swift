@@ -6,11 +6,13 @@
 //  keyboard when they say "paint it", too close for the framing (`ShirtFraming.assess` would say stand back), so the
 //  panel no longer freezes at once. "Paint it" (or its alias "right there") and the Paint it button arm a capture,
 //  Clicky says to step back and hold still, and the capture freezes the first frame where the debounced framing has
-//  settled on ready and the torso has held still for `secondsToHoldStill`, with a 3-2-1 countdown on the panel (one
-//  number per half second of the hold, and a soft tick as each number appears). No hold starts in the first
-//  `secondsBeforeAHoldMayStart` after arming, so a learner already in frame at the keyboard does not freeze while
-//  Clicky still says to step back. Moving, or leaving the ready framing, restarts the hold. A capture that has not
-//  frozen within `secondsBeforeGivingUp` disarms.
+//  settled on ready, the torso has settled in one place for `secondsToSettleBeforeTheCountdown` with no number on
+//  screen, and it has then held still for `secondsToHoldStill`, with a 3-2-1 countdown on the panel (one number per half
+//  second of the hold, and a soft tick as each number appears). No hold starts in the first `secondsBeforeAHoldMayStart`
+//  after arming, so a learner already in frame at the keyboard does not freeze while Clicky still says to step back.
+//  Moving, or leaving the ready framing, starts the settle over. Once the countdown shows, only a move past
+//  `stillnessDuringTheCountdownInShoulderWidths`, or leaving the ready framing, stops it, so a learner holding still sees
+//  one countdown. A capture that has not frozen within `secondsBeforeGivingUp` disarms.
 //
 //  Everything here is pure: the caller passes each frame's time, so a test steps the capture by hand and never sleeps.
 //
@@ -74,8 +76,9 @@ nonisolated enum ShirtCaptureEvent: Sendable {
 // MARK: - The capture
 
 nonisolated struct ShirtStepBackCapture: Equatable, Sendable {
-    /// How long the torso must stay still in the ready framing before the frame freezes. The countdown shows
-    /// `countdownNumbers` numbers over it, one per half second, which reads as a countdown on video and not as a flash.
+    /// How long the torso must stay still in the ready framing once the countdown shows before the frame freezes. The
+    /// countdown shows `countdownNumbers` numbers over it, one per half second, which reads as a countdown on video and not
+    /// as a flash.
     static let secondsToHoldStill = 1.5
     static let countdownNumbers = 3
     /// No hold starts in this long after the capture is armed, since a learner already in frame at the keyboard would
@@ -84,14 +87,21 @@ nonisolated struct ShirtStepBackCapture: Equatable, Sendable {
     /// An armed capture that has not frozen within this long disarms, unless a hold is under way, which finishes first.
     /// Standing up from a desk and backing away takes most of ten seconds, so it is longer.
     static let secondsBeforeGivingUp = 18.0
-    /// The torso is still while its shoulder midpoint and its shoulder width stay within this many shoulder widths of where
-    /// the hold began. Pose estimates jitter by a fraction of that, and a learner stepping back moves far more.
-    static let stillnessInShoulderWidths = 0.04
+    /// Before any number shows, the torso must stay within `stillnessToSettleInShoulderWidths` of one place for this long.
+    /// The framing reads ready while the learner is still settling from the step back, and a countdown that started then
+    /// broke at 2 and started over from 3 in Chris's dry run. A settle that breaks starts over with nothing on screen.
+    static let secondsToSettleBeforeTheCountdown = 0.5
+    /// The torso has settled while its shoulder midpoint and its shoulder width stay within this many shoulder widths of
+    /// where the settle began. Pose estimates jitter by a fraction of that, and a learner stepping back moves far more.
+    static let stillnessToSettleInShoulderWidths = 0.04
+    /// Once the countdown shows, the hold breaks only past this many shoulder widths from where the countdown began, so a
+    /// learner holding still who sways or breathes sees one countdown, and one who steps away sees it stop.
+    static let stillnessDuringTheCountdownInShoulderWidths = 0.1
 
     enum Step: Equatable, Sendable {
-        /// Not in the ready framing, or still moving: no number shows.
+        /// Not in the ready framing, moving, or settling: no number shows.
         case keepWaiting
-        /// The torso has held still for part of the hold: show this number, 3 then 2 then 1.
+        /// The torso has held still for part of the countdown: show this number, 3 then 2 then 1.
         case counting(number: Int)
         /// The hold completed on this frame: freeze it.
         case freezeNow
@@ -99,23 +109,26 @@ nonisolated struct ShirtStepBackCapture: Equatable, Sendable {
         case giveUp
     }
 
-    /// Where the torso stood when the hold began, which every later frame is compared against.
+    /// Where the torso stood when the settle or the countdown began, which every later frame is compared against.
     private struct Hold: Equatable, Sendable {
         let shoulderMidpoint: CGPoint
         let shoulderWidth: Double
         let startedAt: TimeInterval
+        /// False while the learner settles, with no number on screen, and true once the countdown shows.
+        let countdownShows: Bool
 
-        init(torso: BodyTorso, startedAt: TimeInterval) {
+        init(torso: BodyTorso, startedAt: TimeInterval, countdownShows: Bool) {
             shoulderMidpoint = torso.shoulderMidpoint
             shoulderWidth = torso.shoulderWidth
             self.startedAt = startedAt
+            self.countdownShows = countdownShows
         }
 
         func holds(still torso: BodyTorso) -> Bool {
+            let limit = (countdownShows ? ShirtStepBackCapture.stillnessDuringTheCountdownInShoulderWidths : ShirtStepBackCapture.stillnessToSettleInShoulderWidths) * shoulderWidth
             let midpointShift = hypot(torso.shoulderMidpoint.x - shoulderMidpoint.x, torso.shoulderMidpoint.y - shoulderMidpoint.y)
             let widthChange = abs(torso.shoulderWidth - shoulderWidth)
-            return midpointShift < ShirtStepBackCapture.stillnessInShoulderWidths * shoulderWidth
-                && widthChange < ShirtStepBackCapture.stillnessInShoulderWidths * shoulderWidth
+            return midpointShift < limit && widthChange < limit
         }
     }
 
@@ -126,22 +139,28 @@ nonisolated struct ShirtStepBackCapture: Equatable, Sendable {
         self.armedAt = armedAt
     }
 
-    /// Takes one frame. `framingKind` is the debounced kind and `torso` the smoothed one the renderer draws on this frame,
+    /// Takes one frame. `framingKind` is the debounced kind and `torso` the smoothed one found for this frame,
     /// nil when no one is in view. A hold counts only in the ready framing, so a learner still leaning in never freezes.
     mutating func advance(framingKind: ShirtFramingKind?, torso: BodyTorso?, at time: TimeInterval) -> Step {
         let torsoInTheReadyFraming: BodyTorso? = framingKind == .ready ? torso : nil
         if let hold, let torsoInTheReadyFraming, hold.holds(still: torsoInTheReadyFraming) {
             let secondsHeld = time - hold.startedAt
+            guard hold.countdownShows else {
+                guard secondsHeld >= Self.secondsToSettleBeforeTheCountdown else { return .keepWaiting }
+                // Settled: the countdown starts here, measured from where the learner stands now.
+                self.hold = Hold(torso: torsoInTheReadyFraming, startedAt: time, countdownShows: true)
+                return .counting(number: Self.countdownNumbers)
+            }
             if secondsHeld >= Self.secondsToHoldStill { return .freezeNow }
             return .counting(number: Self.countdownNumber(afterHolding: secondsHeld))
         }
-        // No hold is under way, or the torso moved or left the ready framing, which restarts it.
+        // No hold is under way, or the torso moved or left the ready framing, which starts the settle over.
         hold = nil
         if time - armedAt >= Self.secondsBeforeGivingUp { return .giveUp }
         guard time - armedAt >= Self.secondsBeforeAHoldMayStart else { return .keepWaiting }
         guard let torsoInTheReadyFraming, torsoInTheReadyFraming.shoulderWidth > 0 else { return .keepWaiting }
-        hold = Hold(torso: torsoInTheReadyFraming, startedAt: time)
-        return .counting(number: Self.countdownNumbers)
+        hold = Hold(torso: torsoInTheReadyFraming, startedAt: time, countdownShows: false)
+        return .keepWaiting
     }
 
     /// A freeze that found nothing to freeze (no person mask yet) starts the hold over, so the countdown never sits on 1.
@@ -149,7 +168,7 @@ nonisolated struct ShirtStepBackCapture: Equatable, Sendable {
         hold = nil
     }
 
-    /// 3 at the start of the hold, then 2 after half a second, then 1 after a whole second.
+    /// 3 at the start of the countdown, then 2 after half a second, then 1 after a whole second.
     static func countdownNumber(afterHolding secondsHeld: TimeInterval) -> Int {
         let secondsPerNumber = secondsToHoldStill / Double(countdownNumbers)
         let numbersAlreadyShown = Int((secondsHeld / secondsPerNumber).rounded(.down))

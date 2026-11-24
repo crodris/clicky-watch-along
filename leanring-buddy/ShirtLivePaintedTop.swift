@@ -15,7 +15,7 @@
 //  - `ShirtLivePaintedTopFollower` is the state the frame processor keeps: the reach, how visible the live top is, and when
 //    the learner is told to stand as they did.
 //
-//  Out of reach, the painted still shows instead, which always exists for either preview kind and never looks stretched.
+//  Out of reach, the painted still shows instead, which always exists and never looks stretched.
 //  There is no relighting: the frozen frame is seconds old from the same camera, so the room's light is the painting's own.
 //
 //  Points are in camera pixels with y down, as `BodyTorso` is. Core Image's y grows up, so a transform crosses

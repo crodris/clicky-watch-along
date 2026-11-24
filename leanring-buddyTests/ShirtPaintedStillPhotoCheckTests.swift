@@ -2,8 +2,8 @@
 //  ShirtPaintedStillPhotoCheckTests.swift
 //  leanring-buddyTests
 //
-//  Paints real store tops onto a real photo of a person through the real Worker, with the app's own pose, person mask, live
-//  preview, paint mask, client, and paste, and measures what the painted still must get right. It runs only with
+//  Paints real store tops onto a real photo of a person through the real Worker, with the app's own pose, person mask,
+//  paint mask, client, and paste, and measures what the painted still must get right. It runs only with
 //  SHIRT_TRYON_PHOTOS_DIR (a folder with standing.jpg, a personal photo that is never committed), SHIRT_PAINT_PRODUCTS
 //  (product photo paths, joined with commas), SHIRT_PAINT_OUTPUT_DIR, SHIRT_PAINT_WORKER (a local Worker's base URL), and
 //  SHIRT_PAINT_APP_SECRET. Each painting costs an OpenAI image edit (about $0.06), so SHIRT_PAINT_REUSE=1 judges the
@@ -12,9 +12,8 @@
 //  (none, short, or long), and SHIRT_PAINT_LENGTH (waist, hip, thigh, knee, or ankle), which default to a short-sleeved T-shirt
 //  to the hip, so a long-sleeved jacket is painted and masked as one. The app is told the cloth color by the page reader, which
 //  this check has none of, so each product also needs SHIRT_PAINT_COLOR_<product file name> (the cloth's main color as #RRGGBB
-//  in sRGB, and SHIRT_PAINT_PRINT_<product file name> for its print, if any) before a painting is paid for. SHIRT_PAINT_GHOST=1 runs the ghost outline's path, as
-//  the app does for a garment the live preview cannot draw: no garment is cut out, the preview is the camera as filmed, and
-//  the mask takes its area from the coverage alone:
+//  in sRGB, and SHIRT_PAINT_PRINT_<product file name> for its print, if any) before a painting is paid for. The frame is frozen as the app freezes
+//  it, as filmed, and the mask takes the new garment's area from the coverage alone:
 //  SHIRT_TRYON_PHOTOS_DIR=/path/photos SHIRT_PAINT_PRODUCTS=/path/a.jpg,/path/b.jpg SHIRT_PAINT_OUTPUT_DIR=/path/out \
 //  SHIRT_PAINT_WORKER=http://localhost:8794 SHIRT_PAINT_APP_SECRET=... SHIRT_PAINT_KIND=jacket SHIRT_PAINT_SLEEVES=long \
 //  SHIRT_PAINT_COLOR_a=#2B4C7E SHIRT_PAINT_COLOR_b=#C9B79C \
@@ -25,8 +24,8 @@
 //    as they were;
 //  - the face, the hands, and the neck: the share of each one's pixels that are byte for byte as filmed, the neck's taken
 //    inside the few pixels its put-back fades in over;
-//  - print sharpness: the painting's mean gradient over the chest against the live preview's, which is the product photo
-//    warped onto the same chest, so 1 is as sharp as the product;
+//  - print sharpness: the painting's mean gradient over the chest against the flat lay warped onto the same chest by the
+//    2D renderer, so 1 is as sharp as the product, or 0 when the product's garment cannot be cut out (a photo on a model);
 //  - the old top at the neck: pixels in the band where the new collar meets the neck that came back as filmed and look like
 //    the old top, per shoulder width, which showed as a stepped dark line between the new collar and the neck;
 //  - the bare arms: the share of the arms and the room beside them, outside what the painting may draw and the new top
@@ -57,7 +56,7 @@ struct ShirtPaintedStillMetrics: Codable {
     var faceExactShare = 0.0
     var handsExactShare = 0.0
     var neckExactShare = 0.0
-    var printSharpnessAgainstThePreview = 0.0
+    var printSharpnessAgainstTheFlatLayReference = 0.0
     var oldTopAtTheNeckPixelsPerShoulderWidth = 0.0
     var bareArmsChangedShare = 0.0
     var seconds = 0.0
@@ -88,7 +87,7 @@ private func meanGradient(of pixels: [UInt8], width: Int, box: CGRect) -> Double
     return count > 0 ? total / Double(count) : 0
 }
 
-/// Side by side at one height: the photo, the product, the live preview, and the painted still.
+/// Side by side at one height: the photo, the product, and the painted still.
 private func sideBySide(_ images: [CGImage], height: Int) -> CGImage? {
     let scaledWidths = images.map { Int(Double($0.width) * Double(height) / Double($0.height)) }
     let gap = 12
@@ -117,7 +116,6 @@ struct ShirtPaintedStillPhotoCheckTests {
         let garmentSleeves = try #require(RoomArtSleeves(rawValue: paintCheckEnvironment["SHIRT_PAINT_SLEEVES"] ?? "short"), "SHIRT_PAINT_SLEEVES is none, short, or long")
         let garmentLength = try #require(RoomArtGarmentLength(rawValue: paintCheckEnvironment["SHIRT_PAINT_LENGTH"] ?? "hip"), "SHIRT_PAINT_LENGTH names no length")
         let coverage = ShirtCoverage(sleeves: garmentSleeves, length: garmentLength)
-        let usesTheGhostOutline = paintCheckEnvironment["SHIRT_PAINT_GHOST"] == "1"
         try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
         // The client reads the secret from the defaults, as the app does, and the test takes it out again after.
         if let appSecret = paintCheckEnvironment["SHIRT_PAINT_APP_SECRET"] { UserDefaults.standard.set(appSecret, forKey: ClickyAppSecret.defaultsKey) }
@@ -193,25 +191,16 @@ struct ShirtPaintedStillPhotoCheckTests {
                 Issue.record("Set SHIRT_PAINT_COLOR_\(shirtName) to the cloth's main color as #RRGGBB, as the page reader would name it. There is none, or it is not #RRGGBB, so no painting is made for \(shirtName).")
                 continue
             }
-            print("Shirt paint check: \(shirtName) cloth \(baseColorHex.isEmpty ? "(none needed)" : baseColorHex), \(garmentKind) \(garmentSleeves) sleeves to the \(garmentLength)\(usesTheGhostOutline ? ", ghost outline" : "")")
-            // The live preview draws the garment over the learner. The ghost outline draws nothing on the camera.
-            let previewImage: CGImage
-            let previewCoverage: [UInt8]
-            if usesTheGhostOutline {
-                previewImage = standingPhoto
-                previewCoverage = [UInt8](repeating: 0, count: width * height)
-            } else {
-                let garment = try #require(ShirtGarment.make(productPhoto: productPhoto, itemCorners: wholePhoto), "no garment in \(shirtName)")
+            print("Shirt paint check: \(shirtName) cloth \(baseColorHex.isEmpty ? "(none needed)" : baseColorHex), \(garmentKind) \(garmentSleeves) sleeves to the \(garmentLength)")
+            // The sharpness reference: the flat lay warped onto the same chest, when its garment can be cut out.
+            let sharpnessReference: CGImage? = try ShirtGarment.make(productPhoto: productPhoto, itemCorners: wholePhoto).map { garment in
                 let renderer = ShirtTryOnRenderer(ciContext: context, analysisRunsInTheBackground: false)
                 for _ in 0..<8 { _ = renderer.composition(frame: frame, personMask: personMask, torso: torso, garment: garment) }
                 let composition = try #require(renderer.composition(frame: frame, personMask: personMask, torso: torso, garment: garment))
-                previewImage = try #require(context.createCGImage(composition.image.cropped(to: frameExtent), from: frameExtent, format: .RGBA8, colorSpace: sRGB))
-                previewCoverage = redChannel(of: composition.totalAlpha)
+                return try #require(context.createCGImage(composition.image.cropped(to: frameExtent), from: frameExtent, format: .RGBA8, colorSpace: sRGB))
             }
-            let frozenFrame = ShirtFrozenFrame(
-                cameraImage: standingPhoto, previewImage: previewImage, personMask: personBytes,
-                previewGarmentCoverage: previewCoverage, torso: torso
-            )
+            // Nothing is drawn on the learner before the painting, so the frozen frame is the photo as filmed.
+            let frozenFrame = ShirtFrozenFrame(cameraImage: standingPhoto, personMask: personBytes, torso: torso)
             let maskStartedAt = Date()
             let masks = try #require(ShirtPaintMask.make(frame: frozenFrame, bodyParts: bodyParts, coverage: coverage))
             print(String(format: "Shirt paint check: %@ mask made in %.2f s, %.1f%% of the frame", shirtName, Date().timeIntervalSince(maskStartedAt), masks.paintableShare * 100))
@@ -274,7 +263,7 @@ struct ShirtPaintedStillPhotoCheckTests {
                 try savePNG(painted, to: paintedURL)
             }
             let paintedPixels = try #require(rgbaBytes(of: painted, width: width, height: height))
-            let previewPixels = try #require(rgbaBytes(of: previewImage, width: width, height: height))
+            let sharpnessReferencePixels = sharpnessReference.flatMap { rgbaBytes(of: $0, width: width, height: height) }
 
             func exactShare(_ region: [Bool]) -> Double {
                 var count = 0, exact = 0
@@ -306,7 +295,7 @@ struct ShirtPaintedStillPhotoCheckTests {
             metrics.neckExactShare = exactShare(ShirtPaintMask.eroded(
                 neckRegion, width: width, height: height, radius: ShirtPaintMask.neckEdgeFadePixels + ShirtPaintMask.neckEdgeSmoothingRadiusPixels
             ))
-            metrics.printSharpnessAgainstThePreview = meanGradient(of: paintedPixels, width: width, box: chestBox) / max(meanGradient(of: previewPixels, width: width, box: chestBox), 0.001)
+            metrics.printSharpnessAgainstTheFlatLayReference = sharpnessReferencePixels.map { meanGradient(of: paintedPixels, width: width, box: chestBox) / max(meanGradient(of: $0, width: width, box: chestBox), 0.001) } ?? 0
 
             // The old top at the neck: pixels in the band where the new collar meets the neck that the paste put back as
             // filmed (within 2 levels) and that look like the old top, as its collar and the tops of its shoulders did when
@@ -345,7 +334,7 @@ struct ShirtPaintedStillPhotoCheckTests {
             print("Shirt paint check: \(shirtName) \(String(data: try JSONEncoder().encode(metrics), encoding: .utf8) ?? "")")
 
             let product = try loadImage(at: URL(fileURLWithPath: productPath))
-            if let sheet = sideBySide([standingPhoto, product, previewImage, painted], height: 720) {
+            if let sheet = sideBySide([standingPhoto, product, painted], height: 720) {
                 try savePNG(sheet, to: outputFolder.appendingPathComponent("side-by-side-\(shirtName).png"))
             }
             #expect(metrics.oldTopLeftShowingShare < 0.01, "\(shirtName): old top left showing")
