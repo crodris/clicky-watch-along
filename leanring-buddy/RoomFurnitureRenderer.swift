@@ -46,6 +46,9 @@ nonisolated struct RoomFurnitureKeyframeLayers: @unchecked Sendable {
     /// frame so it has the same grain as the room around it.
     let cameraNoiseStandardDeviation: Double
     let look: RoomFurnitureLook
+    /// The room's light in the frame the item was made on, which the processor relights it from each frame. Nil for an item
+    /// made on the keyframe, which takes the keyframe's light.
+    var roomLightWhenMade: RoomArtLightReference? = nil
 }
 
 /// One render's numbers for the log and the checks.
@@ -701,15 +704,26 @@ nonisolated enum RoomFurnitureComposition {
     /// The frame with the furniture: the shadow over the floor first, then the item with the camera's grain, both moved from
     /// the keyframe by `keyframeToCurrent`. Black at the shadow's alpha over the floor multiplies the floor's light by one
     /// minus that alpha. `grainOffset` moves the noise each frame, so the grain flickers like the camera's own.
+    /// `lightGains` scales the item in linear light by how the room's light changed since the frame it was made on
+    /// (`RoomArtLightReference.gains(from:to:)`), so it follows a light turned on or the camera's exposure moving.
     static func frameWithTheFurniture(
         frame: CIImage,
         itemLayer: CIImage,
         shadowLayer: CIImage?,
         keyframeToCurrent: CGAffineTransform,
         grainStandardDeviation: Double,
-        grainOffset: CGPoint
+        grainOffset: CGPoint,
+        lightGains: SIMD3<Double> = RoomArtLightReference.unchangedGains
     ) -> CIImage {
-        let movedItem = itemLayer.transformed(by: keyframeToCurrent)
+        // Core Image works in linear light, so scaling each channel here is the exposure change it measured. A pure scale
+        // gives the same result on premultiplied and straight colors, and the alpha stays as it is.
+        let relitItem = lightGains == RoomArtLightReference.unchangedGains ? itemLayer : itemLayer.applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": CIVector(x: lightGains.x, y: 0, z: 0, w: 0),
+            "inputGVector": CIVector(x: 0, y: lightGains.y, z: 0, w: 0),
+            "inputBVector": CIVector(x: 0, y: 0, z: lightGains.z, w: 0),
+            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+        ])
+        let movedItem = relitItem.transformed(by: keyframeToCurrent)
         var composed = frame
         if let shadowLayer {
             composed = shadowLayer.transformed(by: keyframeToCurrent).composited(over: composed)
