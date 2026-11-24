@@ -216,7 +216,16 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         let keyframe: RoomArtKeyframe
         let personMask: CVPixelBuffer?
         let personLowestRowShare: Double?
+        /// The room's light in the keyframe as the camera filmed it, which a look made on the keyframe is relit from.
+        let roomLight: RoomArtLightReference?
     }
+    /// For each furniture layer's light reference in use, the gains that relight it to the room now, smoothed over the
+    /// last few measurements.
+    private var smoothedLightGains: [ObjectIdentifier: SIMD3<Double>] = [:]
+    private var lastRoomLightMeasuredAt: CFTimeInterval = 0
+    private var loggedLightGains = RoomArtLightReference.unchangedGains
+    /// The live room's light is measured this often while a furniture layer shows, a few times a second.
+    private static let secondsBetweenRoomLightMeasurements = 0.2
     /// The items placed in this panel before its newest one, nil until a request keeps the room.
     private var background: RoomArtBackground?
     /// The items a new request fixed into the room, so the next item is placed among them: each draws every frame through
@@ -304,6 +313,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         /// Maps `keyframeCorners` into the keyframe before the tracker's turn: the identity, except for a painting made on a
         /// later frame, whose own pixels are what `keyframeCorners` count.
         var layerToKeyframe = EuclideanWarp.identity
+        /// The room's light in the frame furniture's layers were made on, which each frame relights them from. Nil for wall
+        /// art, which is lit once from the keyframe's wall.
+        var roomLightWhenMade: RoomArtLightReference? = nil
 
         func currentCorners(after cameraWarp: EuclideanWarp) -> [CGPoint] {
             keyframeCorners.map { cameraWarp.apply(to: layerToKeyframe.apply(to: $0)) }
@@ -311,7 +323,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
         /// Furniture's layers over a whole frame of `frameSize`: the tracker carries the frame's own corners, and the layers
         /// follow them.
-        static func keyframeLayers(_ layers: RoomFurnitureKeyframeLayers, frameSize: CGSize, layerToKeyframe: EuclideanWarp) -> PlacedArt {
+        static func keyframeLayers(
+            _ layers: RoomFurnitureKeyframeLayers, frameSize: CGSize, layerToKeyframe: EuclideanWarp, roomLightWhenMade: RoomArtLightReference?
+        ) -> PlacedArt {
             let frameCorners = [
                 CGPoint(x: 0, y: 0), CGPoint(x: frameSize.width, y: 0), CGPoint(x: frameSize.width, y: frameSize.height), CGPoint(x: 0, y: frameSize.height),
             ]
@@ -323,7 +337,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 ),
                 keyframeCorners: frameCorners,
                 keyframeBasePoint: layers.basePointInTheKeyframe,
-                layerToKeyframe: layerToKeyframe
+                layerToKeyframe: layerToKeyframe,
+                roomLightWhenMade: roomLightWhenMade
             )
         }
     }
@@ -727,6 +742,9 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             }
             self.background = background
         }
+        if let trackStep, !trackStep.theArtIsHidden, let cameraWarp {
+            measureTheRoomLightIfDue(in: cameraFrame, keyframeToThisFrame: cameraWarp)
+        }
         // A frame that found no drawable was not shown, so it does not count toward the frame rate.
         if draw(cameraFrame: cameraFrame, backgroundItems: backgroundItemsToDraw, artCorners: artCorners, fadingArtCorners: fadingArtCorners, shirtTorso: shirtTorsoToDraw) {
             noteTheFrame(trackMilliseconds: trackMilliseconds)
@@ -885,7 +903,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             backgroundItems.reduce(frameImage) { roomSoFar, backgroundItem in
                 Self.frameWithTheArt(
                     frameImage: roomSoFar, placedArt: backgroundItem.placedArt, artCorners: backgroundItem.corners,
-                    personMask: personMask, personLowestRowShare: latestPersonLowestRowShare, grainOffset: Self.aNewGrainOffset()
+                    personMask: personMask, personLowestRowShare: latestPersonLowestRowShare, grainOffset: Self.aNewGrainOffset(),
+                    lightGains: lightGains(for: backgroundItem.placedArt)
                 ).cropped(to: frameImage.extent)
             }
         } ?? frameImage
@@ -893,7 +912,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         if let placedArt, let artCorners, let latestPersonMask {
             composedImage = Self.frameWithTheArt(
                 frameImage: roomImage, placedArt: placedArt, artCorners: artCorners,
-                personMask: latestPersonMask, personLowestRowShare: latestPersonLowestRowShare, grainOffset: Self.aNewGrainOffset()
+                personMask: latestPersonMask, personLowestRowShare: latestPersonLowestRowShare, grainOffset: Self.aNewGrainOffset(),
+                lightGains: lightGains(for: placedArt)
             )
             if let crossfadeFrom {
                 let fadeProgress = (CACurrentMediaTime() - crossfadeFrom.startedAt) / Self.crossfadeSeconds
@@ -902,7 +922,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                     fadingArtCorners.map {
                         Self.frameWithTheArt(
                             frameImage: roomImage, placedArt: fadingPlacedArt, artCorners: $0,
-                            personMask: latestPersonMask, personLowestRowShare: latestPersonLowestRowShare, grainOffset: Self.aNewGrainOffset()
+                            personMask: latestPersonMask, personLowestRowShare: latestPersonLowestRowShare, grainOffset: Self.aNewGrainOffset(),
+                            lightGains: lightGains(for: fadingPlacedArt)
                         )
                     }
                 } else {
@@ -975,8 +996,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     /// through the segmentation mask, so the learner stays in front of it, unless furniture stands nearer the camera than
     /// the learner's feet (`roomFurnitureDrawsOverThePerson`). With no mask, no one is drawn back on top. `grainOffset` moves
     /// the furniture's grain, a new offset each frame so it moves like the camera's own.
+    /// `lightGains` relights furniture's layers from the light they were made in to the room's now (`RoomArtLightReference`).
     static func frameWithTheArt(
-        frameImage: CIImage, placedArt: PlacedArt, artCorners: [CGPoint], personMask: CVPixelBuffer?, personLowestRowShare: Double?, grainOffset: CGPoint
+        frameImage: CIImage, placedArt: PlacedArt, artCorners: [CGPoint], personMask: CVPixelBuffer?, personLowestRowShare: Double?, grainOffset: CGPoint,
+        lightGains: SIMD3<Double> = RoomArtLightReference.unchangedGains
     ) -> CIImage {
         let itemOverTheFrame: CIImage
         switch placedArt.drawing {
@@ -992,7 +1015,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 shadowLayer: shadow,
                 keyframeToCurrent: keyframeToCurrent,
                 grainStandardDeviation: grainStandardDeviation,
-                grainOffset: grainOffset
+                grainOffset: grainOffset,
+                lightGains: lightGains
             )
         }
         guard let personMask else { return itemOverTheFrame }
@@ -1015,10 +1039,17 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     /// The keyframe with `placedArt` drawn in, as the panel draws it on the keyframe's own frame: at its keyframe corners,
     /// with the learner of that moment drawn back on top through `personMask`. The grain sits at a fixed offset, so the same
     /// item always bakes to the same pixels. Drawing a second item into the result puts it over the first.
-    static func keyframe(_ keyframeImage: CIImage, withTheItemDrawnIn placedArt: PlacedArt, personMask: CVPixelBuffer?, personLowestRowShare: Double?) -> CIImage {
-        frameWithTheArt(
+    /// `keyframeRoomLight` is the keyframe's own light, which a layer made on a later frame is relit to before it is baked in.
+    static func keyframe(
+        _ keyframeImage: CIImage, withTheItemDrawnIn placedArt: PlacedArt, personMask: CVPixelBuffer?, personLowestRowShare: Double?,
+        keyframeRoomLight: RoomArtLightReference? = nil
+    ) -> CIImage {
+        let lightGains = placedArt.roomLightWhenMade.flatMap { itemLight in
+            keyframeRoomLight.flatMap { RoomArtLightReference.gains(from: itemLight, to: $0) }
+        } ?? RoomArtLightReference.unchangedGains
+        return frameWithTheArt(
             frameImage: keyframeImage, placedArt: placedArt, artCorners: placedArt.currentCorners(after: .identity),
-            personMask: personMask, personLowestRowShare: personLowestRowShare, grainOffset: .zero
+            personMask: personMask, personLowestRowShare: personLowestRowShare, grainOffset: .zero, lightGains: lightGains
         ).cropped(to: keyframeImage.extent)
     }
 
@@ -1155,7 +1186,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 cameraPixelsPerMapPixel: cameraPixelsPerTrackPixel
             ) : nil
         )
-        latestKeyframe = TakenKeyframe(keyframe: keyframe, personMask: latestPersonMask, personLowestRowShare: latestPersonLowestRowShare)
+        latestKeyframe = TakenKeyframe(
+            keyframe: keyframe, personMask: latestPersonMask, personLowestRowShare: latestPersonLowestRowShare,
+            roomLight: roomLight(of: frameImage, personMask: latestPersonMask, keyframeToThisFrame: .identity)
+        )
         return keyframe
     }
 
@@ -1203,7 +1237,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 ?? CIImage(data: latestKeyframe.keyframe.measurementRequest.keyframeJPEGData)
             guard let keyframeImage else { return }
             let bakedImage = Self.keyframe(
-                keyframeImage, withTheItemDrawnIn: placedArt, personMask: latestKeyframe.personMask, personLowestRowShare: latestKeyframe.personLowestRowShare
+                keyframeImage, withTheItemDrawnIn: placedArt, personMask: latestKeyframe.personMask, personLowestRowShare: latestKeyframe.personLowestRowShare,
+                keyframeRoomLight: latestKeyframe.roomLight
             )
             guard let bakedCGImage = self.ciContext.createCGImage(bakedImage, from: keyframeImage.extent, format: .RGBA8, colorSpace: self.sRGBColorSpace),
                   let bakedJPEGData = self.ciContext.jpegRepresentation(
@@ -1236,6 +1271,56 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             self.trackerBeforeTheMove = nil
             self.placedArtBeforeTheMove = nil
         }
+    }
+
+    /// The gains that relight `placedArt` to the room now: the smoothed gains of its light reference, or none before the
+    /// first measurement and for wall art.
+    private func lightGains(for placedArt: PlacedArt) -> SIMD3<Double> {
+        placedArt.roomLightWhenMade.flatMap { smoothedLightGains[ObjectIdentifier($0)] } ?? RoomArtLightReference.unchangedGains
+    }
+
+    /// Measures the live room's light a few times a second while a furniture layer shows, and moves each layer's smoothed
+    /// gains toward it. `keyframeToThisFrame` is the tracker's turn in camera pixels. A layer whose gains cannot be measured
+    /// this time, such as one the learner hides the room around, keeps its gains from before.
+    private func measureTheRoomLightIfDue(in cameraFrame: CVPixelBuffer, keyframeToThisFrame: EuclideanWarp) {
+        let referencesInUse = ([placedArt, crossfadeFrom?.placedArt] + (background?.items.map(\.placedArt) ?? []))
+            .compactMap { $0?.roomLightWhenMade }
+        guard !referencesInUse.isEmpty else {
+            smoothedLightGains = [:]
+            return
+        }
+        let now = CACurrentMediaTime()
+        guard now - lastRoomLightMeasuredAt >= Self.secondsBetweenRoomLightMeasurements else { return }
+        lastRoomLightMeasuredAt = now
+        guard let currentLight = roomLight(of: CIImage(cvPixelBuffer: cameraFrame), personMask: latestPersonMask, keyframeToThisFrame: keyframeToThisFrame) else { return }
+        smoothedLightGains = RoomArtLightReference.smoothedGainsInUse(references: referencesInUse, current: currentLight, previous: smoothedLightGains)
+        // The log shows the newest item's gains each time they move by more than a few percent, so a live check sees the relight.
+        if let newestReference = placedArt?.roomLightWhenMade, let newestGains = smoothedLightGains[ObjectIdentifier(newestReference)],
+           max(abs(newestGains.x - loggedLightGains.x), abs(newestGains.y - loggedLightGains.y), abs(newestGains.z - loggedLightGains.z)) > 0.05 {
+            loggedLightGains = newestGains
+            print(String(format: "Room furniture: the room's light changed, so the item is relit by %.2f, %.2f, %.2f", newestGains.x, newestGains.y, newestGains.z))
+        }
+    }
+
+    /// The room's light in `frameImage`, as a copy at the track size with its learner (`RoomArtLightReference`).
+    /// `keyframeToThisFrame` is the tracker's turn from the keyframe to this frame, in camera pixels.
+    private func roomLight(of frameImage: CIImage, personMask: CVPixelBuffer?, keyframeToThisFrame: EuclideanWarp) -> RoomArtLightReference? {
+        let frameWidth = Int(frameImage.extent.width), frameHeight = Int(frameImage.extent.height)
+        guard frameWidth > 0, frameHeight > 0 else { return nil }
+        let (smallWidth, smallHeight) = trackSize(forFrameWidth: frameWidth, frameHeight: frameHeight)
+        let smallPixelsPerCameraPixel = Double(smallWidth) / Double(frameWidth)
+        let smallImage = frameImage.transformed(by: CGAffineTransform(scaleX: smallPixelsPerCameraPixel, y: Double(smallHeight) / Double(frameHeight)))
+        var rgbaBytes = [UInt8](repeating: 0, count: smallWidth * smallHeight * 4)
+        // The bitmap's first row is the frame's top row, as the person mask's is.
+        ciContext.render(
+            smallImage, toBitmap: &rgbaBytes, rowBytes: smallWidth * 4,
+            bounds: CGRect(x: 0, y: 0, width: smallWidth, height: smallHeight), format: .RGBA8, colorSpace: sRGBColorSpace
+        )
+        return RoomArtLightReference(
+            width: smallWidth, height: smallHeight, rgbaBytes: rgbaBytes,
+            personConfidence: personMask.map { firstPlaneScaled(of: $0, toWidth: smallWidth, height: smallHeight) },
+            keyframeToThisFrame: keyframeToThisFrame.scaled(by: smallPixelsPerCameraPixel)
+        )
     }
 
     /// The wall's average color in a square 16 percent of the frame wide around the spot, in sRGB.
@@ -1288,7 +1373,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             let frameSize = CGSize(width: CVPixelBufferGetWidth(latestFrame), height: CVPixelBufferGetHeight(latestFrame))
             // A first look fades in from the bare room, and a later one from the look before it.
             self.crossfadeFrom = (self.placedArt, CACurrentMediaTime())
-            self.placedArt = .keyframeLayers(layers, frameSize: frameSize, layerToKeyframe: layerToKeyframe)
+            // A look made on the keyframe, such as a render, carries no light of its own and takes the keyframe's.
+            self.placedArt = .keyframeLayers(
+                layers, frameSize: frameSize, layerToKeyframe: layerToKeyframe, roomLightWhenMade: layers.roomLightWhenMade ?? self.latestKeyframe?.roomLight
+            )
             self.smoothedArtCorners = nil
         }
     }
@@ -1344,9 +1432,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
     private func aFrameForThePaintingOnTheQueue(boxInTheKeyframe: [CGPoint]) -> RoomArtPaintingFrame? {
         if let background {
+            // The baked keyframe is the keyframe's own frame, with its light.
             return RoomArtPaintingFrame(
                 jpegData: background.keyframe.measurementRequest.keyframeJPEGData, image: background.keyframeImage,
-                keyframeToFrame: .identity, shareOfTheBoxThePersonCovers: 0
+                keyframeToFrame: .identity, shareOfTheBoxThePersonCovers: 0, roomLight: latestKeyframe?.roomLight
             )
         }
         guard let latestFrame, let latestCameraWarp, !theSurfaceIsLostAsLastReported else { return nil }
@@ -1360,7 +1449,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         let shareCovered = latestPersonMask.map { personMask in
             shareOfTheOutlineThePersonCovers(personMask: personMask, outlineInFramePixels: convexHull(of: boxInTheFrame), frameSize: frameImage.extent.size)
         } ?? 0
-        return RoomArtPaintingFrame(jpegData: jpegData, image: cgImage, keyframeToFrame: latestCameraWarp, shareOfTheBoxThePersonCovers: shareCovered)
+        return RoomArtPaintingFrame(
+            jpegData: jpegData, image: cgImage, keyframeToFrame: latestCameraWarp, shareOfTheBoxThePersonCovers: shareCovered,
+            roomLight: roomLight(of: frameImage, personMask: latestPersonMask, keyframeToThisFrame: latestCameraWarp)
+        )
     }
 
     /// Forgets the footprint loop, which a new keyframe's measurement draws no loop to replace.
@@ -1617,7 +1709,7 @@ final class RoomArtPreviewController: ObservableObject {
                     nonisolated(unsafe) let keyframeImage = keyframe
                     return await Task.detached(priority: .userInitiated) { () -> RoomFurnitureKeyframeLayers? in
                         let composite = RoomFurniturePaintedComposite.itemLayers(
-                            painted: painted.image, pastedRegion: painted.pastedRegion, keyframe: keyframeImage, maskPNG: maskPNG, projectedBox: projectedBox
+                            painted: painted.image, pastedRegion: painted.pastedRegion, pieceLayer: painted.pieceLayer, keyframe: keyframeImage, maskPNG: maskPNG, projectedBox: projectedBox
                         )
                         if let ratio = composite.paintedHeightRatio, let rows = composite.paintedRows {
                             print(String(format: "Room furniture: the painted item is %.0f%% of the measured box's outline (%@)", ratio * 100, roomFurniturePaintedRowsAgainstTheBox(rows, projectedBox)))
@@ -3178,7 +3270,9 @@ extension RoomArtPreviewController {
                 if let layers = await environment.paintedItemLayers(painted, frameImage, maskPNG, projectedBox) {
                     guard !Task.isCancelled, thisOpening == openingNumber else { return nil }
                     // The painting is in the painting frame's pixels, which go back to the keyframe through the tracker's turn.
-                    return RoomFurnitureFinishedPainting(layers: layers, keyframeNumber: keyframeNumber, layerToKeyframe: paintingFrame.keyframeToFrame.inverted)
+                    var layersWithTheirLight = layers
+                    layersWithTheirLight.roomLightWhenMade = paintingFrame.roomLight
+                    return RoomFurnitureFinishedPainting(layers: layersWithTheirLight, keyframeNumber: keyframeNumber, layerToKeyframe: paintingFrame.keyframeToFrame.inverted)
                 }
                 guard !Task.isCancelled, thisOpening == openingNumber else { return nil }
                 print("Room furniture: painting \(attempt) is shorter than the box's front, taller than its outline, off its footprint, or cut off, so it is not shown")
@@ -3217,11 +3311,12 @@ extension RoomArtPreviewController {
         }
         guard writePNG(painted.image, to: fileURL) else { return }
         _ = writePNG(painted.pastedRegion, to: folder.appendingPathComponent("\(stem)-region.png"))
+        _ = writePNG(painted.pieceLayer, to: folder.appendingPathComponent("\(stem)-piece.png"))
         try? keyframeJPEG.write(to: folder.appendingPathComponent("\(stem)-keyframe.jpg"))
         try? maskPNG.write(to: folder.appendingPathComponent("\(stem)-mask.png"))
         let boxNumbers = projectedBox.flatMap { [Double($0.x), Double($0.y)] }
         try? JSONSerialization.data(withJSONObject: boxNumbers).write(to: folder.appendingPathComponent("\(stem)-box.json"))
-        print("Room furniture: wrote the painting to \(fileURL.path), with its pasted region, keyframe, mask, and box beside it")
+        print("Room furniture: wrote the painting to \(fileURL.path), with its pasted region, piece layer, keyframe, mask, and box beside it")
     }
     #endif
 

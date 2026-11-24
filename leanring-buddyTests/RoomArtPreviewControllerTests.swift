@@ -197,7 +197,7 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int, layerToKeyframe: EuclideanWarp) {
         lock.withLock {
             recordedFurnitureLayersShown.append((layers.look, keyframeNumber))
-            newestItem = .keyframeLayers(layers, frameSize: CGSize(width: Self.keyframeImage.width, height: Self.keyframeImage.height), layerToKeyframe: layerToKeyframe)
+            newestItem = .keyframeLayers(layers, frameSize: CGSize(width: Self.keyframeImage.width, height: Self.keyframeImage.height), layerToKeyframe: layerToKeyframe, roomLightWhenMade: layers.roomLightWhenMade)
         }
     }
 
@@ -843,7 +843,7 @@ private final class FurnitureLookStub: RoomFurnitureGenerating {
         let wholeFrameRegion = try #require(grayImage(
             bytes: [UInt8](repeating: 255, count: paintedImage.width * paintedImage.height), width: paintedImage.width, height: paintedImage.height
         ))
-        return RoomFurniturePaintedKeyframe(image: paintedImage, pastedRegion: wholeFrameRegion)
+        return RoomFurniturePaintedKeyframe(image: paintedImage, pastedRegion: wholeFrameRegion, pieceLayer: paintedImage)
     }
 
     static func thatPaintsAtOnce() -> FurnitureLookStub {
@@ -4513,7 +4513,8 @@ struct RoomArtBackgroundBakeTests {
         .keyframeLayers(
             RoomFurnitureKeyframeLayers(itemLayer: layer, shadowLayer: nil, basePointInTheKeyframe: CGPoint(x: 20, y: 0), cameraNoiseStandardDeviation: 0, look: .paintedComposite),
             frameSize: CGSize(width: width, height: height),
-            layerToKeyframe: .identity
+            layerToKeyframe: .identity,
+            roomLightWhenMade: nil
         )
     }
 

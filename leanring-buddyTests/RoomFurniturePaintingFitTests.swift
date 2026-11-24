@@ -423,9 +423,9 @@ extension CPUHeavyTests {
             for (column, row) in [(1060, 800), (1045, 640), (1050, 500), (1070, 880)] {
                 #expect(try pixel(pasted.image, column, row) == pixel(keyframe, column, row), "(\(column), \(row))")
             }
-            // The panel draws the item layer, whose alpha is the pasted region, so the foot is drawn there too.
+            // The panel draws the item layer, the piece alone, and the foot is part of it.
             let judgement = RoomFurniturePaintedComposite.itemLayers(
-                painted: pasted.image, pastedRegion: pasted.pastedRegion, keyframe: keyframe, maskPNG: maskPNG, projectedBox: Self.plushBox
+                painted: pasted.image, pastedRegion: pasted.pastedRegion, pieceLayer: pasted.pieceLayer, keyframe: keyframe, maskPNG: maskPNG, projectedBox: Self.plushBox
             )
             #expect(judgement.refusal == nil, "\(String(describing: judgement.refusal))")
             let itemLayer = try #require(judgement.layers?.itemLayer)
@@ -434,6 +434,134 @@ extension CPUHeavyTests {
             #expect(layerAlpha(1030, 800) == 255)
             #expect(layerAlpha(1060, 800) == 0)
             #expect(layerAlpha(1045, 640) == 0)
+        }
+
+        /// The item layer drawn over a live frame whose light moved since the keyframe, by the panel's own composition, as
+        /// RGBA bytes. `change` gives each live pixel's channel from the keyframe's value and the channel's index.
+        private func itemLayerOverALiveFrame(_ itemLayer: CGImage, keyframe: CGImage, change: (Int, Int) -> Int) throws -> (composed: [UInt8], live: [UInt8]) {
+            var live = try #require(rgbaBytes(of: keyframe, width: Self.frameWidth, height: Self.frameHeight))
+            for byteIndex in 0..<live.count where byteIndex % 4 != 3 {
+                live[byteIndex] = UInt8(max(0, min(255, change(Int(live[byteIndex]), byteIndex % 4))))
+            }
+            let liveFrame = try #require(rgbaImage(live, width: Self.frameWidth, height: Self.frameHeight))
+            let composed = RoomFurnitureComposition.frameWithTheFurniture(
+                frame: CIImage(cgImage: liveFrame), itemLayer: CIImage(cgImage: itemLayer), shadowLayer: nil,
+                keyframeToCurrent: .identity, grainStandardDeviation: 0, grainOffset: .zero
+            )
+            let frameRectangle = CGRect(x: 0, y: 0, width: Self.frameWidth, height: Self.frameHeight)
+            let composedImage = try #require(CIContext().createCGImage(composed, from: frameRectangle, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)))
+            return (try #require(rgbaBytes(of: composedImage, width: Self.frameWidth, height: Self.frameHeight)), live)
+        }
+
+        /// A lamp turned on after the placement makes the live room 40 levels brighter, and the camera's exposure and white
+        /// balance drift a few levels with the light steady. The plush from row 600 fits its box, and from row 488 it is drawn
+        /// too tall and the fit shrinks it, so both of the paste's ways of making the piece layer are drawn.
+        @Test(arguments: ["a light came on", "a small drift"], [600, 488])
+        func theLiveRoomShowsAroundThePieceWhenTheLightChangesSinceTheKeyframe(_ lightChange: String, plushTopRow: Int) throws {
+            let keyframe = try keyframe()
+            let plush = PaintedPart(columns: Self.plushColumns, rows: plushTopRow..<845)
+            let foot = PaintedPart(columns: 986..<1034, rows: 780..<820)
+            #expect(try (fit(of: try reply(parts: [plush, foot], over: keyframe), over: keyframe) != nil) == (plushTopRow == 488))
+            let painting = try reply(parts: [plush, foot], over: keyframe)
+            let (pasted, maskPNG, region) = try pastedWithItsRegion(painting, over: keyframe)
+            let judgement = RoomFurniturePaintedComposite.itemLayers(
+                painted: pasted.image, pastedRegion: pasted.pastedRegion, pieceLayer: pasted.pieceLayer,
+                keyframe: keyframe, maskPNG: maskPNG, projectedBox: Self.plushBox
+            )
+            #expect(judgement.refusal == nil, "\(String(describing: judgement.refusal))")
+            let itemLayer = try #require(judgement.layers?.itemLayer)
+            let (composed, live) = try itemLayerOverALiveFrame(itemLayer, keyframe: keyframe) { value, channel in
+                lightChange == "a light came on" ? value + 40 : value + [4, 2, -2][channel]
+            }
+            let keyframePixels = try #require(rgbaBytes(of: keyframe, width: Self.frameWidth, height: Self.frameHeight))
+            let pastedPixels = try #require(rgbaBytes(of: pasted.image, width: Self.frameWidth, height: Self.frameHeight))
+            func color(_ pixels: [UInt8], _ pixelIndex: Int) -> [Int] { (0..<3).map { Int(pixels[pixelIndex * 4 + $0]) } }
+            func near(_ first: [Int], _ second: [Int]) -> Bool { zip(first, second).allSatisfy { abs($0 - $1) <= 2 } }
+            // Inside the pasted region, the room the paste kept as filmed shows the live frame, not the keyframe.
+            var unchangedRoomInTheRegion = 0, unchangedRoomDrawnOver = 0
+            for pixelIndex in 0..<(Self.frameWidth * Self.frameHeight) where region[pixelIndex] > 0 && color(pastedPixels, pixelIndex) == color(keyframePixels, pixelIndex) {
+                unchangedRoomInTheRegion += 1
+                if !near(color(composed, pixelIndex), color(live, pixelIndex)) { unchangedRoomDrawnOver += 1 }
+            }
+            #expect(unchangedRoomInTheRegion > 5_000, "\(unchangedRoomInTheRegion) pixels of unchanged room in the region")
+            #expect(unchangedRoomDrawnOver == 0, "\(unchangedRoomDrawnOver) of \(unchangedRoomInTheRegion) pixels of unchanged room drawn over")
+            // Every pixel the paste changed strongly and took wholly from the reply, the piece, its foot past the grown mask,
+            // and its contact shadow, is drawn as pasted. Along the piece's softened edge the paste took only a share of the
+            // reply, and the live room shows through by the rest.
+            let layerPixels = try #require(rgbaBytes(of: itemLayer, width: Self.frameWidth, height: Self.frameHeight))
+            var paintedPixels = 0, paintedPixelsNotDrawn = 0
+            for pixelIndex in 0..<(Self.frameWidth * Self.frameHeight) where layerPixels[pixelIndex * 4 + 3] == 255
+                && zip(color(pastedPixels, pixelIndex), color(keyframePixels, pixelIndex)).contains(where: { abs($0 - $1) > 30 }) {
+                paintedPixels += 1
+                if !near(color(composed, pixelIndex), color(pastedPixels, pixelIndex)) { paintedPixelsNotDrawn += 1 }
+            }
+            #expect(paintedPixels > 30_000, "\(paintedPixels) painted pixels")
+            #expect(paintedPixelsNotDrawn == 0, "\(paintedPixelsNotDrawn) of \(paintedPixels) painted pixels not drawn as pasted")
+            if plushTopRow == 600 {
+                // The foot's tip, past the grown mask.
+                #expect(near(color(composed, 800 * Self.frameWidth + 1030), color(pastedPixels, 800 * Self.frameWidth + 1030)))
+                #expect(!near(color(composed, 800 * Self.frameWidth + 1030), color(live, 800 * Self.frameWidth + 1030)))
+            }
+        }
+
+        /// The room's light changed since the painting by a gain per channel in linear light: a lamp turned on (1.35 times
+        /// brighter, which clips the test's wall) or a drift of white balance and exposure of a few percent. Relit by the
+        /// gains measured on the two frames, the item layer over the live frame draws every pixel the paste took wholly from
+        /// the reply as the paste brightened by the same gains, its margin of repainted room included, so no band of the old
+        /// light shows. Drawn as it was made, the margin and the piece keep the old light.
+        @Test(arguments: [SIMD3<Double>(1.35, 1.35, 1.35), SIMD3<Double>(1.04, 1.02, 0.97)], [600, 488])
+        func theRelitLayerTakesTheRoomsNewLight(_ lightChange: SIMD3<Double>, plushTopRow: Int) throws {
+            let keyframe = try keyframe()
+            let plush = PaintedPart(columns: Self.plushColumns, rows: plushTopRow..<845)
+            let foot = PaintedPart(columns: 986..<1034, rows: 780..<820)
+            let painting = try reply(parts: [plush, foot], over: keyframe)
+            let (pasted, maskPNG, _) = try pastedWithItsRegion(painting, over: keyframe)
+            let judgement = RoomFurniturePaintedComposite.itemLayers(
+                painted: pasted.image, pastedRegion: pasted.pastedRegion, pieceLayer: pasted.pieceLayer,
+                keyframe: keyframe, maskPNG: maskPNG, projectedBox: Self.plushBox
+            )
+            let itemLayer = try #require(judgement.layers?.itemLayer)
+            let keyframePixels = try #require(rgbaBytes(of: keyframe, width: Self.frameWidth, height: Self.frameHeight))
+            let pastedPixels = try #require(rgbaBytes(of: pasted.image, width: Self.frameWidth, height: Self.frameHeight))
+            let layerPixels = try #require(rgbaBytes(of: itemLayer, width: Self.frameWidth, height: Self.frameHeight))
+            func relit(_ pixels: [UInt8]) -> [UInt8] {
+                var relitPixels = pixels
+                for byteIndex in 0..<pixels.count where byteIndex % 4 != 3 {
+                    relitPixels[byteIndex] = sRGBByte(ofLinearLight: RoomArtLightReference.linearLight(ofSRGBByte: pixels[byteIndex]) * lightChange[byteIndex % 4])
+                }
+                return relitPixels
+            }
+            let livePixels = relit(keyframePixels)
+            let liveFrame = try #require(rgbaImage(livePixels, width: Self.frameWidth, height: Self.frameHeight))
+            func lightReference(_ pixels: [UInt8]) -> RoomArtLightReference {
+                RoomArtLightReference(width: Self.frameWidth, height: Self.frameHeight, rgbaBytes: pixels, personConfidence: nil, keyframeToThisFrame: .identity)
+            }
+            let measuredGains = try #require(RoomArtLightReference.gains(from: lightReference(keyframePixels), to: lightReference(livePixels)))
+            let expectedPixels = relit(pastedPixels)
+            let frameRectangle = CGRect(x: 0, y: 0, width: Self.frameWidth, height: Self.frameHeight)
+            func pixelsOffTheNewLight(lightGains: SIMD3<Double>) throws -> (off: Int, covered: Int) {
+                let composed = RoomFurnitureComposition.frameWithTheFurniture(
+                    frame: CIImage(cgImage: liveFrame), itemLayer: CIImage(cgImage: itemLayer), shadowLayer: nil,
+                    keyframeToCurrent: .identity, grainStandardDeviation: 0, grainOffset: .zero, lightGains: lightGains
+                )
+                let composedImage = try #require(CIContext().createCGImage(composed, from: frameRectangle, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)))
+                let composedPixels = try #require(rgbaBytes(of: composedImage, width: Self.frameWidth, height: Self.frameHeight))
+                var off = 0, covered = 0
+                // Where the layer is partly clear, Core Image blends it with the live room in linear light, while the paste
+                // blended the reply with the keyframe in sRGB, so only the pixels the paste took wholly from the reply are compared.
+                for pixelIndex in 0..<(Self.frameWidth * Self.frameHeight) where layerPixels[pixelIndex * 4 + 3] == 255 {
+                    covered += 1
+                    if (0..<3).contains(where: { abs(Int(composedPixels[pixelIndex * 4 + $0]) - Int(expectedPixels[pixelIndex * 4 + $0])) > 3 }) { off += 1 }
+                }
+                return (off, covered)
+            }
+            let relitResult = try pixelsOffTheNewLight(lightGains: measuredGains)
+            #expect(relitResult.covered > 30_000)
+            #expect(relitResult.off == 0, "\(relitResult.off) of \(relitResult.covered) pixels the layer covers are off the room's new light")
+            if lightChange.x > 1.2 {
+                let unrelitResult = try pixelsOffTheNewLight(lightGains: RoomArtLightReference.unchangedGains)
+                #expect(unrelitResult.off > relitResult.covered / 2, "only \(unrelitResult.off) pixels kept the old light")
+            }
         }
 
         /// The reply pasted with the box and its region, and the region's gray bytes.

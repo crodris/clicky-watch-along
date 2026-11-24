@@ -375,10 +375,11 @@ struct RoomFurnitureRoomCheckTests {
         let sizeWords = String(format: "%.0f cm wide, %.0f cm tall, %.0f cm deep", inputs.widthMeters * 100, inputs.heightMeters * 100, inputs.depthMeters * 100)
         let paintingStartedAt = Date()
         // ROOM_FURNITURE_PAINTING judges a painting an earlier run saved, with no new request.
-        let painted: CGImage, pastedRegion: CGImage?
+        let painted: CGImage, pastedRegion: CGImage?, pieceLayer: CGImage?
         if let savedPaintingPath = roomCheckEnvironment["ROOM_FURNITURE_PAINTING"] {
             painted = try loadImage(savedPaintingPath)
             pastedRegion = nil
+            pieceLayer = nil
         } else {
             let paintedKeyframe = try await client.paintTheItemIntoTheKeyframe(
                 keyframeJPEG: inputs.keyframeJPEG, keyframeWidth: inputs.keyframeImage.width, keyframeHeight: inputs.keyframeImage.height,
@@ -387,9 +388,10 @@ struct RoomFurnitureRoomCheckTests {
             )
             painted = paintedKeyframe.image
             pastedRegion = paintedKeyframe.pastedRegion
+            pieceLayer = paintedKeyframe.pieceLayer
         }
         let paintingSeconds = Date().timeIntervalSince(paintingStartedAt)
-        let painting = RoomFurniturePaintedComposite.itemLayers(painted: painted, pastedRegion: pastedRegion, keyframe: inputs.keyframeImage, maskPNG: maskPNG, projectedBox: projectedBox)
+        let painting = RoomFurniturePaintedComposite.itemLayers(painted: painted, pastedRegion: pastedRegion, pieceLayer: pieceLayer, keyframe: inputs.keyframeImage, maskPNG: maskPNG, projectedBox: projectedBox)
         print(String(format: "Room furniture check: painted in %.1f s, painted height %.2f of the measured box (%@)", paintingSeconds, painting.paintedHeightRatio ?? -1,
                      painting.paintedRows.map { roomFurniturePaintedRowsAgainstTheBox($0, projectedBox) } ?? "nothing painted"))
         let paintedFrame = try painting.layers.map { try inputs.composed($0) } ?? painted
@@ -484,10 +486,12 @@ struct RoomFurnitureSavedPaintingCheck {
             let painting = try loadImage(stem + ".png")
             // A run before the paste returned its region saved none, and its region is the grown mask.
             let pastedRegion = FileManager.default.fileExists(atPath: stem + "-region.png") ? try loadImage(stem + "-region.png") : nil
+            // A run before the paste returned its piece layer saved none, and its item layer is the painting in its region.
+            let pieceLayer = FileManager.default.fileExists(atPath: stem + "-piece.png") ? try loadImage(stem + "-piece.png") : nil
             let maskPNG = try Data(contentsOf: URL(fileURLWithPath: stem + "-mask.png"))
             let boxNumbers = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: stem + "-box.json"))) as? [Double])
             let projectedBox = stride(from: 0, to: boxNumbers.count - 1, by: 2).map { CGPoint(x: boxNumbers[$0], y: boxNumbers[$0 + 1]) }
-            let judgement = RoomFurniturePaintedComposite.itemLayers(painted: painting, pastedRegion: pastedRegion, keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
+            let judgement = RoomFurniturePaintedComposite.itemLayers(painted: painting, pastedRegion: pastedRegion, pieceLayer: pieceLayer, keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
             print(String(
                 format: "Saved painting check: %@ %@, %.0f%% of the outline (%@)",
                 URL(fileURLWithPath: stem).lastPathComponent, judgement.refusal.map { "refused, \($0)" } ?? "kept",
@@ -513,14 +517,15 @@ struct RoomFurnitureRawReplyCheck {
         let paintedKeyframe = try #require(furnitureCompositePastedWithItsRegion(keyframe: keyframe, generated: reply, mask: mask, projectedBox: projectedBox, context: CIContext()))
         let pasteSeconds = Date().timeIntervalSince(startedAt)
         let judgement = RoomFurniturePaintedComposite.itemLayers(
-            painted: paintedKeyframe.image, pastedRegion: paintedKeyframe.pastedRegion, keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox
+            painted: paintedKeyframe.image, pastedRegion: paintedKeyframe.pastedRegion, pieceLayer: paintedKeyframe.pieceLayer,
+            keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox
         )
         print(String(
             format: "Raw reply check: pasted in %.2f s, %@, %.0f%% of the outline (%@)", pasteSeconds,
             judgement.refusal.map { "refused, \($0)" } ?? "kept", (judgement.paintedHeightRatio ?? 0) * 100,
             judgement.paintedRows.map { roomFurniturePaintedRowsAgainstTheBox($0, projectedBox) } ?? "nothing painted"
         ))
-        // The item layer is what the panel draws: the pasted image inside its region.
+        // The item layer is what the panel draws: the piece alone.
         let outputURL = URL(fileURLWithPath: try #require(roomCheckEnvironment["RAW_REPLY_OUT"]))
         writePNG(paintedKeyframe.image, to: outputURL)
         if let itemLayer = judgement.layers?.itemLayer {

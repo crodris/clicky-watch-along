@@ -165,11 +165,14 @@ nonisolated enum RoomFurniturePaintedComposite {
     /// the bottom row, and a piece that floats above the visible footprint is refused. Also returns the painted height as a
     /// share of the box's outline and the painted rows' span (top and bottom in y-down keyframe pixels) for the log, each nil
     /// when nothing was painted. `pastedRegion` is where the client pasted the painting (`RoomFurniturePaintedKeyframe`), which
-    /// is the item layer's alpha and where the painting is measured. A painting with none, such as one a test draws or an
-    /// earlier Debug run saved, takes the mask grown by the paste's slack, with its feather.
+    /// is where the painting is measured. A painting with none, such as one a test draws or an earlier Debug run saved, takes
+    /// the mask grown by the paste's slack, with its feather. `pieceLayer` is the client's piece alone
+    /// (`RoomFurniturePaintedKeyframe.pieceLayer`), which is the item layer, so the live room shows everywhere the paste kept
+    /// the keyframe. A painting with none takes the painting inside the pasted region, keyframe room and all.
     static func itemLayers(
         painted: CGImage,
         pastedRegion givenPastedRegion: CGImage? = nil,
+        pieceLayer: CGImage? = nil,
         keyframe: CGImage,
         maskPNG: Data,
         projectedBox: [CGPoint],
@@ -181,8 +184,7 @@ nonisolated enum RoomFurniturePaintedComposite {
               let maskImage = CGImageSourceCreateImageAtIndex(maskSource, 0, nil) else { return unreadable }
         let frameRectangle = CGRect(x: 0, y: 0, width: keyframe.width, height: keyframe.height)
         let paintedImage = CIImage(cgImage: painted)
-        // The client left the keyframe as filmed outside the region it pasted in, so that region is the item layer's alpha
-        // and where the painting is measured.
+        // The client left the keyframe as filmed outside the region it pasted in, so the painting is measured there.
         guard let pastedRegion = givenPastedRegion ?? grownMaskImage(
             maskImage, frameExtent: frameRectangle, radiusPixels: furnitureCompositePasteSlackPixels,
             blurPixels: furnitureCompositePasteFeatherPixels, context: ciContext
@@ -232,12 +234,18 @@ nonisolated enum RoomFurniturePaintedComposite {
             return refused(.floorContactOffTheFootprint(contact: floorContact, footprint: footprintInTheFrame))
         }
 
-        let itemLayer = paintedImage.applyingFilter("CIBlendWithMask", parameters: [
-            kCIInputBackgroundImageKey: CIImage.empty(),
-            kCIInputMaskImageKey: mask,
-        ]).cropped(to: frameRectangle)
-        guard let itemLayerImage = ciContext.createCGImage(itemLayer, from: frameRectangle, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()) else {
-            return refused(.unreadable)
+        let itemLayerImage: CGImage
+        if let pieceLayer {
+            itemLayerImage = pieceLayer
+        } else {
+            let itemLayer = paintedImage.applyingFilter("CIBlendWithMask", parameters: [
+                kCIInputBackgroundImageKey: CIImage.empty(),
+                kCIInputMaskImageKey: mask,
+            ]).cropped(to: frameRectangle)
+            guard let maskedPainting = ciContext.createCGImage(itemLayer, from: frameRectangle, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()) else {
+                return refused(.unreadable)
+            }
+            itemLayerImage = maskedPainting
         }
         let layers = RoomFurnitureKeyframeLayers(
             itemLayer: itemLayerImage,

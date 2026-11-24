@@ -735,15 +735,17 @@ nonisolated func furniturePaintingFit(
 /// The keyframe with the painted piece shrunk by `fit` and laid over it. The piece is the fit's own (its weights, its
 /// shadow included, and its tone-matched reply), and each output pixel in the search rectangle reads the reply and that
 /// weight back through the shrink with a bilinear read, so the room the oversized piece covered shows as filmed. Also returns
-/// that weight at each frame pixel, 0 to 1, which is where the paste took the painting from.
+/// that weight at each frame pixel, 0 to 1, which is where the paste took the painting from, and the shrunk piece alone as
+/// premultiplied RGBA bytes (`RoomFurniturePaintedKeyframe.pieceLayer`).
 nonisolated func furniturePiecePastedAfterTheFit(
     keyframePixels: [UInt8], width: Int, height: Int, fit: FurniturePaintingFit
-) -> (pixels: [UInt8], pieceWeights: [Float]) {
+) -> (pixels: [UInt8], pieceWeights: [Float], pieceLayerPixels: [UInt8]) {
     let search = fit.searchRectangle
     let searchLeft = Int(search.minX), searchTop = Int(search.minY), searchRight = Int(search.maxX) - 1, searchBottom = Int(search.maxY) - 1
     let searchWidth = searchRight - searchLeft + 1
     var pastedPixels = keyframePixels
     var pieceWeights = [Float](repeating: 0, count: width * height)
+    var pieceLayerPixels = [UInt8](repeating: 0, count: width * height * 4)
     func readBilinear(_ sampleColumn: Double, _ sampleRow: Double, _ value: (Int, Int) -> Float) -> Float {
         let left = Int(sampleColumn.rounded(.down)), top = Int(sampleRow.rounded(.down))
         let columnShare = Float(sampleColumn - Double(left)), rowShare = Float(sampleRow - Double(top))
@@ -763,16 +765,18 @@ nonisolated func furniturePiecePastedAfterTheFit(
             }
             guard weight > 0 else { continue }
             pieceWeights[row * width + column] = weight
+            pieceLayerPixels[(row * width + column) * 4 + 3] = UInt8((weight * 255).rounded())
             for channel in 0..<3 {
                 let value = readBilinear(sourceX, sourceY) { sourceColumn, sourceRow in
                     Float(fit.correctedReplyInTheSearch[((sourceRow - searchTop) * searchWidth + sourceColumn - searchLeft) * 4 + channel])
                 }
                 let byteIndex = (row * width + column) * 4 + channel
                 pastedPixels[byteIndex] = UInt8((Float(keyframePixels[byteIndex]) * (1 - weight) + value * weight).rounded())
+                pieceLayerPixels[byteIndex] = UInt8((value * weight).rounded())
             }
         }
     }
-    return (pastedPixels, pieceWeights)
+    return (pastedPixels, pieceWeights, pieceLayerPixels)
 }
 
 /// The RGBA bytes of the `cropWidth` by `cropHeight` rectangle at `left`, `top` of a frame `frameWidth` pixels wide.
@@ -902,13 +906,20 @@ nonisolated func furniturePiecePastTheGrownMask(
     return thePieceChangedPastTheGrownMask ? frameWeights : nil
 }
 
-/// The keyframe with the painted piece pasted in, and the region the paste took the painting from: an 8-bit gray image of
-/// the keyframe's size, 255 where the paste may keep the painting, 0 where it keeps the keyframe, and between them along
-/// its feathered edge. It is the item layer's alpha (`RoomFurniturePaintedComposite.itemLayers`).
+/// The keyframe with the painted piece pasted in, the region the paste took the painting from, and the piece alone.
+/// `pastedRegion` is an 8-bit gray image of the keyframe's size, 255 where the paste may keep the painting, 0 where it keeps
+/// the keyframe, and between them along its feathered edge. The judge measures the painting inside it
+/// (`RoomFurniturePaintedComposite.itemLayers`). Most of it is room the paste kept as filmed, since only the piece keeps the
+/// reply (`furniturePieceWeights`).
+/// `pieceLayer` is the item layer the panel draws: a premultiplied RGBA image of the keyframe's size holding the
+/// tone-matched reply where the paste kept it, with alpha the share it kept (the piece, its contact shadow, and the piece
+/// past the grown mask), and transparent everywhere the paste kept the keyframe. Drawing the keyframe's own room over the
+/// live frame showed a box behind the piece once the camera's exposure or white balance moved, even a few levels.
 nonisolated struct RoomFurniturePaintedKeyframe: @unchecked Sendable {
     // @unchecked because CGImage is immutable, so sharing one across tasks is safe.
     let image: CGImage
     let pastedRegion: CGImage
+    let pieceLayer: CGImage
 }
 
 /// The paste of `furnitureCompositePastedWithItsRegion` without its region, for a caller that draws the whole image.
@@ -976,8 +987,9 @@ nonisolated func furnitureCompositePastedWithItsRegion(
         let fitted = furniturePiecePastedAfterTheFit(keyframePixels: keyframePixels, width: width, height: height, fit: fit)
         // The shrunk piece can land past the grown mask, beside the box, so the region holds it too.
         guard let fittedImage = rgbaImage(fitted.pixels, width: width, height: height),
+              let pieceLayer = rgbaImage(fitted.pieceLayerPixels, width: width, height: height),
               let region = pastedRegion(pasteWeights: pasteWeights, pieceWeights: fitted.pieceWeights, width: width, height: height) else { return nil }
-        return RoomFurniturePaintedKeyframe(image: fittedImage, pastedRegion: region)
+        return RoomFurniturePaintedKeyframe(image: fittedImage, pastedRegion: region, pieceLayer: pieceLayer)
     }
 
     // The ring is the room the paste does not take but the grown mask reaches: the closest room to the piece.
@@ -1000,18 +1012,24 @@ nonisolated func furnitureCompositePastedWithItsRegion(
     } : nil
 
     var pastedPixels = keyframePixels
+    // The piece alone, premultiplied: the reply times the share the paste kept, with that share as its alpha.
+    var pieceLayerPixels = [UInt8](repeating: 0, count: width * height * 4)
     pastedPixels.withUnsafeMutableBufferPointer { pastedBytes in
-        correctedReplyPixels.withUnsafeBufferPointer { correctedBytes in
-            pasteWeights.withUnsafeBufferPointer { pasteWeightBytes in
-                pieceWeights.withUnsafeBufferPointer { pieceWeightValues in
-                    for pixelIndex in 0..<(width * height) {
-                        let replyShareInTheGrownMask = Float(pasteWeightBytes[pixelIndex]) / 255 * pieceWeightValues[pixelIndex]
-                        let replyShare = max(replyShareInTheGrownMask, pieceWeightsPastTheGrownMask?[pixelIndex] ?? 0)
-                        guard replyShare > 0 else { continue }
-                        for channel in 0..<3 {
-                            let byteIndex = pixelIndex * 4 + channel
-                            let blended = Float(pastedBytes[byteIndex]) * (1 - replyShare) + Float(correctedBytes[byteIndex]) * replyShare
-                            pastedBytes[byteIndex] = UInt8(blended.rounded())
+        pieceLayerPixels.withUnsafeMutableBufferPointer { pieceLayerBytes in
+            correctedReplyPixels.withUnsafeBufferPointer { correctedBytes in
+                pasteWeights.withUnsafeBufferPointer { pasteWeightBytes in
+                    pieceWeights.withUnsafeBufferPointer { pieceWeightValues in
+                        for pixelIndex in 0..<(width * height) {
+                            let replyShareInTheGrownMask = Float(pasteWeightBytes[pixelIndex]) / 255 * pieceWeightValues[pixelIndex]
+                            let replyShare = max(replyShareInTheGrownMask, pieceWeightsPastTheGrownMask?[pixelIndex] ?? 0)
+                            guard replyShare > 0 else { continue }
+                            pieceLayerBytes[pixelIndex * 4 + 3] = UInt8((replyShare * 255).rounded())
+                            for channel in 0..<3 {
+                                let byteIndex = pixelIndex * 4 + channel
+                                let blended = Float(pastedBytes[byteIndex]) * (1 - replyShare) + Float(correctedBytes[byteIndex]) * replyShare
+                                pastedBytes[byteIndex] = UInt8(blended.rounded())
+                                pieceLayerBytes[byteIndex] = UInt8((Float(correctedBytes[byteIndex]) * replyShare).rounded())
+                            }
                         }
                     }
                 }
@@ -1019,10 +1037,11 @@ nonisolated func furnitureCompositePastedWithItsRegion(
         }
     }
 
-    guard let pastedImage = rgbaImage(pastedPixels, width: width, height: height) else { return nil }
-    guard let pieceWeightsPastTheGrownMask else { return RoomFurniturePaintedKeyframe(image: pastedImage, pastedRegion: pasteMask) }
+    guard let pastedImage = rgbaImage(pastedPixels, width: width, height: height),
+          let pieceLayer = rgbaImage(pieceLayerPixels, width: width, height: height) else { return nil }
+    guard let pieceWeightsPastTheGrownMask else { return RoomFurniturePaintedKeyframe(image: pastedImage, pastedRegion: pasteMask, pieceLayer: pieceLayer) }
     guard let region = pastedRegion(pasteWeights: pasteWeights, pieceWeights: pieceWeightsPastTheGrownMask, width: width, height: height) else { return nil }
-    return RoomFurniturePaintedKeyframe(image: pastedImage, pastedRegion: region)
+    return RoomFurniturePaintedKeyframe(image: pastedImage, pastedRegion: region, pieceLayer: pieceLayer)
 }
 
 /// At each pixel, whichever of two replies differs less from the keyframe in its most changed channel, as RGBA bytes.

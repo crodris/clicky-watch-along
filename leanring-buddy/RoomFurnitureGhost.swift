@@ -621,6 +621,9 @@ nonisolated struct RoomArtPaintingFrame: @unchecked Sendable {
     let keyframeToFrame: EuclideanWarp
     /// How much of the ghost's box the learner covers in this frame, from 0 to 1.
     let shareOfTheBoxThePersonCovers: Double
+    /// The room's light in this frame, which a painting made on it is relit from as the light changes. Nil when it could
+    /// not be measured, and the keyframe's light stands in.
+    var roomLight: RoomArtLightReference? = nil
 
     /// The box's corners in this frame's pixels.
     func boxInThisFrame(_ boxInTheKeyframe: [CGPoint]) -> [CGPoint] {
