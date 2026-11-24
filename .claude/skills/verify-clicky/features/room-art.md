@@ -154,7 +154,7 @@ Preconditions:
 ## Gotchas
 
 - Depth Pro takes about 14 s warm and about 100 s for its first load, so start the service before the run. A shirt makes no depth call, so it needs no service.
-- A Debug build cuts the painted top out of the painted still in a few seconds and follows the learner at fewer frames a second, since it runs unoptimized. Judge the painted top's look, not its timing, in a Debug build.
+- A Debug build runs the shirt's paint mask (about 6 to 8 s) and the painted top unoptimized, so both are slower than in a release build. Judge the painted top's look, not its timing, in a Debug build.
 - A second Depth Pro process on the same GPU slows both. Stop any other one first.
 - The depth service keeps the last two depth maps, so furniture's wall request on the floor's keyframe answers in under a second with `depthWasCached` true. A restart empties it.
 - The depth service refuses a request with an `Origin` header (403) or without `content-type: application/json` (415). `$V post` goes through the Worker, which sends neither an Origin header nor a non-JSON body, but a hand-written `curl` to port 8801 needs `-H 'content-type: application/json'`.

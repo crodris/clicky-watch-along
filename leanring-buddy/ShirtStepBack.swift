@@ -11,8 +11,8 @@
 //  second of the hold, and a soft tick as each number appears). No hold starts in the first `secondsBeforeAHoldMayStart`
 //  after arming, so a learner already in frame at the keyboard does not freeze while Clicky still says to step back.
 //  Moving, or leaving the ready framing, starts the settle over. Once the countdown shows, only a move past
-//  `stillnessDuringTheCountdownInShoulderWidths` stops it, so a learner holding still sees one countdown. A capture that
-//  has not frozen within `secondsBeforeGivingUp` disarms.
+//  `stillnessDuringTheCountdownInShoulderWidths`, or leaving the ready framing, stops it, so a learner holding still sees
+//  one countdown. A capture that has not frozen within `secondsBeforeGivingUp` disarms.
 //
 //  Everything here is pure: the caller passes each frame's time, so a test steps the capture by hand and never sleeps.
 //

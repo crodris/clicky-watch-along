@@ -733,7 +733,8 @@ nonisolated private struct TorsoGeometry {
     let upward: SIMD2<Double>
     let neckBase: SIMD2<Double>
     let torsoLength: Double
-    /// The neck's base sits this far above the shoulder midpoint. `ShirtFrameAnalysis` uses the same 0.10 for its own neck base.
+    /// The neck's base sits this far above the shoulder midpoint.
+    /// `ShirtFrameAnalysis` uses the same 0.10 for its own neck base.
     static let neckBaseAboveTheShouldersInShoulderWidths = 0.10
 
     init(torso: BodyTorso) {

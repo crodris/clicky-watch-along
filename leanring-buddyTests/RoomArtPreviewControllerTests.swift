@@ -3472,7 +3472,7 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.spokenLines() == [roomArtShirtReadyLine])
 
         // A painting that fails returns to the ready phase, and only its failure line is new.
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the failure line") { harness.spokenLines().last == ShirtPaintingFailure.paintingFailed.spokenLine }
         #expect(harness.controller.phase == .readyToPaintTheShirt(title: "Linen shirt"))
         #expect(harness.spokenLines().filter { $0 == roomArtShirtReadyLine }.count == 1)
@@ -3576,8 +3576,8 @@ struct RoomArtPreviewControllerTests {
         }
     }
 
-    /// "Right there" arms the capture, and the learner steps back and holds still, so the newest capture freezes a frame.
-    private func sayRightThereAndHoldStill(_ harness: RoomArtHarness) async throws {
+    /// "Paint it" arms the capture, and the learner steps back and holds still, so the newest capture freezes a frame.
+    private func sayPaintItAndHoldStill(_ harness: RoomArtHarness) async throws {
         harness.controller.paintTheShirt()
         guard case .waitingForTheLearnerToStepBack = harness.controller.phase else {
             Issue.record("The capture is not armed: \(harness.controller.phase)")
@@ -3600,7 +3600,7 @@ struct RoomArtPreviewControllerTests {
             shirtPainting: shirtPainting, reading: shirtReading(photoShows: .onModel, frontPictureIndex: 1), picture: picture
         )
 
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the painting to be sent") { shirtPainting.requests.count == 1 }
         let paintingRequest = try #require(shirtPainting.requests.first)
         let productImage = try #require(decodedImage(from: paintingRequest.productJPEG))
@@ -3684,7 +3684,7 @@ struct RoomArtPreviewControllerTests {
         let shirtPainting = ShirtPaintingStub()
         let harness = try await harnessReadyToPaintTheShirt(shirtPainting: shirtPainting)
 
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the painted top to follow the learner") { harness.frameProcessor.livePaintedTopsFollowed == 1 }
         // The top is cut out of the still that was painted, for this garment, and nothing else is asked.
         #expect(shirtPainting.livePaintedTopsAsked == 1)
@@ -3711,7 +3711,7 @@ struct RoomArtPreviewControllerTests {
     @Test func goingBackAndPaintingAgainStartsWithTheStillsOwnLineAfterAnOutOfReachHint() async throws {
         let shirtPainting = ShirtPaintingStub()
         let harness = try await harnessReadyToPaintTheShirt(shirtPainting: shirtPainting)
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the painted top to follow the learner") { harness.frameProcessor.livePaintedTopsFollowed == 1 }
         harness.frameProcessor.reportThePaintedTopHint(showing: true)
         try await waitFor("the out of reach line") { harness.statusLine() == roomArtShirtPaintedOutOfReachLine }
@@ -3731,7 +3731,7 @@ struct RoomArtPreviewControllerTests {
         shirtPainting.livePaintedTopGate = cutGate
         let harness = try await harnessReadyToPaintTheShirt(shirtPainting: shirtPainting)
 
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the painted still to show") { harness.controller.phase == .showingThePaintedShirt(title: "Linen shirt") }
         try await waitFor("the cut to start") { shirtPainting.livePaintedTopsAsked == 1 }
         harness.controller.goBackToTheLiveShirt()
@@ -3753,7 +3753,7 @@ struct RoomArtPreviewControllerTests {
         let harness = try await harnessReadyToPaintTheShirt(shirtPainting: shirtPainting)
 
         // The first painting's cut is still pending when the learner goes back and paints again.
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the first cut to start") { shirtPainting.livePaintedTopsAsked == 1 }
         harness.controller.goBackToTheLiveShirt()
         harness.controller.paintTheShirt()
@@ -3776,7 +3776,7 @@ struct RoomArtPreviewControllerTests {
         shirtPainting.livePaintedTopIsMade = false
         let harness = try await harnessReadyToPaintTheShirt(shirtPainting: shirtPainting)
 
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the cut to end") { shirtPainting.livePaintedTopsFinished == 1 }
         for _ in 0..<5 { await Task.yield() }
         await untilTheCaptureEventsSentSoFarAreHandled()
@@ -3819,7 +3819,7 @@ struct RoomArtPreviewControllerTests {
         shirtPainting.paintingResult = .failure(RoomFurnitureGenerationError.workerReturned(statusCode: 401, body: ""))
         let harness = try await harnessReadyToPaintTheShirt(shirtPainting: shirtPainting)
 
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the app secret line") { harness.spokenLines().last == RoomArtFailure.appSecretMissing.spokenLine }
         #expect(harness.controller.phase == .readyToPaintTheShirt(title: "Linen shirt"))
         harness.controller.close()
@@ -4039,7 +4039,7 @@ struct RoomArtPreviewControllerTests {
         shirtPainting.paintingGate = paintingGate
         let harness = try await harnessReadyToPaintTheShirt(shirtPainting: shirtPainting)
 
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the painting to be sent") { shirtPainting.requests.count == 1 }
         let linesBeforeGoingBack = harness.spokenLines().count
         harness.controller.goBackToTheLiveShirt()
@@ -4061,7 +4061,7 @@ struct RoomArtPreviewControllerTests {
         shirtPainting.paintingResult = .failure(RoomFurnitureGenerationError.workerReturned(statusCode: 502, body: ""))
         let harness = try await harnessReadyToPaintTheShirt(shirtPainting: shirtPainting)
 
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the failure line") { harness.spokenLines().last == "I couldn't put it on you that time. Say paint it to try again." }
         #expect(harness.controller.phase == .readyToPaintTheShirt(title: "Linen shirt"))
         #expect(harness.recorder.spokenLineFailureFlags.last == true)
@@ -4075,7 +4075,7 @@ struct RoomArtPreviewControllerTests {
         shirtPainting.paintingResult = .failure(RoomFurnitureGenerationError.serviceIsNotSetUp(body: ""))
         let harness = try await harnessReadyToPaintTheShirt(shirtPainting: shirtPainting)
 
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the not set up line") { harness.spokenLines().last == "Painting a shirt on you needs Clicky's OpenAI key." }
         #expect(harness.controller.phase == .readyToPaintTheShirt(title: "Linen shirt"))
         harness.controller.close()
@@ -4086,7 +4086,7 @@ struct RoomArtPreviewControllerTests {
         shirtPainting.masksAreMade = false
         let harness = try await harnessReadyToPaintTheShirt(shirtPainting: shirtPainting)
 
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the shirt not found line") { harness.spokenLines().last == "I couldn't find your shirt in that frame. Try again with your shirt in view." }
         #expect(harness.controller.phase == .readyToPaintTheShirt(title: "Linen shirt"))
         // The failure resumes the live camera, which the capture's freeze left.
@@ -4101,7 +4101,7 @@ struct RoomArtPreviewControllerTests {
         shirtPainting.paintingGate = paintingGate
         let harness = try await harnessReadyToPaintTheShirt(shirtPainting: shirtPainting)
 
-        try await sayRightThereAndHoldStill(harness)
+        try await sayPaintItAndHoldStill(harness)
         try await waitFor("the painting to be sent") { shirtPainting.requests.count == 1 }
         let linesBeforeTheClose = harness.spokenLines().count
         harness.controller.close()

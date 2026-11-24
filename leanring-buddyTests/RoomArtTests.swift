@@ -852,7 +852,7 @@ struct RoomArtPhraseTests {
         "how would this mug look on my table",
         "put this lamp on my desk",
         "what would this vase look like on my shelf",
-        // A shirt is drawn on the learner.
+        // A shirt is painted on the learner.
         "could I see this shirt on me",
         "how would this look on me",
         "what would this hoodie look like on me",

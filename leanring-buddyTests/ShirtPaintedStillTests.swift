@@ -106,7 +106,7 @@ struct ShirtPaintedStillVoiceTests {
         }
         #expect(runs(.paintIt, .readyToPaint))
         #expect(runs(.backToLive, .paintedStill))
-        // While the capture waits for the learner to step back, "right there" restarts it and "go back" cancels it.
+        // While the capture waits for the learner to step back, "paint it" restarts it and "go back" cancels it.
         #expect(runs(.paintIt, .stepBack) && runs(.backToLive, .stepBack))
         #expect(!runs(.paintIt, .stepBack, quiz: true))
         #expect(!runs(.paintIt, .paintedStill))
