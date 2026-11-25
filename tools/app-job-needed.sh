@@ -9,7 +9,7 @@ set -euo pipefail
 while IFS= read -r changed_file || [ -n "$changed_file" ]; do
   [ -z "$changed_file" ] && continue
   case "$changed_file" in
-    bench/* | worker/* | demo/* | docs/* | .claude/* | .ship/* | tools/three-tiles/* | \
+    bench/* | worker/* | demo/* | docs/* | .claude/* | .full-send/* | tools/three-tiles/* | \
       README.md | AGENTS.md | CLAUDE.md | LICENSE | .gitignore | clicky-demo.gif) ;;
     *)
       echo "The app job runs, because $changed_file can change the app build or its tests." >&2

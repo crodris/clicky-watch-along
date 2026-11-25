@@ -26,7 +26,7 @@ This file is the shared brief for every agent that builds a part of it, and the 
 
 ## Build order
 
-Each PR is one branch from the latest `origin/main`, shipped with `/ship and merge` (squash).
+Each PR is one branch from the latest `origin/main`, shipped with `/full-send` (squash).
 A PR in a later wave starts once every PR it depends on has merged.
 
 | PR | Wave | Depends on | What |
@@ -62,7 +62,7 @@ The 6 bigger ideas follow the build order as PRs 13 to 18: Theme Studio designs 
 - Write one runnable check per logic change, and break each new guard with `~/.claude-config/mutate.sh` to confirm a test fails.
 - Check every view change rendered at 2x (with `ImageRenderer` or the app) before shipping: text stays inside its background, and icon tiles match their icon's shape.
 - Upload PR images to a `pr-assets/<topic>` branch, cropped to Clicky's own windows.
-- Ship with `/ship and merge`; PR bodies go through the `rewrite` skill, as the global rules require.
+- Ship with `/full-send`; PR bodies go through the `rewrite` skill, as the global rules require.
 - Rebase on `origin/main` right before opening the PR and again before merging, since every PR edits `AGENTS.md`.
 - Stay in your turn until the PR merges. Nothing wakes an agent whose turn has ended, so wait on CI, `watch.sh`, or the app check lock inside the turn, with `t3_background_wait` for a background command, and never end the turn to wait.
 - After an app check, close your project in Xcode (`tell application "Xcode" to close (every workspace document whose path contains "<worktree folder>") saving no`), since about ten open projects stop Xcode from loading new ones.

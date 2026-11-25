@@ -1727,7 +1727,7 @@ The `app` job installs Go with `actions/setup-go`, which the app's "Build Agent 
 On the Mac runners its Actions cache is off, since Go's build and module caches stay in the runner user's home between jobs, and saving the cache took 2 to 9 minutes a job before it failed.
 The `app` job then builds the `leanring-buddy` scheme with Xcode 27.2 on the Mac runners, or 26.5 on `macos-latest`, and `CODE_SIGNING_ALLOWED=NO`, then runs `leanring-buddyTests` hosted in the built `Clicky.app`.
 A `changes` job lists the files a pull request or a push to main changes with `git diff --no-renames`, against the merge commit's first parent for a pull request and against the commit before the push for main, and runs `tools/app-job-needed.sh` on them after `tools/app-job-needed.test.sh`.
-The `app` job is skipped when every file is outside the app build and its tests: `bench/`, `worker/`, `demo/`, `docs/`, `.claude/`, `.ship/`, `tools/three-tiles/`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `LICENSE`, `.gitignore`, and `clicky-demo.gif`.
+The `app` job is skipped when every file is outside the app build and its tests: `bench/`, `worker/`, `demo/`, `docs/`, `.claude/`, `.full-send/`, `tools/three-tiles/`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `LICENSE`, `.gitignore`, and `clicky-demo.gif`.
 Any other path runs it, and so does a push whose earlier commit the remote no longer has.
 Each push to main runs in its own concurrency group, since GitHub cancels a pending run when another joins its group, and a cancelled push's app changes would then never be diffed.
 A newer push to a pull request still cancels that pull request's older run.
