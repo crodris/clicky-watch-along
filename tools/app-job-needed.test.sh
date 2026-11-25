@@ -17,6 +17,7 @@ expect() {
 expect false "a bench-only change" $'bench/brainEvals.ts\nbench/fixtures/brain-evals.json'
 expect false "a worker and docs change" $'worker/src/index.ts\ndocs/plans/theme-studio.md\nAGENTS.md'
 expect false "no changed files" ''
+expect false "a pipeline config change" '.full-send/config.md'
 expect true "a Swift source" 'leanring-buddy/CompanionManager.swift'
 expect true "a bundled skill, which is Markdown inside the app" 'leanring-buddy/Skills/flashcards.md'
 expect true "the harness, which the app bundles" 'harness/brain.go'
