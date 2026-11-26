@@ -477,7 +477,7 @@ struct MenuBarAndDiscTests {
 
     // MARK: - Tether that ends when a disc slides
 
-    @Test func endingTheTetherTakesItOffTheScreenBeforeItsOwnFadeWouldHave() throws {
+    @Test(.showsARealWindow) func endingTheTetherTakesItOffTheScreenBeforeItsOwnFadeWouldHave() throws {
         let screen = try #require(NSScreen.screens.first)
         let slotPoint = CGPoint(x: screen.frame.midX, y: screen.frame.maxY - 17)
         let path = agentTokenServePath(from: CGPoint(x: screen.frame.midX - 300, y: screen.frame.midY), to: slotPoint)

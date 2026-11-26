@@ -546,7 +546,7 @@ struct ThemeStudioTetherTests {
 
 @MainActor
 struct ThemeStudioCardGlideInCloseTests {
-    @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && !NSScreen.screens.isEmpty, "the card Glides only with Reduce Motion off and a screen"))
+    @Test(.showsARealWindow, .enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, "the card Glides only with Reduce Motion off"))
     func aCardClosedDuringItsGlideInShowsNothingWhole() throws {
         let harness = StudioHarness()
         let cardPanel = ThemeStudioPanelController(onSaveClicked: { _ in })
@@ -561,7 +561,7 @@ struct ThemeStudioCardGlideInCloseTests {
 
     /// A design from a picture raises the real card above the cursor overlay while it runs, and a refine that keeps the
     /// card's picture, which draws no loop, leaves it below, so the previewed cursor still draws over the card.
-    @Test(.enabled(if: !NSScreen.screens.isEmpty, "the card needs a screen"))
+    @Test(.showsARealWindow)
     func theCardRisesOnlyWhileADesignThatReadsThePictureRuns() async throws {
         let harness = StudioHarness()
         harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }, { try reply(names: ["Ember", "Dusk", "Fern"]) }]
