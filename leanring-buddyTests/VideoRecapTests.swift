@@ -442,7 +442,7 @@ struct VideoRecapTests {
 
     // MARK: - The panel
 
-    @Test func theRecapCardUnfoldsFromWhereTheDiscsLandedAndTellsTheOwnerWhenItCloses() throws {
+    @Test(.showsARealWindow) func theRecapCardUnfoldsFromWhereTheDiscsLandedAndTellsTheOwnerWhenItCloses() throws {
         let screen = try #require(NSScreen.screens.first, "the test host has no screen to show the Card on")
         let recap = try #require(VideoRecap(quizResults: [quizResult("A?", at: 10, .gotIt)], studyGuideRecord: nil))
         let controller = VideoQuizSummaryPanelController()
@@ -471,7 +471,7 @@ struct VideoRecapTests {
         #expect(videoRecapGlideOrigin(cursorPoint: nil, cardScreenFrame: cardScreenFrame, videoRect: nil, mouseLocation: mouseLocation) == mouseLocation)
     }
 
-    @Test func aLandingPointOffTheCardsDisplayFallsBackToTheVideosTopEdge() throws {
+    @Test(.showsARealWindow) func aLandingPointOffTheCardsDisplayFallsBackToTheVideosTopEdge() throws {
         let screen = try #require(NSScreen.screens.first, "the test host has no screen to show the Card on")
         let recap = try #require(VideoRecap(quizResults: [quizResult("A?", at: 10, .gotIt)], studyGuideRecord: nil))
         let controller = VideoQuizSummaryPanelController()

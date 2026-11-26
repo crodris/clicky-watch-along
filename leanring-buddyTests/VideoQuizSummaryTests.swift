@@ -116,9 +116,8 @@ struct VideoQuizSummaryTests {
 
     // MARK: - The panel
 
-    @Test func theCardCountsAsShowingWhileItGlidesInSoEscapeCanCloseIt() throws {
+    @Test(.showsARealWindow) func theCardCountsAsShowingWhileItGlidesInSoEscapeCanCloseIt() throws {
         // The panel orders front only when the Glide lands, so a check on the window's visibility missed Escape during the Glide.
-        try #require(!NSScreen.screens.isEmpty, "the test host has no screen to show the Card on")
         let controller = VideoQuizSummaryPanelController()
         #expect(!controller.isShowing)
         let recap = try #require(VideoRecap(quizResults: [quizResult("What does the vent do?", at: 134, .missed)], studyGuideRecord: nil))

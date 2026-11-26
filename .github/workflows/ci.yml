@@ -207,6 +207,10 @@ jobs:
           CLICKY_BUNDLE_ID_SUFFIX="$CLICKY_BUNDLE_ID_SUFFIX"
       # The result bundle goes to the job's temp folder, since xcodebuild otherwise adds one to the kept DerivedData every run.
       - id: xcode_test
+        # xcodebuild passes TEST_RUNNER_ variables to the test host without the prefix. The runner's screen is no one's desktop,
+        # so the tests that show a real window run here (leanring-buddyTests/OnScreenTests.swift).
+        env:
+          TEST_RUNNER_CLICKY_TESTS_MAY_SHOW_WINDOWS: "1"
         run: >
           xcodebuild test
           -project leanring-buddy.xcodeproj

@@ -171,7 +171,7 @@ struct AgentListHoverViewTests {
 
 @MainActor
 struct AgentListGlideInCloseTests {
-    @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && !NSScreen.screens.isEmpty, "the list Glides only with Reduce Motion off and a screen"))
+    @Test(.showsARealWindow, .enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, "the list Glides only with Reduce Motion off"))
     func aListClosedDuringItsGlideInShowsNothingWhole() throws {
         let controller = makeController()
         controller.toggle()
@@ -183,7 +183,7 @@ struct AgentListGlideInCloseTests {
         #expect(!controller.isOpen)
     }
 
-    @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && !NSScreen.screens.isEmpty, "the list Glides only with Reduce Motion off and a screen"))
+    @Test(.showsARealWindow, .enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, "the list Glides only with Reduce Motion off"))
     func escapeOrAClickOutsideDuringTheGlideInPlaysNoCloseFromTheWholeCard() throws {
         let controller = makeController()
         controller.toggle()
