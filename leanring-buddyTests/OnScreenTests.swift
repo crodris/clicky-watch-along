@@ -43,5 +43,7 @@ struct OnScreenTests {
             realWindowTestsMayRun(environment: ProcessInfo.processInfo.environment, screenCount: NSScreen.screens.count),
             "CI's test host would skip the real-window tests: CLICKY_TESTS_MAY_SHOW_WINDOWS must reach it as 1, and it needs a screen"
         )
+        // The Glide tests also run only with Reduce Motion off, so a runner with it on would skip them unnoticed too.
+        #expect(!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, "CI's test host has Reduce Motion on, so the Glide tests skip")
     }
 }
