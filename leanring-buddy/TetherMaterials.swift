@@ -15,8 +15,9 @@ import SwiftUI
 // MARK: - Ink
 
 extension Color {
-    /// Each fill's ink once it has been worked out. The fills are the themes' accents, the agent colors, and the status
-    /// lines' hues, all fixed colors, so an entry never goes out of date and the dictionary stays small.
+    /// Each fill's ink once it has been worked out. The key is the color's own value, so an entry never goes out of date
+    /// for the fixed colors the app passes. A dynamic system color must not be passed, since its kept ink would not follow
+    /// the color as it changes. The cache is not trimmed, because the app has only a small number of accent and agent colors.
     static var inksByFill: [Color: Color] = [:]
 
     /// The color of text and icons drawn on a fill of this color: near-black or white, whichever reads better on it

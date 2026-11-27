@@ -146,15 +146,17 @@ struct AccentInkTests {
         #expect(studioButtonOnClickyBlue.nearBlack > 20 && studioButtonOnClickyBlue.white == 0)
         let panelButtonOnShiratorizawa = try await inkPixels(ofButton: PanelButton(title: "Start Clicky", prominence: .primary, accentColor: Color(hex: "#A0457F")) {})
         #expect(panelButtonOnShiratorizawa.white > 20 && panelButtonOnShiratorizawa.nearBlack == 0)
+        let panelButtonOnClickyBlue = try await inkPixels(ofButton: PanelButton(title: "Start Clicky", prominence: .primary, accentColor: Color(hex: "#3380FF")) {})
+        #expect(panelButtonOnClickyBlue.nearBlack > 20 && panelButtonOnClickyBlue.white == 0)
     }
 
     /// A status line's Callout reads its ink 30 times a second. A different ink put in the cache shows in the drawing only
-    /// if the Callout reads the kept ink and does not work it out again.
-    @Test func aCalloutWorksOutAnAccentsInkOnceAndThenDrawsTheKeptOne() async throws {
-        // No theme, agent color, or status line uses this color, so nothing else has asked for its ink.
-        let accentHex = "#A1437D"
+    /// if the Callout reads the kept ink and does not work it out again. `accentHex` must be a color nothing else draws on,
+    /// since this changes its entry in the app-wide cache, which it removes before and after.
+    private func expectACalloutToKeepItsAccentsInk(accentHex: String) async throws {
         let accent = Color(hex: accentHex)
-        #expect(Color.inksByFill[accent] == nil)
+        Color.inksByFill[accent] = nil
+        defer { Color.inksByFill[accent] = nil }
         let firstDrawing = try await inkPixels(of: callout(accentHex: accentHex) { TetherCalloutCrossIcon() }, in: calloutIconPart)
         #expect(firstDrawing.white > 20 && firstDrawing.nearBlack == 0)
         #expect(Color.inksByFill[accent] == Color(hex: ThemeRGBColor.lightInkHex))
@@ -162,6 +164,16 @@ struct AccentInkTests {
         Color.inksByFill[accent] = Color(hex: ThemeRGBColor.darkInkHex)
         let secondDrawing = try await inkPixels(of: callout(accentHex: accentHex) { TetherCalloutCrossIcon() }, in: calloutIconPart)
         #expect(secondDrawing.nearBlack > 20 && secondDrawing.white == 0)
+    }
+
+    @Test func aCalloutWorksOutAnAccentsInkOnceAndThenDrawsTheKeptOne() async throws {
+        // No theme, agent color, or status line uses this color.
+        let accentHex = "#A1437D"
+        let accent = Color(hex: accentHex)
+        // The wrong ink an earlier run in the same process could have left.
+        Color.inksByFill[accent] = Color(hex: ThemeRGBColor.darkInkHex)
+        try await expectACalloutToKeepItsAccentsInk(accentHex: accentHex)
+        #expect(Color.inksByFill[accent] == nil)
     }
 
     private func whiteDrawing(sideInPoints: CGFloat) throws -> DrawingPixels {
@@ -188,18 +200,38 @@ struct AccentInkTests {
         }
     }
 
+    @Test func comparingChannelsOfDrawingsOfDifferentSizesFailsTheTest() async throws {
+        let smaller = try whiteDrawing(sideInPoints: 10)
+        let larger = try whiteDrawing(sideInPoints: 20)
+        try await withKnownIssue {
+            _ = try await smaller.channelsThatDiffer(from: larger)
+        } matching: { issue in
+            issue.comments.contains { $0.rawValue.contains("the drawings differ in size") }
+        }
+    }
+
+    @Test func comparingChannelsDownToAPointAboveTheDrawingComparesNone() async throws {
+        let drawing = try whiteDrawing(sideInPoints: 10)
+        #expect(try await drawing.channelsThatDiffer(from: drawing, downTo: -1) == 0)
+    }
+
+    /// The ink pixels of the initials on the face of a theme's first roster player.
+    private func initialsInkPixels(themeID: String) async throws -> InkPixelCounts {
+        let theme = bundledTheme(themeID)
+        var rosterPlayers: [ThemeRosterPlayer] = []
+        if case .roster(let players) = theme.agents.faces { rosterPlayers = players }
+        // No portrait file in the idea's folder, so the face draws the initials.
+        let player = try #require(rosterPlayers.first, "\(themeID) has no roster")
+        let face = AgentRosterFace(player: player, of: theme.with(id: theme.id, origin: .idea))
+        return try await inkPixels(of: RosterFaceView(rosterFace: face, size: 40), in: CGRect(x: 8, y: 8, width: 24, height: 24))
+    }
+
     /// Date Tech's file names white as its contrast color, and white reads at 3.05 on its teal where near-black reads at 6.42.
     @Test func aRosterFacesInitialsReadOnTheAccentWhateverTheThemesContrastColorIs() async throws {
-        let dateTech = bundledTheme("school-date-tech")
-        guard case .roster(let players) = dateTech.agents.faces else {
-            Issue.record("school-date-tech has no roster")
-            return
-        }
-        // No portrait file in the idea's folder, so the face draws the initials.
-        let player = try #require(players.first)
-        let face = AgentRosterFace(player: player, of: dateTech.with(id: dateTech.id, origin: .idea))
-        let initials = try await inkPixels(of: RosterFaceView(rosterFace: face, size: 40), in: CGRect(x: 8, y: 8, width: 24, height: 24))
-        #expect(initials.nearBlack > 20 && initials.white == 0)
+        let onDateTech = try await initialsInkPixels(themeID: "school-date-tech")
+        #expect(onDateTech.nearBlack > 20 && onDateTech.white == 0)
+        let onShiratorizawa = try await initialsInkPixels(themeID: "school-shiratorizawa")
+        #expect(onShiratorizawa.white > 20 && onShiratorizawa.nearBlack == 0)
     }
 
     @Test func aStatusIconDrawsInTheInkOfItsDisc() {
@@ -291,10 +323,10 @@ struct AccentInkTests {
         #expect(onShiratorizawa.white > 20 && onShiratorizawa.nearBlack == 0)
     }
 
-    /// Date Tech's file names white as its contrast color, so the name on its accent pill shows which color the dial reads.
-    @Test func theNameOfAHighlightedFanThemeReadsOnItsAccentPill() async throws {
+    /// The ink pixels of a theme's name on its pill while the dial's Theme fan highlights it.
+    private func fanNamePillInkPixels(themeID: String) async throws -> InkPixelCounts {
         let fans = SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: [])
-        let itemIndex = try #require(bundledThemesForTests.firstIndex { $0.id == "school-date-tech" })
+        let itemIndex = try #require(bundledThemesForTests.firstIndex { $0.id == themeID })
         let angle = try #require(fans.layout(of: .theme)).angleDegrees(ofItemAt: itemIndex) * .pi / 180
         let ballCenterOffset = CGPoint(x: cos(angle) * SettingsDialGeometry.fanRadius, y: sin(angle) * SettingsDialGeometry.fanRadius)
         let ballRadius = SettingsDialGeometry.emphasizedFanBallDiameter / 2
@@ -309,7 +341,14 @@ struct AccentInkTests {
             height: pillSize.height - 4
         )
         let dial = dialView(theme: clickyBlueTheme, selection: SettingsDialSelection(slice: .theme, fanItemIndex: itemIndex))
-        let nameOnThePill = try await inkPixels(of: dial, in: pillPart)
-        #expect(nameOnThePill.nearBlack > 20 && nameOnThePill.white == 0)
+        return try await inkPixels(of: dial, in: pillPart)
+    }
+
+    /// Date Tech's file names white as its contrast color, so the name on its accent pill shows which color the dial reads.
+    @Test func theNameOfAHighlightedFanThemeReadsOnItsAccentPill() async throws {
+        let onDateTech = try await fanNamePillInkPixels(themeID: "school-date-tech")
+        #expect(onDateTech.nearBlack > 20 && onDateTech.white == 0)
+        let onShiratorizawa = try await fanNamePillInkPixels(themeID: "school-shiratorizawa")
+        #expect(onShiratorizawa.white > 20 && onShiratorizawa.nearBlack == 0)
     }
 }

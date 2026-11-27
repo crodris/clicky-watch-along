@@ -65,11 +65,15 @@ struct DrawingPixels {
         bytes = Data(bytes: try #require(context.data), count: image.width * image.height * 4)
     }
 
-    /// How many channels differ from `other`'s, from the window's top edge down to `points`, or in the whole drawing. Two
-    /// drawings of one state can round the Card's gradient and shadow a few levels apart, so those do not count. The scan
-    /// runs off the main actor, which it would otherwise hold from every other test.
-    func channelsThatDiffer(from other: DrawingPixels, downTo points: CGFloat? = nil) async -> Int {
-        let byteCount = points.map { Int($0 * pixelsPerPoint) * width * 4 } ?? bytes.count
+    /// How many channels differ from those of `other`, a drawing of the same size, from the window's top edge down to
+    /// `points`, or in the whole drawing. Two drawings of one state can round the Card's gradient and shadow a few levels
+    /// apart, so those do not count. The scan runs off the main actor, which it would otherwise hold from every other test.
+    func channelsThatDiffer(from other: DrawingPixels, downTo points: CGFloat? = nil) async throws -> Int {
+        try #require(
+            other.width == width && other.height == height,
+            "the drawings differ in size: \(width) by \(height) pixels and \(other.width) by \(other.height)"
+        )
+        let byteCount = points.map { Int(max(0, $0) * pixelsPerPoint) * width * 4 } ?? bytes.count
         let (ownBytes, otherBytes) = (bytes.prefix(byteCount), other.bytes.prefix(byteCount))
         return await Task.detached {
             zip(ownBytes, otherBytes).count { abs(Int($0) - Int($1)) > 6 }
@@ -705,7 +709,7 @@ struct ThemeStudioTetherTests {
         let frames = try await firstAndSettledFrames(after: change)
         // The window's margin, the card's 14 point padding, and the header's one line of text.
         let headerBottom = AgentListWindowMargins.top + 14 + 16
-        #expect(await frames.first.channelsThatDiffer(from: frames.settled, downTo: headerBottom) == 0)
+        #expect(try await frames.first.channelsThatDiffer(from: frames.settled, downTo: headerBottom) == 0)
     }
 
     /// An animated height change put the failed design row at its final place while the hint and Save were still on their way
@@ -714,7 +718,7 @@ struct ThemeStudioTetherTests {
     func nothingDrawsOverAnythingElseWhenTheCardsHeightChanges(_ change: ThemeStudioCardHeightChange) async throws {
         let frames = try await firstAndSettledFrames(after: change)
         #expect(frames.first.height == frames.settled.height)
-        #expect(await frames.first.channelsThatDiffer(from: frames.settled) == 0)
+        #expect(try await frames.first.channelsThatDiffer(from: frames.settled) == 0)
     }
 
     @Test func theFailedNoticeIsUpBeforeTheFailureLineIsSpokenSoTheChipCanLeaveItOut() async throws {
