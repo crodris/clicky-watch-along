@@ -3,11 +3,13 @@
 //  leanring-buddyTests
 //
 //  The six setup steps: the state each one reads from what macOS reports, which step the checklist points at, the bar's
-//  share, when setup counts as done, and which buttons a turned-off step offers.
+//  share, when setup counts as done, which buttons a turned-off step offers, and the capture disclosure: two sentences
+//  that show, and the full detail that stays closed until asked for.
 //
 
 import AVFoundation
 import Speech
+import SwiftUI
 import Testing
 
 @testable import Clicky
@@ -117,6 +119,23 @@ struct SetupChecklistTests {
         #expect(setupStepButtons(for: .screenTest, in: .turnedOff).map(\.title) == ["Try again"])
         #expect(setupStepButtons(for: .chromeControl, in: .needsChromeOpen).map(\.action) == [.openChrome])
         #expect(setupTurnedOffCaption(for: .screenRecording).contains("quit and reopen"))
+    }
+
+    @Test func theShownSummaryIsTwoSentencesThatNameTheCapturesAndEveryPlaceTheyGo() {
+        let sentences = setupCaptureSummary.components(separatedBy: ". ")
+        #expect(sentences.count == 2)
+        for words in ["screen", "camera", "Clicky's own server", "depth service on this Mac", "Anthropic", "OpenAI", "fal.ai"] {
+            #expect(setupCaptureSummary.contains(words), "\(words)")
+        }
+    }
+
+    @Test func theFullDisclosureStaysClosedUntilTheLearnerOpensIt() {
+        func height(of view: SetupWhatGetsSent) -> CGFloat {
+            NSHostingController(rootView: view).sizeThatFits(in: CGSize(width: 300, height: 10_000)).height
+        }
+        // Closed, only the button shows. Open, the long disclosure wraps under it.
+        #expect(height(of: SetupWhatGetsSent()) < 40)
+        #expect(height(of: SetupWhatGetsSent(isOpen: true)) > 150)
     }
 
     @Test func theDisclosureNamesEveryCaptureAndEveryPlaceItGoes() {
