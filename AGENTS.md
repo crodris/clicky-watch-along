@@ -490,8 +490,11 @@ It grows in place from 0.97, about the middle of its top edge, with the Glide sp
 The fading panel keeps drawing what it showed as the close began (`RoomArtPreviewController.panelContent`): its last frame, status line, buttons, loop, and furniture ghost, until it is off the screen or opens again.
 The panel view draws the state from that content, never from the live properties that a close clears.
 With Reduce Motion on it only fades.
-A growing panel takes no clicks until it has grown, since its controls take clicks where they are at full size while they are drawn smaller.
-With Reduce Motion on, or with no grow, it takes clicks at once.
+While the panel grows, a click on it goes to its content view, which does nothing with it (`RoomArtPanelContainerView`), since the controls take clicks where they are at full size while they are drawn smaller.
+So that click reaches no control and does not pass to the store page behind.
+The panel counts as growing until Core Animation's completion block reports the grow's end (`growWithCoreAnimation`), since a finished animation can stay on its layer.
+The thin edge the growing content has not reached yet is transparent, so macOS gives a click there to the window behind.
+With Reduce Motion on, or with no grow, the controls take clicks at once.
 A close stops the camera at once, and the fading window takes no clicks.
 From the moment the session ends, the frame processor shows no frame and moves no loop until the next session, a frame already on its way included (`RoomArtFrameProcessor.endTheSession`), so the fading panel never changes.
 A panel opened again during that fade stays, since only the newest move may order the window out.

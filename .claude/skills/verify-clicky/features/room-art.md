@@ -71,10 +71,18 @@ Preconditions:
   The log shows `Room art:` lines for the page read and the wall, then `Room art: N fps, track N ms, segment N ms` every 5 s.
   Run `$V shot room-art-measuring` in the first seconds, while the wall is measured: only the status line "Measuring your wall…" shows over the camera, with no loop and no outline of a bare patch of wall.
   Run `$V shot room-art` once the line "Here it is at <size>." plays: the art hangs on the wall in the panel, and a person in the video stays in front of it.
-- **The panel opening.** Run the panel with a recorded camera once, so the panel's place is saved, and read its window's rect with a `CGWindowListCopyWindowInfo` read of the Clicky windows.
+- **The panel opening.** Run the panel with a recorded camera once, and read its window's rect with a `CGWindowListCopyWindowInfo` read of the Clicky windows.
+  The next open uses the same rect while the mouse stays on that display, since only a move or a resize saves another place.
   Run `screencapture -v -V 20 -R<x>,<y>,<width>,<height> "$RUN/room-art-open.mov" & $V app-launch --room-camera-file <video of a room> "how would this look in my room"; wait`, then `ffmpeg -loglevel error -i "$RUN/room-art-open.mov" -vf fps=30 "$RUN/room-art-open-%04d.png"`.
   In the first frames that show the panel, it is faint and slightly smaller than its rect, with its top edge in place, and within about half a second it is solid and fills the rect.
-  A click on Close's place during that grow does not close the panel, and the same click after it does.
+- **A click while the panel grows.** Use a page whose picture comes from its image file, and the rect read in **The panel opening**.
+  Close's place is x = the rect's right edge - 32, y = its top edge + 32.
+  Build the mouse tool with `swiftc -O demo/scripts/mouse/mouse.swift -o "$RUN/mouse"`.
+  Run `$V app-launch --room-camera-file <video of a room> "how would this look in my room" && until grep -q "Room art: used the page's image file" "$RUN/app.log"; do sleep 0.05; done; "$RUN/mouse" click <x> <y> 0`.
+  The panel opens as that log line prints, and the `0` makes the press land about 0.2 s later.
+  The press must land within about 0.3 s of the open, so a `click` with no `0`, which presses 0.75 s after it starts, is too late.
+  Nothing happens: the panel stays open, and the store page behind it does not get the click.
+  Then run `"$RUN/mouse" click <x> <y>`, which closes the panel.
 - **The panel closing.** With the panel open and a result showing, record 4 s as above into `room-art-close.mov` and click Close during it (`./mouse click <x of the panel's right edge - 32> <y of its top edge + 32>`).
   The frames show the panel fading out in about 0.15 s with its status line and buttons fading with it, and no control disappears or changes before the panel does.
   The picture and any loop hold still during the fade: no frame of the plain camera replaces a painting, a placed item, or a painted shirt.
@@ -86,9 +94,10 @@ Preconditions:
   Turn on System Settings > Accessibility > Display > Reduce motion, then record the panel opening and closing as above.
   The panel only fades, at its full size from its first frame, and a click on Close counts as soon as the panel shows.
 - **The status pill at the smallest size.** The panel's place is a Debug app default, so save it first with `defaults read com.crodris.clicky-watch-along roomArtPanelFrame`.
-  Run `defaults write com.crodris.clicky-watch-along roomArtPanelFrame '{{200, 200}, {480, 270}}'`, then `$V app-launch --room-camera-file <video that turns> "how would this look on my wall"`.
+  Run `defaults write com.crodris.clicky-watch-along roomArtPanelFrame -string '{{200, 200}, {480, 270}}'`, then `$V app-launch --room-camera-file <video that turns> "how would this look on my wall"`.
   Once the video turns away, `$V shot room-art-pill-small` shows "Lost the wall. Turn back, or click the wall to place it again." whole on 2 lines in a solid dark pill, with Save photo and Close whole beside and above it.
-  Write the saved value back with `defaults write`.
+  Write the saved value back with `defaults write com.crodris.clicky-watch-along roomArtPanelFrame -string '<the value read>'`.
+  When the first read said the key does not exist, remove it with `defaults delete com.crodris.clicky-watch-along roomArtPanelFrame` instead.
 - **Picture from the image file.** Leave a cookie banner up over the product photo, such as IKEA's, and run `$V app-launch --room-camera-file <video of a room> "how would this look in my room"`.
   The log says `Room art: used the page's image file (WxH) from <host>` with a long side of at most 1280, and `$V shot room-art` shows the art with no banner on it.
   A picture with no usable file (a page whose image is not https, is under 160 pixels, or is hosted on localhost or a private address) logs `Room art: ... so the picture is a screen capture` and falls back to the capture.
