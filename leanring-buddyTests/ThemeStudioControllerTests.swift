@@ -46,7 +46,7 @@ private final class DesignGate {
 
 /// A drawing of a view: raw sRGB bytes, 4 for each pixel, in rows from the top. Reading each pixel through `colorAt`
 /// holds the main actor for seconds.
-struct RenderedPixels {
+struct DrawingPixels {
     let width: Int
     let height: Int
     let pixelsPerPoint: CGFloat
@@ -68,7 +68,7 @@ struct RenderedPixels {
     /// How many channels differ from `other`'s, from the window's top edge down to `points`, or in the whole drawing. Two
     /// drawings of one state can round the Card's gradient and shadow a few levels apart, so those do not count. The scan
     /// runs off the main actor, which it would otherwise hold from every other test.
-    func channelsThatDiffer(from other: RenderedPixels, downTo points: CGFloat? = nil) async -> Int {
+    func channelsThatDiffer(from other: DrawingPixels, downTo points: CGFloat? = nil) async -> Int {
         let byteCount = points.map { Int($0 * pixelsPerPoint) * width * 4 } ?? bytes.count
         let (ownBytes, otherBytes) = (bytes.prefix(byteCount), other.bytes.prefix(byteCount))
         return await Task.detached {
@@ -97,11 +97,11 @@ private final class OffscreenCard {
         hostingView.frame = NSRect(origin: .zero, size: size)
     }
 
-    func draw() throws -> RenderedPixels {
+    func draw() throws -> DrawingPixels {
         hostingView.layoutSubtreeIfNeeded()
         let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
         hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
-        return try RenderedPixels(drawing: try #require(bitmap.cgImage), widthInPoints: hostingView.bounds.width)
+        return try DrawingPixels(drawing: try #require(bitmap.cgImage), widthInPoints: hostingView.bounds.width)
     }
 
     func close() {
@@ -158,8 +158,8 @@ private struct WorkerFailure: Error {}
 
 /// The card before a save and as the save leaves it, with the saved tile stamped, for ideas that all have `accentHex`.
 @MainActor
-func themeStudioCardDrawingsAroundASave(accentHex: String) async throws -> (beforeTheSave: RenderedPixels, stamped: RenderedPixels) {
-    var drawings: (beforeTheSave: RenderedPixels, stamped: RenderedPixels)?
+func themeStudioCardDrawingsAroundASave(accentHex: String) async throws -> (beforeTheSave: DrawingPixels, stamped: DrawingPixels) {
+    var drawings: (beforeTheSave: DrawingPixels, stamped: DrawingPixels)?
     // The save writes a theme, so it goes to a store of its own.
     try await withATemporaryThemeStore { store in
         let harness = StudioHarness(themeSettings: makeThemeSettings(customThemeStore: store))
@@ -624,28 +624,34 @@ struct ThemeStudioTetherTests {
         }
         let tintChannels = try channels(of: DS.Colors.destructiveSurface)
         let crossChannels = try channels(of: DS.Colors.destructiveText)
-        func pixel(at offset: Int, isCloseTo expected: [Int]) -> Bool {
-            (0..<3).allSatisfy { abs(Int(pixels.bytes[offset + $0]) - expected[$0]) < 8 }
-        }
-        var widestTintedRunInPixels = 0
-        var redCrossPixels = 0
-        for y in 0..<pixels.height {
-            var tintedRunInPixels = 0
-            for x in 0..<pixels.width {
-                let offset = (y * pixels.width + x) * 4
-                tintedRunInPixels = pixel(at: offset, isCloseTo: tintChannels) ? tintedRunInPixels + 1 : 0
-                widestTintedRunInPixels = max(widestTintedRunInPixels, tintedRunInPixels)
-                if pixel(at: offset, isCloseTo: crossChannels) { redCrossPixels += 1 }
+        let (bytes, width, height) = (pixels.bytes, pixels.width, pixels.height)
+        // The scan runs off the main actor, which it would otherwise hold from every other test.
+        let scan = await Task.detached {
+            func pixel(at offset: Int, isCloseTo expected: [Int]) -> Bool {
+                (0..<3).allSatisfy { abs(Int(bytes[offset + $0]) - expected[$0]) < 8 }
             }
-        }
+            var widestTintedRunInPixels = 0
+            var redCrossPixels = 0
+            for y in 0..<height {
+                var tintedRunInPixels = 0
+                for x in 0..<width {
+                    let offset = (y * width + x) * 4
+                    tintedRunInPixels = pixel(at: offset, isCloseTo: tintChannels) ? tintedRunInPixels + 1 : 0
+                    widestTintedRunInPixels = max(widestTintedRunInPixels, tintedRunInPixels)
+                    if pixel(at: offset, isCloseTo: crossChannels) { redCrossPixels += 1 }
+                }
+            }
+            return (widestTintedRunInPixels: widestTintedRunInPixels, redCrossPixels: redCrossPixels, ranOnTheMainThread: pthread_main_np() != 0)
+        }.value
+        #expect(!scan.ranOnTheMainThread)
         // The row spans the Card inside its 14 point padding, less its own round ends.
-        #expect(CGFloat(widestTintedRunInPixels) / pixels.pixelsPerPoint > ThemeStudioPanelController.cardWidth - 28 - 20)
-        #expect(redCrossPixels > 5)
+        #expect(CGFloat(scan.widestTintedRunInPixels) / pixels.pixelsPerPoint > ThemeStudioPanelController.cardWidth - 28 - 20)
+        #expect(scan.redCrossPixels > 5)
     }
 
     /// Changes the height of a card already on show, and draws its first frame after the change beside the same state drawn
     /// by a new card of the same size, which has nothing to animate from.
-    private func firstAndSettledFrames(after change: ThemeStudioCardHeightChange) async throws -> (first: RenderedPixels, settled: RenderedPixels) {
+    private func firstAndSettledFrames(after change: ThemeStudioCardHeightChange) async throws -> (first: DrawingPixels, settled: DrawingPixels) {
         let harness = StudioHarness()
         let gate = DesignGate()
         let ideas = { try reply(names: ["Ember", "Moonlit", "Forest"], stillCursor: true) }
@@ -672,7 +678,7 @@ struct ThemeStudioTetherTests {
         let card = OffscreenCard(studio: harness.studio)
         defer { card.close() }
         _ = try card.draw()
-        let firstFrame: RenderedPixels
+        let firstFrame: DrawingPixels
         switch change {
         case .theDesignFails:
             designAgain()

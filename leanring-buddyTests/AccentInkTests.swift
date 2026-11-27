@@ -3,7 +3,8 @@
 //  leanring-buddyTests
 //
 //  Text and icons on an accent fill take whichever of near-black and white reads better on that fill. Each surface that
-//  draws on an accent is rendered at 2x with a theme where one fixed color would be wrong, and its ink pixels are counted.
+//  draws on an accent is drawn with a theme where one fixed color would be wrong, and its ink pixels are counted. A render
+//  is at 2x, and a view drawn in a window is at that window's backing scale.
 //
 
 import AppKit
@@ -12,20 +13,31 @@ import Testing
 
 @testable import Clicky
 
-/// How many pixels of a part of a 2x render are the near-black ink and how many are white. Whatever is drawn in the ink
+/// How many pixels of a part of a drawing are the near-black ink and how many are white. Whatever is drawn in the ink
 /// is the larger count, since the part holds only the accent fill and what is drawn on it.
 private struct InkPixelCounts {
     let nearBlack: Int
     let white: Int
 }
 
-extension RenderedPixels {
-    /// The ink pixels inside `partInPoints`, or in the whole drawing when nil. With `other`, only pixels that differ from
-    /// the same pixel there count, which leaves what was drawn since. The scan runs off the main actor.
-    fileprivate func inkPixelCounts(in partInPoints: CGRect? = nil, thatDifferFrom other: RenderedPixels? = nil) async -> InkPixelCounts {
+extension DrawingPixels {
+    /// The ink pixels inside `partInPoints`, cut to the drawing, or in the whole drawing when nil. With `other`, a drawing
+    /// of the same size, only pixels that differ from the same pixel there count, which leaves what was drawn since. The
+    /// scan runs off the main actor.
+    fileprivate func inkPixelCounts(in partInPoints: CGRect? = nil, thatDifferFrom other: DrawingPixels? = nil) async throws -> InkPixelCounts {
+        if let other {
+            try #require(
+                other.width == width && other.height == height,
+                "the drawings differ in size: \(width) by \(height) pixels and \(other.width) by \(other.height)"
+            )
+        }
+        let wholeDrawing = CGRect(x: 0, y: 0, width: width, height: height)
         let part = partInPoints.map {
             CGRect(x: $0.minX * pixelsPerPoint, y: $0.minY * pixelsPerPoint, width: $0.width * pixelsPerPoint, height: $0.height * pixelsPerPoint)
-        } ?? CGRect(x: 0, y: 0, width: width, height: height)
+                .intersection(wholeDrawing)
+        } ?? wholeDrawing
+        // A part wholly outside the drawing cuts to the null rectangle, whose edges are infinite.
+        guard !part.isNull else { return InkPixelCounts(nearBlack: 0, white: 0) }
         let (ownBytes, otherBytes, bytesPerRow) = (bytes, other?.bytes, width * 4)
         return await Task.detached {
             var nearBlack = 0
@@ -33,6 +45,8 @@ extension RenderedPixels {
             for y in Int(part.minY)..<Int(part.maxY) {
                 for x in Int(part.minX)..<Int(part.maxX) {
                     let offset = y * bytesPerRow + x * 4
+                    // Two drawings of one state can round the Card's gradient and shadow a few levels apart, so a channel
+                    // that close has not been drawn since.
                     if let otherBytes, (0..<3).allSatisfy({ abs(Int(ownBytes[offset + $0]) - Int(otherBytes[offset + $0])) <= 6 }) { continue }
                     // Only an opaque pixel counts, since a see-through one has no color of its own.
                     guard ownBytes[offset + 3] >= 253 else { continue }
@@ -54,8 +68,8 @@ struct AccentInkTests {
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
         let image = try #require(renderer.cgImage)
-        let pixels = try RenderedPixels(drawing: image, widthInPoints: CGFloat(image.width) / renderer.scale)
-        return await pixels.inkPixelCounts(in: partInPoints)
+        let pixels = try DrawingPixels(drawing: image, widthInPoints: CGFloat(image.width) / renderer.scale)
+        return try await pixels.inkPixelCounts(in: partInPoints)
     }
 
     /// Draws a button in an `NSHostingView` in a window off every screen, since `ImageRenderer` draws the AppKit hover view
@@ -76,8 +90,8 @@ struct AccentInkTests {
         hostingView.layoutSubtreeIfNeeded()
         let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
         hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
-        let pixels = try RenderedPixels(drawing: try #require(bitmap.cgImage), widthInPoints: fittingSize.width)
-        return await pixels.inkPixelCounts()
+        let pixels = try DrawingPixels(drawing: try #require(bitmap.cgImage), widthInPoints: fittingSize.width)
+        return try await pixels.inkPixelCounts()
     }
 
     /// A square inside the Callout's 26 point icon disc, for a Callout padded by 20 points in the render.
@@ -134,6 +148,46 @@ struct AccentInkTests {
         #expect(panelButtonOnShiratorizawa.white > 20 && panelButtonOnShiratorizawa.nearBlack == 0)
     }
 
+    /// A status line's Callout reads its ink 30 times a second. A different ink put in the cache shows in the drawing only
+    /// if the Callout reads the kept ink and does not work it out again.
+    @Test func aCalloutWorksOutAnAccentsInkOnceAndThenDrawsTheKeptOne() async throws {
+        // No theme, agent color, or status line uses this color, so nothing else has asked for its ink.
+        let accentHex = "#A1437D"
+        let accent = Color(hex: accentHex)
+        #expect(Color.inksByFill[accent] == nil)
+        let firstDrawing = try await inkPixels(of: callout(accentHex: accentHex) { TetherCalloutCrossIcon() }, in: calloutIconPart)
+        #expect(firstDrawing.white > 20 && firstDrawing.nearBlack == 0)
+        #expect(Color.inksByFill[accent] == Color(hex: ThemeRGBColor.lightInkHex))
+
+        Color.inksByFill[accent] = Color(hex: ThemeRGBColor.darkInkHex)
+        let secondDrawing = try await inkPixels(of: callout(accentHex: accentHex) { TetherCalloutCrossIcon() }, in: calloutIconPart)
+        #expect(secondDrawing.nearBlack > 20 && secondDrawing.white == 0)
+    }
+
+    private func whiteDrawing(sideInPoints: CGFloat) throws -> DrawingPixels {
+        let renderer = ImageRenderer(content: Color.white.frame(width: sideInPoints, height: sideInPoints))
+        renderer.scale = 2
+        return try DrawingPixels(drawing: try #require(renderer.cgImage), widthInPoints: sideInPoints)
+    }
+
+    @Test func aPartPastTheDrawingCountsOnlyThePixelsInside() async throws {
+        let drawing = try whiteDrawing(sideInPoints: 10)
+        let partPastEveryEdge = try await drawing.inkPixelCounts(in: CGRect(x: -5, y: -5, width: 100, height: 100))
+        #expect(partPastEveryEdge.white == 400)
+        let partOutside = try await drawing.inkPixelCounts(in: CGRect(x: 50, y: 50, width: 5, height: 5))
+        #expect(partOutside.white == 0 && partOutside.nearBlack == 0)
+    }
+
+    @Test func comparingDrawingsOfDifferentSizesFailsTheTest() async throws {
+        let smaller = try whiteDrawing(sideInPoints: 10)
+        let larger = try whiteDrawing(sideInPoints: 20)
+        try await withKnownIssue {
+            _ = try await smaller.inkPixelCounts(thatDifferFrom: larger)
+        } matching: { issue in
+            issue.comments.contains { $0.rawValue.contains("the drawings differ in size") }
+        }
+    }
+
     /// Date Tech's file names white as its contrast color, and white reads at 3.05 on its teal where near-black reads at 6.42.
     @Test func aRosterFacesInitialsReadOnTheAccentWhateverTheThemesContrastColorIs() async throws {
         let dateTech = bundledTheme("school-date-tech")
@@ -155,29 +209,29 @@ struct AccentInkTests {
 
     @Test func theSavedIdeasCheckStampIsDrawnInTheAccentsInk() async throws {
         let onShiratorizawa = try await themeStudioCardDrawingsAroundASave(accentHex: "#A0457F")
-        let whiteStamp = await onShiratorizawa.stamped.inkPixelCounts(thatDifferFrom: onShiratorizawa.beforeTheSave)
+        let whiteStamp = try await onShiratorizawa.stamped.inkPixelCounts(thatDifferFrom: onShiratorizawa.beforeTheSave)
         #expect(whiteStamp.white > 20 && whiteStamp.nearBlack == 0)
         let onClickyBlue = try await themeStudioCardDrawingsAroundASave(accentHex: "#3380FF")
-        let nearBlackStamp = await onClickyBlue.stamped.inkPixelCounts(thatDifferFrom: onClickyBlue.beforeTheSave)
+        let nearBlackStamp = try await onClickyBlue.stamped.inkPixelCounts(thatDifferFrom: onClickyBlue.beforeTheSave)
         #expect(nearBlackStamp.nearBlack > 20 && nearBlackStamp.white == 0)
     }
 
     /// The replay control is private, so this shows its real panel on a frame far off every screen and draws it from there.
-    @Test(.showsARealWindow)
-    func theReplayControlsAccentButtonReadsOnItsAccent() async throws {
+    /// A hidden panel can stay in the app's window list, so each call takes a frame of its own.
+    private func replayButtonInkPixels(accentHex: String, offScreenX: CGFloat) async throws -> InkPixelCounts {
         let stage = InstantReplayStage(
             focusStop: { _ in }, endFocus: {}, showStopNumbers: { _, _ in }, hideStopNumbers: {},
             labelScreenPointOnceTheCameraSettles: { _ in nil }, pointTheCursor: { _, _ in 0 }, freezeTheCursor: {},
             releaseTheCursor: {}, clearTheFocus: {}, reduceMotionIsOn: { true }, sleep: { _ in }, showControl: { _ in },
             hideControl: {}
         )
-        let offScreenFrame = CGRect(x: -20_000, y: -20_000, width: 1_000, height: 1_000)
+        let offScreenFrame = CGRect(x: offScreenX, y: -20_000, width: 1_000, height: 1_000)
         let panelController = InstantReplayPanelController()
         defer { panelController.hide() }
         panelController.show(
             for: InstantReplayController(stage: stage),
             stopWhatClickyIsSaying: {},
-            accentHex: "#A0457F",
+            accentHex: accentHex,
             mediaRectOnScreen: offScreenFrame.insetBy(dx: 300, dy: 300),
             visibleFrame: offScreenFrame
         )
@@ -186,12 +240,19 @@ struct AccentInkTests {
         contentView.layoutSubtreeIfNeeded()
         let bitmap = try #require(contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds))
         contentView.cacheDisplay(in: contentView.bounds, to: bitmap)
-        let pixels = try RenderedPixels(drawing: try #require(bitmap.cgImage), widthInPoints: contentView.bounds.width)
+        let pixels = try DrawingPixels(drawing: try #require(bitmap.cgImage), widthInPoints: contentView.bounds.width)
         // The middle of the Replay capsule: past the window's 12 point shadow margin, the row's 4 points, and the capsule's
         // own padding.
         let replayButtonPart = CGRect(x: 12 + 4 + 11, y: 12 + 4 + 5, width: 40, height: 14)
-        let replayButton = await pixels.inkPixelCounts(in: replayButtonPart)
-        #expect(replayButton.white > 20 && replayButton.nearBlack == 0)
+        return try await pixels.inkPixelCounts(in: replayButtonPart)
+    }
+
+    @Test(.showsARealWindow)
+    func theReplayControlsAccentButtonReadsOnItsAccent() async throws {
+        let onShiratorizawa = try await replayButtonInkPixels(accentHex: "#A0457F", offScreenX: -20_000)
+        #expect(onShiratorizawa.white > 20 && onShiratorizawa.nearBlack == 0)
+        let onClickyBlue = try await replayButtonInkPixels(accentHex: "#3380FF", offScreenX: -30_000)
+        #expect(onClickyBlue.nearBlack > 20 && onClickyBlue.white == 0)
     }
 
     private func dialView(theme: ClickyTheme, selection: SettingsDialSelection = SettingsDialSelection(slice: .model, fanItemIndex: nil)) -> SettingsDialView {

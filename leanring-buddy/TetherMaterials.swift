@@ -15,9 +15,22 @@ import SwiftUI
 // MARK: - Ink
 
 extension Color {
+    /// Each fill's ink once it has been worked out. The fills are the themes' accents, the agent colors, and the status
+    /// lines' hues, all fixed colors, so an entry never goes out of date and the dictionary stays small.
+    static var inksByFill: [Color: Color] = [:]
+
     /// The color of text and icons drawn on a fill of this color: near-black or white, whichever reads better on it
-    /// (`ThemeRGBColor.inkHexOnThisFill`).
+    /// (`ThemeRGBColor.inkHexOnThisFill`). A status line's Callout reads it 30 times a second, so each fill's ink is
+    /// worked out once and kept.
     var inkOnThisFill: Color {
+        if let keptInk = Self.inksByFill[self] { return keptInk }
+        let ink = workedOutInkOnThisFill
+        Self.inksByFill[self] = ink
+        return ink
+    }
+
+    /// Bridges to AppKit for the color's channels and compares both inks' contrast.
+    private var workedOutInkOnThisFill: Color {
         guard let fill = NSColor(self).usingColorSpace(.sRGB) else { return Color(hex: ThemeRGBColor.darkInkHex) }
         let fillColor = ThemeRGBColor(red: fill.redComponent, green: fill.greenComponent, blue: fill.blueComponent)
         return Color(hex: fillColor.inkHexOnThisFill)
