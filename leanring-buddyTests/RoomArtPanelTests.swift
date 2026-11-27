@@ -2,7 +2,8 @@
 //  RoomArtPanelTests.swift
 //  leanring-buddyTests
 //
-//  The room art panel's frame as the learner moves and resizes it, and its status line drawn at 2x.
+//  The room art panel's frame as the learner moves and resizes it, its open and close moves, and its status line, buttons,
+//  and Card edge drawn at 2x.
 //
 
 import AppKit
@@ -64,8 +65,8 @@ struct RoomArtPanelFrameTests {
     @Test(arguments: [roomArtPanelSmallestSize, roomArtPanelDefaultSize, CGSize(width: 1920, height: 1080)])
     func theCornerGripNeverOverlapsTheBottomRowsButtons(panelSize: CGSize) {
         let grip = roomArtPanelResizeGripFrame(panelSize: panelSize)
-        // The tallest button in the row, Paint it or Save photo, is about 34 points tall, so 44 leaves room.
-        let bottomRow = roomArtPanelBottomRowFrame(panelSize: panelSize, rowHeight: 44)
+        // The tallest thing in the row, a status line of two lines, is about 48 points tall, so 56 leaves room.
+        let bottomRow = roomArtPanelBottomRowFrame(panelSize: panelSize, rowHeight: 56)
         #expect(!grip.intersects(bottomRow), "grip \(grip), row \(bottomRow)")
         #expect(grip.minX - bottomRow.maxX >= 4)
         // The grip is in the corner and inside the panel, and the row still has room for its buttons at the smallest size.
@@ -106,7 +107,7 @@ struct RoomArtStatusPillRenderTests {
         // The letters run on with no gap wider than a word space in the first 30 points. A 22 point disc over them would leave one.
         let firstLetters = columns.filter { $0 < firstColumn + 30 }
         #expect(zip(firstLetters, firstLetters.dropFirst()).allSatisfy { $1 - $0 <= 7 })
-        // A line longer than the row is cut at its end, inside the pill.
+        // A line longer than the row stays inside the pill.
         let lastColumn = try #require(columns.last)
         #expect(lastColumn <= Int(rowWidth - RoomArtStatusPill.horizontalPadding) + 1)
     }
@@ -114,3 +115,258 @@ struct RoomArtStatusPillRenderTests {
 
 /// The furniture's could-not-draw status line, the one in the screenshot.
 private let roomFurnitureNotDrawnStatusLineForTheTest = "I couldn't draw it this time. Click the floor to try again"
+
+/// One view drawn at 2x, with its pixels as RGBA bytes. It draws in an `NSHostingView` in a window off every screen, which
+/// is never shown, so the buttons' hover views draw as on screen. `ImageRenderer` draws them as a placeholder sign.
+@MainActor
+private struct RenderedPixels {
+    let width: Int
+    let height: Int
+    let bytes: [UInt8]
+
+    init(_ view: some View, dumpName: String? = nil) throws {
+        let hostingView = NSHostingView(rootView: view)
+        let fittingSize = hostingView.fittingSize
+        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: fittingSize), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = hostingView
+        hostingView.frame = NSRect(origin: .zero, size: fittingSize)
+        hostingView.layoutSubtreeIfNeeded()
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(fittingSize.width * 2), pixelsHigh: Int(fittingSize.height * 2), bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        )?.retagging(with: .sRGB))
+        bitmap.size = fittingSize
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        let image = try #require(bitmap.cgImage)
+        if let dumpFolder = ProcessInfo.processInfo.environment["CLICKY_RENDER_DUMP_DIR"], let name = dumpName {
+            try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dumpFolder).appendingPathComponent("\(name).png"))
+        }
+        let context = try #require(CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let data = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+        width = image.width
+        height = image.height
+        bytes = Array(UnsafeBufferPointer(start: data, count: image.width * image.height * 4))
+    }
+
+    /// The color at a point of the view, from its top left.
+    func color(atX x: CGFloat, y: CGFloat) -> [Int] {
+        let offset = (Int(y * 2) * width + Int(x * 2)) * 4
+        return (0..<3).map { Int(bytes[offset + $0]) }
+    }
+}
+
+private func channelsAreClose(_ first: [Int], _ second: [Int], within tolerance: Int = 3) -> Bool {
+    zip(first, second).allSatisfy { abs($0 - $1) <= tolerance }
+}
+
+@MainActor
+struct RoomArtBottomRowRenderTests {
+    /// The row's width in the smallest panel.
+    private let rowWidth = roomArtPanelBottomRowFrame(panelSize: roomArtPanelSmallestSize, rowHeight: 0).width
+
+    private struct Row {
+        var statusText: String
+        var showsSavePhoto = false
+        var showsPlace = false
+        var shirtButtonTitle: String? = nil
+    }
+
+    private func view(of row: Row, statusMostLines: Int?) -> some View {
+        RoomArtPanelBottomRow(
+            statusText: row.statusText, statusIsAFailure: false, showsSavePhoto: row.showsSavePhoto, showsPlace: row.showsPlace,
+            shirtButtonTitle: row.shirtButtonTitle, accentColor: .orange, statusMostLines: statusMostLines
+        )
+        .frame(width: rowWidth)
+        .background(Color.black)
+    }
+
+    /// Whether the line draws the same with the panel's line limit as with none, so none of it is cut.
+    private func showsWhole(_ row: Row, mostLines: Int) throws -> Bool {
+        let limited = try RenderedPixels(view(of: row, statusMostLines: mostLines))
+        let unlimited = try RenderedPixels(view(of: row, statusMostLines: nil))
+        return limited.height == unlimited.height && limited.bytes == unlimited.bytes
+    }
+
+    /// Each of the panel's long status lines beside the buttons that show with it.
+    private var longestRows: [Row] {
+        let lostLines = [RoomArtSurfaceKind.wall.lostLine, RoomArtSurfaceKind.floor.lostLine, RoomArtStandsOn.tableOrShelf.lostLine, roomArtKeptRoomLostLine]
+        let failures: [RoomArtFailure] = [
+            .appSecretMissing, .pageNotHTTPS, .cameraAccessDenied, .noCamera, .notAPhysicalItem, .tooSmallToSee, .noClearPhoto,
+            .notFlatForTheWall, .noPlaceClickyCanShow, .pageNotRead, .sizeNotOnThePage, .depthServiceUnavailable,
+            .wallNotMeasured, .floorNotFound, .furnitureNotCutOut, .cannotBeDrawnOnYou, .workerUnreachable,
+        ]
+        let shirtCoachingLines = [ShirtFramingKind.noPerson, .standBack].compactMap(\.coachingLine)
+        return (lostLines + failures.map(\.statusLine)).map { Row(statusText: $0, showsSavePhoto: true) }
+            + [RoomArtStandsOn.floor.notDrawnStatusLine, RoomArtStandsOn.tableOrShelf.notDrawnStatusLine, roomArtShirtReadyStatusLine]
+                .map { Row(statusText: $0, shirtButtonTitle: "Paint it") }
+            + [roomArtShirtPaintedStatusLine, roomArtShirtPaintedOutOfReachLine]
+                .map { Row(statusText: $0, showsSavePhoto: true, shirtButtonTitle: "Back to live") }
+            + (shirtCoachingLines + [roomArtShirtStepBackLine, roomArtShirtPaintingStatusLine])
+                .map { Row(statusText: $0, shirtButtonTitle: "Back to live") }
+            + [roomFurnitureGhostStatusLine, roomFurnitureStepAsideLine, RoomArtSurfaceKind.floor.lostLine].map { Row(statusText: $0, showsPlace: true) }
+    }
+
+    @Test func everyLongStatusLineShowsWholeInTwoLinesAtTheSmallestSize() throws {
+        #expect(longestRows.count > 30)
+        for row in longestRows {
+            #expect(try showsWhole(row, mostLines: RoomArtStatusPill.mostLines), "cut: \(row.statusText)")
+        }
+    }
+
+    @Test func oneLineWouldCutTheLostWallLineSoTheSecondLineIsNeeded() throws {
+        #expect(try !showsWhole(Row(statusText: RoomArtSurfaceKind.wall.lostLine, showsSavePhoto: true), mostLines: 1))
+    }
+
+    @Test func theRowAndItsButtonsDrawAtTheSmallestSize() throws {
+        let rows = [
+            ("room-art-row-lost-wall", Row(statusText: RoomArtSurfaceKind.wall.lostLine, showsSavePhoto: true)),
+            ("room-art-row-painted-shirt", Row(statusText: roomArtShirtPaintedStatusLine, showsSavePhoto: true, shirtButtonTitle: "Back to live")),
+            ("room-art-row-ghost", Row(statusText: roomFurnitureGhostStatusLine, showsPlace: true)),
+        ]
+        for (name, row) in rows {
+            let pixels = try RenderedPixels(view(of: row, statusMostLines: RoomArtStatusPill.mostLines), dumpName: name)
+            #expect(pixels.width == Int(rowWidth * 2), "\(name) is wider than the row")
+        }
+    }
+
+    @Test func theStatusPillIsASolidCalloutSurfaceOverAWhitePage() throws {
+        let pixels = try RenderedPixels(RoomArtStatusPill(text: "Reading the page…", isAFailure: false).background(Color.white))
+        // Inside the left padding, clear of the letters and the edge. A translucent fill would let the white through.
+        let fill = pixels.color(atX: 7, y: CGFloat(pixels.height) / 4)
+        #expect(channelsAreClose(fill, [0x14, 0x17, 0x1e]), "the fill is \(fill)")
+    }
+
+    @Test func anAccentButtonIsFilledToItsEdgeWithNoStroke() throws {
+        let accent = Color(hex: "#F97316")
+        let pixels = try RenderedPixels(
+            RoomArtPanelButton(title: "Paint it", accentColor: accent, accessibilityLabel: "Paint it") {}.background(Color.black)
+        )
+        // Half a point inside the capsule's left end, where a 1 point stroke would draw.
+        let edge = pixels.color(atX: 0.5, y: RoomArtPanelButton.height / 2)
+        #expect(channelsAreClose(edge, [0xF9, 0x73, 0x16], within: 10), "the edge is \(edge)")
+    }
+
+    @Test func theCardEdgeOverTheVideoMatchesTheTetherCardsEdge() throws {
+        let size = CGSize(width: 200, height: 120)
+        let surface = LinearGradient(colors: [DS.Colors.cardSurfaceTop, DS.Colors.cardSurfaceBottom], startPoint: .top, endPoint: .bottom)
+        let panelEdge = try RenderedPixels(
+            surface.frame(width: size.width, height: size.height)
+                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous))
+                .overlay { RoomArtPanelCardEdge() }
+                .background(Color.black)
+        )
+        let card = try RenderedPixels(Color.clear.frame(width: size.width, height: size.height).tetherCard().background(Color.black))
+        // The top and left edges, where the highlight is strongest and where it is gone, and the surface beside them.
+        for point in [CGPoint(x: 100, y: 0.25), CGPoint(x: 0.25, y: 60), CGPoint(x: 100, y: 119.5), CGPoint(x: 100, y: 60)] {
+            let drawn = panelEdge.color(atX: point.x, y: point.y), expected = card.color(atX: point.x, y: point.y)
+            #expect(channelsAreClose(drawn, expected), "at \(point): \(drawn), the Card has \(expected)")
+        }
+        // The edge is there: brighter than the surface inside it.
+        #expect(panelEdge.color(atX: 100, y: 0.25)[0] > panelEdge.color(atX: 100, y: 4)[0] + 20)
+    }
+}
+
+struct RoomArtPanelStatusTextTests {
+    private func statusText(waiting: Bool, lost: Bool) -> String {
+        let phase = RoomArtPhase.waitingForTheLearnerToStepBack(title: "Tee", id: ShirtPaintingID(number: 1))
+        return roomArtPanelStatusText(phase: phase, waitingForTheLearnerToStepAside: waiting, theSurfaceIsLost: lost, shirtCoachingLine: nil, thePaintedTopIsOutOfReach: false)
+    }
+
+    @Test func theStepAsideRequestShowsWhileTheRoomIsFound() {
+        #expect(statusText(waiting: true, lost: false) == roomFurnitureStepAsideLine)
+        #expect(statusText(waiting: false, lost: false) == roomArtShirtStepBackLine)
+    }
+
+    @Test func aLostRoomWinsOverTheStepAsideRequest() {
+        let phase = RoomArtPhase.roomKeptAfterAFailedItem(.pageNotRead)
+        let text = roomArtPanelStatusText(phase: phase, waitingForTheLearnerToStepAside: true, theSurfaceIsLost: true, shirtCoachingLine: nil, thePaintedTopIsOutOfReach: false)
+        #expect(text == roomArtKeptRoomLostLine)
+    }
+}
+
+struct RoomArtPanelVideoCoverTests {
+    @Test func theVideoIsCoveredFromTheOpenUntilTheFirstFrameAndNeverAsThePanelCloses() {
+        #expect(roomArtPanelCoversTheVideo(phase: .readingThePage, theFirstFrameIsIn: false))
+        #expect(!roomArtPanelCoversTheVideo(phase: .readingThePage, theFirstFrameIsIn: true))
+        // A close forgets the first frame, and the fading panel keeps showing the last one.
+        #expect(!roomArtPanelCoversTheVideo(phase: .closed, theFirstFrameIsIn: false))
+    }
+}
+
+/// A panel that records being shown and hidden and never reaches the screen.
+private final class RecordingPanel: NSPanel {
+    private(set) var isShown = false
+    override var isVisible: Bool { isShown }
+    override func orderFrontRegardless() { isShown = true }
+    override func orderOut(_ sender: Any?) { isShown = false }
+}
+
+@MainActor
+struct RoomArtPanelMotionTests {
+    /// The motion with fades the test ends by hand.
+    @MainActor
+    private final class Harness {
+        var fades: [(alpha: CGFloat, seconds: Double, end: @MainActor () -> Void)] = []
+        let window = RecordingPanel(contentRect: CGRect(x: 0, y: 0, width: 960, height: 540), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        let content = NSView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))
+        var reduceMotionIsOn = false
+        lazy var motion = RoomArtPanelMotion(
+            reduceMotionIsOn: { [unowned self] in reduceMotionIsOn },
+            fadeTheWindow: { [unowned self] _, alpha, seconds, end in fades.append((alpha, seconds, end)) }
+        )
+
+        init() { content.wantsLayer = true }
+
+        var grow: CAKeyframeAnimation? { content.layer?.animation(forKey: RoomArtPanelMotion.growAnimationKey) as? CAKeyframeAnimation }
+    }
+
+    @Test func thePanelGrowsOnTheGlideCurveAsItFadesIn() throws {
+        let harness = Harness()
+        harness.motion.open(harness.window, growing: harness.content)
+        #expect(harness.window.isShown && !harness.window.ignoresMouseEvents)
+        #expect(harness.fades.map(\.alpha) == [1])
+        let grow = try #require(harness.grow)
+        #expect(grow.duration == DS.Move.glide.curve.seconds())
+        let scales = try #require(grow.values as? [NSValue]).map(\.caTransform3DValue.m11)
+        #expect(abs((scales.first ?? 0) - roomArtPanelOpeningStartScale) < 0.0001 && abs((scales.last ?? 0) - 1) < 0.0001)
+    }
+
+    @Test func withReduceMotionThePanelOnlyFades() {
+        let harness = Harness()
+        harness.reduceMotionIsOn = true
+        harness.motion.open(harness.window, growing: harness.content)
+        #expect(harness.grow == nil)
+        #expect(harness.fades.map(\.seconds) == [DS.Move.fadeSeconds])
+    }
+
+    @Test func aClosingPanelTakesNoClicksAndLeavesWhenItsFadeEnds() {
+        let harness = Harness()
+        harness.motion.open(harness.window, growing: harness.content)
+        harness.motion.close(harness.window)
+        #expect(harness.window.isShown && harness.window.ignoresMouseEvents)
+        #expect(harness.fades.last?.alpha == 0 && harness.fades.last?.seconds == DS.Move.fadeSeconds)
+        harness.fades.last?.end()
+        #expect(!harness.window.isShown)
+    }
+
+    @Test func aPanelOpenedAgainDuringItsCloseStays() {
+        let harness = Harness()
+        harness.motion.open(harness.window, growing: harness.content)
+        harness.motion.close(harness.window)
+        harness.motion.open(harness.window, growing: harness.content)
+        // The close's fade ends after the second open.
+        harness.fades[1].end()
+        #expect(harness.window.isShown && !harness.window.ignoresMouseEvents)
+    }
+
+    @Test func thePanelGrowsAboutTheMiddleOfItsTopEdge() {
+        let size = CGSize(width: 960, height: 540)
+        let transform = CATransform3DGetAffineTransform(RoomArtPanelMotion.transform(scalingBy: 0.5, aboutTheTopMiddleOf: size, anchorPoint: .zero))
+        // With the anchor at the bottom left, the top middle stays put and the bottom left corner moves halfway to it.
+        #expect(CGPoint(x: 480, y: 540).applying(transform) == CGPoint(x: 480, y: 540))
+        #expect(CGPoint.zero.applying(transform) == CGPoint(x: 240, y: 270))
+    }
+}

@@ -3279,6 +3279,9 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
     private weak var previewController: RoomArtPreviewController?
     private let metalLayer: CAMetalLayer
     private var panel: NonKeyFloatingPanel?
+    /// The panel's content, which grows as the panel opens.
+    private var contentThatGrows: NSView?
+    private let motion = RoomArtPanelMotion()
     private var frameObservers: [NSObjectProtocol] = []
 
     init(previewController: RoomArtPreviewController, metalLayer: CAMetalLayer) {
@@ -3300,11 +3303,13 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
                 savedFrame: savedFrame, visibleFrames: NSScreen.screens.map(\.visibleFrame), visibleFrameUnderTheMouse: visibleFrameUnderTheMouse
             ), display: false)
         }
-        panel.orderFrontRegardless()
+        guard let contentThatGrows else { return }
+        motion.open(panel, growing: contentThatGrows)
     }
 
     func hide() {
-        panel?.orderOut(nil)
+        guard let panel else { return }
+        motion.close(panel)
     }
 
     private func makePanel(previewController: RoomArtPreviewController) -> NonKeyFloatingPanel {
@@ -3329,9 +3334,16 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
         hostingView.sizingOptions = []
         hostingView.autoresizingMask = [.width, .height]
         hostingView.wantsLayer = true
-        hostingView.layer?.cornerRadius = 16
+        // The Card's corner. The layer clips the video too, and the window's own shadow follows the shape.
+        hostingView.layer?.cornerRadius = DS.CornerRadius.card
+        hostingView.layer?.cornerCurve = .continuous
         hostingView.layer?.masksToBounds = true
-        panel.contentView = hostingView
+        // A view of its own holds the content, so the content can grow inside the window as the panel opens.
+        let containerView = NSView(frame: hostingView.frame)
+        containerView.wantsLayer = true
+        containerView.addSubview(hostingView)
+        panel.contentView = containerView
+        contentThatGrows = hostingView
         // A drag or a resize keeps the panel's new frame, so the next panel opens there.
         for notificationName in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
             frameObservers.append(NotificationCenter.default.addObserver(forName: notificationName, object: panel, queue: .main) { [weak panel] _ in
@@ -3340,6 +3352,87 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
             })
         }
         return panel
+    }
+}
+
+/// The panel's moves. It grows in place with the Glide spring as it fades in, and fades out over `DS.Move.fadeSeconds`.
+/// With Reduce Motion on it only fades. The next panel uses the same window, so only the newest move may order it out.
+@MainActor
+final class RoomArtPanelMotion {
+    typealias WindowFade = (_ window: NSWindow, _ alpha: CGFloat, _ seconds: Double, _ completion: @escaping @MainActor () -> Void) -> Void
+
+    static let growAnimationKey = "roomArtPanelGrow"
+
+    private let reduceMotionIsOn: () -> Bool
+    private let fadeTheWindow: WindowFade
+    /// Counts the opens and closes, so a fade that ends after a newer move changes nothing.
+    private var moveNumber = 0
+
+    /// A test passes its own fade and ends it by hand.
+    init(
+        reduceMotionIsOn: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion },
+        fadeTheWindow: @escaping WindowFade = RoomArtPanelMotion.fadeWithAppKit
+    ) {
+        self.reduceMotionIsOn = reduceMotionIsOn
+        self.fadeTheWindow = fadeTheWindow
+    }
+
+    func open(_ window: NSWindow, growing contentView: NSView) {
+        moveNumber += 1
+        let thisMove = moveNumber
+        let opening = roomArtPanelOpening(
+            glide: DS.Move.glide.curve,
+            reduceMotionIsOn: reduceMotionIsOn(),
+            reducedMotionFadeSeconds: DS.Move.glide.reduceMotionForm.fadeSeconds
+        )
+        window.ignoresMouseEvents = false
+        // A window still fading out fades back in from where it is.
+        if !window.isVisible { window.alphaValue = 0 }
+        window.orderFrontRegardless()
+        contentView.layer?.removeAnimation(forKey: Self.growAnimationKey)
+        if !opening.scales.isEmpty, let contentLayer = contentView.layer {
+            let grow = CAKeyframeAnimation(keyPath: "transform")
+            grow.values = opening.scales.map { scale in
+                NSValue(caTransform3D: Self.transform(scalingBy: scale, aboutTheTopMiddleOf: contentView.bounds.size, anchorPoint: contentLayer.anchorPoint))
+            }
+            grow.duration = opening.seconds
+            contentLayer.add(grow, forKey: Self.growAnimationKey)
+        }
+        fadeTheWindow(window, 1, opening.seconds) { [weak self, weak window] in
+            guard let self, thisMove == self.moveNumber else { return }
+            // The shadow was cut for the smaller content, so it is cut again at full size.
+            window?.invalidateShadow()
+        }
+    }
+
+    func close(_ window: NSWindow) {
+        guard window.isVisible else { return }
+        moveNumber += 1
+        let thisMove = moveNumber
+        // The panel fades for a moment, and a click on it then must not reach its buttons.
+        window.ignoresMouseEvents = true
+        fadeTheWindow(window, 0, DS.Move.fadeSeconds) { [weak self, weak window] in
+            guard let self, thisMove == self.moveNumber else { return }
+            window?.orderOut(nil)
+        }
+    }
+
+    /// The layer transform that scales a view's content about the middle of its top edge, for a layer whose superlayer's y
+    /// grows up. A layer transform applies about the anchor point, so the pivot is measured from it.
+    static func transform(scalingBy scale: CGFloat, aboutTheTopMiddleOf size: CGSize, anchorPoint: CGPoint) -> CATransform3D {
+        let pivotX = (0.5 - anchorPoint.x) * size.width
+        let pivotY = (1 - anchorPoint.y) * size.height
+        let movedToThePivot = CATransform3DMakeTranslation(pivotX, pivotY, 0)
+        return CATransform3DTranslate(CATransform3DScale(movedToThePivot, scale, scale, 1), -pivotX, -pivotY, 0)
+    }
+
+    static func fadeWithAppKit(_ window: NSWindow, toAlpha alpha: CGFloat, overSeconds seconds: Double, completion: @escaping @MainActor () -> Void) {
+        NSAnimationContext.runAnimationGroup({ animationContext in
+            animationContext.duration = seconds
+            window.animator().alphaValue = alpha
+        }, completionHandler: {
+            MainActor.assumeIsolated { completion() }
+        })
     }
 }
 
@@ -3400,10 +3493,6 @@ private final class RoomArtPanelWindowControlNSView: NSView {
 private struct RoomArtPanelView: View {
     @ObservedObject var previewController: RoomArtPreviewController
     let metalLayer: CAMetalLayer
-    @State private var closeButtonIsHovered = false
-    @State private var placeButtonIsHovered = false
-    @State private var shirtButtonIsHovered = false
-    @State private var saveButtonIsHovered = false
     @State private var moveHandleIsHovered = false
     @State private var resizeGripIsHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -3426,7 +3515,7 @@ private struct RoomArtPanelView: View {
 
     private func panelContent(panelSize: CGSize) -> some View {
         ZStack {
-            DS.Colors.background
+            RoomArtPanelSurface()
             RoomArtVideoView(
                 metalLayer: metalLayer,
                 showsTheCrosshair: previewController.phase.theItemIsPlacedByClicking,
@@ -3466,12 +3555,11 @@ private struct RoomArtPanelView: View {
                     }
                 )
                 .opacity(ghostOpacity)
-                .animation(.easeOut(duration: 0.3), value: ghostOpacity)
-                .transition(.opacity.animation(.easeOut(duration: 0.5)))
+                .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: ghostOpacity)
+                .transition(.opacity.animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)))
             }
-            // The layer still holds the last session's frame until the camera's first one, so it stays covered until then.
-            if !previewController.theFirstFrameIsIn {
-                DS.Colors.background
+            if roomArtPanelCoversTheVideo(phase: previewController.phase, theFirstFrameIsIn: previewController.theFirstFrameIsIn) {
+                RoomArtPanelSurface()
             }
             if case .failed = previewController.phase {
                 Color.black.opacity(0.45).allowsHitTesting(false)
@@ -3488,26 +3576,53 @@ private struct RoomArtPanelView: View {
                     }
                 }
                 Spacer()
-                // The status line takes the room the buttons leave and cuts its end, so at any size the buttons stay whole
-                // and the line's first words show.
-                HStack(spacing: 8) {
-                    statusLine
-                    Spacer(minLength: 0)
-                    if previewController.phase.photoTitleToSave != nil {
-                        savePhotoButton
-                    }
-                    if previewController.phase.furnitureGhostShows {
-                        placeButton
-                    }
-                    shirtButton
-                }
-                // The buttons end left of the corner grip, so a click on a button's right end never starts a resize.
-                .padding(.trailing, roomArtPanelBottomRowTrailingInset - roomArtPanelContentInset)
+                bottomRow
+                    // The buttons end left of the corner grip, so a click on a button's right end never starts a resize.
+                    .padding(.trailing, roomArtPanelBottomRowTrailingInset - roomArtPanelContentInset)
             }
             .padding(roomArtPanelContentInset)
         }
         .overlay(alignment: .bottomTrailing) { resizeGrip }
+        .overlay { RoomArtPanelCardEdge() }
         .frame(width: panelSize.width, height: panelSize.height)
+    }
+
+    private var bottomRow: some View {
+        RoomArtPanelBottomRow(
+            statusText: roomArtPanelStatusText(
+                phase: previewController.phase,
+                waitingForTheLearnerToStepAside: previewController.waitingForTheLearnerToStepAside,
+                theSurfaceIsLost: previewController.theSurfaceIsLost,
+                shirtCoachingLine: previewController.shirtCoachingLine,
+                thePaintedTopIsOutOfReach: previewController.thePaintedTopIsOutOfReach
+            ),
+            statusIsAFailure: previewController.phase.statusLineIsAFailure(theSurfaceIsLost: previewController.theSurfaceIsLost),
+            showsSavePhoto: previewController.phase.photoTitleToSave != nil,
+            showsPlace: previewController.phase.furnitureGhostShows,
+            shirtButtonTitle: shirtButtonTitle,
+            accentColor: previewController.loopAccentColor,
+            onSavePhoto: { previewController.saveThePhoto() },
+            onPlace: { previewController.placeTheFurnitureWhereItsGhostStands() },
+            onShirtButton: {
+                // A mouse click's own time (`shirtButtonPressTime`), and the time it is handled for a VoiceOver press.
+                let currentEvent = NSApp.currentEvent
+                previewController.pressTheShirtButton(atUptime: shirtButtonPressTime(
+                    currentEventIsAMouseClick: currentEvent.map { [.leftMouseUp, .leftMouseDown].contains($0.type) } ?? false,
+                    currentEventTimestamp: currentEvent?.timestamp,
+                    now: ProcessInfo.processInfo.systemUptime
+                ))
+            }
+        )
+    }
+
+    /// Paint it while the camera shows the learner, and Back to live while a painting is made or the painted still shows. Each
+    /// does what its spoken phrase does ("paint it", "go back").
+    private var shirtButtonTitle: String? {
+        switch previewController.shirtStillVoiceTargets {
+        case .readyToPaint: "Paint it"
+        case .stepBack, .paintedStill: "Back to live"
+        case .none: nil
+        }
     }
 
     /// The handle at the top that moves the panel, a pill on a dark backing so it reads over any room.
@@ -3543,140 +3658,168 @@ private struct RoomArtPanelView: View {
         .accessibilityLabel("Resize the panel")
     }
 
-    /// Saves what the panel shows, as "save this photo" does (`RoomArtPreviewController.saveThePhoto`).
-    private var savePhotoButton: some View {
-        Button {
-            previewController.saveThePhoto()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 12, weight: .semibold))
-                Text("Save photo")
-                    .font(.system(size: 14, weight: .semibold))
-            }
-            .foregroundStyle(DS.Colors.textPrimary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(Capsule().fill(saveButtonIsHovered ? DS.Colors.surface4 : DS.Colors.surface2.opacity(0.9)))
-            .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .fixedSize()
-        .hoverAndPointer { isHovered in saveButtonIsHovered = isHovered }
-        .accessibilityLabel("Save photo")
-    }
-
     private var closeButton: some View {
-        Button {
-            previewController.close()
-        } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(DS.Colors.textPrimary)
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(closeButtonIsHovered ? DS.Colors.surface4 : DS.Colors.surface2.opacity(0.85)))
-                .overlay(Circle().stroke(DS.Colors.borderSubtle, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .hoverAndPointer { isHovered in closeButtonIsHovered = isHovered }
-        .accessibilityLabel("Close")
+        RoomArtPanelButton(systemImageName: "xmark", accessibilityLabel: "Close") { previewController.close() }
     }
+}
 
-    /// Places the piece where its ghost stands, as "right there" does. Filled with the theme's accent so it reads at a
-    /// glance over any room, with the Tether ink on it.
-    private var placeButton: some View {
-        Button {
-            previewController.placeTheFurnitureWhereItsGhostStands()
-        } label: {
+/// The panel's surface where no video shows: the Card's gradient.
+private struct RoomArtPanelSurface: View {
+    var body: some View {
+        LinearGradient(colors: [DS.Colors.cardSurfaceTop, DS.Colors.cardSurfaceBottom], startPoint: .top, endPoint: .bottom)
+    }
+}
+
+/// The Card's edge over the video: the 1 point white edge at 8% and the inner top highlight. The video fills the panel, so
+/// the edge is drawn over it, where `tetherCard()` draws it over its own surface. The values are `TetherCardMaterial`'s,
+/// and a test compares the two renders.
+struct RoomArtPanelCardEdge: View {
+    private let cardShape = RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous)
+
+    var body: some View {
+        cardShape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+            .overlay(cardShape.strokeBorder(
+                LinearGradient(colors: [Color.white.opacity(0.10), Color.white.opacity(0)], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.25)),
+                lineWidth: 1
+            ))
+            .allowsHitTesting(false)
+    }
+}
+
+/// One look for every button on the panel: a solid capsule that dips on the Snap move as it is pressed, changes its fill on
+/// hover, and shows the pointing hand. With an accent it is filled with it and set in the Tether ink, and without one it is
+/// a dark surface with an edge. With no title it is a circle around its icon.
+struct RoomArtPanelButton: View {
+    var title: String? = nil
+    var systemImageName: String? = nil
+    var accentColor: Color? = nil
+    let accessibilityLabel: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static let height: CGFloat = 32
+
+    var body: some View {
+        Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 12, weight: .bold))
-                Text("Place")
-                    .font(.system(size: 14, weight: .semibold))
+                if let systemImageName {
+                    Image(systemName: systemImageName)
+                }
+                if let title {
+                    Text(title)
+                }
             }
-            .foregroundStyle(DS.Colors.inkOnAccent)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 9)
-            .background(Capsule().fill(previewController.loopAccentColor))
-            .overlay(Capsule().stroke(DS.Colors.textPrimary.opacity(placeButtonIsHovered ? 0.7 : 0.25), lineWidth: placeButtonIsHovered ? 2 : 1))
-            .shadow(color: DS.Colors.inkOnAccent.opacity(0.35), radius: placeButtonIsHovered ? 8 : 4, y: 2)
-            // Hover grows the button a little on the Snap move, and with Reduce Motion only its edge and shadow change.
-            .scaleEffect(placeButtonIsHovered && !reduceMotion ? 1.04 : 1)
-            .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: placeButtonIsHovered)
+            .font(DS.TypeScale.title.font)
+            .foregroundStyle(accentColor == nil ? DS.Colors.textPrimary : DS.Colors.inkOnAccent)
+            .padding(.horizontal, title == nil ? 0 : 14)
+            .frame(minWidth: Self.height, minHeight: Self.height)
+            .background(Capsule().fill(fillColor))
+            .overlay {
+                if accentColor == nil {
+                    Capsule().strokeBorder(Color.white.opacity(isHovered ? 0.18 : 0.1), lineWidth: 1)
+                }
+            }
+            .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+            .contentShape(Capsule())
+            .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: isHovered)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelPressStyle())
         .fixedSize()
-        .hoverAndPointer { isHovered in placeButtonIsHovered = isHovered }
-        .accessibilityLabel("Place it here")
+        .hoverAndPointer { isHovered = $0 }
+        .accessibilityLabel(accessibilityLabel)
     }
 
-    /// Paint it while the camera shows the learner, and Back to live while a painting is made or the painted still shows. Each
-    /// does what its spoken phrase does ("paint it", "go back").
-    @ViewBuilder
-    private var shirtButton: some View {
-        let shirtButtonTitle: String? = switch previewController.shirtStillVoiceTargets {
-        case .readyToPaint: "Paint it"
-        case .stepBack, .paintedStill: "Back to live"
-        case .none: nil
-        }
-        if let shirtButtonTitle {
-            // A mouse click's own time (`shirtButtonPressTime`), and the time it is handled for a VoiceOver press.
-            Button {
-                let currentEvent = NSApp.currentEvent
-                previewController.pressTheShirtButton(atUptime: shirtButtonPressTime(
-                    currentEventIsAMouseClick: currentEvent.map { [.leftMouseUp, .leftMouseDown].contains($0.type) } ?? false,
-                    currentEventTimestamp: currentEvent?.timestamp,
-                    now: ProcessInfo.processInfo.systemUptime
-                ))
-            } label: {
-                Text(shirtButtonTitle)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(DS.Colors.inkOnAccent)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(previewController.loopAccentColor.opacity(shirtButtonIsHovered ? 1 : 0.88)))
-                    .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
+    private var fillColor: Color {
+        guard let accentColor else { return isHovered ? DS.Colors.surface4 : DS.Colors.surface2 }
+        return accentColor.opacity(isHovered ? 0.88 : 1)
+    }
+}
+
+/// The panel's bottom row. The status line takes the room the buttons leave and wraps to a second line, so at any size the
+/// buttons stay whole.
+struct RoomArtPanelBottomRow: View {
+    let statusText: String
+    let statusIsAFailure: Bool
+    /// Saves what the panel shows, as "save this photo" does (`RoomArtPreviewController.saveThePhoto`).
+    let showsSavePhoto: Bool
+    /// Places the piece where its ghost stands, as "right there" does.
+    let showsPlace: Bool
+    let shirtButtonTitle: String?
+    /// The theme's accent, which fills Place and the shirt's button, so each reads at a glance over any room.
+    let accentColor: Color
+    /// A test passes nil to draw the line with no limit.
+    var statusMostLines: Int? = RoomArtStatusPill.mostLines
+    var onSavePhoto: () -> Void = {}
+    var onPlace: () -> Void = {}
+    var onShirtButton: () -> Void = {}
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if !statusText.isEmpty {
+                RoomArtStatusPill(text: statusText, isAFailure: statusIsAFailure, mostLines: statusMostLines)
             }
-            .buttonStyle(.plain)
-            .fixedSize()
-            .hoverAndPointer { isHovered in shirtButtonIsHovered = isHovered }
-            .accessibilityLabel(shirtButtonTitle)
-        }
-    }
-
-    @ViewBuilder
-    private var statusLine: some View {
-        let statusText = previewController.waitingForTheLearnerToStepAside
-            ? roomFurnitureStepAsideLine
-            : previewController.phase.statusLine(
-                theSurfaceIsLost: previewController.theSurfaceIsLost, shirtCoachingLine: previewController.shirtCoachingLine,
-                thePaintedTopIsOutOfReach: previewController.thePaintedTopIsOutOfReach
-            )
-        if !statusText.isEmpty {
-            RoomArtStatusPill(text: statusText, isAFailure: previewController.phase.statusLineIsAFailure(theSurfaceIsLost: previewController.theSurfaceIsLost))
+            Spacer(minLength: 0)
+            if showsSavePhoto {
+                RoomArtPanelButton(title: "Save photo", systemImageName: "square.and.arrow.down", accessibilityLabel: "Save photo", action: onSavePhoto)
+            }
+            if showsPlace {
+                RoomArtPanelButton(title: "Place", systemImageName: "checkmark", accentColor: accentColor, accessibilityLabel: "Place it here", action: onPlace)
+            }
+            if let shirtButtonTitle {
+                RoomArtPanelButton(title: shirtButtonTitle, accentColor: accentColor, accessibilityLabel: shirtButtonTitle, action: onShirtButton)
+            }
         }
     }
 }
 
-/// The panel's status line: its words on a dark pill, starting at the pill's left padding. Narrower than its words, it cuts
-/// their end, never their start. It draws no icon, so anything drawn over its first letters, such as the overlay's cursor,
-/// which sits above every window, comes from outside it.
+/// The video's layer still holds the last session's frame until the camera's first one, so an open panel covers it until
+/// then. A closing panel stays uncovered, so it fades out with its last frame.
+nonisolated func roomArtPanelCoversTheVideo(phase: RoomArtPhase, theFirstFrameIsIn: Bool) -> Bool {
+    phase.isOpen && !theFirstFrameIsIn
+}
+
+/// The panel's status line. A lost room wins over the request to step aside, since no painting is made until the room is
+/// found, so the learner has to turn back first.
+nonisolated func roomArtPanelStatusText(
+    phase: RoomArtPhase,
+    waitingForTheLearnerToStepAside: Bool,
+    theSurfaceIsLost: Bool,
+    shirtCoachingLine: String?,
+    thePaintedTopIsOutOfReach: Bool
+) -> String {
+    if waitingForTheLearnerToStepAside && !theSurfaceIsLost { return roomFurnitureStepAsideLine }
+    return phase.statusLine(theSurfaceIsLost: theSurfaceIsLost, shirtCoachingLine: shirtCoachingLine, thePaintedTopIsOutOfReach: thePaintedTopIsOutOfReach)
+}
+
+/// The panel's status line: its words on a solid pill of the Callout's surface, with no tail, starting at the pill's left
+/// padding. It wraps to `mostLines`, and cuts the end of a longer line, never its start. It draws no icon, so anything drawn
+/// over its first letters, such as the overlay's cursor, which sits above every window, comes from outside it.
 struct RoomArtStatusPill: View {
     let text: String
     let isAFailure: Bool
+    var mostLines: Int? = RoomArtStatusPill.mostLines
 
+    static let mostLines = 2
     static let horizontalPadding: CGFloat = 14
+    /// Half the height of a one line pill, so one line reads as a capsule and two keep round corners.
+    private static let cornerRadius: CGFloat = 16
+
+    private var pillShape: RoundedRectangle { RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous) }
 
     var body: some View {
         Text(text)
-            .font(.system(size: 14, weight: .medium))
+            .font(DS.TypeScale.title.font)
             .foregroundStyle(isAFailure ? DS.Colors.destructiveText : DS.Colors.textPrimary)
-            .lineLimit(1)
+            .lineLimit(mostLines)
             .truncationMode(.tail)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, Self.horizontalPadding)
             .padding(.vertical, 8)
-            .background(Capsule().fill(DS.Colors.background.opacity(0.82)))
-            .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
+            .background(pillShape.fill(DS.Colors.calloutSurface))
+            .overlay(pillShape.strokeBorder(DS.Colors.borderSubtle, lineWidth: 1))
             .allowsHitTesting(false)
     }
 }
@@ -3690,7 +3833,7 @@ private struct ShirtCountdownNumberView: View {
 
     var body: some View {
         Text(verbatim: "\(number)")
-            .font(.system(size: 120, weight: .bold, design: .rounded))
+            .font(DS.TypeScale.display.font)
             .foregroundStyle(accentColor)
             .shadow(color: .black.opacity(0.55), radius: 8)
             .id(number)

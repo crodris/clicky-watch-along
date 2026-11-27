@@ -273,11 +273,14 @@ enum DS {
 
     // MARK: - Tether type scale
 
-    /// The Tether type scale: four sizes (17, 15, 13, 11) in six styles. Every Tether surface sets its text in one of them,
+    /// The Tether type scale: four sizes (17, 15, 13, 11) in six styles, and one display size (120) for a countdown that
+    /// fills a video. Every Tether surface sets its text in one of them,
     /// such as `Text("Popping it out").font(DS.TypeScale.voice.font)`. Set a Data style string with `Text(verbatim:)`, since
     /// SwiftUI turns a URL in a plain `Text` into a blue link.
     /// (`DS.Type` would be Swift's metatype of `DS`, so the scale has this name.)
     enum TypeScale: CaseIterable {
+        /// 120/700 rounded: the 3-2-1 countdown over the room art panel's video, read from a few steps back.
+        case display
         /// 17/700 rounded: a Card's heading, such as "Set up Clicky".
         case headline
         /// 15/700 rounded: anything Clicky says on a Callout, such as "Popping it out".
@@ -293,6 +296,7 @@ enum DS {
 
         var pointSize: CGFloat {
             switch self {
+            case .display: return 120
             case .headline: return 17
             case .voice: return 15
             case .title, .body: return 13
@@ -302,7 +306,7 @@ enum DS {
 
         var weight: Font.Weight {
             switch self {
-            case .headline, .voice: return .bold
+            case .display, .headline, .voice: return .bold
             case .title: return .semibold
             case .body, .data: return .regular
             case .caption: return .medium
@@ -311,7 +315,7 @@ enum DS {
 
         var design: Font.Design {
             switch self {
-            case .headline, .voice: return .rounded
+            case .display, .headline, .voice: return .rounded
             case .title, .body, .caption: return .default
             case .data: return .monospaced
             }

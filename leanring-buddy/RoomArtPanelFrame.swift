@@ -4,7 +4,8 @@
 //
 //  Where the room art panel sits and how large it is. The learner drags it by its handle and resizes it by its corner grip,
 //  always at the camera's 16:9, so the video fills it and every point on it maps to one camera pixel the same way at any
-//  size (`RoomArtVideoFit`). Its last frame is kept in UserDefaults, so it opens where the learner left it.
+//  size (`RoomArtVideoFit`). Its last frame is kept in UserDefaults, so it opens where the learner left it. It also holds
+//  how the panel grows as it opens.
 //
 
 import CoreGraphics
@@ -91,4 +92,28 @@ private nonisolated func roomArtPanelOriginKeptInside(_ visibleFrame: CGRect, or
         x: min(max(origin.x, visibleFrame.minX), max(visibleFrame.minX, visibleFrame.maxX - size.width)),
         y: min(max(origin.y, visibleFrame.minY), max(visibleFrame.minY, visibleFrame.maxY - size.height))
     )
+}
+
+/// The panel opens from this scale, about the middle of its top edge, as the "Add theme?" card does. It has no origin to
+/// Glide out of.
+nonisolated let roomArtPanelOpeningStartScale: CGFloat = 0.97
+
+/// How the panel appears: how long its window takes to fade in, and its content's scale at equal steps over that time.
+/// `scales` is empty when the content does not grow.
+nonisolated struct RoomArtPanelOpening: Equatable, Sendable {
+    let seconds: Double
+    let scales: [CGFloat]
+}
+
+/// The panel grows in place on the Glide curve, sampled at 120 a second as the carrier samples its moves, or only fades in
+/// with Reduce Motion on.
+nonisolated func roomArtPanelOpening(glide: MoveCurve, reduceMotionIsOn: Bool, reducedMotionFadeSeconds: Double) -> RoomArtPanelOpening {
+    guard !reduceMotionIsOn else { return RoomArtPanelOpening(seconds: reducedMotionFadeSeconds, scales: []) }
+    let seconds = glide.seconds()
+    let stepCount = max(1, Int((seconds * 120).rounded(.up)))
+    let scales = (0...stepCount).map { step in
+        let progress = glide.progress(atSeconds: seconds * Double(step) / Double(stepCount))
+        return roomArtPanelOpeningStartScale + (1 - roomArtPanelOpeningStartScale) * CGFloat(progress)
+    }
+    return RoomArtPanelOpening(seconds: seconds, scales: scales)
 }
