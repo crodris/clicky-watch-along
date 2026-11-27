@@ -680,7 +680,9 @@ struct InstantReplayTests {
         // A point in the open window's margin, too far outside the narrower window for it to read the mouse, so only the
         // resize itself can check the pointer.
         let pointInTheNewMargin = CGPoint(x: openFrame.minX + 4, y: openFrame.midY)
-        #expect(!offeredFrame.insetBy(dx: -8, dy: -8).contains(pointInTheNewMargin))
+        // Mirrors InstantReplayPanelController's private pointerNearDistance.
+        let pointerNearDistance: CGFloat = 8
+        #expect(!offeredFrame.insetBy(dx: -pointerNearDistance, dy: -pointerNearDistance).contains(pointInTheNewMargin))
         control.pointer.location = pointInTheNewMargin
         control.show()
         let resizedPanel = try #require(control.panelController.panel)

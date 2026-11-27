@@ -130,7 +130,7 @@ struct SetupChecklistTests {
             #expect(setupCaptureSummary.contains(words), "\(words)")
         }
         // fal.ai gets no capture.
-        #expect(setupCaptureSummary.contains("fal.ai receives only the product photo of anything you try that stands on a surface, also through Clicky's own server."))
+        #expect(setupCaptureSummary.contains("fal.ai gets the product photo of anything you try that stands on a surface, also through that server."))
     }
 
     @Test func voiceOverReadsTheDisclosureButtonByItsWordsAndItsState() async throws {
@@ -160,6 +160,8 @@ struct SetupChecklistTests {
     }
 
     @Test func readingTheAccessibilityTreeLeavesTheAppWideSwitchAsItFoundIt() async throws {
+        let switchWasOnBeforeThisTest = enhancedUserInterfaceIsOn()
+        defer { setEnhancedUserInterface(switchWasOnBeforeThisTest) }
         setEnhancedUserInterface(false)
         _ = try await accessibilityElements(of: SetupWhatGetsSent())
         #expect(!enhancedUserInterfaceIsOn())
@@ -232,7 +234,7 @@ struct SetupChecklistTests {
             #expect(setupCaptureDisclosure.contains(capture))
         }
         #expect(setupCaptureDisclosure.contains("Anthropic") && setupCaptureDisclosure.contains("OpenAI"))
-        // The room art's camera frames and the furniture's product photo have their own destinations.
+        // The room art's camera frames and a standing item's product photo have their own destinations.
         for roomArtWords in ["camera", "depth service", "fal.ai"] {
             #expect(setupCaptureDisclosure.contains(roomArtWords))
         }
