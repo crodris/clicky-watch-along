@@ -547,6 +547,7 @@ struct InstantReplayTests {
             panelController.show(for: replay, stopWhatClickyIsSaying: {}, accentHex: "#3380FF", mediaRectOnScreen: mediaRectOnScreen, visibleFrame: visibleFrame)
         }
         showTheControl()
+        defer { panelController.hide() }
         let hiddenPanel = try #require(panelController.panel)
         #expect(!NSScreen.screens.contains { screen in screen.frame.intersects(hiddenPanel.frame) })
         // The Card is centered under the media, 14 points down, whatever the window's margins are.
@@ -582,7 +583,6 @@ struct InstantReplayTests {
         }
         #expect(!hiddenPanel.isVisible)
         #expect(shownPanel.isVisible)
-        panelController.hide()
     }
 
     /// The pointer a test moves by hand, off every screen like the panel.
@@ -618,9 +618,8 @@ struct InstantReplayTests {
         /// Where the window will sit, read by showing it with the pointer far away.
         func windowFrame() throws -> CGRect {
             show()
-            let frame = try #require(panelController.panel).frame
-            panelController.hide()
-            return frame
+            defer { panelController.hide() }
+            return try #require(panelController.panel).frame
         }
     }
 
@@ -646,6 +645,7 @@ struct InstantReplayTests {
         let windowFrame = try control.windowFrame()
         control.pointer.location = inTheCard(of: windowFrame)
         control.show()
+        defer { control.panelController.hide() }
         let panel = try #require(control.panelController.panel)
         #expect(!panel.ignoresMouseEvents)
         control.pointer.location = inTheShadowMargin(of: windowFrame)
@@ -654,7 +654,6 @@ struct InstantReplayTests {
         control.pointer.location = inTheCard(of: windowFrame)
         try await waitUntil { !panel.ignoresMouseEvents }
         #expect(!panel.ignoresMouseEvents)
-        control.panelController.hide()
     }
 
     @Test(.showsARealWindow) func aShowAndAResizeCheckThePointerAtOnce() async throws {
@@ -663,6 +662,7 @@ struct InstantReplayTests {
         control.pointer.location = inTheShadowMargin(of: windowFrame)
         // No wait: a click before the first tick must already reach the page.
         control.show()
+        defer { control.panelController.hide() }
         let panel = try #require(control.panelController.panel)
         #expect(panel.ignoresMouseEvents)
         control.panelController.hide()
@@ -694,13 +694,13 @@ struct InstantReplayTests {
         #expect(resizedPanel.frame == openFrame)
         #expect(resizedPanel.ignoresMouseEvents)
         control.replay.forget()
-        control.panelController.hide()
         withExtendedLifetime(control.recorder) {}
     }
 
     @Test(.showsARealWindow) func theMouseIsReadOnlyWhileThePointerIsNearTheWindow() async throws {
         let control = OffScreenControl()
         control.show()
+        defer { control.panelController.hide() }
         let panel = try #require(control.panelController.panel)
         let hostingView = try #require(panel.contentView)
         #expect(control.panelController.clickThroughTimer == nil)
@@ -749,6 +749,8 @@ struct InstantReplayTests {
         panelController?.mouseLocationOnScreen = { CGPoint(x: -30_000, y: -30_000) }
         show()
         let panel = try #require(panelController?.panel)
+        // The test releases the controller, so the window is closed directly.
+        defer { panel.orderOut(nil) }
         let pointOnTheCard = inTheCard(of: panel.frame)
         panelController?.mouseLocationOnScreen = { pointOnTheCard }
         show()
@@ -758,7 +760,6 @@ struct InstantReplayTests {
         try await waitUntil { !timer.isValid }
         #expect(releasedController == nil)
         #expect(!timer.isValid)
-        panel.orderOut(nil)
     }
 
     @Test(.showsARealWindow) func aSecondShowTakesTheNewestReplayAccentAndStopClosure() async throws {
@@ -767,6 +768,7 @@ struct InstantReplayTests {
         var secondStopCount = 0
         control.replay.offer(threeStops, sceneNumber: 1)
         control.show(accentHex: "#3380FF", stopWhatClickyIsSaying: { firstStopCount += 1 })
+        defer { control.panelController.hide() }
         let panel = try #require(control.panelController.panel)
         let secondRecorder = RecordingReplayStage()
         let secondReplay = InstantReplayController(stage: secondRecorder.stage)
@@ -785,7 +787,6 @@ struct InstantReplayTests {
         try await waitUntil { hostingView.rootView.phase.isOpen }
         #expect(hostingView.rootView.phase.isOpen)
         secondReplay.forget()
-        control.panelController.hide()
         withExtendedLifetime((control.recorder, secondRecorder)) {}
     }
 
@@ -793,6 +794,7 @@ struct InstantReplayTests {
         let control = OffScreenControl()
         control.replay.offer(threeStops, sceneNumber: 1)
         control.show(accentHex: "#3380FF")
+        defer { control.panelController.hide() }
         let panel = try #require(control.panelController.panel)
         let hostingView = try #require(panel.contentView as? FirstMouseHostingView<InstantReplayControlView>)
         let secondRecorder = RecordingReplayStage()
@@ -804,7 +806,6 @@ struct InstantReplayTests {
         // The main queue runs in order, so the first replay's queued update has run once this block does.
         await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
         #expect(hostingView.rootView.stops.count == 1)
-        control.panelController.hide()
         withExtendedLifetime((control.recorder, secondRecorder)) {}
     }
 

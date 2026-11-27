@@ -3,8 +3,8 @@
 //  leanring-buddyTests
 //
 //  The six setup steps: the state each one reads from what macOS reports, which step the checklist points at, the bar's
-//  share, when setup counts as done, which buttons a turned-off step offers, and the capture disclosure: two sentences
-//  that show, and the full detail that stays closed until asked for.
+//  share, when setup counts as done, which buttons a turned-off step offers, and the capture disclosure: a short summary
+//  that shows, and the full detail that stays closed until asked for.
 //
 
 import AVFoundation
@@ -123,14 +123,18 @@ struct SetupChecklistTests {
         #expect(setupTurnedOffCaption(for: .screenRecording).contains("quit and reopen"))
     }
 
-    @Test func theShownSummaryIsTwoSentencesThatNameTheCapturesAndEveryPlaceTheyGo() {
+    @Test func theShownSummaryIsShortNamesTheCapturesAndClaimsNoCompleteList() {
         let sentences = setupCaptureSummary.components(separatedBy: ". ")
-        #expect(sentences.count == 2)
-        for words in ["screen", "camera", "Clicky's own server", "depth service on this Mac", "Anthropic", "OpenAI", "fal.ai"] {
+        #expect((2...3).contains(sentences.count))
+        #expect(sentences.allSatisfy { $0.split(separator: " ").count < 25 })
+        for words in ["screen", "voice", "camera", "Clicky's own server", "What gets sent"] {
             #expect(setupCaptureSummary.contains(words), "\(words)")
         }
-        // fal.ai gets no capture.
-        #expect(setupCaptureSummary.contains("fal.ai gets the product photo of anything you try that stands on a surface, also through that server."))
+        // Each exact list of places has missed one, so the summary claims none.
+        for claim in ["only", "every", "all"] {
+            let summaryWords = setupCaptureSummary.lowercased().split { !$0.isLetter }.map(String.init)
+            #expect(!summaryWords.contains(claim), "\(claim)")
+        }
     }
 
     @Test func voiceOverReadsTheDisclosureButtonByItsWordsAndItsState() async throws {
