@@ -177,8 +177,7 @@ private struct InstantReplayButton: View {
 
     private var letterColor: Color {
         switch style {
-        // Near-black ink reads on every accent, Clicky blue included, as on the Callout's icon disc.
-        case .accent: return DS.Colors.inkOnAccent
+        case .accent(let accentHex): return Color(hex: ThemeRGBColor.inkHex(onFillHex: accentHex))
         case .plain: return DS.Colors.textPrimary
         }
     }

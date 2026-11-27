@@ -27,7 +27,32 @@ struct AccentInkTests {
         renderer.scale = 2
         let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
         let part = partInPoints.map { CGRect(x: $0.minX * 2, y: $0.minY * 2, width: $0.width * 2, height: $0.height * 2) }
-            ?? CGRect(x: 0, y: 0, width: bitmap.pixelsWide, height: bitmap.pixelsHigh)
+        return inkPixels(in: bitmap, part: part)
+    }
+
+    /// Draws a button in an `NSHostingView` in a window off every screen, since `ImageRenderer` draws the AppKit hover view
+    /// every button has as a placeholder sign.
+    private func inkPixels(ofButton button: some View) throws -> InkPixelCounts {
+        let hostingView = NSHostingView(rootView: button)
+        let fittingSize = hostingView.fittingSize
+        let window = NSWindow(
+            contentRect: NSRect(x: -10_000, y: -10_000, width: fittingSize.width, height: fittingSize.height),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = hostingView
+        hostingView.frame = NSRect(origin: .zero, size: fittingSize)
+        hostingView.layoutSubtreeIfNeeded()
+        let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        return inkPixels(in: bitmap, part: nil)
+    }
+
+    private func inkPixels(in bitmap: NSBitmapImageRep, part partInPixels: CGRect?) -> InkPixelCounts {
+        let part = partInPixels ?? CGRect(x: 0, y: 0, width: bitmap.pixelsWide, height: bitmap.pixelsHigh)
         var nearBlack = 0
         var white = 0
         for y in Int(part.minY)..<Int(part.maxY) {
@@ -52,6 +77,21 @@ struct AccentInkTests {
         .padding(20)
     }
 
+    @Test func everyBundledThemeTakesTheInkWithTheHigherContrastOnItsAccent() throws {
+        #expect(bundledThemesForTests.count == 11)
+        let nearBlack = try #require(ThemeRGBColor(hex: "#0B0C0E"))
+        let white = try #require(ThemeRGBColor(hex: "#FFFFFF"))
+        for theme in bundledThemesForTests {
+            let accent = try #require(ThemeRGBColor(hex: theme.accentHex))
+            let higherContrastInkHex = accent.contrastRatio(against: nearBlack) > accent.contrastRatio(against: white) ? "#0B0C0E" : "#FFFFFF"
+            #expect(theme.accentInkHex == higherContrastInkHex, "\(theme.id)")
+            // A surface that holds the accent as a Color picks the same ink as one that holds its hex string.
+            #expect(theme.cursorColor.inkOnThisFill == Color(hex: higherContrastInkHex), "\(theme.id)")
+        }
+        #expect(bundledTheme("school-shiratorizawa").accentInkHex == "#FFFFFF")
+        #expect(clickyBlueTheme.accentInkHex == "#0B0C0E")
+    }
+
     @Test func theSceneStylesheetCarriesTheInkOfItsAccent() {
         let shiratorizawaScript = sceneStyleUserScriptSource(styleSheet: "", accentHex: "#A0457F")
         #expect(shiratorizawaScript.contains(##"root.style.setProperty("--clicky-accent-ink", "#FFFFFF");"##))
@@ -72,11 +112,11 @@ struct AccentInkTests {
 
     @Test func thePrimaryButtonsLettersReadOnTheirAccent() throws {
         // Nekoma's red is the closest call: white reads at 4.49 and near-black at 4.35.
-        let studioButtonOnNekoma = try inkPixels(of: ThemeStudioButton(title: "Save", style: .primary(accentHex: "#E0313B"), isEnabled: true) {})
+        let studioButtonOnNekoma = try inkPixels(ofButton: ThemeStudioButton(title: "Save", style: .primary(accentHex: "#E0313B"), isEnabled: true) {})
         #expect(studioButtonOnNekoma.white > 20 && studioButtonOnNekoma.nearBlack == 0)
-        let studioButtonOnClickyBlue = try inkPixels(of: ThemeStudioButton(title: "Save", style: .primary(accentHex: "#3380FF"), isEnabled: true) {})
+        let studioButtonOnClickyBlue = try inkPixels(ofButton: ThemeStudioButton(title: "Save", style: .primary(accentHex: "#3380FF"), isEnabled: true) {})
         #expect(studioButtonOnClickyBlue.nearBlack > 20 && studioButtonOnClickyBlue.white == 0)
-        let panelButtonOnShiratorizawa = try inkPixels(of: PanelButton(title: "Start Clicky", prominence: .primary, accentColor: Color(hex: "#A0457F")) {})
+        let panelButtonOnShiratorizawa = try inkPixels(ofButton: PanelButton(title: "Start Clicky", prominence: .primary, accentColor: Color(hex: "#A0457F")) {})
         #expect(panelButtonOnShiratorizawa.white > 20 && panelButtonOnShiratorizawa.nearBlack == 0)
     }
 
@@ -94,7 +134,12 @@ struct AccentInkTests {
         #expect(initials.nearBlack > 20 && initials.white == 0)
     }
 
-    private func dialView(theme: ClickyTheme) -> SettingsDialView {
+    @Test func aStatusIconDrawsInTheInkOfItsDisc() {
+        #expect(StatusLabelPalette.onDisc(accent: Color(hex: "#A0457F")).iconColor == Color(hex: "#FFFFFF"))
+        #expect(StatusLabelPalette.onDisc(accent: Color(hex: "#3380FF")).iconColor == Color(hex: "#0B0C0E"))
+    }
+
+    private func dialView(theme: ClickyTheme, selection: SettingsDialSelection = SettingsDialSelection(slice: .model, fanItemIndex: nil)) -> SettingsDialView {
         let viewModel = SettingsDialViewModel(
             snapshot: SettingsDialSnapshot(
                 theme: theme,
@@ -108,7 +153,7 @@ struct AccentInkTests {
             reduceMotion: true
         )
         viewModel.isPresented = true
-        viewModel.selection = SettingsDialSelection(slice: .model, fanItemIndex: nil)
+        viewModel.selection = selection
         return SettingsDialView(viewModel: viewModel)
     }
 
@@ -128,5 +173,27 @@ struct AccentInkTests {
         #expect(onClickyBlue.nearBlack > 20 && onClickyBlue.white == 0)
         let onShiratorizawa = try inkPixels(of: dialView(theme: bundledTheme("school-shiratorizawa")), in: selectedModelTokenIconPart)
         #expect(onShiratorizawa.white > 20 && onShiratorizawa.nearBlack == 0)
+    }
+
+    /// Date Tech's file names white as its contrast color, so the name on its accent pill shows which color the dial reads.
+    @Test func theNameOfAHighlightedFanThemeReadsOnItsAccentPill() throws {
+        let fans = SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: [])
+        let itemIndex = try #require(bundledThemesForTests.firstIndex { $0.id == "school-date-tech" })
+        let angle = try #require(fans.layout(of: .team)).angleDegrees(ofItemAt: itemIndex) * .pi / 180
+        let ballCenterOffset = CGPoint(x: cos(angle) * SettingsDialGeometry.fanRadius, y: sin(angle) * SettingsDialGeometry.fanRadius)
+        let ballRadius = SettingsDialGeometry.emphasizedFanBallDiameter / 2
+        let labelText = SettingsDialLabel.fanLabelText(bundledThemesForTests[itemIndex].name, ballCenterOffset: ballCenterOffset, ballRadius: ballRadius)
+        let pillSize = SettingsDialLabel.pillSize(forText: labelText)
+        let pillCenterOffset = SettingsDialLabel.fanLabelCenterOffset(ballCenterOffset: ballCenterOffset, ballRadius: ballRadius, labelPillSize: pillSize)
+        // The middle of the pill, inside its round ends.
+        let pillPart = CGRect(
+            x: SettingsDialPlacement.reachLeft + pillCenterOffset.x - pillSize.width / 2 + 8,
+            y: SettingsDialPlacement.reachAbove + pillCenterOffset.y - pillSize.height / 2 + 2,
+            width: pillSize.width - 16,
+            height: pillSize.height - 4
+        )
+        let dial = dialView(theme: clickyBlueTheme, selection: SettingsDialSelection(slice: .team, fanItemIndex: itemIndex))
+        let nameOnThePill = try inkPixels(of: dial, in: pillPart)
+        #expect(nameOnThePill.nearBlack > 20 && nameOnThePill.white == 0)
     }
 }

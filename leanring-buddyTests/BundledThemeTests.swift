@@ -210,7 +210,7 @@ struct BundledThemeTests {
             #expect(school.sounds == .builtIn)
         }
         #expect(bundledTheme("school-nekoma").cursorColorHex == "#E0313B")
-        #expect(bundledTheme("school-karasuno").cursorContrastColorHex == "#1A1A1A")
+        #expect(bundledTheme("school-karasuno").contrastHex == "#1A1A1A")
     }
 
     @Test func aRosterNamesItsPortraitFilesAndFallsBackToInitials() async throws {

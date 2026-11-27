@@ -38,7 +38,7 @@ struct CustomThemeSettingsTests {
     @Test func aSavedThemeTakesItsColorsFromTheTwoColorsItSet() throws {
         let theme = try customTheme()
         #expect(theme.cursorColorHex == "#7DD3FC")
-        #expect(theme.cursorContrastColorHex == "#1E1B4B")
+        #expect(theme.contrastHex == "#1E1B4B")
         #expect(theme.name == "Moonlit")
     }
 

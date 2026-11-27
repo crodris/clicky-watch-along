@@ -615,7 +615,7 @@ private struct ThemeStudioTileView: View {
             if isStamped {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(DS.Colors.inkOnAccent, accentColor)
+                    .foregroundStyle(accentColor.inkOnThisFill, accentColor)
                     .padding(6)
                     .transition(reduceMotion ? .opacity : .scale(scale: DS.Move.popStartScale).combined(with: .opacity))
             }
@@ -822,8 +822,7 @@ struct ThemeStudioButton: View {
     private var letterColor: Color {
         switch style {
         case .primary(let accentHex?):
-            let accentReadsBetterWithDarkInk = ThemeRGBColor(hex: accentHex)?.readsBetterWithDarkInk ?? false
-            return accentReadsBetterWithDarkInk ? Color(hex: "#111111") : .white
+            return Color(hex: ThemeRGBColor.inkHex(onFillHex: accentHex))
         case .primary(nil), .plain:
             return DS.Colors.textPrimary
         }

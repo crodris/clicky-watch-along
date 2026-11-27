@@ -218,8 +218,8 @@ struct SettingsDialView: View {
 
     private var theme: ClickyTheme { viewModel.snapshot.theme }
     private var accentColor: Color { theme.cursorColor }
-    /// The team's ink color, for line icons drawn on the accent color so they stay visible on it.
-    private var inkColor: Color { theme.cursorContrastColor }
+    /// For line icons and letters drawn on the accent color.
+    private var inkColor: Color { theme.accentInk }
     private let tokenFillColor = DS.Colors.settingsDialToken
     private var centerInView: CGPoint {
         CGPoint(x: SettingsDialPlacement.reachLeft, y: SettingsDialPlacement.reachAbove)
@@ -372,7 +372,7 @@ struct SettingsDialView: View {
         }
     }
 
-    /// Line icons are white, or the team's ink color on the selected token's accent fill.
+    /// Line icons are white, or the accent's ink on the selected token's accent fill.
     @ViewBuilder private func tokenIcon(for slice: SettingsDialSlice, isSelected: Bool) -> some View {
         let lineColor = isSelected ? inkColor : Color.white
         switch slice {
@@ -531,11 +531,11 @@ struct SettingsDialView: View {
     // MARK: Labels
 
     /// Text on its own dark pill, sized to the text, so a label never shows outside its background.
-    /// `accentTheme` makes the pill that theme's own accent, with its contrast color for the letters.
+    /// `accentTheme` makes the pill that theme's own accent, with the letters in that accent's ink.
     private func labelPill(_ text: String, accentTheme: ClickyTheme? = nil) -> some View {
         Text(text)
             .font(.system(size: SettingsDialLabel.fontSize, weight: .semibold))
-            .foregroundColor(accentTheme?.cursorContrastColor ?? Color.white.opacity(0.92))
+            .foregroundColor(accentTheme?.accentInk ?? Color.white.opacity(0.92))
             .lineLimit(1)
             .fixedSize()
             .padding(.horizontal, SettingsDialLabel.horizontalPadding)

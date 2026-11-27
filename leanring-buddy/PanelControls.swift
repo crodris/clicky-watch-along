@@ -131,7 +131,7 @@ struct PanelButton: View {
 
     private var foregroundColor: Color {
         switch prominence {
-        case .primary: return DS.Colors.inkOnAccent
+        case .primary: return accentColor.inkOnThisFill
         case .secondary: return DS.Colors.textPrimary
         case .quiet: return isHovered ? DS.Colors.textPrimary : DS.Colors.textSecondary
         case .destructive: return .white

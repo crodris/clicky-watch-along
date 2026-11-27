@@ -46,7 +46,7 @@ enum LiveSceneStatusLine: CaseIterable {
         }
     }
 
-    /// The colors the line's icon draws with: near-black ink on the accent disc.
+    /// The colors the line's icon draws with: ink on the accent disc.
     var palette: StatusLabelPalette { .onDisc(accent: calloutAccent) }
 
     /// The lines the scene build shows. Only the scene build hides these.
@@ -94,9 +94,8 @@ enum LiveSceneStatusLine: CaseIterable {
     }
 }
 
-/// The colors a status icon draws with on the Callout's accent disc: near-black ink at several strengths, so the icon
-/// reads on every hue (`DS.Colors.inkOnAccent` is 5.3 or more against each accent), and the accent itself for what the
-/// icon cuts out of its drawing. Each look is a constant, so reading it on every frame costs nothing.
+/// The colors a status icon draws with on the Callout's accent disc: the ink that reads on that accent
+/// (`Color.inkOnThisFill`) at several strengths, and the accent itself for what the icon cuts out of its drawing.
 struct StatusLabelPalette {
     let iconColor: Color
     let textColor: Color
@@ -108,13 +107,14 @@ struct StatusLabelPalette {
     let discColor: Color
 
     static func onDisc(accent: Color) -> StatusLabelPalette {
-        StatusLabelPalette(
-            iconColor: DS.Colors.inkOnAccent,
-            textColor: DS.Colors.inkOnAccent,
-            lightColor: DS.Colors.inkOnAccent.opacity(0.7),
-            paleColor: DS.Colors.inkOnAccent.opacity(0.3),
-            washColor: DS.Colors.inkOnAccent.opacity(0.12),
-            highlightColor: DS.Colors.inkOnAccent,
+        let ink = accent.inkOnThisFill
+        return StatusLabelPalette(
+            iconColor: ink,
+            textColor: ink,
+            lightColor: ink.opacity(0.7),
+            paleColor: ink.opacity(0.3),
+            washColor: ink.opacity(0.12),
+            highlightColor: ink,
             discColor: accent
         )
     }

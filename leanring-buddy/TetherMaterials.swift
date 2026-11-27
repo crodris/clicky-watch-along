@@ -9,7 +9,20 @@
 //  (`prototype/tether/materials` on the `prototype/tether-phase-zero` branch).
 //
 
+import AppKit
 import SwiftUI
+
+// MARK: - Ink
+
+extension Color {
+    /// The color of text and icons drawn on a fill of this color: near-black or white, whichever reads better on it
+    /// (`ThemeRGBColor.inkHexOnThisFill`).
+    var inkOnThisFill: Color {
+        guard let fill = NSColor(self).usingColorSpace(.sRGB) else { return Color(hex: ThemeRGBColor.darkInkHex) }
+        let fillColor = ThemeRGBColor(red: fill.redComponent, green: fill.greenComponent, blue: fill.blueComponent)
+        return Color(hex: fillColor.inkHexOnThisFill)
+    }
+}
 
 // MARK: - Card
 
@@ -105,8 +118,9 @@ struct TetherCalloutShape: Shape {
     }
 }
 
-/// The Callout: a solid `#14171e` pill with an accent rim and a soft accent halo, an accent icon disc with near-black ink,
-/// a tail toward the cursor, and its words in white at 15/700 rounded (`DS.TypeScale.voice`).
+/// The Callout: a solid `#14171e` pill with an accent rim and a soft accent halo, an accent icon disc with its icon in the
+/// ink that reads on that accent (`Color.inkOnThisFill`), a tail toward the cursor, and its words in white at 15/700
+/// rounded (`DS.TypeScale.voice`).
 ///
 ///     TetherCallout(accent: theme.cursorColor, rim: .chip) {
 ///         Image(systemName: "arrow.counterclockwise")
@@ -131,7 +145,7 @@ struct TetherCallout<Icon: View, Content: View>: View {
                 Circle().fill(accent)
                 icon
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(DS.Colors.inkOnAccent)
+                    .foregroundStyle(accent.inkOnThisFill)
             }
             .frame(width: Self.iconDiscDiameter, height: Self.iconDiscDiameter)
             content
