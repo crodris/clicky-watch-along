@@ -84,7 +84,7 @@ final class ThemeStudioController: ObservableObject {
     /// How many times ideas have arrived since the card opened. The card's tiles take it as their identity, so each arrival
     /// lands its tiles again, 90 ms apart, even when a refinement replaces ideas that were already on show.
     @Published private(set) var ideasArrivalCount = 0
-    /// True while the card shows its old ideas after a design failed, so it says so in a red Callout. Any new design, pick,
+    /// True while the card shows its old ideas after a design failed, so it says so in a red-tinted row. Any new design, pick,
     /// or close clears it.
     @Published private(set) var showsTheDesignFailedNotice = false
     /// True from a save until the card is gone, so the saved idea's tile shows its stamp while its cursor flies out.

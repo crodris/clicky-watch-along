@@ -356,14 +356,8 @@ struct ThemeStudioCardView: View {
                 ThemeStudioTagsView(tags: themeStudioTags(for: highlightedIdea))
             }
             if studio.showsTheDesignFailedNotice {
-                TetherCallout(accent: DS.Colors.destructive, rim: .chip) {
-                    Image(systemName: "xmark")
-                } content: {
-                    Text("Couldn't design that. Your ideas are still here.")
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .transition(.opacity)
+                ThemeStudioDesignFailedRow()
+                    .transition(.opacity)
             }
             Text(Self.hint)
                 .font(DS.TypeScale.caption.font)
@@ -635,6 +629,27 @@ private struct ThemeStudioTileView: View {
             }
         }
         .accessibilityLabel("\(idea.name), idea")
+    }
+}
+
+/// A design that failed with the old ideas still on the Card says so in a red-tinted row of the Card. It is not a Callout,
+/// whose tail points at the cursor.
+private struct ThemeStudioDesignFailedRow: View {
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .heavy))
+                .foregroundColor(DS.Colors.destructiveText)
+            Text("Couldn't design that. Your ideas are still here.")
+                .font(DS.TypeScale.body.font)
+                .foregroundColor(DS.Colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous).fill(DS.Colors.destructiveSurface))
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -357,7 +357,7 @@ final class CompanionManager: ObservableObject {
             environment: ThemeStudioController.Environment(
                 speak: { [weak self] line in
                     // A failed design is also a red Callout, so the failure never rests on the voice alone. While the card stays
-                    // open with its old ideas, the card's own red Callout says it, so the chip would say it twice.
+                    // open with its old ideas, the card's own red-tinted row says it, so the chip would say it twice.
                     let lineIsAFailure = line == ThemeStudioController.couldNotDesignLine
                     if lineIsAFailure, self?.themeStudioController.showsTheDesignFailedNotice != true {
                         VoiceToolCallChip.shared.show("Couldn't design that one", sender: .failure)
