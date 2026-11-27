@@ -44,6 +44,76 @@ private final class DesignGate {
     }
 }
 
+/// A drawing of the card: raw sRGB bytes, 4 for each pixel, in rows from the top. Reading each pixel through `colorAt`
+/// holds the main actor for seconds.
+private struct CardPixels {
+    let width: Int
+    let height: Int
+    let pixelsPerPoint: CGFloat
+    let bytes: Data
+
+    /// How many channels differ from `other`'s, from the window's top edge down to `points`, or in the whole drawing. Two
+    /// drawings of one state can round the Card's gradient and shadow a few levels apart, so those do not count. The scan
+    /// runs off the main actor, which it would otherwise hold from every other test.
+    func channelsThatDiffer(from other: CardPixels, downTo points: CGFloat? = nil) async -> Int {
+        let byteCount = points.map { Int($0 * pixelsPerPoint) * width * 4 } ?? bytes.count
+        let (ownBytes, otherBytes) = (bytes.prefix(byteCount), other.bytes.prefix(byteCount))
+        return await Task.detached {
+            zip(ownBytes, otherBytes).count { abs(Int($0) - Int($1)) > 6 }
+        }.value
+    }
+}
+
+/// The card in a window off every screen that is never ordered front. The hosting view is the window's content, as in the
+/// card's panel, so it grows the window as the card grows. `ImageRenderer` would draw the hover views as placeholders.
+@MainActor
+private final class OffscreenCard {
+    private let window: NSWindow
+    private let hostingView: NSHostingView<ThemeStudioCardView>
+    var size: CGSize { hostingView.bounds.size }
+
+    init(studio: ThemeStudioController, size givenSize: CGSize? = nil) {
+        hostingView = NSHostingView(rootView: ThemeStudioCardView(
+            studio: studio, landsTilesIn: false, onSaveClicked: { _ in },
+            onHighlightedCursorCenterChange: { _ in }, onContentSizeChange: { _ in }
+        ))
+        let size = givenSize ?? hostingView.fittingSize
+        window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -10_000, y: -10_000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        hostingView.frame = NSRect(origin: .zero, size: size)
+    }
+
+    func draw() throws -> CardPixels {
+        hostingView.layoutSubtreeIfNeeded()
+        let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        let image = try #require(bitmap.cgImage)
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try #require(CGContext(
+            data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return CardPixels(
+            width: image.width,
+            height: image.height,
+            pixelsPerPoint: CGFloat(image.width) / hostingView.bounds.width,
+            bytes: Data(bytes: try #require(context.data), count: image.width * image.height * 4)
+        )
+    }
+
+    func close() {
+        window.close()
+    }
+}
+
+/// The two changes that add or remove the failed design row, and so change the card's height.
+enum ThemeStudioCardHeightChange: CaseIterable {
+    case theDesignFails
+    case aNewDesignStartsAfterAFailure
+}
+
 @MainActor
 private final class StudioHarness {
     let themeSettings: CompanionThemeSettings
@@ -85,9 +155,15 @@ private final class StudioHarness {
 
 private struct WorkerFailure: Error {}
 
-private func reply(names: [String], spokenLine: String = "Here are three.", pictureCursor: Bool = false) throws -> ThemeIdeasReply {
+private func reply(names: [String], spokenLine: String = "Here are three.", pictureCursor: Bool = false, stillCursor: Bool = false) throws -> ThemeIdeasReply {
     let ideas = names.map { ideaName -> JSONValue in
-        replacingField(in: pictureCursor ? goodPictureCursorThemeIdea : goodThemeIdea, at: ["name"], with: .string(ideaName))
+        var idea = replacingField(in: pictureCursor ? goodPictureCursorThemeIdea : goodThemeIdea, at: ["name"], with: .string(ideaName))
+        // A cursor with no streaks and no thinking motion draws the same pixels at any moment.
+        if stillCursor {
+            idea = replacingField(in: idea, at: ["motion", "trailStreaks"], with: .number(0))
+            idea = replacingField(in: idea, at: ["motion", "whileThinking"], with: .string("none"))
+        }
+        return idea
     }
     let body = JSONValue.object(["title": .string("Ideas"), "spokenLine": .string(spokenLine), "ideas": .array(ideas)])
     return try ThemeIdeasReply(responseData: Data(body.compactJSONText.utf8), pictureWasSent: pictureCursor)
@@ -511,30 +587,9 @@ struct ThemeStudioTetherTests {
         harness.studio.design(request: "more", basedOnIdea: 1, pictureChoice: .keepTheCardsPicture)
         await harness.studio.waitForTheDesign()
 
-        // Drawn in an `NSHostingView` in a window off every screen, since `ImageRenderer` draws the hover views as placeholders.
-        let hostingView = NSHostingView(rootView: ThemeStudioCardView(
-            studio: harness.studio, landsTilesIn: false, onSaveClicked: { _ in },
-            onHighlightedCursorCenterChange: { _ in }, onContentSizeChange: { _ in }
-        ))
-        let size = CGSize(width: ThemeStudioPanelController.cardWidth + AgentListWindowMargins.leading + AgentListWindowMargins.trailing, height: 480)
-        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -10_000, y: -10_000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = hostingView
-        hostingView.frame = NSRect(origin: .zero, size: size)
-        hostingView.layoutSubtreeIfNeeded()
-        let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
-        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
-
-        // The pixels as raw sRGB bytes. Reading each one through `colorAt` holds the main actor for seconds.
-        let image = try #require(bitmap.cgImage)
-        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        let context = try #require(CGContext(
-            data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
-            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ))
-        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        let bytes = try #require(context.data).bindMemory(to: UInt8.self, capacity: image.width * image.height * 4)
+        let card = OffscreenCard(studio: harness.studio)
+        defer { card.close() }
+        let pixels = try card.draw()
 
         func channels(of color: Color) throws -> [Int] {
             let color = try #require(NSColor(color).usingColorSpace(.sRGB))
@@ -543,23 +598,90 @@ struct ThemeStudioTetherTests {
         let tintChannels = try channels(of: DS.Colors.destructiveSurface)
         let crossChannels = try channels(of: DS.Colors.destructiveText)
         func pixel(at offset: Int, isCloseTo expected: [Int]) -> Bool {
-            (0..<3).allSatisfy { abs(Int(bytes[offset + $0]) - expected[$0]) < 8 }
+            (0..<3).allSatisfy { abs(Int(pixels.bytes[offset + $0]) - expected[$0]) < 8 }
         }
         var widestTintedRunInPixels = 0
         var redCrossPixels = 0
-        for y in 0..<image.height {
+        for y in 0..<pixels.height {
             var tintedRunInPixels = 0
-            for x in 0..<image.width {
-                let offset = (y * image.width + x) * 4
+            for x in 0..<pixels.width {
+                let offset = (y * pixels.width + x) * 4
                 tintedRunInPixels = pixel(at: offset, isCloseTo: tintChannels) ? tintedRunInPixels + 1 : 0
                 widestTintedRunInPixels = max(widestTintedRunInPixels, tintedRunInPixels)
                 if pixel(at: offset, isCloseTo: crossChannels) { redCrossPixels += 1 }
             }
         }
         // The row spans the Card inside its 14 point padding, less its own round ends.
-        let pixelsPerPoint = CGFloat(image.width) / size.width
-        #expect(CGFloat(widestTintedRunInPixels) / pixelsPerPoint > ThemeStudioPanelController.cardWidth - 28 - 20)
+        #expect(CGFloat(widestTintedRunInPixels) / pixels.pixelsPerPoint > ThemeStudioPanelController.cardWidth - 28 - 20)
         #expect(redCrossPixels > 5)
+    }
+
+    /// Changes the height of a card already on show, and draws its first frame after the change beside the same state drawn
+    /// by a new card of the same size, which has nothing to animate from.
+    private func firstAndSettledFrames(after change: ThemeStudioCardHeightChange) async throws -> (first: CardPixels, settled: CardPixels) {
+        let harness = StudioHarness()
+        let gate = DesignGate()
+        let ideas = { try reply(names: ["Ember", "Moonlit", "Forest"], stillCursor: true) }
+        let heldFailure: () async throws -> ThemeIdeasReply = {
+            await gate.wait()
+            throw WorkerFailure()
+        }
+        harness.workerReplies = change == .theDesignFails ? [ideas, heldFailure] : [ideas, { throw WorkerFailure() }, heldFailure]
+        func designAgain() {
+            harness.studio.design(request: "more", basedOnIdea: 1, pictureChoice: .keepTheCardsPicture)
+        }
+        func letTheHeldDesignFail() async {
+            await gate.waitUntilSomeoneIsWaiting()
+            gate.open()
+            await harness.studio.waitForTheDesign()
+        }
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        if change == .aNewDesignStartsAfterAFailure {
+            designAgain()
+            await harness.studio.waitForTheDesign()
+        }
+
+        let card = OffscreenCard(studio: harness.studio)
+        defer { card.close() }
+        _ = try card.draw()
+        let firstFrame: CardPixels
+        switch change {
+        case .theDesignFails:
+            designAgain()
+            _ = try card.draw()
+            await letTheHeldDesignFail()
+            firstFrame = try card.draw()
+        case .aNewDesignStartsAfterAFailure:
+            designAgain()
+            firstFrame = try card.draw()
+        }
+        let settledCard = OffscreenCard(studio: harness.studio, size: card.size)
+        defer { settledCard.close() }
+        let settledFrame = try settledCard.draw()
+        if change == .aNewDesignStartsAfterAFailure {
+            await letTheHeldDesignFail()
+        }
+        return (firstFrame, settledFrame)
+    }
+
+    /// An animated height change slid the card down its window and left the outgoing "Designing…" behind, cut off at the
+    /// card's top edge.
+    @Test(arguments: ThemeStudioCardHeightChange.allCases)
+    func theHeaderStaysInsideTheCardWhenItsHeightChanges(_ change: ThemeStudioCardHeightChange) async throws {
+        let frames = try await firstAndSettledFrames(after: change)
+        // The window's margin, the card's 14 point padding, and the header's one line of text.
+        let headerBottom = AgentListWindowMargins.top + 14 + 16
+        #expect(await frames.first.channelsThatDiffer(from: frames.settled, downTo: headerBottom) == 0)
+    }
+
+    /// An animated height change put the failed design row at its final place while the hint and Save were still on their way
+    /// down, so they drew over each other.
+    @Test(arguments: ThemeStudioCardHeightChange.allCases)
+    func nothingDrawsOverAnythingElseWhenTheCardsHeightChanges(_ change: ThemeStudioCardHeightChange) async throws {
+        let frames = try await firstAndSettledFrames(after: change)
+        #expect(frames.first.height == frames.settled.height)
+        #expect(await frames.first.channelsThatDiffer(from: frames.settled) == 0)
     }
 
     @Test func theFailedNoticeIsUpBeforeTheFailureLineIsSpokenSoTheChipCanLeaveItOut() async throws {
