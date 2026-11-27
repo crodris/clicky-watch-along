@@ -4,7 +4,8 @@
 //
 //  Text and icons on an accent fill take whichever of near-black and white reads better on that fill. Each surface that
 //  draws on an accent is drawn with a theme where one fixed color would be wrong, and its ink pixels are counted. A render
-//  is at 2x, and a view drawn in a window is at that window's backing scale.
+//  is at 2x, and a view drawn in a window is at that window's backing scale. A hovered button must keep its fill, since
+//  the ink was chosen for the fill as it rests.
 //
 
 import AppKit
@@ -54,6 +55,56 @@ extension DrawingPixels {
             return InkPixelCounts(nearBlack: nearBlack, white: white)
         }.value
     }
+
+    /// How many channels inside `partInPoints` differ from those of `other`, a drawing of the same size. The scan runs off
+    /// the main actor.
+    fileprivate func channelsThatDiffer(from other: DrawingPixels, inside partInPoints: CGRect) async throws -> Int {
+        try requireTheSameSize(as: other)
+        let columns = Int(partInPoints.minX * pixelsPerPoint)..<Int(partInPoints.maxX * pixelsPerPoint)
+        let rows = Int(partInPoints.minY * pixelsPerPoint)..<Int(partInPoints.maxY * pixelsPerPoint)
+        let (ownBytes, otherBytes, bytesPerRow) = (bytes, other.bytes, width * 4)
+        return await Task.detached {
+            rows.reduce(0) { count, y in
+                let rowPart = (y * bytesPerRow + columns.lowerBound * 4)..<(y * bytesPerRow + columns.upperBound * 4)
+                return count + rowPart.count { abs(Int(ownBytes[$0]) - Int(otherBytes[$0])) > 6 }
+            }
+        }.value
+    }
+}
+
+/// A button in an `NSHostingView` in a window off every screen, since `ImageRenderer` draws the AppKit hover view every
+/// button has as a placeholder sign.
+@MainActor
+private struct OffscreenButton {
+    private let window: NSWindow
+    let hostingView: NSView
+    let size: CGSize
+
+    init(_ button: some View) {
+        let hostingView = NSHostingView(rootView: button)
+        size = hostingView.fittingSize
+        window = NSWindow(
+            contentRect: NSRect(origin: CGPoint(x: -10_000, y: -10_000), size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        hostingView.frame = NSRect(origin: .zero, size: size)
+        self.hostingView = hostingView
+    }
+
+    func draw() throws -> DrawingPixels {
+        hostingView.layoutSubtreeIfNeeded()
+        let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        return try DrawingPixels(drawing: try #require(bitmap.cgImage), widthInPoints: size.width)
+    }
+
+    func close() {
+        window.close()
+    }
 }
 
 @MainActor
@@ -67,26 +118,10 @@ struct AccentInkTests {
         return try await pixels.inkPixelCounts(in: partInPoints)
     }
 
-    /// Draws a button in an `NSHostingView` in a window off every screen, since `ImageRenderer` draws the AppKit hover view
-    /// every button has as a placeholder sign.
     private func inkPixels(ofButton button: some View) async throws -> InkPixelCounts {
-        let hostingView = NSHostingView(rootView: button)
-        let fittingSize = hostingView.fittingSize
-        let window = NSWindow(
-            contentRect: NSRect(x: -10_000, y: -10_000, width: fittingSize.width, height: fittingSize.height),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = hostingView
-        hostingView.frame = NSRect(origin: .zero, size: fittingSize)
-        hostingView.layoutSubtreeIfNeeded()
-        let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
-        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
-        let pixels = try DrawingPixels(drawing: try #require(bitmap.cgImage), widthInPoints: fittingSize.width)
-        return try await pixels.inkPixelCounts()
+        let offscreenButton = OffscreenButton(button)
+        defer { offscreenButton.close() }
+        return try await offscreenButton.draw().inkPixelCounts()
     }
 
     /// A square inside the Callout's 26 point icon disc, for a Callout padded by 20 points in the render.
@@ -143,6 +178,35 @@ struct AccentInkTests {
         #expect(panelButtonOnShiratorizawa.white > 20 && panelButtonOnShiratorizawa.nearBlack == 0)
         let panelButtonOnClickyBlue = try await inkPixels(ofButton: PanelButton(title: "Start Clicky", prominence: .primary, accentColor: Color(hex: "#3380FF")) {})
         #expect(panelButtonOnClickyBlue.nearBlack > 20 && panelButtonOnClickyBlue.white == 0)
+    }
+
+    /// Hovers a button as the mouse does, through its hover view, and compares it with the button at rest: nothing inside
+    /// the ring's 4 point edge may change, and the edge must, or the button shows no hover at all.
+    private func expectHoverToRingTheButtonAndKeepItsFill(_ button: some View) async throws {
+        let offscreenButton = OffscreenButton(button)
+        defer { offscreenButton.close() }
+        let atRest = try offscreenButton.draw()
+        try #require(hoverAndPointerViews(in: offscreenButton.hostingView).first).reportTheHover(true)
+        var hovered = try offscreenButton.draw()
+        // SwiftUI may apply the hover on a later turn.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while try await hovered.channelsThatDiffer(from: atRest) == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+            hovered = try offscreenButton.draw()
+        }
+        let insideTheRing = CGRect(origin: .zero, size: offscreenButton.size).insetBy(dx: 4, dy: 4)
+        #expect(try await hovered.channelsThatDiffer(from: atRest, inside: insideTheRing) == 0)
+        #expect(try await hovered.channelsThatDiffer(from: atRest) > 0)
+    }
+
+    @Test(arguments: ["#E0313B", "#3380FF"])
+    func aHoveredThemeStudioSaveButtonKeepsItsFill(accentHex: String) async throws {
+        try await expectHoverToRingTheButtonAndKeepItsFill(ThemeStudioButton(title: "Save", style: .primary(accentHex: accentHex), isEnabled: true) {})
+    }
+
+    @Test(arguments: ["#E0313B", "#3380FF"])
+    func aHoveredPrimaryPanelButtonKeepsItsFill(accentHex: String) async throws {
+        try await expectHoverToRingTheButtonAndKeepItsFill(PanelButton(title: "Start Clicky", prominence: .primary, accentColor: Color(hex: accentHex)) {})
     }
 
     /// A status line's Callout reads its ink 30 times a second. A different ink put in the cache shows in the drawing only

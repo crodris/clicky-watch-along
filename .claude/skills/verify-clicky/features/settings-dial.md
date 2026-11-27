@@ -45,7 +45,7 @@ Steps:
   The screenshot shows a dark round plate under the mouse with Theme at the top, Model and Agents on the right, Show and More on the left, the cursor glyph in the center, and the hint under the plate.
   Run `$V key dial-release` to cancel, since the pointer never left the center.
 - **Theme fan and commit.** Hold, then move the pointer from the dial's center straight up 78 points onto Theme, out to 135 points, and along the arc to a ball.
-  Run `$V shot dial-fan`: the Theme token is filled with the theme's accent, the theme under the pointer is larger, as its own cursor on a dark disc, with its name on a dark pill on the side away from the dial's center, and the plate stays.
+  Run `$V shot dial-fan`: the Theme token is filled with the theme's accent, the theme under the pointer is larger, as its own cursor on a dark disc, with its name on a pill filled with that theme's own accent, in the accent's ink (near-black or white), on the side away from the dial's center, and the plate stays.
   Run `$V key dial-release`, then `defaults read com.crodris.clicky-watch-along companionTheme`, which now names that theme, such as `bundled:school-nekoma`.
   Write the original value back when done, since the key is shared with the everyday app.
 - **Saved themes in the fan.** Save 2 themes with the Theme Studio first (see `theme-studio.md`), so `~/Library/Application Support/Clicky/Themes` has 2 folders.

@@ -170,9 +170,14 @@ private struct InstantReplayButton: View {
 
     private var fillColor: Color {
         switch style {
-        case .accent(let accentHex): return Color(hex: accentHex).opacity(isHovered ? 0.85 : 1)
+        case .accent(let accentHex): return Color(hex: accentHex)
         case .plain: return isHovered ? DS.Colors.surface4 : DS.Colors.surface3
         }
+    }
+
+    private var isFilledWithAnAccent: Bool {
+        if case .accent = style { return true }
+        return false
     }
 
     private var letterColor: Color {
@@ -190,6 +195,7 @@ private struct InstantReplayButton: View {
                 .padding(.horizontal, 11)
                 .padding(.vertical, 5)
                 .background(Capsule().fill(fillColor))
+                .accentFillHoverRing(Capsule(), ink: letterColor, isShowing: isFilledWithAnAccent && isHovered)
                 .contentShape(Capsule())
                 .fixedSize()
         }

@@ -827,9 +827,14 @@ struct ThemeStudioButton: View {
 
     private var fillColor: Color {
         switch style {
-        case .primary(let accentHex?): return Color(hex: accentHex).opacity(isHovered && isEnabled ? 0.85 : 1)
+        case .primary(let accentHex?): return Color(hex: accentHex)
         case .primary(nil), .plain: return isHovered && isEnabled ? DS.Colors.surface4 : DS.Colors.surface3
         }
+    }
+
+    private var isFilledWithAnAccent: Bool {
+        if case .primary(.some) = style { return true }
+        return false
     }
 
     private var letterColor: Color {
@@ -849,6 +854,11 @@ struct ThemeStudioButton: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
                 .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(fillColor))
+                .accentFillHoverRing(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium),
+                    ink: letterColor,
+                    isShowing: isFilledWithAnAccent && isHovered && isEnabled
+                )
                 .opacity(isEnabled ? 1 : 0.4)
                 .contentShape(Rectangle())
         }

@@ -38,6 +38,20 @@ extension Color {
     }
 }
 
+extension View {
+    /// The hover of a button filled with an accent: a ring just inside the button's edge, in the ink of its letters. The
+    /// fill never changes on hover, since the ink was chosen for the fill as it rests, and a fainter or brighter fill can
+    /// lose that contrast.
+    func accentFillHoverRing(_ buttonShape: some InsettableShape, ink: Color, isShowing: Bool) -> some View {
+        overlay {
+            buttonShape
+                .strokeBorder(ink.opacity(0.35), lineWidth: 2)
+                .opacity(isShowing ? 1 : 0)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
 // MARK: - Card
 
 extension View {

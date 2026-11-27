@@ -48,9 +48,9 @@ private final class DesignGate {
 /// holds the main actor for seconds.
 struct DrawingPixels {
     let width: Int
-    let height: Int
+    private(set) var height: Int
     let pixelsPerPoint: CGFloat
-    let bytes: Data
+    private(set) var bytes: Data
 
     init(drawing image: CGImage, widthInPoints: CGFloat) throws {
         let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
@@ -63,6 +63,15 @@ struct DrawingPixels {
         height = image.height
         pixelsPerPoint = CGFloat(image.width) / widthInPoints
         bytes = Data(bytes: try #require(context.data), count: image.width * image.height * 4)
+    }
+
+    /// This drawing with clear rows added below it, up to `pixelHeight`. A drawing that is already taller keeps its
+    /// height, so it never matches a shorter drawing.
+    func withClearRowsBelow(upTo pixelHeight: Int) -> DrawingPixels {
+        var taller = self
+        taller.height = max(height, pixelHeight)
+        taller.bytes.append(Data(count: (taller.height - height) * width * 4))
+        return taller
     }
 
     /// Fails the test unless `other` is the size of this drawing, since a comparison reads the same pixel of each.
@@ -93,6 +102,8 @@ private final class OffscreenCard {
     private let window: NSWindow
     private let hostingView: NSHostingView<ThemeStudioCardView>
     var size: CGSize { hostingView.bounds.size }
+    /// The height the card asks for, whatever size its window is.
+    var fittingHeight: CGFloat { hostingView.fittingSize.height }
 
     init(studio: ThemeStudioController, size givenSize: CGSize? = nil) {
         hostingView = NSHostingView(rootView: ThemeStudioCardView(
@@ -659,7 +670,9 @@ struct ThemeStudioTetherTests {
     }
 
     /// Changes the height of a card already on show, and draws its first frame after the change beside the same state drawn
-    /// by a new card of the same size, which has nothing to animate from.
+    /// by a new card at its own fitting size, which has nothing to animate from. The first card's window grows with its
+    /// card but does not shrink here, so the settled drawing gets clear rows down to the first frame's height. A first
+    /// frame that is cut off stays shorter than the settled drawing.
     private func firstAndSettledFrames(after change: ThemeStudioCardHeightChange) async throws -> (first: DrawingPixels, settled: DrawingPixels) {
         let harness = StudioHarness()
         let gate = DesignGate()
@@ -698,9 +711,12 @@ struct ThemeStudioTetherTests {
             designAgain()
             firstFrame = try card.draw()
         }
-        let settledCard = OffscreenCard(studio: harness.studio, size: card.size)
+        let settledCard = OffscreenCard(studio: harness.studio)
         defer { settledCard.close() }
-        let settledFrame = try settledCard.draw()
+        let settledDrawing = try settledCard.draw()
+        // A cut off reference would match a first frame that is cut off the same way.
+        try #require(CGFloat(settledDrawing.height) == settledCard.fittingHeight * settledDrawing.pixelsPerPoint, "the settled card is cut off")
+        let settledFrame = settledDrawing.withClearRowsBelow(upTo: firstFrame.height)
         if change == .aNewDesignStartsAfterAFailure {
             await letTheHeldDesignFail()
         }

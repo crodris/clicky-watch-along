@@ -164,9 +164,10 @@
   color: var(--clicky-accent-ink);
   font: 700 13px -apple-system, system-ui, sans-serif;
   cursor: pointer;
-  transition: filter 0.15s, scale 0.15s, background-color 0.15s, color 0.15s;
+  transition: box-shadow 0.15s, scale 0.15s, background-color 0.15s, color 0.15s;
 }
-:root #clicky-simulation-panel .clicky-run-button:hover:not(:disabled) { filter: brightness(1.1); }
+/* Hover rings the button in its own text color and leaves the fill as it rests, since the ink was chosen for that fill. */
+:root #clicky-simulation-panel .clicky-run-button:hover:not(:disabled) { box-shadow: inset 0 0 0 2px color-mix(in srgb, currentColor 35%, transparent); }
 :root #clicky-simulation-panel .clicky-run-button:active:not(:disabled) { scale: 0.97; }
 :root #clicky-simulation-panel .clicky-run-button:disabled { cursor: default; opacity: 0.7; }
 /* Before the guess, Run is locked and reads "Say your guess". A click still skips the guess, so it keeps the pointing hand. */
