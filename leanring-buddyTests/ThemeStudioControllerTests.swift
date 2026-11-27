@@ -8,6 +8,7 @@
 
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import Clicky
 
@@ -499,6 +500,66 @@ struct ThemeStudioTetherTests {
         #expect(harness.studio.showsTheDesignFailedNotice)
         harness.studio.pickIdea(number: 2)
         #expect(!harness.studio.showsTheDesignFailedNotice)
+    }
+
+    /// The notice is a row of the Card, not a Callout: a red-tinted fill across the Card's content with a red cross on it.
+    @Test func theFailedNoticeIsARedTintedRowAcrossTheCard() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }, { throw WorkerFailure() }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        harness.studio.design(request: "more", basedOnIdea: 1, pictureChoice: .keepTheCardsPicture)
+        await harness.studio.waitForTheDesign()
+
+        // Drawn in an `NSHostingView` in a window off every screen, since `ImageRenderer` draws the hover views as placeholders.
+        let hostingView = NSHostingView(rootView: ThemeStudioCardView(
+            studio: harness.studio, landsTilesIn: false, onSaveClicked: { _ in },
+            onHighlightedCursorCenterChange: { _ in }, onContentSizeChange: { _ in }
+        ))
+        let size = CGSize(width: ThemeStudioPanelController.cardWidth + AgentListWindowMargins.leading + AgentListWindowMargins.trailing, height: 480)
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -10_000, y: -10_000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = hostingView
+        hostingView.frame = NSRect(origin: .zero, size: size)
+        hostingView.layoutSubtreeIfNeeded()
+        let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+
+        // The pixels as raw sRGB bytes. Reading each one through `colorAt` holds the main actor for seconds.
+        let image = try #require(bitmap.cgImage)
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try #require(CGContext(
+            data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let bytes = try #require(context.data).bindMemory(to: UInt8.self, capacity: image.width * image.height * 4)
+
+        func channels(of color: Color) throws -> [Int] {
+            let color = try #require(NSColor(color).usingColorSpace(.sRGB))
+            return [color.redComponent, color.greenComponent, color.blueComponent].map { Int(($0 * 255).rounded()) }
+        }
+        let tintChannels = try channels(of: DS.Colors.destructiveSurface)
+        let crossChannels = try channels(of: DS.Colors.destructiveText)
+        func pixel(at offset: Int, isCloseTo expected: [Int]) -> Bool {
+            (0..<3).allSatisfy { abs(Int(bytes[offset + $0]) - expected[$0]) < 8 }
+        }
+        var widestTintedRunInPixels = 0
+        var redCrossPixels = 0
+        for y in 0..<image.height {
+            var tintedRunInPixels = 0
+            for x in 0..<image.width {
+                let offset = (y * image.width + x) * 4
+                tintedRunInPixels = pixel(at: offset, isCloseTo: tintChannels) ? tintedRunInPixels + 1 : 0
+                widestTintedRunInPixels = max(widestTintedRunInPixels, tintedRunInPixels)
+                if pixel(at: offset, isCloseTo: crossChannels) { redCrossPixels += 1 }
+            }
+        }
+        // The row spans the Card inside its 14 point padding, less its own round ends.
+        let pixelsPerPoint = CGFloat(image.width) / size.width
+        #expect(CGFloat(widestTintedRunInPixels) / pixelsPerPoint > ThemeStudioPanelController.cardWidth - 28 - 20)
+        #expect(redCrossPixels > 5)
     }
 
     @Test func theFailedNoticeIsUpBeforeTheFailureLineIsSpokenSoTheChipCanLeaveItOut() async throws {
