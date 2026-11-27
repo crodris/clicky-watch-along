@@ -300,8 +300,10 @@ struct TetherCalloutTests {
         let hues = LiveSceneStatusLine.allCases.map { $0.calloutAccent }
         #expect(Set(hues.map { "\($0)" }).count == hues.count)
         for statusLine in LiveSceneStatusLine.allCases {
-            #expect(statusLine.palette.iconColor == DS.Colors.inkOnAccent)
+            #expect(statusLine.palette.iconColor == Color(hex: ThemeRGBColor.darkInkHex))
             #expect(statusLine.palette.discColor == statusLine.calloutAccent)
+            // The icon reads the palette on every frame, so each line keeps one and works its ink out only once.
+            #expect(statusLine.palette === statusLine.palette)
         }
     }
 

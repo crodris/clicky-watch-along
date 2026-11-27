@@ -44,18 +44,31 @@ private final class DesignGate {
     }
 }
 
-/// A drawing of the card: raw sRGB bytes, 4 for each pixel, in rows from the top. Reading each pixel through `colorAt`
+/// A drawing of a view: raw sRGB bytes, 4 for each pixel, in rows from the top. Reading each pixel through `colorAt`
 /// holds the main actor for seconds.
-private struct CardPixels {
+struct RenderedPixels {
     let width: Int
     let height: Int
     let pixelsPerPoint: CGFloat
     let bytes: Data
 
+    init(drawing image: CGImage, widthInPoints: CGFloat) throws {
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try #require(CGContext(
+            data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        width = image.width
+        height = image.height
+        pixelsPerPoint = CGFloat(image.width) / widthInPoints
+        bytes = Data(bytes: try #require(context.data), count: image.width * image.height * 4)
+    }
+
     /// How many channels differ from `other`'s, from the window's top edge down to `points`, or in the whole drawing. Two
     /// drawings of one state can round the Card's gradient and shadow a few levels apart, so those do not count. The scan
     /// runs off the main actor, which it would otherwise hold from every other test.
-    func channelsThatDiffer(from other: CardPixels, downTo points: CGFloat? = nil) async -> Int {
+    func channelsThatDiffer(from other: RenderedPixels, downTo points: CGFloat? = nil) async -> Int {
         let byteCount = points.map { Int($0 * pixelsPerPoint) * width * 4 } ?? bytes.count
         let (ownBytes, otherBytes) = (bytes.prefix(byteCount), other.bytes.prefix(byteCount))
         return await Task.detached {
@@ -84,23 +97,11 @@ private final class OffscreenCard {
         hostingView.frame = NSRect(origin: .zero, size: size)
     }
 
-    func draw() throws -> CardPixels {
+    func draw() throws -> RenderedPixels {
         hostingView.layoutSubtreeIfNeeded()
         let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
         hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
-        let image = try #require(bitmap.cgImage)
-        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        let context = try #require(CGContext(
-            data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
-            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ))
-        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        return CardPixels(
-            width: image.width,
-            height: image.height,
-            pixelsPerPoint: CGFloat(image.width) / hostingView.bounds.width,
-            bytes: Data(bytes: try #require(context.data), count: image.width * image.height * 4)
-        )
+        return try RenderedPixels(drawing: try #require(bitmap.cgImage), widthInPoints: hostingView.bounds.width)
     }
 
     func close() {
@@ -155,9 +156,35 @@ private final class StudioHarness {
 
 private struct WorkerFailure: Error {}
 
-private func reply(names: [String], spokenLine: String = "Here are three.", pictureCursor: Bool = false, stillCursor: Bool = false) throws -> ThemeIdeasReply {
+/// The card before a save and as the save leaves it, with the saved tile stamped, for ideas that all have `accentHex`.
+@MainActor
+func themeStudioCardDrawingsAroundASave(accentHex: String) async throws -> (beforeTheSave: RenderedPixels, stamped: RenderedPixels) {
+    var drawings: (beforeTheSave: RenderedPixels, stamped: RenderedPixels)?
+    // The save writes a theme, so it goes to a store of its own.
+    try await withATemporaryThemeStore { store in
+        let harness = StudioHarness(themeSettings: makeThemeSettings(customThemeStore: store))
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"], stillCursor: true, accentHex: accentHex) }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        let cardBeforeTheSave = OffscreenCard(studio: harness.studio)
+        defer { cardBeforeTheSave.close() }
+        let beforeTheSave = try cardBeforeTheSave.draw()
+        _ = harness.studio.saveTheHighlightedIdea()
+        try #require(harness.studio.isStampingTheSavedIdea)
+        // A new card draws the stamp in place, with nothing to animate from.
+        let stampedCard = OffscreenCard(studio: harness.studio, size: cardBeforeTheSave.size)
+        defer { stampedCard.close() }
+        drawings = (beforeTheSave, try stampedCard.draw())
+    }
+    return try #require(drawings)
+}
+
+private func reply(names: [String], spokenLine: String = "Here are three.", pictureCursor: Bool = false, stillCursor: Bool = false, accentHex: String? = nil) throws -> ThemeIdeasReply {
     let ideas = names.map { ideaName -> JSONValue in
         var idea = replacingField(in: pictureCursor ? goodPictureCursorThemeIdea : goodThemeIdea, at: ["name"], with: .string(ideaName))
+        if let accentHex {
+            idea = replacingField(in: idea, at: ["accent"], with: .string(accentHex))
+        }
         // A cursor with no streaks and no thinking motion draws the same pixels at any moment.
         if stillCursor {
             idea = replacingField(in: idea, at: ["motion", "trailStreaks"], with: .number(0))
@@ -618,7 +645,7 @@ struct ThemeStudioTetherTests {
 
     /// Changes the height of a card already on show, and draws its first frame after the change beside the same state drawn
     /// by a new card of the same size, which has nothing to animate from.
-    private func firstAndSettledFrames(after change: ThemeStudioCardHeightChange) async throws -> (first: CardPixels, settled: CardPixels) {
+    private func firstAndSettledFrames(after change: ThemeStudioCardHeightChange) async throws -> (first: RenderedPixels, settled: RenderedPixels) {
         let harness = StudioHarness()
         let gate = DesignGate()
         let ideas = { try reply(names: ["Ember", "Moonlit", "Forest"], stillCursor: true) }
@@ -645,7 +672,7 @@ struct ThemeStudioTetherTests {
         let card = OffscreenCard(studio: harness.studio)
         defer { card.close() }
         _ = try card.draw()
-        let firstFrame: CardPixels
+        let firstFrame: RenderedPixels
         switch change {
         case .theDesignFails:
             designAgain()

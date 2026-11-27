@@ -536,8 +536,10 @@ struct SettingsDialView: View {
 
     // MARK: Hint
 
+    static let firstRunHintText = "Hold ⇧⌥ · flick, release to pick"
+
     private var hint: some View {
-        Text("Hold ⇧⌥ · flick, release to pick")
+        Text(Self.firstRunHintText)
             .font(.system(size: 11, weight: .semibold))
             .foregroundColor(Color.white.opacity(0.82))
             .padding(.horizontal, 10)

@@ -19,20 +19,48 @@ private struct InkPixelCounts {
     let white: Int
 }
 
+extension RenderedPixels {
+    /// The ink pixels inside `partInPoints`, or in the whole drawing when nil. With `other`, only pixels that differ from
+    /// the same pixel there count, which leaves what was drawn since. The scan runs off the main actor.
+    fileprivate func inkPixelCounts(in partInPoints: CGRect? = nil, thatDifferFrom other: RenderedPixels? = nil) async -> InkPixelCounts {
+        let part = partInPoints.map {
+            CGRect(x: $0.minX * pixelsPerPoint, y: $0.minY * pixelsPerPoint, width: $0.width * pixelsPerPoint, height: $0.height * pixelsPerPoint)
+        } ?? CGRect(x: 0, y: 0, width: width, height: height)
+        let (ownBytes, otherBytes, bytesPerRow) = (bytes, other?.bytes, width * 4)
+        return await Task.detached {
+            var nearBlack = 0
+            var white = 0
+            for y in Int(part.minY)..<Int(part.maxY) {
+                for x in Int(part.minX)..<Int(part.maxX) {
+                    let offset = y * bytesPerRow + x * 4
+                    if let otherBytes, (0..<3).allSatisfy({ abs(Int(ownBytes[offset + $0]) - Int(otherBytes[offset + $0])) <= 6 }) { continue }
+                    // Only an opaque pixel counts, since a see-through one has no color of its own.
+                    guard ownBytes[offset + 3] >= 253 else { continue }
+                    let channels = ownBytes[offset..<offset + 3]
+                    // Below 12% and above 92% of full brightness.
+                    if channels.allSatisfy({ $0 <= 30 }) { nearBlack += 1 }
+                    if channels.allSatisfy({ $0 >= 235 }) { white += 1 }
+                }
+            }
+            return InkPixelCounts(nearBlack: nearBlack, white: white)
+        }.value
+    }
+}
+
 @MainActor
 struct AccentInkTests {
     /// Renders `view` at 2x and counts the ink pixels inside `partInPoints`, or in the whole render when nil.
-    private func inkPixels(of view: some View, in partInPoints: CGRect? = nil) throws -> InkPixelCounts {
+    private func inkPixels(of view: some View, in partInPoints: CGRect? = nil) async throws -> InkPixelCounts {
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
-        let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
-        let part = partInPoints.map { CGRect(x: $0.minX * 2, y: $0.minY * 2, width: $0.width * 2, height: $0.height * 2) }
-        return inkPixels(in: bitmap, part: part)
+        let image = try #require(renderer.cgImage)
+        let pixels = try RenderedPixels(drawing: image, widthInPoints: CGFloat(image.width) / renderer.scale)
+        return await pixels.inkPixelCounts(in: partInPoints)
     }
 
     /// Draws a button in an `NSHostingView` in a window off every screen, since `ImageRenderer` draws the AppKit hover view
     /// every button has as a placeholder sign.
-    private func inkPixels(ofButton button: some View) throws -> InkPixelCounts {
+    private func inkPixels(ofButton button: some View) async throws -> InkPixelCounts {
         let hostingView = NSHostingView(rootView: button)
         let fittingSize = hostingView.fittingSize
         let window = NSWindow(
@@ -48,22 +76,8 @@ struct AccentInkTests {
         hostingView.layoutSubtreeIfNeeded()
         let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
         hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
-        return inkPixels(in: bitmap, part: nil)
-    }
-
-    private func inkPixels(in bitmap: NSBitmapImageRep, part partInPixels: CGRect?) -> InkPixelCounts {
-        let part = partInPixels ?? CGRect(x: 0, y: 0, width: bitmap.pixelsWide, height: bitmap.pixelsHigh)
-        var nearBlack = 0
-        var white = 0
-        for y in Int(part.minY)..<Int(part.maxY) {
-            for x in Int(part.minX)..<Int(part.maxX) {
-                guard let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.99 else { continue }
-                let channels = [color.redComponent, color.greenComponent, color.blueComponent]
-                if channels.allSatisfy({ $0 < 0.12 }) { nearBlack += 1 }
-                if channels.allSatisfy({ $0 > 0.92 }) { white += 1 }
-            }
-        }
-        return InkPixelCounts(nearBlack: nearBlack, white: white)
+        let pixels = try RenderedPixels(drawing: try #require(bitmap.cgImage), widthInPoints: fittingSize.width)
+        return await pixels.inkPixelCounts()
     }
 
     /// A square inside the Callout's 26 point icon disc, for a Callout padded by 20 points in the render.
@@ -99,29 +113,29 @@ struct AccentInkTests {
         #expect(clickyBlueScript.contains(##"root.style.setProperty("--clicky-accent-ink", "#0B0C0E");"##))
     }
 
-    @Test func theCalloutsIconsAreWhiteOnADarkAccentAndNearBlackOnABrightOne() throws {
-        let cursorIconOnShiratorizawa = try inkPixels(of: callout(accentHex: "#A0457F") { TetherCalloutCursorIcon() }, in: calloutIconPart)
+    @Test func theCalloutsIconsAreWhiteOnADarkAccentAndNearBlackOnABrightOne() async throws {
+        let cursorIconOnShiratorizawa = try await inkPixels(of: callout(accentHex: "#A0457F") { TetherCalloutCursorIcon() }, in: calloutIconPart)
         #expect(cursorIconOnShiratorizawa.white > 20 && cursorIconOnShiratorizawa.nearBlack == 0)
-        let crossIconOnShiratorizawa = try inkPixels(of: callout(accentHex: "#A0457F") { TetherCalloutCrossIcon() }, in: calloutIconPart)
+        let crossIconOnShiratorizawa = try await inkPixels(of: callout(accentHex: "#A0457F") { TetherCalloutCrossIcon() }, in: calloutIconPart)
         #expect(crossIconOnShiratorizawa.white > 20 && crossIconOnShiratorizawa.nearBlack == 0)
-        let symbolOnShiratorizawa = try inkPixels(of: callout(accentHex: "#A0457F") { Image(systemName: "hand.point.up.left.fill") }, in: calloutIconPart)
+        let symbolOnShiratorizawa = try await inkPixels(of: callout(accentHex: "#A0457F") { Image(systemName: "hand.point.up.left.fill") }, in: calloutIconPart)
         #expect(symbolOnShiratorizawa.white > 20 && symbolOnShiratorizawa.nearBlack == 0)
-        let cursorIconOnClickyBlue = try inkPixels(of: callout(accentHex: "#3380FF") { TetherCalloutCursorIcon() }, in: calloutIconPart)
+        let cursorIconOnClickyBlue = try await inkPixels(of: callout(accentHex: "#3380FF") { TetherCalloutCursorIcon() }, in: calloutIconPart)
         #expect(cursorIconOnClickyBlue.nearBlack > 20 && cursorIconOnClickyBlue.white == 0)
     }
 
-    @Test func thePrimaryButtonsLettersReadOnTheirAccent() throws {
+    @Test func thePrimaryButtonsLettersReadOnTheirAccent() async throws {
         // Nekoma's red is the closest call: white reads at 4.49 and near-black at 4.35.
-        let studioButtonOnNekoma = try inkPixels(ofButton: ThemeStudioButton(title: "Save", style: .primary(accentHex: "#E0313B"), isEnabled: true) {})
+        let studioButtonOnNekoma = try await inkPixels(ofButton: ThemeStudioButton(title: "Save", style: .primary(accentHex: "#E0313B"), isEnabled: true) {})
         #expect(studioButtonOnNekoma.white > 20 && studioButtonOnNekoma.nearBlack == 0)
-        let studioButtonOnClickyBlue = try inkPixels(ofButton: ThemeStudioButton(title: "Save", style: .primary(accentHex: "#3380FF"), isEnabled: true) {})
+        let studioButtonOnClickyBlue = try await inkPixels(ofButton: ThemeStudioButton(title: "Save", style: .primary(accentHex: "#3380FF"), isEnabled: true) {})
         #expect(studioButtonOnClickyBlue.nearBlack > 20 && studioButtonOnClickyBlue.white == 0)
-        let panelButtonOnShiratorizawa = try inkPixels(ofButton: PanelButton(title: "Start Clicky", prominence: .primary, accentColor: Color(hex: "#A0457F")) {})
+        let panelButtonOnShiratorizawa = try await inkPixels(ofButton: PanelButton(title: "Start Clicky", prominence: .primary, accentColor: Color(hex: "#A0457F")) {})
         #expect(panelButtonOnShiratorizawa.white > 20 && panelButtonOnShiratorizawa.nearBlack == 0)
     }
 
     /// Date Tech's file names white as its contrast color, and white reads at 3.05 on its teal where near-black reads at 6.42.
-    @Test func aRosterFacesInitialsReadOnTheAccentWhateverTheThemesContrastColorIs() throws {
+    @Test func aRosterFacesInitialsReadOnTheAccentWhateverTheThemesContrastColorIs() async throws {
         let dateTech = bundledTheme("school-date-tech")
         guard case .roster(let players) = dateTech.agents.faces else {
             Issue.record("school-date-tech has no roster")
@@ -130,13 +144,54 @@ struct AccentInkTests {
         // No portrait file in the idea's folder, so the face draws the initials.
         let player = try #require(players.first)
         let face = AgentRosterFace(player: player, of: dateTech.with(id: dateTech.id, origin: .idea))
-        let initials = try inkPixels(of: RosterFaceView(rosterFace: face, size: 40), in: CGRect(x: 8, y: 8, width: 24, height: 24))
+        let initials = try await inkPixels(of: RosterFaceView(rosterFace: face, size: 40), in: CGRect(x: 8, y: 8, width: 24, height: 24))
         #expect(initials.nearBlack > 20 && initials.white == 0)
     }
 
     @Test func aStatusIconDrawsInTheInkOfItsDisc() {
-        #expect(StatusLabelPalette.onDisc(accent: Color(hex: "#A0457F")).iconColor == Color(hex: "#FFFFFF"))
-        #expect(StatusLabelPalette.onDisc(accent: Color(hex: "#3380FF")).iconColor == Color(hex: "#0B0C0E"))
+        #expect(StatusLabelPalette(onDisc: Color(hex: "#A0457F")).iconColor == Color(hex: "#FFFFFF"))
+        #expect(StatusLabelPalette(onDisc: Color(hex: "#3380FF")).iconColor == Color(hex: "#0B0C0E"))
+    }
+
+    @Test func theSavedIdeasCheckStampIsDrawnInTheAccentsInk() async throws {
+        let onShiratorizawa = try await themeStudioCardDrawingsAroundASave(accentHex: "#A0457F")
+        let whiteStamp = await onShiratorizawa.stamped.inkPixelCounts(thatDifferFrom: onShiratorizawa.beforeTheSave)
+        #expect(whiteStamp.white > 20 && whiteStamp.nearBlack == 0)
+        let onClickyBlue = try await themeStudioCardDrawingsAroundASave(accentHex: "#3380FF")
+        let nearBlackStamp = await onClickyBlue.stamped.inkPixelCounts(thatDifferFrom: onClickyBlue.beforeTheSave)
+        #expect(nearBlackStamp.nearBlack > 20 && nearBlackStamp.white == 0)
+    }
+
+    /// The replay control is private, so this shows its real panel on a frame far off every screen and draws it from there.
+    @Test(.showsARealWindow)
+    func theReplayControlsAccentButtonReadsOnItsAccent() async throws {
+        let stage = InstantReplayStage(
+            focusStop: { _ in }, endFocus: {}, showStopNumbers: { _, _ in }, hideStopNumbers: {},
+            labelScreenPointOnceTheCameraSettles: { _ in nil }, pointTheCursor: { _, _ in 0 }, freezeTheCursor: {},
+            releaseTheCursor: {}, clearTheFocus: {}, reduceMotionIsOn: { true }, sleep: { _ in }, showControl: { _ in },
+            hideControl: {}
+        )
+        let offScreenFrame = CGRect(x: -20_000, y: -20_000, width: 1_000, height: 1_000)
+        let panelController = InstantReplayPanelController()
+        defer { panelController.hide() }
+        panelController.show(
+            for: InstantReplayController(stage: stage),
+            stopWhatClickyIsSaying: {},
+            accentHex: "#A0457F",
+            mediaRectOnScreen: offScreenFrame.insetBy(dx: 300, dy: 300),
+            visibleFrame: offScreenFrame
+        )
+        let panel = try #require(NSApplication.shared.windows.first { $0 is NonKeyFloatingPanel && offScreenFrame.contains($0.frame) })
+        let contentView = try #require(panel.contentView)
+        contentView.layoutSubtreeIfNeeded()
+        let bitmap = try #require(contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds))
+        contentView.cacheDisplay(in: contentView.bounds, to: bitmap)
+        let pixels = try RenderedPixels(drawing: try #require(bitmap.cgImage), widthInPoints: contentView.bounds.width)
+        // The middle of the Replay capsule: past the window's 12 point shadow margin, the row's 4 points, and the capsule's
+        // own padding.
+        let replayButtonPart = CGRect(x: 12 + 4 + 11, y: 12 + 4 + 5, width: 40, height: 14)
+        let replayButton = await pixels.inkPixelCounts(in: replayButtonPart)
+        #expect(replayButton.white > 20 && replayButton.nearBlack == 0)
     }
 
     private func dialView(theme: ClickyTheme, selection: SettingsDialSelection = SettingsDialSelection(slice: .model, fanItemIndex: nil)) -> SettingsDialView {
@@ -167,16 +222,16 @@ struct AccentInkTests {
         return CGRect(x: center.x - 11, y: center.y - 11, width: 22, height: 22)
     }
 
-    @Test func theSettingsDialsSelectedTokenDrawsItsIconInTheAccentsInk() throws {
+    @Test func theSettingsDialsSelectedTokenDrawsItsIconInTheAccentsInk() async throws {
         // Clicky blue's contrast color is white, which reads worse on its blue than near-black does.
-        let onClickyBlue = try inkPixels(of: dialView(theme: clickyBlueTheme), in: selectedModelTokenIconPart)
+        let onClickyBlue = try await inkPixels(of: dialView(theme: clickyBlueTheme), in: selectedModelTokenIconPart)
         #expect(onClickyBlue.nearBlack > 20 && onClickyBlue.white == 0)
-        let onShiratorizawa = try inkPixels(of: dialView(theme: bundledTheme("school-shiratorizawa")), in: selectedModelTokenIconPart)
+        let onShiratorizawa = try await inkPixels(of: dialView(theme: bundledTheme("school-shiratorizawa")), in: selectedModelTokenIconPart)
         #expect(onShiratorizawa.white > 20 && onShiratorizawa.nearBlack == 0)
     }
 
     /// Date Tech's file names white as its contrast color, so the name on its accent pill shows which color the dial reads.
-    @Test func theNameOfAHighlightedFanThemeReadsOnItsAccentPill() throws {
+    @Test func theNameOfAHighlightedFanThemeReadsOnItsAccentPill() async throws {
         let fans = SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: [])
         let itemIndex = try #require(bundledThemesForTests.firstIndex { $0.id == "school-date-tech" })
         let angle = try #require(fans.layout(of: .theme)).angleDegrees(ofItemAt: itemIndex) * .pi / 180
@@ -193,7 +248,7 @@ struct AccentInkTests {
             height: pillSize.height - 4
         )
         let dial = dialView(theme: clickyBlueTheme, selection: SettingsDialSelection(slice: .theme, fanItemIndex: itemIndex))
-        let nameOnThePill = try inkPixels(of: dial, in: pillPart)
+        let nameOnThePill = try await inkPixels(of: dial, in: pillPart)
         #expect(nameOnThePill.nearBlack > 20 && nameOnThePill.white == 0)
     }
 }

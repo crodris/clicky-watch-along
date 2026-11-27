@@ -204,8 +204,9 @@ enum DS {
         /// fell from 17.9 to 5.4 contrast in the phase-zero prototype.
         static let calloutSurface = Color(hex: "#14171e")
 
-        /// The ink of an icon on an accent-filled disc. Near-black on every accent, Clicky blue included, since white on
-        /// `#3380ff` is only 3.9 contrast and this is 5.3.
+        /// The fixed ink for icons and text on a fixed fill that is not a theme accent, such as the approval card's amber
+        /// disc. A theme accent takes the ink that reads on it (`accentInk` or `Color.inkOnThisFill`), since one ink does
+        /// not fit every accent: white on Clicky blue `#3380ff` is only 3.70 contrast.
         static let inkOnAccent = Color(hex: "#0b0c0e")
 
         /// The ring around the control that holds the keyboard focus in the menu bar panel. It is a fixed light blue, not the

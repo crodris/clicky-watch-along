@@ -204,6 +204,11 @@ struct SettingsDialPickingTests {
 }
 
 struct SettingsDialPlacementTests {
+    @MainActor
+    @Test func theFirstRunHintSaysHowToPick() {
+        #expect(SettingsDialView.firstRunHintText == "Hold ⇧⌥ · flick, release to pick")
+    }
+
 
     private let visibleFrame = CGRect(x: 0, y: 25, width: 1440, height: 850)
 
