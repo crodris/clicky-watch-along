@@ -44,7 +44,7 @@ nonisolated struct SavedCustomTheme: Equatable, Sendable {
     let theme: ClickyTheme
     /// The modification date of the theme's theme.json, which `write` creates last, so it is the moment of the save. A hand
     /// edit moves it too. A file system that reports no date gives `.distantPast`, so that theme counts as the oldest.
-    /// The settings dial's Team fan lists the newest saved themes first by this date.
+    /// The settings dial's Theme fan lists the newest saved themes first by this date.
     let savedDate: Date
 }
 
@@ -343,7 +343,7 @@ nonisolated struct CustomThemeStore: Sendable {
     // MARK: - Bundled themes
 
     /// Every `.clickytheme` package in `directoryURL` that parses, sorted by folder name, so the number a folder name starts
-    /// with sets the order the menu bar panel and the settings dial's Team fan show. A bundled theme names its own id in
+    /// with sets the order the menu bar panel and the settings dial's Theme fan show. A bundled theme names its own id in
     /// theme.json, and its roster portraits are files in `imagesFolderURL`. One that does not parse is skipped with a log line.
     static func loadBundledThemes(inDirectoryAt directoryURL: URL, imagesFolderURL: URL) -> [ClickyTheme] {
         let packageURLs = ((try? FileManager.default.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil)) ?? [])
@@ -376,7 +376,7 @@ nonisolated struct CustomThemeStore: Sendable {
     /// Rewrites only the name in the theme's theme.json and returns the renamed theme. The id and the folder stay, since the
     /// saved `companionTheme` setting and the agents that wear the theme's picture refer to the id. The name follows the
     /// rule `ClickyTheme.parse` applies to a saved name, after trimming the spaces a typed name often carries.
-    /// The saved date stays too when the file system allows it, since the settings dial's Team fan lists the most recently saved themes, and a renamed
+    /// The saved date stays too when the file system allows it, since the settings dial's Theme fan lists the most recently saved themes, and a renamed
     /// theme was not saved again.
     @discardableResult
     func rename(themeID: String, to typedName: String) throws -> ClickyTheme {
@@ -386,7 +386,7 @@ nonisolated struct CustomThemeStore: Sendable {
         let renamedTheme = savedTheme.theme.renamed(to: newName)
         try writeThemeFile(of: renamedTheme, inFolderAt: themeDirectoryURL)
         // The new name is already written, so this does not throw: a date that fails to go back only moves the theme to
-        // the front of the dial's Team fan, and the panel must still show the new name.
+        // the front of the dial's Theme fan, and the panel must still show the new name.
         try? FileManager.default.setAttributes(
             [.modificationDate: savedTheme.savedDate],
             ofItemAtPath: themeDirectoryURL.appendingPathComponent(Self.themeFileName).path

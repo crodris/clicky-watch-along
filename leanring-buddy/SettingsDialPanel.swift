@@ -2,8 +2,8 @@
 //  SettingsDialPanel.swift
 //  leanring-buddy
 //
-//  The settings dial that holding shift + option opens under the mouse: a round plate with five tokens (Team, Model,
-//  Agents, Show, More) and, for Team and Model, a fan of choices on an outer arc. It is a borderless, nonactivating
+//  The settings dial that holding shift + option opens under the mouse: a round plate with five tokens (Theme, Model,
+//  Agents, Show, More) and, for Theme and Model, a fan of choices on an outer arc. It is a borderless, nonactivating
 //  panel that never becomes key and ignores the mouse, so the app under it keeps the keyboard and every click.
 //  The rules for what the pointer picks live in SettingsDialModel.swift. This file draws the dial and turns the real
 //  mouse into offsets from the dial's center.
@@ -28,7 +28,7 @@ struct SettingsDialSnapshot {
     let modelID: String
     let isClickyCursorEnabled: Bool
     let runningAgentCount: Int
-    /// What the Team and Model fans offer, including the saved themes the learner designed.
+    /// What the Theme and Model fans offer, including the saved themes the learner designed.
     let fans: SettingsDialFans
 }
 
@@ -328,7 +328,7 @@ struct SettingsDialView: View {
     private func token(for slice: SettingsDialSlice) -> some View {
         let isSelected = viewModel.selection.slice == slice
         let tokenCenter = point(atAngleDegrees: slice.angleDegrees, radius: SettingsDialGeometry.tokenRingRadius)
-        let labelText = tokenTitle(for: slice)
+        let labelText = slice.title
         let labelOffsetY = SettingsDialLabel.tokenLabelCenterOffsetY(
             for: slice,
             labelPillHeight: SettingsDialLabel.pillSize(forText: labelText).height
@@ -362,21 +362,11 @@ struct SettingsDialView: View {
         .animation(DS.Move.snap.animation(reduceMotionIsOn: viewModel.reduceMotion), value: isSelected)
     }
 
-    private func tokenTitle(for slice: SettingsDialSlice) -> String {
-        switch slice {
-        case .team: return "Team"
-        case .model: return "Model"
-        case .agents: return "Agents"
-        case .show: return "Show"
-        case .more: return "More"
-        }
-    }
-
     /// Line icons are white, or the accent's ink on the selected token's accent fill.
     @ViewBuilder private func tokenIcon(for slice: SettingsDialSlice, isSelected: Bool) -> some View {
         let lineColor = isSelected ? inkColor : Color.white
         switch slice {
-        case .team:
+        case .theme:
             // The theme's own cursor. Its shapes are often filled in the accent color, so on the selected token's accent fill
             // it would vanish. A dark disc inside the accent ring keeps it readable.
             ZStack {
@@ -427,8 +417,8 @@ struct SettingsDialView: View {
 
     @ViewBuilder private func fan(of slice: SettingsDialSlice) -> some View {
         switch slice {
-        case .team:
-            teamFan
+        case .theme:
+            themeFan
         case .model:
             modelFan
         case .agents, .show, .more:
@@ -448,9 +438,9 @@ struct SettingsDialView: View {
             .animation(DS.Move.pop.animation(reduceMotionIsOn: false)?.delay(Double(itemIndex) * 0.014))
     }
 
-    private var teamFan: some View {
-        let themes = fans.teamThemes
-        let fanLayout = fans.layout(of: .team)
+    private var themeFan: some View {
+        let themes = fans.themeFanThemes
+        let fanLayout = fans.layout(of: .theme)
         let emphasizedIndex = emphasizedItemIndex(currentItemIndex: themes.firstIndex(of: theme))
         return ZStack {
             ForEach(Array(themes.enumerated()), id: \.offset) { itemIndex, itemTheme in
@@ -494,7 +484,7 @@ struct SettingsDialView: View {
         }
     }
 
-    /// The accent ring's inner disc on the selected Team token when it shows a custom cursor.
+    /// The accent ring's inner disc on the selected Theme token when it shows a custom cursor.
     private static let customCursorBackingDiameterOnTheSelectedToken: CGFloat = 32
 
     private func fanBallCenter(angleDegrees: Double) -> CGPoint {
@@ -547,7 +537,7 @@ struct SettingsDialView: View {
     // MARK: Hint
 
     private var hint: some View {
-        Text("hold ⇧⌥ · flick, release to pick")
+        Text("Hold ⇧⌥ · flick, release to pick")
             .font(.system(size: 11, weight: .semibold))
             .foregroundColor(Color.white.opacity(0.82))
             .padding(.horizontal, 10)
@@ -580,7 +570,7 @@ struct SettingsDialCustomCursor: View {
     }
 }
 
-/// A theme in the Team fan: its own cursor, drawn still on a dark disc. The fan sits past the plate, over whatever page is
+/// A theme in the Theme fan: its own cursor, drawn still on a dark disc. The fan sits past the plate, over whatever page is
 /// behind the dial, so the cursor gets a dark disc like the tokens have, and a pale cursor still reads over a light page.
 private struct SettingsDialThemeBall: View {
     let theme: ClickyTheme

@@ -157,11 +157,11 @@ final class CompanionThemeSettings: ObservableObject {
         }
     }
 
-    /// The themes the app bundles, Clicky blue first, in the order the menu bar panel and the dial's Team fan show them.
+    /// The themes the app bundles, Clicky blue first, in the order the menu bar panel and the dial's Theme fan show them.
     let bundledThemes: [ClickyTheme]
 
     /// The custom themes the learner saved with their saved dates, sorted by name. The menu bar panel's All themes page lists
-    /// them in this order, and its home and the settings dial's Team fan sort the same list by date.
+    /// them in this order, and its home and the settings dial's Theme fan sort the same list by date.
     @Published private(set) var savedCustomThemesWithSavedDates: [SavedCustomTheme]
 
     var savedCustomThemes: [ClickyTheme] { savedCustomThemesWithSavedDates.map(\.theme) }

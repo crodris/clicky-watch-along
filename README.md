@@ -84,7 +84,7 @@ It tells you what it found when you say "what did you find".
 Each running agent floats as a small disc beside the notch, with a ring that fills as it works, and a finished result that is still waiting for you keeps its disc.
 Click a disc to open the agent list under it, where you can see every agent and its steps, cancel one, or open its page.
 Hold Shift + Option for a moment to open a dial under the mouse, then flick toward a slice and let go to pick it.
-Team picks the cursor's team, Model picks Sonnet or Opus, Agents opens the list of every agent and its steps, Show turns the cursor on or off, and More opens the menu bar panel.
+Theme picks the cursor's theme, Model picks Sonnet or Opus, Agents opens the list of every agent and its steps, Show turns the cursor on or off, and More opens the menu bar panel.
 
 **A loading label for each step.** Every step Clicky waits on has its own animated label next to your cursor, with its own colors and icon.
 That covers popping out an image, reading your screen, building a 3D scene or an experiment, reading a video's transcript, and picking quiz spots.

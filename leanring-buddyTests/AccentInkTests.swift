@@ -179,7 +179,7 @@ struct AccentInkTests {
     @Test func theNameOfAHighlightedFanThemeReadsOnItsAccentPill() throws {
         let fans = SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: [])
         let itemIndex = try #require(bundledThemesForTests.firstIndex { $0.id == "school-date-tech" })
-        let angle = try #require(fans.layout(of: .team)).angleDegrees(ofItemAt: itemIndex) * .pi / 180
+        let angle = try #require(fans.layout(of: .theme)).angleDegrees(ofItemAt: itemIndex) * .pi / 180
         let ballCenterOffset = CGPoint(x: cos(angle) * SettingsDialGeometry.fanRadius, y: sin(angle) * SettingsDialGeometry.fanRadius)
         let ballRadius = SettingsDialGeometry.emphasizedFanBallDiameter / 2
         let labelText = SettingsDialLabel.fanLabelText(bundledThemesForTests[itemIndex].name, ballCenterOffset: ballCenterOffset, ballRadius: ballRadius)
@@ -192,7 +192,7 @@ struct AccentInkTests {
             width: pillSize.width - 16,
             height: pillSize.height - 4
         )
-        let dial = dialView(theme: clickyBlueTheme, selection: SettingsDialSelection(slice: .team, fanItemIndex: itemIndex))
+        let dial = dialView(theme: clickyBlueTheme, selection: SettingsDialSelection(slice: .theme, fanItemIndex: itemIndex))
         let nameOnThePill = try inkPixels(of: dial, in: pillPart)
         #expect(nameOnThePill.nearBlack > 20 && nameOnThePill.white == 0)
     }
