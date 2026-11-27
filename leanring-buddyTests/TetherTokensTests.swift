@@ -16,7 +16,7 @@ import Testing
 struct TetherTokensTests {
     // MARK: - Type scale
 
-    @Test func theTypeStylesUseOnlyTheFourSizesAndTheDisplaySize() {
+    @Test func theTypeStylesUseOnlyTheFiveSizes() {
         #expect(Set(DS.TypeScale.allCases.map(\.pointSize)) == [120, 17, 15, 13, 11])
         #expect(DS.TypeScale.display.pointSize == 120 && DS.TypeScale.display.weight == .bold && DS.TypeScale.display.design == .rounded)
         #expect(DS.TypeScale.voice.pointSize == 15 && DS.TypeScale.voice.weight == .bold && DS.TypeScale.voice.design == .rounded)

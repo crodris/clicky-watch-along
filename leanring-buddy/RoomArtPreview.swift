@@ -3824,9 +3824,10 @@ struct RoomArtPanelBottomRow: View {
     }
 }
 
-/// The panel's status line. The request to step aside shows only while the placed piece is arranged, since the flag can
-/// stay set after the placement's wait has moved the panel on. A lost room wins over the request, since no painting is made
-/// until the room is found, so the learner has to turn back first.
+/// The panel's status line. The request to step aside shows while the placed piece is arranged, and while it shows a ready
+/// render during the same wait, since the painting still comes once the learner steps aside. No other phase shows it, since
+/// the flag can stay set after the placement's wait has moved the panel on. A lost room wins over the request, since no
+/// painting is made until the room is found, so the learner has to turn back first.
 nonisolated func roomArtPanelStatusText(
     phase: RoomArtPhase,
     waitingForTheLearnerToStepAside: Bool,
@@ -3834,7 +3835,12 @@ nonisolated func roomArtPanelStatusText(
     shirtCoachingLine: String?,
     thePaintedTopIsOutOfReach: Bool
 ) -> String {
-    if case .arranging = phase, waitingForTheLearnerToStepAside, !theSurfaceIsLost { return roomFurnitureStepAsideLine }
+    switch phase {
+    case .arranging, .showing:
+        if waitingForTheLearnerToStepAside, !theSurfaceIsLost { return roomFurnitureStepAsideLine }
+    default:
+        break
+    }
     return phase.statusLine(theSurfaceIsLost: theSurfaceIsLost, shirtCoachingLine: shirtCoachingLine, thePaintedTopIsOutOfReach: thePaintedTopIsOutOfReach)
 }
 

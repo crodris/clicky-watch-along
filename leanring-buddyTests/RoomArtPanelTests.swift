@@ -2,8 +2,8 @@
 //  RoomArtPanelTests.swift
 //  leanring-buddyTests
 //
-//  The room art panel's frame as the learner moves and resizes it, its open and close moves, and its status line, buttons,
-//  and Card edge drawn at 2x.
+//  The room art panel's frame as the learner moves and resizes it, its open and close moves, its status line's words, and its
+//  status pill and buttons drawn at 2x.
 //
 
 import AppKit
@@ -248,26 +248,6 @@ struct RoomArtBottomRowRenderTests {
         let edge = pixels.color(atX: 0.5, y: RoomArtPanelButton.height / 2)
         #expect(channelsAreClose(edge, [0xF9, 0x73, 0x16], within: 10), "the edge is \(edge)")
     }
-
-    /// The panel draws `TetherCardEdge` over its video, and `tetherCard()` draws the same view over its surface.
-    @Test func theCardEdgeOverTheVideoMatchesTheTetherCardsEdge() throws {
-        let size = CGSize(width: 200, height: 120)
-        let surface = LinearGradient(colors: [DS.Colors.cardSurfaceTop, DS.Colors.cardSurfaceBottom], startPoint: .top, endPoint: .bottom)
-        let panelEdge = try RenderedPixels(
-            surface.frame(width: size.width, height: size.height)
-                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous))
-                .overlay { TetherCardEdge() }
-                .background(Color.black)
-        )
-        let card = try RenderedPixels(Color.clear.frame(width: size.width, height: size.height).tetherCard().background(Color.black))
-        // The top and left edges, where the highlight is strongest and where it is gone, and the surface beside them.
-        for point in [CGPoint(x: 100, y: 0.25), CGPoint(x: 0.25, y: 60), CGPoint(x: 100, y: 119.5), CGPoint(x: 100, y: 60)] {
-            let drawn = panelEdge.color(atX: point.x, y: point.y), expected = card.color(atX: point.x, y: point.y)
-            #expect(channelsAreClose(drawn, expected), "at \(point): \(drawn), the Card has \(expected)")
-        }
-        // The edge is there: brighter than the surface inside it.
-        #expect(panelEdge.color(atX: 100, y: 0.25)[0] > panelEdge.color(atX: 100, y: 4)[0] + 20)
-    }
 }
 
 struct RoomArtPanelStatusTextTests {
@@ -283,6 +263,7 @@ struct RoomArtPanelStatusTextTests {
 
     private let arranging = RoomArtPhase.arranging(id: RoomArtMeasurementID(number: 1), item: table, surface: floor)
     private let couldNotDraw = RoomArtPhase.couldNotDraw(id: RoomArtMeasurementID(number: 1), item: table, surface: floor)
+    private let showing = RoomArtPhase.showing(item: table, surface: floor, moveFailure: nil)
 
     private func statusText(_ phase: RoomArtPhase, waiting: Bool, lost: Bool) -> String {
         roomArtPanelStatusText(phase: phase, waitingForTheLearnerToStepAside: waiting, theSurfaceIsLost: lost, shirtCoachingLine: nil, thePaintedTopIsOutOfReach: false)
@@ -291,6 +272,12 @@ struct RoomArtPanelStatusTextTests {
     @Test func theStepAsideRequestShowsWhileThePieceIsArranged() {
         #expect(statusText(arranging, waiting: true, lost: false) == roomFurnitureStepAsideLine)
         #expect(statusText(arranging, waiting: false, lost: false) == arranging.statusLine(theSurfaceIsLost: false, shirtCoachingLine: nil, thePaintedTopIsOutOfReach: false))
+    }
+
+    @Test func theStepAsideRequestStaysWhileAReadyRenderShowsDuringTheWait() {
+        #expect(statusText(showing, waiting: true, lost: false) == roomFurnitureStepAsideLine)
+        #expect(statusText(showing, waiting: false, lost: false) == showing.statusLine(theSurfaceIsLost: false, shirtCoachingLine: nil, thePaintedTopIsOutOfReach: false))
+        #expect(statusText(showing, waiting: true, lost: true) == RoomArtSurfaceKind.floor.lostLine)
     }
 
     @Test func aPhaseThePlacementMovedOnToShowsItsOwnLine() {
@@ -315,13 +302,13 @@ struct RoomArtPanelMotionTests {
     /// The motion with fades the test ends by hand.
     @MainActor
     private final class Harness {
-        var fades: [(alpha: CGFloat, seconds: Double, end: @MainActor () -> Void)] = []
+        var fades: [(alpha: CGFloat, seconds: Double, windowAlphaAtTheStart: CGFloat, end: @MainActor () -> Void)] = []
         let window = RecordingPanel(contentRect: CGRect(x: 0, y: 0, width: 960, height: 540), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         let content = NSView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))
         var reduceMotionIsOn = false
         lazy var motion = RoomArtPanelMotion(
             reduceMotionIsOn: { [unowned self] in reduceMotionIsOn },
-            fadeTheWindow: { [unowned self] _, alpha, seconds, end in fades.append((alpha, seconds, end)) }
+            fadeTheWindow: { [unowned self] window, alpha, seconds, end in fades.append((alpha, seconds, window.alphaValue, end)) }
         )
 
         init() { content.wantsLayer = true }
@@ -386,12 +373,27 @@ struct RoomArtPanelMotionTests {
         #expect(harness.fades.map(\.alpha) == [1, 0, 1])
     }
 
+    @Test func aPanelOpenedAfterItsCloseHidItGrowsAndFadesInFromNothingAgain() throws {
+        let harness = Harness()
+        harness.motion.open(harness.window, growing: harness.content)
+        harness.motion.close(harness.window)
+        harness.fades.last?.end()
+        #expect(!harness.window.isShown)
+        // The first open's grow has ended by now, and the window is left opaque, so the second open has to start both itself.
+        harness.content.layer?.removeAllAnimations()
+        harness.window.alphaValue = 1
+        harness.motion.open(harness.window, growing: harness.content)
+        let scales = try #require(harness.grow?.values as? [NSValue]).map(\.caTransform3DValue.m11)
+        #expect(abs((scales.first ?? 0) - roomArtPanelOpeningStartScale) < 0.0001)
+        #expect(harness.fades.last?.alpha == 1 && harness.fades.last?.windowAlphaAtTheStart == 0)
+    }
+
     @Test func openingThePanelEndsAHoverThePointerLeftWhileItClosed() {
         let harness = Harness()
         let hoverView = HoverAndPointerNSView(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
         hoverView.mouseLocationInTheWindow = { _ in CGPoint(x: 500, y: 300) }
         var reportedHovers: [Bool] = []
-        hoverView.onHoverChange = { reportedHovers.append($0) }
+        hoverView.onHoverChange = { isNowHovered in reportedHovers.append(isNowHovered) }
         harness.content.addSubview(hoverView)
         harness.window.contentView?.addSubview(harness.content)
         // Hovered as the panel closed, and the closing window passed on no exit.

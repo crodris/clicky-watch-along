@@ -1172,7 +1172,7 @@ private struct AgentRowView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .hoverAndPointer { isHovered = $0 }
+            .hoverAndPointer { isNowHovered in isHovered = isNowHovered }
 
             if !agent.isRunning, hasRowButtons {
                 rowButtons
@@ -1369,7 +1369,7 @@ private struct AgentActionButton: View {
         .buttonStyle(.plain)
         .disabled(isDimmed)
         .opacity(isDimmed ? 0.5 : 1)
-        .hoverAndPointer(isEnabled: !isDimmed) { isHovered = $0 }
+        .hoverAndPointer(isEnabled: !isDimmed) { isNowHovered in isHovered = isNowHovered }
         .padding(.top, 2)
     }
 }
@@ -1764,7 +1764,7 @@ private struct ApprovalAnswerButton: View {
         .disabled(!isEnabled)
         // Tab reaches the button, Return or Space answers, and a dimmed Allow button refuses, as a click does.
         .panelKeyboardControl(cornerRadius: DS.CornerRadius.medium, isEnabled: isEnabled, action: action)
-        .hoverAndPointer(isEnabled: isEnabled) { isHovered = $0 }
+        .hoverAndPointer(isEnabled: isEnabled) { isNowHovered in isHovered = isNowHovered }
         .accessibilityLabel(title)
     }
 }
