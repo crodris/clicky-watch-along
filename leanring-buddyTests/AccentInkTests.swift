@@ -25,12 +25,7 @@ extension DrawingPixels {
     /// of the same size, only pixels that differ from the same pixel there count, which leaves what was drawn since. The
     /// scan runs off the main actor.
     fileprivate func inkPixelCounts(in partInPoints: CGRect? = nil, thatDifferFrom other: DrawingPixels? = nil) async throws -> InkPixelCounts {
-        if let other {
-            try #require(
-                other.width == width && other.height == height,
-                "the drawings differ in size: \(width) by \(height) pixels and \(other.width) by \(other.height)"
-            )
-        }
+        if let other { try requireTheSameSize(as: other) }
         let wholeDrawing = CGRect(x: 0, y: 0, width: width, height: height)
         let part = partInPoints.map {
             CGRect(x: $0.minX * pixelsPerPoint, y: $0.minY * pixelsPerPoint, width: $0.width * pixelsPerPoint, height: $0.height * pixelsPerPoint)
@@ -176,14 +171,14 @@ struct AccentInkTests {
         #expect(Color.inksByFill[accent] == nil)
     }
 
-    private func whiteDrawing(sideInPoints: CGFloat) throws -> DrawingPixels {
-        let renderer = ImageRenderer(content: Color.white.frame(width: sideInPoints, height: sideInPoints))
+    private func squareDrawing(of color: Color, sideInPoints: CGFloat) throws -> DrawingPixels {
+        let renderer = ImageRenderer(content: color.frame(width: sideInPoints, height: sideInPoints))
         renderer.scale = 2
         return try DrawingPixels(drawing: try #require(renderer.cgImage), widthInPoints: sideInPoints)
     }
 
     @Test func aPartPastTheDrawingCountsOnlyThePixelsInside() async throws {
-        let drawing = try whiteDrawing(sideInPoints: 10)
+        let drawing = try squareDrawing(of: .white, sideInPoints: 10)
         let partPastEveryEdge = try await drawing.inkPixelCounts(in: CGRect(x: -5, y: -5, width: 100, height: 100))
         #expect(partPastEveryEdge.white == 400)
         let partOutside = try await drawing.inkPixelCounts(in: CGRect(x: 50, y: 50, width: 5, height: 5))
@@ -191,8 +186,8 @@ struct AccentInkTests {
     }
 
     @Test func comparingDrawingsOfDifferentSizesFailsTheTest() async throws {
-        let smaller = try whiteDrawing(sideInPoints: 10)
-        let larger = try whiteDrawing(sideInPoints: 20)
+        let smaller = try squareDrawing(of: .white, sideInPoints: 10)
+        let larger = try squareDrawing(of: .white, sideInPoints: 20)
         try await withKnownIssue {
             _ = try await smaller.inkPixelCounts(thatDifferFrom: larger)
         } matching: { issue in
@@ -201,8 +196,8 @@ struct AccentInkTests {
     }
 
     @Test func comparingChannelsOfDrawingsOfDifferentSizesFailsTheTest() async throws {
-        let smaller = try whiteDrawing(sideInPoints: 10)
-        let larger = try whiteDrawing(sideInPoints: 20)
+        let smaller = try squareDrawing(of: .white, sideInPoints: 10)
+        let larger = try squareDrawing(of: .white, sideInPoints: 20)
         try await withKnownIssue {
             _ = try await smaller.channelsThatDiffer(from: larger)
         } matching: { issue in
@@ -211,8 +206,9 @@ struct AccentInkTests {
     }
 
     @Test func comparingChannelsDownToAPointAboveTheDrawingComparesNone() async throws {
-        let drawing = try whiteDrawing(sideInPoints: 10)
-        #expect(try await drawing.channelsThatDiffer(from: drawing, downTo: -1) == 0)
+        let white = try squareDrawing(of: .white, sideInPoints: 10)
+        let black = try squareDrawing(of: .black, sideInPoints: 10)
+        #expect(try await white.channelsThatDiffer(from: black, downTo: -1) == 0)
     }
 
     /// The ink pixels of the initials on the face of a theme's first roster player.

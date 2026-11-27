@@ -65,14 +65,19 @@ struct DrawingPixels {
         bytes = Data(bytes: try #require(context.data), count: image.width * image.height * 4)
     }
 
-    /// How many channels differ from those of `other`, a drawing of the same size, from the window's top edge down to
-    /// `points`, or in the whole drawing. Two drawings of one state can round the Card's gradient and shadow a few levels
-    /// apart, so those do not count. The scan runs off the main actor, which it would otherwise hold from every other test.
-    func channelsThatDiffer(from other: DrawingPixels, downTo points: CGFloat? = nil) async throws -> Int {
+    /// Fails the test unless `other` is the size of this drawing, since a comparison reads the same pixel of each.
+    func requireTheSameSize(as other: DrawingPixels) throws {
         try #require(
             other.width == width && other.height == height,
             "the drawings differ in size: \(width) by \(height) pixels and \(other.width) by \(other.height)"
         )
+    }
+
+    /// How many channels differ from those of `other`, a drawing of the same size, from the window's top edge down to
+    /// `points`, or in the whole drawing. Two drawings of one state can round the Card's gradient and shadow a few levels
+    /// apart, so those do not count. The scan runs off the main actor, which it would otherwise hold from every other test.
+    func channelsThatDiffer(from other: DrawingPixels, downTo points: CGFloat? = nil) async throws -> Int {
+        try requireTheSameSize(as: other)
         let byteCount = points.map { Int(max(0, $0) * pixelsPerPoint) * width * 4 } ?? bytes.count
         let (ownBytes, otherBytes) = (bytes.prefix(byteCount), other.bytes.prefix(byteCount))
         return await Task.detached {
