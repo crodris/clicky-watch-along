@@ -3,8 +3,10 @@
 //  leanring-buddyTests
 //
 
+import AppKit
 import CoreGraphics
 import Foundation
+import SwiftUI
 import Testing
 @testable import Clicky
 
@@ -487,19 +489,106 @@ struct InstantReplayTests {
 
     @Test func theControlSitsUnderTheMediaOrInsideItsBottomEdge() {
         let visibleFrame = CGRect(x: 0, y: 0, width: 1440, height: 900)
-        let windowSize = CGSize(width: 224, height: 60)
+        let cardSize = CGSize(width: 200, height: 36)
         // AppKit's y grows up, so a video near the top leaves room below it.
         let videoNearTheTop = CGRect(x: 200, y: 400, width: 800, height: 450)
-        let underTheVideo = instantReplayControlOrigin(windowSize: windowSize, shadowMargin: 12, mediaRectOnScreen: videoNearTheTop, visibleFrame: visibleFrame)
-        #expect(abs(underTheVideo.x - 488) < 0.001)
-        // The Card's top, 12 points under the window's top, is 14 points under the video.
-        #expect(abs(underTheVideo.y + windowSize.height - 12 - 386) < 0.001)
+        let underTheVideo = instantReplayControlOrigin(cardSize: cardSize, mediaRectOnScreen: videoNearTheTop, visibleFrame: visibleFrame)
+        // Centered, with the Card's top 14 points under the video.
+        #expect(underTheVideo == CGPoint(x: 500, y: 350))
         let videoAtTheBottom = CGRect(x: 200, y: 0, width: 800, height: 450)
-        let insideTheVideo = instantReplayControlOrigin(windowSize: windowSize, shadowMargin: 12, mediaRectOnScreen: videoAtTheBottom, visibleFrame: visibleFrame)
-        #expect(abs(insideTheVideo.y + 12 - 14) < 0.001)
+        let insideTheVideo = instantReplayControlOrigin(cardSize: cardSize, mediaRectOnScreen: videoAtTheBottom, visibleFrame: visibleFrame)
+        #expect(insideTheVideo.y == 14)
         let videoAtTheRightEdge = CGRect(x: 1300, y: 400, width: 140, height: 200)
-        let keptOnScreen = instantReplayControlOrigin(windowSize: windowSize, shadowMargin: 12, mediaRectOnScreen: videoAtTheRightEdge, visibleFrame: visibleFrame)
-        #expect(abs(keptOnScreen.x + windowSize.width - 12 - 1432) < 0.001)
+        let keptOnScreen = instantReplayControlOrigin(cardSize: cardSize, mediaRectOnScreen: videoAtTheRightEdge, visibleFrame: visibleFrame)
+        #expect(keptOnScreen.x + cardSize.width == 1432)
+    }
+
+    private func controlView(phase: InstantReplayPhase) -> InstantReplayControlView {
+        let stops = ["fan", "vent", "nozzle"].map { partLabel in
+            ReplayStop(partLabel: partLabel, sentence: "This is the \(partLabel).", cameraPose: nil)
+        }
+        return InstantReplayControlView(phase: phase, stops: stops, showsTheReduceMotionList: false, accentHex: "#3380FF", playFromTheStart: {}, step: { _ in })
+    }
+
+    @Test(arguments: [InstantReplayPhase.notOpen, .stoppedAt(stopIndex: 1)])
+    func theControlsWindowHoldsTheCardsWholeShadow(phase: InstantReplayPhase) throws {
+        let renderer = ImageRenderer(content: controlView(phase: phase).background(Color.white))
+        renderer.scale = 2
+        let pixels = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+        if let dumpFolder = ProcessInfo.processInfo.environment["CLICKY_RENDER_DUMP_DIR"],
+           let pngData = pixels.representation(using: .png, properties: [:]) {
+            try pngData.write(to: URL(fileURLWithPath: dumpFolder).appendingPathComponent("replay-control-\(phase.isOpen ? "open" : "offered").png"))
+        }
+        // The Card shows, just inside its left edge.
+        let cardPixel = try #require(pixels.colorAt(x: Int((AgentListWindowMargins.leading + 2) * 2), y: Int((AgentListWindowMargins.top + 16) * 2)))
+        #expect(cardPixel.redComponent < 0.35)
+        // Along every edge of the window the shadow has faded to within 7.5% of a white page. The 12 point margin this
+        // control had before cut the shadow at 22% under the Card, which showed as a rectangle.
+        let middleColumn = pixels.pixelsWide / 2
+        let middleRow = Int((AgentListWindowMargins.top + 20) * 2)
+        let edgePixels = [
+            (middleColumn, 0), (middleColumn, pixels.pixelsHigh - 1), (0, middleRow), (pixels.pixelsWide - 1, middleRow),
+        ]
+        for (column, row) in edgePixels {
+            let edgePixel = try #require(pixels.colorAt(x: column, y: row))
+            #expect(edgePixel.redComponent > 0.925, "edge pixel \(column), \(row) is \(edgePixel.redComponent)")
+        }
+    }
+
+    /// The media and the visible frame sit far off every screen, so no one sees the panel.
+    @Test(.showsARealWindow) func aHideDuringTheOpenLeavesNoPanelAndTheNextShowOpensANewOne() async throws {
+        let recorder = RecordingReplayStage()
+        let replay = InstantReplayController(stage: recorder.stage)
+        replay.offer([ReplayStop(partLabel: "fan", sentence: "This is the fan.", cameraPose: nil)], sceneNumber: 1)
+        let panelController = InstantReplayPanelController()
+        let visibleFrame = CGRect(x: -20_000, y: -20_000, width: 1440, height: 900)
+        let mediaRectOnScreen = CGRect(x: -19_800, y: -19_600, width: 800, height: 450)
+        func showTheControl() {
+            panelController.show(for: replay, stopWhatClickyIsSaying: {}, accentHex: "#3380FF", mediaRectOnScreen: mediaRectOnScreen, visibleFrame: visibleFrame)
+        }
+        showTheControl()
+        let hiddenPanel = try #require(panelController.panel)
+        #expect(!NSScreen.screens.contains { screen in screen.frame.intersects(hiddenPanel.frame) })
+        // The Card is centered under the media, 14 points down, whatever the window's margins are.
+        let cardFrame = AgentListWindowMargins.cardFrame(inWindowFrame: hiddenPanel.frame)
+        #expect(abs(cardFrame.midX - mediaRectOnScreen.midX) <= 1)
+        #expect(abs(cardFrame.maxY - (mediaRectOnScreen.minY - 14)) <= 1)
+        // An open replay adds Back, Next, and End, so the window widens around the same place.
+        let widthBeforeTheReplay = hiddenPanel.frame.width
+        replay.playFromTheStart()
+        let widenDeadline = Date().addingTimeInterval(10)
+        while hiddenPanel.frame.width <= widthBeforeTheReplay, Date() < widenDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(hiddenPanel.frame.width > widthBeforeTheReplay)
+        // Hidden at once, while it still grows in. The fading control takes no click and keeps what it showed, though the
+        // replay forgets its stops right away.
+        panelController.hide()
+        replay.forget()
+        #expect(panelController.panel == nil)
+        #expect(hiddenPanel.ignoresMouseEvents)
+        let fadingView = try #require(hiddenPanel.contentView as? FirstMouseHostingView<InstantReplayControlView>)
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(fadingView.rootView.stops.count == 1)
+        replay.offer([ReplayStop(partLabel: "vent", sentence: "This is the vent.", cameraPose: nil)], sceneNumber: 1)
+        showTheControl()
+        let shownPanel = try #require(panelController.panel)
+        #expect(shownPanel !== hiddenPanel)
+        // The first panel's fade ends and takes it off the screen, and the new panel stays.
+        let deadline = Date().addingTimeInterval(10)
+        while hiddenPanel.isVisible, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(!hiddenPanel.isVisible)
+        #expect(shownPanel.isVisible)
+        // The pointer is nowhere near a window this far off screen, so it counts as in the shadow margin or beyond, and
+        // the window lets the mouse through to the page.
+        let passThroughDeadline = Date().addingTimeInterval(10)
+        while !shownPanel.ignoresMouseEvents, Date() < passThroughDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(shownPanel.ignoresMouseEvents)
+        panelController.hide()
     }
 
     @Test func theReplayToolsAreOfferedOnlyWhileTheyCanWork() {

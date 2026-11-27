@@ -163,25 +163,22 @@ nonisolated func asksToReplayTheExplanation(_ transcript: String) -> Bool {
     return replayRequests.contains(requestWords.joined(separator: " "))
 }
 
-/// Where the replay control's window sits, in AppKit points. Its Card shows centered 14 points under the paused video, or
-/// 14 points inside the video's bottom edge when the screen has no room below it, and stays 8 points inside the screen's
-/// visible frame. The window is `shadowMargin` larger than the Card on every side, so the Card's shadow is not clipped.
-nonisolated func instantReplayControlOrigin(windowSize: CGSize, shadowMargin: CGFloat, mediaRectOnScreen: CGRect, visibleFrame: CGRect) -> CGPoint {
+/// Where the replay control's Card sits: its bottom left corner, in AppKit points. It shows centered 14 points under the
+/// paused video, or 14 points inside the video's bottom edge when the screen has no room below it, and stays 8 points inside
+/// the screen's visible frame. The window around it is larger, so the panel adds the shadow's margins itself.
+nonisolated func instantReplayControlOrigin(cardSize: CGSize, mediaRectOnScreen: CGRect, visibleFrame: CGRect) -> CGPoint {
     let gapFromTheMedia: CGFloat = 14
     let screenEdgeGap: CGFloat = 8
-    var originX = mediaRectOnScreen.midX - windowSize.width / 2
-    // AppKit's y grows up, so "under the media" is below its minY, and the Card's top is the window's top minus the margin.
-    var originY = mediaRectOnScreen.minY - gapFromTheMedia - windowSize.height + shadowMargin
-    if originY + shadowMargin < visibleFrame.minY + screenEdgeGap {
-        originY = mediaRectOnScreen.minY + gapFromTheMedia - shadowMargin
+    let originX = mediaRectOnScreen.midX - cardSize.width / 2
+    // AppKit's y grows up, so "under the media" is below its minY.
+    var originY = mediaRectOnScreen.minY - gapFromTheMedia - cardSize.height
+    if originY < visibleFrame.minY + screenEdgeGap {
+        originY = mediaRectOnScreen.minY + gapFromTheMedia
     }
-    let lowestOriginX = visibleFrame.minX + screenEdgeGap - shadowMargin
-    let highestOriginX = visibleFrame.maxX - screenEdgeGap + shadowMargin - windowSize.width
-    let lowestOriginY = visibleFrame.minY + screenEdgeGap - shadowMargin
-    let highestOriginY = visibleFrame.maxY - screenEdgeGap + shadowMargin - windowSize.height
-    originX = min(max(originX, lowestOriginX), highestOriginX)
-    originY = min(max(originY, lowestOriginY), highestOriginY)
-    return CGPoint(x: originX, y: originY)
+    return CGPoint(
+        x: min(max(originX, visibleFrame.minX + screenEdgeGap), visibleFrame.maxX - screenEdgeGap - cardSize.width),
+        y: min(max(originY, visibleFrame.minY + screenEdgeGap), visibleFrame.maxY - screenEdgeGap - cardSize.height)
+    )
 }
 
 /// Whether "show me again" runs ahead of the router: only while the narration recorded stops for the scene on screen, no

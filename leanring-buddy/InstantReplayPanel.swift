@@ -5,7 +5,8 @@
 //  The small control under a narrated pop-out: Replay before a replay, and Back, Replay, Next, the count, and End
 //  during one. With Reduce Motion on it also lists every stop's sentence, the current one in bold. It is a borderless
 //  nonactivating panel that never becomes key, like the agent list, so the page under it keeps the keyboard, and its
-//  buttons take the first click.
+//  buttons take the first click. Like the "Add theme?" card, it grows in place with the Glide spring, or fades in with
+//  Reduce Motion on, and fades out.
 //
 
 import AppKit
@@ -17,11 +18,17 @@ final class InstantReplayPanelController {
     /// Above the pop-out's scene window and with the cursor overlay windows, so the control draws over the lifted model.
     private static let panelLevel = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
 
-    private var panel: NonKeyFloatingPanel?
-    private var hostingView: NSView?
+    /// Readable by a test, which checks the window's frame and that a hidden panel leaves the screen.
+    private(set) var panel: NonKeyFloatingPanel?
+    private var hostingView: FirstMouseHostingView<InstantReplayControlView>?
     private var mediaRectOnScreen: CGRect?
     private var visibleFrame: CGRect = .zero
     private var replayChangeSubscription: AnyCancellable?
+    /// Reads the mouse 60 times a second while the control shows and lets it pass through the shadow margin to the page,
+    /// as the agent list does (`AgentListWindowMargins.windowPassesTheMouseThrough`).
+    private var clickThroughTimer: Timer?
+    private var stopWhatClickyIsSaying: () -> Void = {}
+    private var accentHex = ""
 
     /// Shows the control under the media. A second call moves it to the newest media rect.
     func show(
@@ -34,8 +41,9 @@ final class InstantReplayPanelController {
         self.mediaRectOnScreen = mediaRectOnScreen
         self.visibleFrame = visibleFrame
         if panel == nil {
-            let controlView = InstantReplayControlView(replay: replayController, stopWhatClickyIsSaying: stopWhatClickyIsSaying, accentHex: accentHex)
-            let firstMouseHostingView = FirstMouseHostingView(rootView: controlView)
+            self.stopWhatClickyIsSaying = stopWhatClickyIsSaying
+            self.accentHex = accentHex
+            let firstMouseHostingView = FirstMouseHostingView(rootView: controlView(for: replayController))
             firstMouseHostingView.wantsLayer = true
             firstMouseHostingView.layer?.backgroundColor = .clear
             let controlPanel = NonKeyFloatingPanel(
@@ -55,75 +63,146 @@ final class InstantReplayPanelController {
             controlPanel.contentView = firstMouseHostingView
             panel = controlPanel
             hostingView = firstMouseHostingView
-            // The content grows from Replay alone to the full row and the Reduce Motion list, so the frame follows it.
-            // objectWillChange fires before the new value is stored, so the frame is measured on the next turn.
-            replayChangeSubscription = replayController.objectWillChange.sink { [weak self] _ in
-                DispatchQueue.main.async { self?.placeThePanel() }
+            // The content grows from Replay alone to the full row and the Reduce Motion list, so the view and the frame follow
+            // it. objectWillChange fires before the new value is stored, so both are read on the next turn.
+            replayChangeSubscription = replayController.objectWillChange.sink { [weak self, weak replayController] _ in
+                DispatchQueue.main.async {
+                    guard let self, let replayController else { return }
+                    self.hostingView?.rootView = self.controlView(for: replayController)
+                    self.placeThePanel()
+                }
             }
         }
         placeThePanel()
         // Not makeKeyAndOrderFront, which would take the keyboard from Chrome.
         panel?.orderFrontRegardless()
+        letTheMousePassThroughTheShadow()
     }
 
+    /// The control fades out showing what it showed last: it stops following the replay first, since the hide comes with the
+    /// replay's end or its stops going away.
     func hide() {
         replayChangeSubscription = nil
-        panel?.orderOut(nil)
-        panel = nil
-        hostingView = nil
+        clickThroughTimer?.invalidate()
+        clickThroughTimer = nil
         mediaRectOnScreen = nil
+        hostingView = nil
+        guard let closingPanel = panel else { return }
+        panel = nil
+        // The control fades for a moment, and a click on it then must not reach its buttons.
+        closingPanel.ignoresMouseEvents = true
+        NSAnimationContext.runAnimationGroup({ animationContext in
+            animationContext.duration = DS.Move.fadeSeconds
+            closingPanel.animator().alphaValue = 0
+        }, completionHandler: {
+            closingPanel.orderOut(nil)
+            closingPanel.contentView = nil
+        })
+    }
+
+    private func controlView(for replayController: InstantReplayController) -> InstantReplayControlView {
+        InstantReplayControlView(
+            phase: replayController.phase,
+            stops: replayController.stops,
+            showsTheReduceMotionList: replayController.showsTheReduceMotionList,
+            accentHex: accentHex,
+            playFromTheStart: { [stopWhatClickyIsSaying, weak replayController] in
+                stopWhatClickyIsSaying()
+                replayController?.playFromTheStart()
+            },
+            step: { [stopWhatClickyIsSaying, weak replayController] replayStep in
+                stopWhatClickyIsSaying()
+                replayController?.step(replayStep)
+            }
+        )
     }
 
     private func placeThePanel() {
         guard let panel, let hostingView, let mediaRectOnScreen else { return }
         let windowSize = hostingView.fittingSize
-        let origin = instantReplayControlOrigin(
-            windowSize: windowSize,
-            shadowMargin: InstantReplayControlView.shadowMargin,
+        let cardOrigin = instantReplayControlOrigin(
+            cardSize: CGSize(width: windowSize.width - AgentListWindowMargins.horizontal, height: windowSize.height - AgentListWindowMargins.vertical),
             mediaRectOnScreen: mediaRectOnScreen,
             visibleFrame: visibleFrame
         )
-        panel.setFrame(CGRect(origin: origin, size: windowSize), display: true)
+        let windowOrigin = CGPoint(x: cardOrigin.x - AgentListWindowMargins.leading, y: cardOrigin.y - AgentListWindowMargins.bottom)
+        panel.setFrame(CGRect(origin: windowOrigin, size: windowSize), display: true)
+    }
+
+    private func letTheMousePassThroughTheShadow() {
+        guard clickThroughTimer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let panel = self?.panel else { return }
+                let passesTheMouseThrough = AgentListWindowMargins.windowPassesTheMouseThrough(at: NSEvent.mouseLocation, windowFrame: panel.frame)
+                guard panel.ignoresMouseEvents != passesTheMouseThrough else { return }
+                panel.ignoresMouseEvents = passesTheMouseThrough
+                if let contentView = panel.contentView {
+                    refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: passesTheMouseThrough)
+                }
+            }
+        }
+        // The common modes keep it running while a menu or a drag tracks the mouse.
+        RunLoop.main.add(timer, forMode: .common)
+        clickThroughTimer = timer
     }
 }
 
-private struct InstantReplayControlView: View {
-    /// The Card's shadow needs room inside the window, or the window edge clips it.
-    static let shadowMargin: CGFloat = 12
-
-    @ObservedObject var replay: InstantReplayController
-    /// Each click first stops an answer Clicky is still giving, so the replay never moves the camera under its words.
-    let stopWhatClickyIsSaying: () -> Void
+/// The control as values, so a control that is fading out keeps showing what it showed.
+struct InstantReplayControlView: View {
+    let phase: InstantReplayPhase
+    let stops: [ReplayStop]
+    let showsTheReduceMotionList: Bool
     let accentHex: String
+    /// Each click first stops an answer Clicky is still giving, so the replay never moves the camera under its words.
+    let playFromTheStart: () -> Void
+    let step: (InstantReplayStep) -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hasAppeared = false
+
+    /// The control grows in place from this scale, as the "Add theme?" card does.
+    private static let entranceStartScale: CGFloat = 0.97
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 4) {
-                if replay.isOpen {
-                    InstantReplayButton(title: "Back", style: .plain) { stopWhatClickyIsSaying(); replay.step(.back) }
-                    InstantReplayButton(title: "Replay", style: .accent(accentHex: accentHex)) { stopWhatClickyIsSaying(); replay.playFromTheStart() }
-                    InstantReplayButton(title: "Next", style: .plain) { stopWhatClickyIsSaying(); replay.step(.next) }
+                if phase.isOpen {
+                    InstantReplayButton(label: .words("Back"), style: .plain) { step(.back) }
+                    InstantReplayButton(label: .words("Replay"), style: .accent(accentHex: accentHex), action: playFromTheStart)
+                    InstantReplayButton(label: .words("Next"), style: .plain) { step(.next) }
                 } else {
-                    InstantReplayButton(title: "Replay", style: .accent(accentHex: accentHex)) { stopWhatClickyIsSaying(); replay.playFromTheStart() }
+                    InstantReplayButton(label: .words("Replay"), style: .accent(accentHex: accentHex), action: playFromTheStart)
                 }
-                Text(verbatim: instantReplayCountText(phase: replay.phase, stopCount: replay.stops.count))
+                Text(verbatim: instantReplayCountText(phase: phase, stopCount: stops.count))
                     .font(DS.TypeScale.caption.font)
                     .monospacedDigit()
                     .foregroundColor(DS.Colors.textSecondary)
                     .padding(.horizontal, 6)
                     .fixedSize()
-                if replay.isOpen {
-                    InstantReplayButton(title: "✕", style: .plain, accessibilityLabel: "End replay") { stopWhatClickyIsSaying(); replay.step(.end) }
+                if phase.isOpen {
+                    InstantReplayButton(label: .symbol(systemName: "xmark", accessibilityLabel: "End replay"), style: .plain) { step(.end) }
                 }
             }
             .padding(4)
-            if replay.isOpen && replay.showsTheReduceMotionList {
-                InstantReplayStopList(stops: replay.stops, currentStopIndex: replay.phase.openStopIndex)
+            if phase.isOpen && showsTheReduceMotionList {
+                InstantReplayStopList(stops: stops, currentStopIndex: phase.openStopIndex)
             }
         }
         .fixedSize()
         .tetherCard()
-        .padding(Self.shadowMargin)
+        .scaleEffect(hasAppeared || reduceMotion ? 1 : Self.entranceStartScale, anchor: .top)
+        .opacity(hasAppeared ? 1 : 0)
+        // The window is larger than the Card, so the Card's shadow has room to draw.
+        .padding(EdgeInsets(
+            top: AgentListWindowMargins.top,
+            leading: AgentListWindowMargins.leading,
+            bottom: AgentListWindowMargins.bottom,
+            trailing: AgentListWindowMargins.trailing
+        ))
+        .onAppear {
+            withAnimation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)) { hasAppeared = true }
+        }
     }
 }
 
@@ -160,10 +239,15 @@ private enum InstantReplayButtonStyle {
     case plain
 }
 
+private enum InstantReplayButtonLabel {
+    case words(String)
+    /// A symbol alone, which VoiceOver reads by the label.
+    case symbol(systemName: String, accessibilityLabel: String)
+}
+
 private struct InstantReplayButton: View {
-    let title: String
+    let label: InstantReplayButtonLabel
     let style: InstantReplayButtonStyle
-    var accessibilityLabel: String?
     let action: () -> Void
 
     @State private var isHovered = false
@@ -185,8 +269,7 @@ private struct InstantReplayButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(verbatim: title)
-                .font(DS.TypeScale.title.font)
+            labelContent
                 .foregroundColor(letterColor)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 5)
@@ -195,7 +278,30 @@ private struct InstantReplayButton: View {
                 .fixedSize()
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel ?? title)
+        .accessibilityLabel(spokenLabel)
         .hoverAndPointer { isHovered = $0 }
+    }
+
+    @ViewBuilder private var labelContent: some View {
+        switch label {
+        case .words(let words):
+            Text(verbatim: words)
+                .font(DS.TypeScale.title.font)
+        case .symbol(let systemName, _):
+            // The blank line of title type keeps this capsule as tall as the buttons with words.
+            ZStack {
+                Text(verbatim: " ")
+                    .font(DS.TypeScale.title.font)
+                Image(systemName: systemName)
+                    .font(DS.TypeScale.caption.font)
+            }
+        }
+    }
+
+    private var spokenLabel: String {
+        switch label {
+        case .words(let words): return words
+        case .symbol(_, let accessibilityLabel): return accessibilityLabel
+        }
     }
 }
