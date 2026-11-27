@@ -63,6 +63,13 @@ private final class RecordingReplayStage {
         guard !pendingSleeps.isEmpty else { return }
         pendingSleeps.removeFirst().resume()
     }
+
+    /// A test often ends with a dwell still waiting, such as after End or `forget()`, which cancel the travel but cannot
+    /// wake this fake sleep. Each one is resumed here when the test lets the recorder go, so no task stays suspended. It
+    /// throws, so the travel returns without touching the stage, whose closures hold this recorder unowned.
+    deinit {
+        for pendingSleep in pendingSleeps { pendingSleep.resume(throwing: CancellationError()) }
+    }
 }
 
 private let threeStops = [
