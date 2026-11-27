@@ -249,13 +249,14 @@ struct RoomArtBottomRowRenderTests {
         #expect(channelsAreClose(edge, [0xF9, 0x73, 0x16], within: 10), "the edge is \(edge)")
     }
 
+    /// The panel draws `TetherCardEdge` over its video, and `tetherCard()` draws the same view over its surface.
     @Test func theCardEdgeOverTheVideoMatchesTheTetherCardsEdge() throws {
         let size = CGSize(width: 200, height: 120)
         let surface = LinearGradient(colors: [DS.Colors.cardSurfaceTop, DS.Colors.cardSurfaceBottom], startPoint: .top, endPoint: .bottom)
         let panelEdge = try RenderedPixels(
             surface.frame(width: size.width, height: size.height)
                 .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous))
-                .overlay { RoomArtPanelCardEdge() }
+                .overlay { TetherCardEdge() }
                 .background(Color.black)
         )
         let card = try RenderedPixels(Color.clear.frame(width: size.width, height: size.height).tetherCard().background(Color.black))
@@ -270,20 +271,34 @@ struct RoomArtBottomRowRenderTests {
 }
 
 struct RoomArtPanelStatusTextTests {
-    private func statusText(waiting: Bool, lost: Bool) -> String {
-        let phase = RoomArtPhase.waitingForTheLearnerToStepBack(title: "Tee", id: ShirtPaintingID(number: 1))
-        return roomArtPanelStatusText(phase: phase, waitingForTheLearnerToStepAside: waiting, theSurfaceIsLost: lost, shirtCoachingLine: nil, thePaintedTopIsOutOfReach: false)
+    private static var table: RoomArtPlacedItem {
+        let cutout = CIContext().createCGImage(CIImage(color: .white), from: CGRect(x: 0, y: 0, width: 8, height: 8))!
+        return .furniture(RoomFurniture(title: "Side table", widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55, cutoutImage: cutout, standsOn: .floor))
     }
 
-    @Test func theStepAsideRequestShowsWhileTheRoomIsFound() {
-        #expect(statusText(waiting: true, lost: false) == roomFurnitureStepAsideLine)
-        #expect(statusText(waiting: false, lost: false) == roomArtShirtStepBackLine)
+    private static let floor = RoomArtSurface.floor(FloorPlane(
+        center: SIMD3(0, 1, 2.5), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), forward: SIMD3(0, 0, 1),
+        focalLengthPixels: 900, principalPoint: SIMD2(640, 360), distanceMeters: 2.7, floorTiltDegrees: 2, planeInlierShare: 0.9
+    ))
+
+    private let arranging = RoomArtPhase.arranging(id: RoomArtMeasurementID(number: 1), item: table, surface: floor)
+    private let couldNotDraw = RoomArtPhase.couldNotDraw(id: RoomArtMeasurementID(number: 1), item: table, surface: floor)
+
+    private func statusText(_ phase: RoomArtPhase, waiting: Bool, lost: Bool) -> String {
+        roomArtPanelStatusText(phase: phase, waitingForTheLearnerToStepAside: waiting, theSurfaceIsLost: lost, shirtCoachingLine: nil, thePaintedTopIsOutOfReach: false)
+    }
+
+    @Test func theStepAsideRequestShowsWhileThePieceIsArranged() {
+        #expect(statusText(arranging, waiting: true, lost: false) == roomFurnitureStepAsideLine)
+        #expect(statusText(arranging, waiting: false, lost: false) == arranging.statusLine(theSurfaceIsLost: false, shirtCoachingLine: nil, thePaintedTopIsOutOfReach: false))
+    }
+
+    @Test func aPhaseThePlacementMovedOnToShowsItsOwnLine() {
+        #expect(statusText(couldNotDraw, waiting: true, lost: false) == RoomArtStandsOn.floor.notDrawnStatusLine)
     }
 
     @Test func aLostRoomWinsOverTheStepAsideRequest() {
-        let phase = RoomArtPhase.roomKeptAfterAFailedItem(.pageNotRead)
-        let text = roomArtPanelStatusText(phase: phase, waitingForTheLearnerToStepAside: true, theSurfaceIsLost: true, shirtCoachingLine: nil, thePaintedTopIsOutOfReach: false)
-        #expect(text == roomArtKeptRoomLostLine)
+        #expect(statusText(arranging, waiting: true, lost: true) == RoomArtSurfaceKind.floor.lostLine)
     }
 }
 
@@ -319,6 +334,7 @@ struct RoomArtPanelMotionTests {
         harness.motion.open(harness.window, growing: harness.content)
         #expect(harness.window.isShown && !harness.window.ignoresMouseEvents)
         #expect(harness.fades.map(\.alpha) == [1])
+        #expect(harness.fades.map(\.seconds) == [DS.Move.glide.curve.seconds()])
         let grow = try #require(harness.grow)
         #expect(grow.duration == DS.Move.glide.curve.seconds())
         let scales = try #require(grow.values as? [NSValue]).map(\.caTransform3DValue.m11)
@@ -357,6 +373,31 @@ struct RoomArtPanelMotionTests {
         // The close's fade ends after the second open.
         harness.fades[1].end()
         #expect(harness.window.isShown && !harness.window.ignoresMouseEvents && !theCloseReportedHidden)
+    }
+
+    @Test func aPanelOpenedAgainDuringItsCloseFadesBackInWithNoSecondGrow() {
+        let harness = Harness()
+        harness.motion.open(harness.window, growing: harness.content)
+        harness.motion.close(harness.window)
+        // The first open's grow has ended by now.
+        harness.content.layer?.removeAllAnimations()
+        harness.motion.open(harness.window, growing: harness.content)
+        #expect(harness.grow == nil)
+        #expect(harness.fades.map(\.alpha) == [1, 0, 1])
+    }
+
+    @Test func openingThePanelEndsAHoverThePointerLeftWhileItClosed() {
+        let harness = Harness()
+        let hoverView = HoverAndPointerNSView(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
+        hoverView.mouseLocationInTheWindow = { _ in CGPoint(x: 500, y: 300) }
+        var reportedHovers: [Bool] = []
+        hoverView.onHoverChange = { reportedHovers.append($0) }
+        harness.content.addSubview(hoverView)
+        harness.window.contentView?.addSubview(harness.content)
+        // Hovered as the panel closed, and the closing window passed on no exit.
+        hoverView.reportTheHover(true)
+        harness.motion.open(harness.window, growing: harness.content)
+        #expect(reportedHovers == [true, false])
     }
 
     @Test func thePanelGrowsAboutTheMiddleOfItsTopEdge() {

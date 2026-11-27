@@ -3409,7 +3409,8 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
 }
 
 /// The panel's moves. It grows in place with the Glide spring as it fades in, and fades out over `DS.Move.fadeSeconds`.
-/// With Reduce Motion on it only fades. The next panel uses the same window, so only the newest move may order it out.
+/// With Reduce Motion on it only fades. The next panel uses the same window, so only the newest move may order it out, and
+/// a panel opened again before it left only fades back in.
 @MainActor
 final class RoomArtPanelMotion {
     typealias WindowFade = (_ window: NSWindow, _ alpha: CGFloat, _ seconds: Double, _ completion: @escaping @MainActor () -> Void) -> Void
@@ -3439,17 +3440,22 @@ final class RoomArtPanelMotion {
             reducedMotionFadeSeconds: DS.Move.glide.reduceMotionForm.fadeSeconds
         )
         window.ignoresMouseEvents = false
-        // A window still fading out fades back in from where it is.
-        if !window.isVisible { window.alphaValue = 0 }
+        // A window still fading out fades back in from where it is, with no second grow.
+        let theWindowWasOffTheScreen = !window.isVisible
+        if theWindowWasOffTheScreen { window.alphaValue = 0 }
         window.orderFrontRegardless()
-        contentView.layer?.removeAnimation(forKey: Self.growAnimationKey)
-        if !opening.scales.isEmpty, let contentLayer = contentView.layer {
-            let grow = CAKeyframeAnimation(keyPath: "transform")
-            grow.values = opening.scales.map { scale in
-                NSValue(caTransform3D: Self.transform(scalingBy: scale, aboutTheTopMiddleOf: contentView.bounds.size, anchorPoint: contentLayer.anchorPoint))
+        // The closing window ignored the mouse, so a control hovered then never heard the pointer leave.
+        refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: false)
+        if theWindowWasOffTheScreen {
+            contentView.layer?.removeAnimation(forKey: Self.growAnimationKey)
+            if !opening.scales.isEmpty, let contentLayer = contentView.layer {
+                let grow = CAKeyframeAnimation(keyPath: "transform")
+                grow.values = opening.scales.map { scale in
+                    NSValue(caTransform3D: Self.transform(scalingBy: scale, aboutTheTopMiddleOf: contentView.bounds.size, anchorPoint: contentLayer.anchorPoint))
+                }
+                grow.duration = opening.seconds
+                contentLayer.add(grow, forKey: Self.growAnimationKey)
             }
-            grow.duration = opening.seconds
-            contentLayer.add(grow, forKey: Self.growAnimationKey)
         }
         fadeTheWindow(window, 1, opening.seconds) { [weak self, weak window] in
             guard let self, thisMove == self.moveNumber else { return }
@@ -3642,7 +3648,8 @@ private struct RoomArtPanelView: View {
             .padding(roomArtPanelContentInset)
         }
         .overlay(alignment: .bottomTrailing) { resizeGrip }
-        .overlay { RoomArtPanelCardEdge() }
+        // The video fills the panel, so the Card's edge is drawn over it.
+        .overlay { TetherCardEdge() }
         .frame(width: panelSize.width, height: panelSize.height)
     }
 
@@ -3729,22 +3736,6 @@ private struct RoomArtPanelSurface: View {
     }
 }
 
-/// The Card's edge over the video: the 1 point white edge at 8% and the inner top highlight. The video fills the panel, so
-/// the edge is drawn over it, where `tetherCard()` draws it over its own surface. The values are `TetherCardMaterial`'s,
-/// and a test compares the two renders.
-struct RoomArtPanelCardEdge: View {
-    private let cardShape = RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous)
-
-    var body: some View {
-        cardShape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-            .overlay(cardShape.strokeBorder(
-                LinearGradient(colors: [Color.white.opacity(0.10), Color.white.opacity(0)], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.25)),
-                lineWidth: 1
-            ))
-            .allowsHitTesting(false)
-    }
-}
-
 /// One look for every button on the panel: a solid capsule that dips on the Snap move as it is pressed, changes its fill on
 /// hover, and shows the pointing hand. With an accent it is filled with it and set in the Tether ink, and without one it is
 /// a dark surface with an edge. With no title it is a circle around its icon.
@@ -3786,7 +3777,7 @@ struct RoomArtPanelButton: View {
         }
         .buttonStyle(PanelPressStyle())
         .fixedSize()
-        .hoverAndPointer { isHovered = $0 }
+        .hoverAndPointer { isNowHovered in isHovered = isNowHovered }
         .accessibilityLabel(accessibilityLabel)
     }
 
@@ -3833,8 +3824,9 @@ struct RoomArtPanelBottomRow: View {
     }
 }
 
-/// The panel's status line. A lost room wins over the request to step aside, since no painting is made until the room is
-/// found, so the learner has to turn back first.
+/// The panel's status line. The request to step aside shows only while the placed piece is arranged, since the flag can
+/// stay set after the placement's wait has moved the panel on. A lost room wins over the request, since no painting is made
+/// until the room is found, so the learner has to turn back first.
 nonisolated func roomArtPanelStatusText(
     phase: RoomArtPhase,
     waitingForTheLearnerToStepAside: Bool,
@@ -3842,7 +3834,7 @@ nonisolated func roomArtPanelStatusText(
     shirtCoachingLine: String?,
     thePaintedTopIsOutOfReach: Bool
 ) -> String {
-    if waitingForTheLearnerToStepAside && !theSurfaceIsLost { return roomFurnitureStepAsideLine }
+    if case .arranging = phase, waitingForTheLearnerToStepAside, !theSurfaceIsLost { return roomFurnitureStepAsideLine }
     return phase.statusLine(theSurfaceIsLost: theSurfaceIsLost, shirtCoachingLine: shirtCoachingLine, thePaintedTopIsOutOfReach: thePaintedTopIsOutOfReach)
 }
 

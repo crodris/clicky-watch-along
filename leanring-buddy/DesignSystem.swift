@@ -273,8 +273,8 @@ enum DS {
 
     // MARK: - Tether type scale
 
-    /// The Tether type scale: four sizes (17, 15, 13, 11) in six styles, and one display size (120) for a countdown that
-    /// fills a video. Every Tether surface sets its text in one of them,
+    /// The Tether type scale: five sizes (120, 17, 15, 13, 11) in seven styles. The `display` style (120) is for a countdown
+    /// that fills a video. Every Tether surface sets its text in one of them,
     /// such as `Text("Popping it out").font(DS.TypeScale.voice.font)`. Set a Data style string with `Text(verbatim:)`, since
     /// SwiftUI turns a URL in a plain `Text` into a blue link.
     /// (`DS.Type` would be Swift's metatype of `DS`, so the scale has this name.)

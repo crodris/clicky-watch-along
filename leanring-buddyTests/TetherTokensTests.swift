@@ -2,7 +2,7 @@
 //  TetherTokensTests.swift
 //  leanring-buddyTests
 //
-//  The Tether tokens: the type scale's four sizes and its display size, each move's curve and Reduce Motion form as the spec gives them, the
+//  The Tether tokens: the type scale's five sizes (`display` is the largest), each move's curve and Reduce Motion form as the spec gives them, the
 //  curves' math, and the Card and Callout drawn at 2x.
 //
 
