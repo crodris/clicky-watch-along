@@ -18,19 +18,25 @@ final class InstantReplayPanelController {
     /// Above the pop-out's scene window and with the cursor overlay windows, so the control draws over the lifted model.
     private static let panelLevel = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
 
+    /// How far outside the window's frame the pointer still counts as near it, so a pointer on the frame's edge does.
+    private static let pointerNearDistance: CGFloat = 8
+
     /// Readable by a test, which checks the window's frame and that a hidden panel leaves the screen.
     private(set) var panel: NonKeyFloatingPanel?
-    private var hostingView: FirstMouseHostingView<InstantReplayControlView>?
+    private var hostingView: PointerWatchingHostingView?
     private var mediaRectOnScreen: CGRect?
     private var visibleFrame: CGRect = .zero
     private var replayChangeSubscription: AnyCancellable?
-    /// Reads the mouse 60 times a second while the control shows and lets it pass through the shadow margin to the page,
-    /// as the agent list does (`AgentListWindowMargins.windowPassesTheMouseThrough`).
-    private var clickThroughTimer: Timer?
+    /// Reads the mouse 60 times a second, only while the pointer is near the window, to let it pass through the shadow
+    /// margin to the page (`letTheMousePassThroughTheShadow`). Readable by a test, which checks that it stops.
+    private(set) var clickThroughTimer: Timer?
+    /// Where the pointer is on screen. A test sets it, since the real pointer is wherever the learner left it.
+    var mouseLocationOnScreen: () -> CGPoint = { NSEvent.mouseLocation }
     private var stopWhatClickyIsSaying: () -> Void = {}
     private var accentHex = ""
 
-    /// Shows the control under the media. A second call moves it to the newest media rect.
+    /// Shows the control under the media. A second call moves it to the newest media rect and takes the newest replay
+    /// controller, accent, and stop closure.
     func show(
         for replayController: InstantReplayController,
         stopWhatClickyIsSaying: @escaping () -> Void,
@@ -40,51 +46,58 @@ final class InstantReplayPanelController {
     ) {
         self.mediaRectOnScreen = mediaRectOnScreen
         self.visibleFrame = visibleFrame
-        if panel == nil {
-            self.stopWhatClickyIsSaying = stopWhatClickyIsSaying
-            self.accentHex = accentHex
-            let firstMouseHostingView = FirstMouseHostingView(rootView: controlView(for: replayController))
-            firstMouseHostingView.wantsLayer = true
-            firstMouseHostingView.layer?.backgroundColor = .clear
-            let controlPanel = NonKeyFloatingPanel(
-                contentRect: CGRect(origin: .zero, size: firstMouseHostingView.fittingSize),
-                styleMask: [.borderless, .nonactivatingPanel],
-                backing: .buffered,
-                defer: false
-            )
-            controlPanel.isOpaque = false
-            controlPanel.backgroundColor = .clear
-            controlPanel.hasShadow = false
-            controlPanel.level = Self.panelLevel
-            controlPanel.hidesOnDeactivate = false
-            controlPanel.isReleasedWhenClosed = false
-            controlPanel.isExcludedFromWindowsMenu = true
-            controlPanel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-            controlPanel.contentView = firstMouseHostingView
-            panel = controlPanel
-            hostingView = firstMouseHostingView
-            // The content grows from Replay alone to the full row and the Reduce Motion list, so the view and the frame follow
-            // it. objectWillChange fires before the new value is stored, so both are read on the next turn.
-            replayChangeSubscription = replayController.objectWillChange.sink { [weak self, weak replayController] _ in
-                DispatchQueue.main.async {
-                    guard let self, let replayController else { return }
-                    self.hostingView?.rootView = self.controlView(for: replayController)
-                    self.placeThePanel()
-                }
+        self.stopWhatClickyIsSaying = stopWhatClickyIsSaying
+        self.accentHex = accentHex
+        if let hostingView {
+            hostingView.rootView = controlView(for: replayController)
+        } else {
+            makeThePanel(showing: controlView(for: replayController))
+        }
+        // The content grows from Replay alone to the full row and the Reduce Motion list, so the view and the frame follow
+        // it. objectWillChange fires before the new value is stored, so both are read on the next turn.
+        replayChangeSubscription = replayController.objectWillChange.sink { [weak self, weak replayController] _ in
+            DispatchQueue.main.async {
+                guard let self, let replayController else { return }
+                self.hostingView?.rootView = self.controlView(for: replayController)
+                self.placeThePanel()
             }
         }
         placeThePanel()
         // Not makeKeyAndOrderFront, which would take the keyboard from Chrome.
         panel?.orderFrontRegardless()
-        letTheMousePassThroughTheShadow()
+    }
+
+    private func makeThePanel(showing controlView: InstantReplayControlView) {
+        let controlHostingView = PointerWatchingHostingView(rootView: controlView)
+        controlHostingView.pointerEntered = { [weak self] in self?.letTheMousePassThroughTheShadow() }
+        controlHostingView.wantsLayer = true
+        controlHostingView.layer?.backgroundColor = .clear
+        let controlPanel = NonKeyFloatingPanel(
+            contentRect: CGRect(origin: .zero, size: controlHostingView.fittingSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        controlPanel.isOpaque = false
+        controlPanel.backgroundColor = .clear
+        controlPanel.hasShadow = false
+        controlPanel.level = Self.panelLevel
+        controlPanel.hidesOnDeactivate = false
+        controlPanel.isReleasedWhenClosed = false
+        controlPanel.isExcludedFromWindowsMenu = true
+        controlPanel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        controlPanel.contentView = controlHostingView
+        // Watching before the window first shows, not from AppKit's first pass over it.
+        controlHostingView.updateTrackingAreas()
+        panel = controlPanel
+        hostingView = controlHostingView
     }
 
     /// The control fades out showing what it showed last: it stops following the replay first, since the hide comes with the
     /// replay's end or its stops going away.
     func hide() {
         replayChangeSubscription = nil
-        clickThroughTimer?.invalidate()
-        clickThroughTimer = nil
+        stopReadingTheMouse()
         mediaRectOnScreen = nil
         hostingView = nil
         guard let closingPanel = panel else { return }
@@ -100,6 +113,7 @@ final class InstantReplayPanelController {
         })
     }
 
+    /// Each click first stops an answer Clicky is still giving, so the replay never moves the camera under its words.
     private func controlView(for replayController: InstantReplayController) -> InstantReplayControlView {
         InstantReplayControlView(
             phase: replayController.phase,
@@ -127,24 +141,71 @@ final class InstantReplayPanelController {
         )
         let windowOrigin = CGPoint(x: cardOrigin.x - AgentListWindowMargins.leading, y: cardOrigin.y - AgentListWindowMargins.bottom)
         panel.setFrame(CGRect(origin: windowOrigin, size: windowSize), display: true)
+        // At once, so the margin of a window that appeared or grew under the pointer never takes a click.
+        letTheMousePassThroughTheShadow()
     }
 
+    /// Lets the window pass the mouse to the page while the pointer is in its shadow margin
+    /// (`AgentListWindowMargins.windowPassesTheMouseThrough`). The control can stay up for minutes, so the mouse is read
+    /// only while the pointer is near the window. Away from it the window takes the mouse, which lets its tracking area
+    /// report the pointer's return. A window that ignores the mouse reports nothing.
     private func letTheMousePassThroughTheShadow() {
+        guard let panel, let hostingView else { return }
+        let mouseLocation = mouseLocationOnScreen()
+        let pointerIsNear = panel.frame.insetBy(dx: -Self.pointerNearDistance, dy: -Self.pointerNearDistance).contains(mouseLocation)
+        let passesTheMouseThrough = pointerIsNear
+            && AgentListWindowMargins.windowPassesTheMouseThrough(at: mouseLocation, windowFrame: panel.frame)
+        if panel.ignoresMouseEvents != passesTheMouseThrough {
+            panel.ignoresMouseEvents = passesTheMouseThrough
+            // The tracking area missed the moves made while the window ignored the mouse, so it starts over.
+            if !passesTheMouseThrough { hostingView.updateTrackingAreas() }
+            refreshTheRowHovers(in: hostingView, windowPassesTheMouseThrough: passesTheMouseThrough)
+        }
+        if pointerIsNear {
+            startReadingTheMouse()
+        } else {
+            stopReadingTheMouse()
+        }
+    }
+
+    private func startReadingTheMouse() {
         guard clickThroughTimer == nil else { return }
-        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let panel = self?.panel else { return }
-                let passesTheMouseThrough = AgentListWindowMargins.windowPassesTheMouseThrough(at: NSEvent.mouseLocation, windowFrame: panel.frame)
-                guard panel.ignoresMouseEvents != passesTheMouseThrough else { return }
-                panel.ignoresMouseEvents = passesTheMouseThrough
-                if let contentView = panel.contentView {
-                    refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: passesTheMouseThrough)
-                }
+        // The run loop keeps the timer, so a timer that outlives this controller ends itself.
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
             }
+            MainActor.assumeIsolated { self.letTheMousePassThroughTheShadow() }
         }
         // The common modes keep it running while a menu or a drag tracks the mouse.
         RunLoop.main.add(timer, forMode: .common)
         clickThroughTimer = timer
+    }
+
+    private func stopReadingTheMouse() {
+        clickThroughTimer?.invalidate()
+        clickThroughTimer = nil
+    }
+}
+
+/// The control's hosting view, which reports the pointer entering the window.
+private final class PointerWatchingHostingView: FirstMouseHostingView<InstantReplayControlView> {
+    var pointerEntered: () -> Void = {}
+    private var entryTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let entryTrackingArea { removeTrackingArea(entryTrackingArea) }
+        // Always active, since the panel is never key.
+        let trackingArea = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(trackingArea)
+        entryTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        pointerEntered()
     }
 }
 
@@ -154,7 +215,6 @@ struct InstantReplayControlView: View {
     let stops: [ReplayStop]
     let showsTheReduceMotionList: Bool
     let accentHex: String
-    /// Each click first stops an answer Clicky is still giving, so the replay never moves the camera under its words.
     let playFromTheStart: () -> Void
     let step: (InstantReplayStep) -> Void
 

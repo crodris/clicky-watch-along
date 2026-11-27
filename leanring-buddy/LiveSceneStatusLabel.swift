@@ -30,7 +30,7 @@ final class LiveSceneStatusLabelModel: ObservableObject {
 
 /// Where the label panel goes for one mouse position.
 enum StatusLabelPlacement {
-    /// Wide enough for the longest line, "Picking spots to quiz you on", with the margin for its halo and shadow.
+    /// Wide enough for the longest line, "Picking spots to quiz you on", with the margin for its shadow.
     static let panelSize = CGSize(width: 420, height: tetherSingleLineCalloutHeight + 2 * tetherCalloutPanelMargin)
     /// Clicky's triangle sits 35 points right of the mouse and 25 below it.
     static let trianglesSpotFromTheMouse = CGPoint(x: 35, y: -25)

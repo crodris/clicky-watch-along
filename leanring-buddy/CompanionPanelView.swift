@@ -889,6 +889,9 @@ struct SetupChecklistView: View {
                     .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 SetupWhatGetsSent()
+                Text("Each step below is for one job.")
+                    .font(DS.TypeScale.caption.font)
+                    .foregroundColor(DS.Colors.textSecondary)
             }
 
             SetupProgressBar(fraction: setupProgressFraction(of: stepStates))
@@ -939,6 +942,7 @@ struct SetupChecklistView: View {
 
 /// "What gets sent": a button that opens and closes the full capture disclosure under it.
 struct SetupWhatGetsSent: View {
+    /// Not private, so a test can render the open state.
     @State var isOpen = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 

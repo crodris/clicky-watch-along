@@ -206,6 +206,28 @@ struct TetherTokensTests {
         let warmthBesideTheRim = beside.redComponent - beside.blueComponent
         let warmthOfThePage = page.redComponent - page.blueComponent
         #expect(abs(warmthBesideTheRim - warmthOfThePage) < 0.02, "beside \(hex(of: beside)), page \(hex(of: page))")
+        // Just under the pill, its one shadow darkens a white page and leaves it gray.
+        if pageHex == "#ffffff" {
+            // 60 points along the pill and 2 points under its 40 point body, at 2 pixels a point.
+            let underColumn: Int = 180
+            let underRow: Int = 144
+            let under = try #require(pixels.colorAt(x: underColumn, y: underRow))
+            #expect(under.redComponent < 0.9, "under \(hex(of: under))")
+            #expect(abs(under.redComponent - under.blueComponent) < 0.02, "under \(hex(of: under))")
+        }
+    }
+
+    /// The web quiz "?" label is a Callout too, drawn by the scene stylesheet. The file is read next to the sources, since
+    /// only Xcode's test host bundles it.
+    @Test func theWebQuizLabelDrawsNoAccentGlowAsTheCalloutDrawsNone() throws {
+        let repositoryRootURL = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
+        let stylesheetURL = repositoryRootURL.appendingPathComponent("leanring-buddy/LiveSceneAssets/scene-style.css")
+        let stylesheet = try String(contentsOf: stylesheetURL, encoding: .utf8)
+        let ruleBody = try #require(stylesheet.components(separatedBy: ".scene-label.quiz-answer.unanswered {").dropFirst().first?.components(separatedBy: "}").first)
+        let shadow = try #require(ruleBody.components(separatedBy: "box-shadow:").dropFirst().first?.components(separatedBy: ";").first)
+        #expect(ruleBody.contains("border: 1.5px solid var(--clicky-accent);"))
+        #expect(shadow.contains("rgba(0, 0, 0,"))
+        #expect(!shadow.contains("accent"), "\(shadow)")
     }
 
     @Test func theCardSurfaceRunsFromItsTopColorToItsBottomColor() throws {

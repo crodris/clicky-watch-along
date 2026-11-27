@@ -127,6 +127,74 @@ struct SetupChecklistTests {
         for words in ["screen", "camera", "Clicky's own server", "depth service on this Mac", "Anthropic", "OpenAI", "fal.ai"] {
             #expect(setupCaptureSummary.contains(words), "\(words)")
         }
+        // fal.ai gets no capture.
+        #expect(setupCaptureSummary.contains("fal.ai receives only the product photo of furniture you try."))
+    }
+
+    @Test func voiceOverReadsTheDisclosureButtonByItsWordsAndItsState() async throws {
+        let closed = try await accessibilityElements(of: SetupWhatGetsSent())
+        #expect(closed.map(\.role) == ["AXButton"])
+        #expect(closed.map(\.label) == ["What gets sent"])
+        #expect(closed.map(\.value) == ["Hidden"])
+        let open = try await accessibilityElements(of: SetupWhatGetsSent(isOpen: true))
+        #expect(open.map(\.role) == ["AXButton", "AXStaticText"])
+        #expect(open.map(\.value) == ["Shown", setupCaptureDisclosure])
+    }
+
+    @Test func theLineAboveTheStepsShowsWhileTheDisclosureIsClosed() async throws {
+        let checklist = SetupChecklistView(
+            stepStates: setupStepStates(for: everythingDone),
+            isAFirstRun: false,
+            isRequestingTheScreenTest: false,
+            shownTheme: try #require(bundledThemesForTests.first),
+            runStep: { _, _ in },
+            start: {}
+        )
+        let elements = try await accessibilityElements(of: checklist)
+        let introduction = "Each step below is for one job."
+        #expect(elements.filter { $0.value == introduction }.count == 1)
+        #expect(!elements.contains { $0.value == setupCaptureDisclosure })
+        #expect(!setupCaptureDisclosure.contains(introduction))
+    }
+
+    private struct AccessibilityElement {
+        let role: String
+        let label: String?
+        let value: String?
+    }
+
+    /// What VoiceOver finds in a view: every element under the hosting view, in order. The window is never shown.
+    private func accessibilityElements(of view: some View) async throws -> [AccessibilityElement] {
+        let hostingView = NSHostingView(rootView: view.frame(width: 300))
+        hostingView.frame = CGRect(origin: .zero, size: hostingView.fittingSize)
+        let window = NSWindow(contentRect: hostingView.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        hostingView.layoutSubtreeIfNeeded()
+        // SwiftUI builds its accessibility tree only for an assistive client, which this stands in for.
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
+        // SwiftUI's accessibility nodes do not conform to NSAccessibilityProtocol, so each is asked by selector.
+        func read(_ object: NSObject, _ attribute: String) -> Any? {
+            let selector = NSSelectorFromString(attribute)
+            return object.responds(to: selector) ? object.perform(selector)?.takeUnretainedValue() : nil
+        }
+        func elements(under element: Any) -> [AccessibilityElement] {
+            guard let object = element as? NSObject else { return [] }
+            return ((read(object, "accessibilityChildren") as? [Any]) ?? []).flatMap { child -> [AccessibilityElement] in
+                guard let childObject = child as? NSObject else { return [] }
+                let found = AccessibilityElement(
+                    role: read(childObject, "accessibilityRole") as? String ?? "",
+                    label: read(childObject, "accessibilityLabel") as? String,
+                    value: read(childObject, "accessibilityValue") as? String
+                )
+                return [found] + elements(under: childObject)
+            }
+        }
+        let deadline = Date().addingTimeInterval(10)
+        while elements(under: hostingView).isEmpty, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return elements(under: hostingView)
     }
 
     @Test func theFullDisclosureStaysClosedUntilTheLearnerOpensIt() {
