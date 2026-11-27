@@ -177,9 +177,35 @@ struct TetherTokensTests {
         // The tail reaches below the pill near its left end, and the white page shows to its right.
         let tailY = (30 + 40 + 4) * 2
         let tailTip = TetherCalloutShape.tailTip(inCalloutOfSize: CGSize(width: 200, height: 49))
-        // The accent halo tints the page around the pill, so the page beside the tail is light, not pure white.
+        // The drop shadow darkens the page around the pill a little, so the page beside the tail is light, not pure white.
         #expect((pixels.colorAt(x: Int((30 + tailTip.x + 4) * 2), y: tailY)?.brightnessComponent ?? 1) < 0.3, "tail")
         #expect((pixels.colorAt(x: (30 + 60) * 2, y: tailY)?.brightnessComponent ?? 0) > 0.6, "page beside the tail")
+    }
+
+    /// The rim is what separates the Callout from the page, and no accent glow reaches past it.
+    @Test(arguments: ["#ffffff", "#0b0c10"])
+    func theCalloutsRimSeparatesItFromALightAndADarkPageWithNoGlow(pageHex: String) throws {
+        // A saturated orange, the kind of accent that glowed.
+        let accentHex = "#F97316"
+        let callout = TetherCallout(accent: Color(hex: accentHex)) {
+            Image(systemName: "arrow.counterclockwise")
+        } content: {
+            Text("Turning it left")
+        }
+        let renderer = ImageRenderer(content: callout.padding(30).background(Color(hex: pageHex)))
+        renderer.scale = 2
+        let pixels = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+        // The middle of the pill's left end, where the rim is outermost.
+        let bodyMiddleY = (30 + 20) * 2
+        let rim = pixels.colorAt(x: 30 * 2 + 1, y: bodyMiddleY)
+        #expect(pixel(rim, matches: accentHex, tolerance: 40), "rim \(hex(of: rim))")
+        // 4 points outside the rim, the page keeps its own hue: only the black shadow reaches it. An accent halo would add
+        // far more red than blue here.
+        let beside = try #require(pixels.colorAt(x: (30 - 4) * 2, y: bodyMiddleY))
+        let page = try #require(pixels.colorAt(x: 2, y: 2))
+        let warmthBesideTheRim = beside.redComponent - beside.blueComponent
+        let warmthOfThePage = page.redComponent - page.blueComponent
+        #expect(abs(warmthBesideTheRim - warmthOfThePage) < 0.02, "beside \(hex(of: beside)), page \(hex(of: page))")
     }
 
     @Test func theCardSurfaceRunsFromItsTopColorToItsBottomColor() throws {
