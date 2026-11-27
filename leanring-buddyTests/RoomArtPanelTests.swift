@@ -154,12 +154,12 @@ private struct RenderedPixels {
     /// The color at a point of the view, from its top left.
     func color(atX x: CGFloat, y: CGFloat) -> [Int] {
         let offset = (Int(y * 2) * width + Int(x * 2)) * 4
-        return (0..<3).map { Int(bytes[offset + $0]) }
+        return (0..<3).map { channel in Int(bytes[offset + channel]) }
     }
 }
 
 private func channelsAreClose(_ first: [Int], _ second: [Int], within tolerance: Int = 3) -> Bool {
-    zip(first, second).allSatisfy { abs($0 - $1) <= tolerance }
+    zip(first, second).allSatisfy { firstChannel, secondChannel in abs(firstChannel - secondChannel) <= tolerance }
 }
 
 @MainActor
@@ -174,13 +174,17 @@ struct RoomArtBottomRowRenderTests {
         var shirtButtonTitle: String? = nil
     }
 
-    private func view(of row: Row, statusMostLines: Int?) -> some View {
+    private func bottomRow(of row: Row, statusMostLines: Int?) -> RoomArtPanelBottomRow {
         RoomArtPanelBottomRow(
             statusText: row.statusText, statusIsAFailure: false, showsSavePhoto: row.showsSavePhoto, showsPlace: row.showsPlace,
             shirtButtonTitle: row.shirtButtonTitle, accentColor: .orange, statusMostLines: statusMostLines
         )
-        .frame(width: rowWidth)
-        .background(Color.black)
+    }
+
+    private func view(of row: Row, statusMostLines: Int?) -> some View {
+        bottomRow(of: row, statusMostLines: statusMostLines)
+            .frame(width: rowWidth)
+            .background(Color.black)
     }
 
     /// Whether the line draws the same with the panel's line limit as with none, so none of it is cut.
@@ -199,14 +203,14 @@ struct RoomArtBottomRowRenderTests {
             .wallNotMeasured, .floorNotFound, .furnitureNotCutOut, .cannotBeDrawnOnYou, .workerUnreachable,
         ]
         let shirtCoachingLines = [ShirtFramingKind.noPerson, .standBack].compactMap(\.coachingLine)
-        return (lostLines + failures.map(\.statusLine)).map { Row(statusText: $0, showsSavePhoto: true) }
+        return (lostLines + failures.map(\.statusLine)).map { line in Row(statusText: line, showsSavePhoto: true) }
             + [RoomArtStandsOn.floor.notDrawnStatusLine, RoomArtStandsOn.tableOrShelf.notDrawnStatusLine, roomArtShirtReadyStatusLine]
-                .map { Row(statusText: $0, shirtButtonTitle: "Paint it") }
+                .map { line in Row(statusText: line, shirtButtonTitle: "Paint it") }
             + [roomArtShirtPaintedStatusLine, roomArtShirtPaintedOutOfReachLine]
-                .map { Row(statusText: $0, showsSavePhoto: true, shirtButtonTitle: "Back to live") }
+                .map { line in Row(statusText: line, showsSavePhoto: true, shirtButtonTitle: "Back to live") }
             + (shirtCoachingLines + [roomArtShirtStepBackLine, roomArtShirtPaintingStatusLine])
-                .map { Row(statusText: $0, shirtButtonTitle: "Back to live") }
-            + [roomFurnitureGhostStatusLine, roomFurnitureStepAsideLine, RoomArtSurfaceKind.floor.lostLine].map { Row(statusText: $0, showsPlace: true) }
+                .map { line in Row(statusText: line, shirtButtonTitle: "Back to live") }
+            + [roomFurnitureGhostStatusLine, roomFurnitureStepAsideLine, RoomArtSurfaceKind.floor.lostLine].map { line in Row(statusText: line, showsPlace: true) }
     }
 
     @Test func everyLongStatusLineShowsWholeInTwoLinesAtTheSmallestSize() throws {
@@ -220,15 +224,18 @@ struct RoomArtBottomRowRenderTests {
         #expect(try !showsWhole(Row(statusText: RoomArtSurfaceKind.wall.lostLine, showsSavePhoto: true), mostLines: 1))
     }
 
-    @Test func theRowAndItsButtonsDrawAtTheSmallestSize() throws {
+    @Test func theRowAndItsButtonsFitAtTheSmallestSize() throws {
         let rows = [
             ("room-art-row-lost-wall", Row(statusText: RoomArtSurfaceKind.wall.lostLine, showsSavePhoto: true)),
             ("room-art-row-painted-shirt", Row(statusText: roomArtShirtPaintedStatusLine, showsSavePhoto: true, shirtButtonTitle: "Back to live")),
             ("room-art-row-ghost", Row(statusText: roomFurnitureGhostStatusLine, showsPlace: true)),
         ]
         for (name, row) in rows {
-            let pixels = try RenderedPixels(view(of: row, statusMostLines: RoomArtStatusPill.mostLines), dumpName: name)
-            #expect(pixels.width == Int(rowWidth * 2), "\(name) is wider than the row")
+            // With no fixed frame, a row whose content cannot shrink to the proposed width reports the wider size it takes.
+            let widthTheRowTakes = NSHostingController(rootView: bottomRow(of: row, statusMostLines: RoomArtStatusPill.mostLines))
+                .sizeThatFits(in: CGSize(width: rowWidth, height: 1000)).width
+            #expect(widthTheRowTakes <= rowWidth, "\(name) takes \(widthTheRowTakes) points of \(rowWidth)")
+            _ = try RenderedPixels(view(of: row, statusMostLines: RoomArtStatusPill.mostLines), dumpName: name)
         }
     }
 
@@ -274,9 +281,8 @@ struct RoomArtPanelStatusTextTests {
         #expect(statusText(arranging, waiting: false, lost: false) == arranging.statusLine(theSurfaceIsLost: false, shirtCoachingLine: nil, thePaintedTopIsOutOfReach: false))
     }
 
-    @Test func theStepAsideRequestStaysWhileAReadyRenderShowsDuringTheWait() {
-        #expect(statusText(showing, waiting: true, lost: false) == roomFurnitureStepAsideLine)
-        #expect(statusText(showing, waiting: false, lost: false) == showing.statusLine(theSurfaceIsLost: false, shirtCoachingLine: nil, thePaintedTopIsOutOfReach: false))
+    @Test func aShowingPieceKeepsItsOwnLineWhileTheStepAsideFlagIsSet() {
+        #expect(statusText(showing, waiting: true, lost: false) == showing.statusLine(theSurfaceIsLost: false, shirtCoachingLine: nil, thePaintedTopIsOutOfReach: false))
         #expect(statusText(showing, waiting: true, lost: true) == RoomArtSurfaceKind.floor.lostLine)
     }
 

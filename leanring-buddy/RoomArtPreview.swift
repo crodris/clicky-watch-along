@@ -3673,7 +3673,7 @@ private struct RoomArtPanelView: View {
                 // A mouse click's own time (`shirtButtonPressTime`), and the time it is handled for a VoiceOver press.
                 let currentEvent = NSApp.currentEvent
                 previewController.pressTheShirtButton(atUptime: shirtButtonPressTime(
-                    currentEventIsAMouseClick: currentEvent.map { [.leftMouseUp, .leftMouseDown].contains($0.type) } ?? false,
+                    currentEventIsAMouseClick: currentEvent.map { event in [.leftMouseUp, .leftMouseDown].contains(event.type) } ?? false,
                     currentEventTimestamp: currentEvent?.timestamp,
                     now: ProcessInfo.processInfo.systemUptime
                 ))
@@ -3824,10 +3824,11 @@ struct RoomArtPanelBottomRow: View {
     }
 }
 
-/// The panel's status line. The request to step aside shows while the placed piece is arranged, and while it shows a ready
-/// render during the same wait, since the painting still comes once the learner steps aside. No other phase shows it, since
-/// the flag can stay set after the placement's wait has moved the panel on. A lost room wins over the request, since no
-/// painting is made until the room is found, so the learner has to turn back first.
+/// The panel's status line. The request to step aside shows only while the placed piece is arranged. A showing piece keeps
+/// its own line, even while a ready render waits for the painting, since the flag can outlive the painting there: a new
+/// request in the kept room can return early and leave it set. A new request while the piece is arranged opens the panel
+/// again, which clears the flag. A lost room wins over the request, since no painting is made until the room is found, so
+/// the learner has to turn back first.
 nonisolated func roomArtPanelStatusText(
     phase: RoomArtPhase,
     waitingForTheLearnerToStepAside: Bool,
@@ -3835,12 +3836,7 @@ nonisolated func roomArtPanelStatusText(
     shirtCoachingLine: String?,
     thePaintedTopIsOutOfReach: Bool
 ) -> String {
-    switch phase {
-    case .arranging, .showing:
-        if waitingForTheLearnerToStepAside, !theSurfaceIsLost { return roomFurnitureStepAsideLine }
-    default:
-        break
-    }
+    if case .arranging = phase, waitingForTheLearnerToStepAside, !theSurfaceIsLost { return roomFurnitureStepAsideLine }
     return phase.statusLine(theSurfaceIsLost: theSurfaceIsLost, shirtCoachingLine: shirtCoachingLine, thePaintedTopIsOutOfReach: thePaintedTopIsOutOfReach)
 }
 
