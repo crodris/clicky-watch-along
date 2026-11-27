@@ -287,15 +287,6 @@ struct RoomArtPanelStatusTextTests {
     }
 }
 
-struct RoomArtPanelVideoCoverTests {
-    @Test func theVideoIsCoveredFromTheOpenUntilTheFirstFrameAndNeverAsThePanelCloses() {
-        #expect(roomArtPanelCoversTheVideo(phase: .readingThePage, theFirstFrameIsIn: false))
-        #expect(!roomArtPanelCoversTheVideo(phase: .readingThePage, theFirstFrameIsIn: true))
-        // A close forgets the first frame, and the fading panel keeps showing the last one.
-        #expect(!roomArtPanelCoversTheVideo(phase: .closed, theFirstFrameIsIn: false))
-    }
-}
-
 /// A panel that records being shown and hidden and never reaches the screen.
 private final class RecordingPanel: NSPanel {
     private(set) var isShown = false
@@ -345,21 +336,27 @@ struct RoomArtPanelMotionTests {
     @Test func aClosingPanelTakesNoClicksAndLeavesWhenItsFadeEnds() {
         let harness = Harness()
         harness.motion.open(harness.window, growing: harness.content)
-        harness.motion.close(harness.window)
+        var timesReportedHidden = 0
+        harness.motion.close(harness.window) { timesReportedHidden += 1 }
         #expect(harness.window.isShown && harness.window.ignoresMouseEvents)
         #expect(harness.fades.last?.alpha == 0 && harness.fades.last?.seconds == DS.Move.fadeSeconds)
+        #expect(timesReportedHidden == 0)
         harness.fades.last?.end()
-        #expect(!harness.window.isShown)
+        #expect(!harness.window.isShown && timesReportedHidden == 1)
+        // A window already off the screen is hidden at once.
+        harness.motion.close(harness.window) { timesReportedHidden += 1 }
+        #expect(timesReportedHidden == 2)
     }
 
     @Test func aPanelOpenedAgainDuringItsCloseStays() {
         let harness = Harness()
         harness.motion.open(harness.window, growing: harness.content)
-        harness.motion.close(harness.window)
+        var theCloseReportedHidden = false
+        harness.motion.close(harness.window) { theCloseReportedHidden = true }
         harness.motion.open(harness.window, growing: harness.content)
         // The close's fade ends after the second open.
         harness.fades[1].end()
-        #expect(harness.window.isShown && !harness.window.ignoresMouseEvents)
+        #expect(harness.window.isShown && !harness.window.ignoresMouseEvents && !theCloseReportedHidden)
     }
 
     @Test func thePanelGrowsAboutTheMiddleOfItsTopEdge() {

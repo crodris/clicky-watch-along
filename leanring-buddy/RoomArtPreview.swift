@@ -1507,7 +1507,30 @@ nonisolated let roomArtNoPictureLine = "I don't see a picture in Chrome's front 
 @MainActor
 protocol RoomArtPanelPresenting: AnyObject {
     func show()
-    func hide()
+    /// Fades the panel out. `onceHidden` runs once it is off the screen, and never when a newer show or hide replaced the fade.
+    func hide(onceHidden: @escaping @MainActor () -> Void)
+}
+
+/// Everything of the controller's state that the panel draws. A close forgets that state at once, while the window still
+/// fades out, so the panel draws its content from `RoomArtPreviewController.panelContent`.
+struct RoomArtPanelContent {
+    let phase: RoomArtPhase
+    let theFirstFrameIsIn: Bool
+    let theSurfaceIsLost: Bool
+    let waitingForTheLearnerToStepAside: Bool
+    let shirtCoachingLine: String?
+    let thePaintedTopIsOutOfReach: Bool
+    let shirtCaptureCountdownNumber: Int?
+    let loopState: RoomArtLoopState
+    let furnitureGhost: RoomFurnitureGhost?
+    let furnitureGhostDraw: RoomFurnitureGhostDraw?
+}
+
+/// What a closing panel keeps drawing: its content as the close began, and the room's turn of that moment, which the
+/// ghost's lines are worked out from once the keyframe is forgotten.
+private struct RoomArtClosingPanel {
+    let content: RoomArtPanelContent
+    let ghostTrackedWarp: RoomArtTrackedWarp?
 }
 
 @MainActor
@@ -1685,6 +1708,8 @@ final class RoomArtPreviewController: ObservableObject {
         didSet {
             let now = ProcessInfo.processInfo.systemUptime
             loopState = loopState.after(phaseChangedTo: phase, at: now)
+            // A panel opened again while it fades draws the new request.
+            if phase.isOpen { closingPanel = nil }
             if phase.shirtStillVoiceTargets != oldValue.shirtStillVoiceTargets { shirtStillVoiceTargetsChangedAt = now }
         }
     }
@@ -1755,6 +1780,27 @@ final class RoomArtPreviewController: ObservableObject {
     }
 
     var isOpen: Bool { phase.isOpen }
+
+    /// Set from a close until the panel is off the screen.
+    @Published private var closingPanel: RoomArtClosingPanel?
+
+    /// What the panel draws: the live state, or a closing panel's last open content.
+    var panelContent: RoomArtPanelContent { closingPanel?.content ?? livePanelContent }
+
+    private var livePanelContent: RoomArtPanelContent {
+        RoomArtPanelContent(
+            phase: phase,
+            theFirstFrameIsIn: theFirstFrameIsIn,
+            theSurfaceIsLost: theSurfaceIsLost,
+            waitingForTheLearnerToStepAside: waitingForTheLearnerToStepAside,
+            shirtCoachingLine: shirtCoachingLine,
+            thePaintedTopIsOutOfReach: thePaintedTopIsOutOfReach,
+            shirtCaptureCountdownNumber: shirtCaptureCountdownNumber,
+            loopState: loopState,
+            furnitureGhost: furnitureGhost,
+            furnitureGhostDraw: furnitureGhostDraw
+        )
+    }
 
     /// The theme's accent, which the panel draws the loop in.
     var loopAccentColor: Color { environment.loopAccentColor() }
@@ -1983,9 +2029,14 @@ final class RoomArtPreviewController: ObservableObject {
     }
 
     /// Every close goes through here, the Close button's included, so the camera and the spoken line always stop together.
-    /// The room's background goes with the session, since the next panel starts a new one.
+    /// The room's background goes with the session, since the next panel starts a new one. The fading panel keeps drawing
+    /// what it showed.
     func close() {
         environment.endTheSpokenLine()
+        // Taken before anything is forgotten. A second close during the fade keeps the first one's content.
+        if isOpen {
+            closingPanel = RoomArtClosingPanel(content: livePanelContent, ghostTrackedWarp: trackedWarpForTheGhost())
+        }
         openingNumber += 1
         cameraSessionNumber += 1
         anOpeningIsUnderway = false
@@ -1994,7 +2045,7 @@ final class RoomArtPreviewController: ObservableObject {
         frameSource?.stop()
         frameSource = nil
         frameProcessor.endTheSession()
-        panelPresenter.hide()
+        panelPresenter.hide(onceHidden: { [weak self] in self?.closingPanel = nil })
         pageRequest = nil
         pictureImage = nil
         theSurfaceIsLost = false
@@ -2203,8 +2254,10 @@ final class RoomArtPreviewController: ObservableObject {
     }
 
     /// The ghost's lines in the panel's points this moment, through the tracker's newest turn, or nil while the room is lost.
+    /// A closing panel keeps the lines it had.
     func currentGhostLines(cameraSize: CGSize, panelSize: CGSize) -> RoomFurnitureGhostLines? {
-        guard let boxCorners = furnitureGhost?.keyframeBoxCorners, let trackedWarp = trackedWarpForTheGhost() else { return nil }
+        let trackedWarp = if let closingPanel { closingPanel.ghostTrackedWarp } else { trackedWarpForTheGhost() }
+        guard let boxCorners = panelContent.furnitureGhost?.keyframeBoxCorners, let trackedWarp else { return nil }
         return RoomFurnitureGhostLines(keyframeBoxCorners: boxCorners, keyframeToCurrent: trackedWarp.keyframeToCurrent, fit: RoomArtVideoFit(cameraSize: cameraSize, viewSize: panelSize), cameraSize: cameraSize)
     }
 
@@ -3307,9 +3360,9 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
         motion.open(panel, growing: contentThatGrows)
     }
 
-    func hide() {
-        guard let panel else { return }
-        motion.close(panel)
+    func hide(onceHidden: @escaping @MainActor () -> Void) {
+        guard let panel else { return onceHidden() }
+        motion.close(panel, onceHidden: onceHidden)
     }
 
     private func makePanel(previewController: RoomArtPreviewController) -> NonKeyFloatingPanel {
@@ -3405,8 +3458,8 @@ final class RoomArtPanelMotion {
         }
     }
 
-    func close(_ window: NSWindow) {
-        guard window.isVisible else { return }
+    func close(_ window: NSWindow, onceHidden: @escaping @MainActor () -> Void = {}) {
+        guard window.isVisible else { return onceHidden() }
         moveNumber += 1
         let thisMove = moveNumber
         // The panel fades for a moment, and a click on it then must not reach its buttons.
@@ -3414,6 +3467,7 @@ final class RoomArtPanelMotion {
         fadeTheWindow(window, 0, DS.Move.fadeSeconds) { [weak self, weak window] in
             guard let self, thisMove == self.moveNumber else { return }
             window?.orderOut(nil)
+            onceHidden()
         }
     }
 
@@ -3497,8 +3551,12 @@ private struct RoomArtPanelView: View {
     @State private var resizeGripIsHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The state the panel draws comes from here, never from the live properties a close clears, so a closing panel fades out
+    /// whole.
+    private var content: RoomArtPanelContent { previewController.panelContent }
+
     private var ghostOpacity: Double? {
-        switch previewController.phase {
+        switch content.phase {
         case .placingTheFurniture: return 1
         // While the painting comes, the ghost stays at half opacity where the piece will appear.
         case .arranging: return 0.5
@@ -3518,7 +3576,7 @@ private struct RoomArtPanelView: View {
             RoomArtPanelSurface()
             RoomArtVideoView(
                 metalLayer: metalLayer,
-                showsTheCrosshair: previewController.phase.theItemIsPlacedByClicking,
+                showsTheCrosshair: content.phase.theItemIsPlacedByClicking,
                 onPress: { cameraPixel in previewController.pointerPressed(atCameraPixel: cameraPixel) },
                 onDrag: { cameraPixel in previewController.pointerDragged(toCameraPixel: cameraPixel) },
                 onRelease: { previewController.pointerReleased() },
@@ -3529,9 +3587,9 @@ private struct RoomArtPanelView: View {
                 theGhostIsHeld: { previewController.furnitureGhost?.isBeingDragged == true },
                 aPressPicksTheFurnitureUp: { cameraPixel in previewController.aPressPicksTheFurnitureUp(atCameraPixel: cameraPixel) }
             )
-            if !previewController.loopState.isHidden {
+            if !content.loopState.isHidden {
                 RoomArtLoopView(
-                    state: previewController.loopState,
+                    state: content.loopState,
                     color: previewController.loopAccentColor,
                     tracerLook: previewController.loopTracerLook,
                     outlineProvider: {
@@ -3540,7 +3598,7 @@ private struct RoomArtPanelView: View {
                     onFadeFinished: { previewController.theLoopFadeFinished() }
                 )
             }
-            if let ghostOpacity, let ghost = previewController.furnitureGhost, let ghostDraw = previewController.furnitureGhostDraw {
+            if let ghostOpacity, let ghost = content.furnitureGhost, let ghostDraw = content.furnitureGhostDraw {
                 RoomFurnitureGhostView(
                     draw: ghostDraw,
                     color: previewController.loopAccentColor,
@@ -3558,13 +3616,14 @@ private struct RoomArtPanelView: View {
                 .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: ghostOpacity)
                 .transition(.opacity.animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)))
             }
-            if roomArtPanelCoversTheVideo(phase: previewController.phase, theFirstFrameIsIn: previewController.theFirstFrameIsIn) {
+            // The video's layer still holds the last session's frame until the camera's first one.
+            if !content.theFirstFrameIsIn {
                 RoomArtPanelSurface()
             }
-            if case .failed = previewController.phase {
+            if case .failed = content.phase {
                 Color.black.opacity(0.45).allowsHitTesting(false)
             }
-            if let countdownNumber = previewController.shirtCaptureCountdownNumber {
+            if let countdownNumber = content.shirtCaptureCountdownNumber {
                 ShirtCountdownNumberView(number: countdownNumber, accentColor: previewController.loopAccentColor)
             }
             VStack {
@@ -3590,15 +3649,15 @@ private struct RoomArtPanelView: View {
     private var bottomRow: some View {
         RoomArtPanelBottomRow(
             statusText: roomArtPanelStatusText(
-                phase: previewController.phase,
-                waitingForTheLearnerToStepAside: previewController.waitingForTheLearnerToStepAside,
-                theSurfaceIsLost: previewController.theSurfaceIsLost,
-                shirtCoachingLine: previewController.shirtCoachingLine,
-                thePaintedTopIsOutOfReach: previewController.thePaintedTopIsOutOfReach
+                phase: content.phase,
+                waitingForTheLearnerToStepAside: content.waitingForTheLearnerToStepAside,
+                theSurfaceIsLost: content.theSurfaceIsLost,
+                shirtCoachingLine: content.shirtCoachingLine,
+                thePaintedTopIsOutOfReach: content.thePaintedTopIsOutOfReach
             ),
-            statusIsAFailure: previewController.phase.statusLineIsAFailure(theSurfaceIsLost: previewController.theSurfaceIsLost),
-            showsSavePhoto: previewController.phase.photoTitleToSave != nil,
-            showsPlace: previewController.phase.furnitureGhostShows,
+            statusIsAFailure: content.phase.statusLineIsAFailure(theSurfaceIsLost: content.theSurfaceIsLost),
+            showsSavePhoto: content.phase.photoTitleToSave != nil,
+            showsPlace: content.phase.furnitureGhostShows,
             shirtButtonTitle: shirtButtonTitle,
             accentColor: previewController.loopAccentColor,
             onSavePhoto: { previewController.saveThePhoto() },
@@ -3618,7 +3677,7 @@ private struct RoomArtPanelView: View {
     /// Paint it while the camera shows the learner, and Back to live while a painting is made or the painted still shows. Each
     /// does what its spoken phrase does ("paint it", "go back").
     private var shirtButtonTitle: String? {
-        switch previewController.shirtStillVoiceTargets {
+        switch content.phase.shirtStillVoiceTargets {
         case .readyToPaint: "Paint it"
         case .stepBack, .paintedStill: "Back to live"
         case .none: nil
@@ -3772,12 +3831,6 @@ struct RoomArtPanelBottomRow: View {
             }
         }
     }
-}
-
-/// The video's layer still holds the last session's frame until the camera's first one, so an open panel covers it until
-/// then. A closing panel stays uncovered, so it fades out with its last frame.
-nonisolated func roomArtPanelCoversTheVideo(phase: RoomArtPhase, theFirstFrameIsIn: Bool) -> Bool {
-    phase.isOpen && !theFirstFrameIsIn
 }
 
 /// The panel's status line. A lost room wins over the request to step aside, since no painting is made until the room is

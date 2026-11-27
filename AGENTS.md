@@ -486,7 +486,9 @@ A failure keeps the panel with its line until the learner closes it.
 The handle at its top moves it (`RoomArtPanelWindowControl`, which calls `performDrag(with:)`, so the panel stays a nonactivating panel that never becomes key), and the grip at its bottom right corner resizes it from its top left at 16:9, from 480 by 270 up to the visible frame (`roomArtPanelResizedFrame`).
 The grip's hit area is 24 points square, 3 points inside the corner (`roomArtPanelResizeGripFrame`), and the bottom row's buttons end 31 points inside the right edge (`roomArtPanelBottomRowTrailingInset`), so a click on a button's right end never starts a resize.
 The panel is drawn as the Tether Card: its content clips to the Card's 14 point corner, the Card's surface shows where no video does, and the Card's 1 point edge and top highlight are drawn over the video (`RoomArtPanelCardEdge`), with the window's own shadow.
-It grows in place from 0.97, about the middle of its top edge, with the Glide spring as it fades in (`RoomArtPanelMotion`, `roomArtPanelOpening`), as the "Add theme?" card does, and fades out over `DS.Move.fadeSeconds` as it closes, keeping its last frame (`roomArtPanelCoversTheVideo`).
+It grows in place from 0.97, about the middle of its top edge, with the Glide spring as it fades in (`RoomArtPanelMotion`, `roomArtPanelOpening`), as the "Add theme?" card does, and fades out over `DS.Move.fadeSeconds` as it closes.
+The fading panel keeps drawing what it showed as the close began (`RoomArtPreviewController.panelContent`): its last frame, status line, buttons, loop, and furniture ghost, until it is off the screen or opens again.
+The panel view draws the state from that content, never from the live properties that a close clears.
 With Reduce Motion on it only fades.
 A close stops the camera at once, and the fading window takes no clicks.
 A panel opened again during that fade stays, since only the newest move may order the window out.
