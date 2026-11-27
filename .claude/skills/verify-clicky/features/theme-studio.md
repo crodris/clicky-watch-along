@@ -117,6 +117,7 @@ Preconditions:
   Speech also goes through the Worker, so Clicky's system voice says "Sorry, I lost my voice for a second. Please try that again." in place of "Sorry, I couldn't do that one.". Check the state instead: the card stays open with the first idea highlighted, and the app log has `Voice command: the router failed, so its fallback takes it` with no screen answer for "two".
 - **Failure.** Stop the Worker this run started, then post `design_theme`: the card closes, and the app log has `Theme studio: the design failed`. Speech also goes through the Worker, so the system voice says "Sorry, I lost my voice for a second. Please try that again." in place of "Sorry, I couldn't design that one."
   With ideas on the card, the same failure on a refinement brings the previous ideas back.
+  The red row appears at once and pushes the hint and the buttons down, so a screen recording shows no frame with text over text or a header cut off at the card's top.
 - Put the learner's theme back when done: `defaults write com.crodris.clicky-watch-along companionTheme <the value read first>`, or `defaults delete` it, and remove the test theme's folder from `~/Library/Application Support/Clicky/Themes/`.
 
 ## Gotchas

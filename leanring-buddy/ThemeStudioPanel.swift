@@ -325,8 +325,6 @@ struct ThemeStudioCardView: View {
     let onHighlightedCursorCenterChange: (CGPoint?) -> Void
     let onContentSizeChange: (CGSize) -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     private static let hint = "Say one, two, or three · or what to change · say save it"
 
     /// The state the card draws: the studio's, or its last open one while the card closes on the carrier.
@@ -357,7 +355,6 @@ struct ThemeStudioCardView: View {
             }
             if studio.showsTheDesignFailedNotice {
                 ThemeStudioDesignFailedRow()
-                    .transition(.opacity)
             }
             Text(Self.hint)
                 .font(DS.TypeScale.caption.font)
@@ -370,7 +367,8 @@ struct ThemeStudioCardView: View {
         .fixedSize(horizontal: false, vertical: true)
         .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous))
         .tetherCard()
-        .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: studio.showsTheDesignFailedNotice)
+        // No animation covers the whole Card. A change that adds or removes a row changes the window's height at once, so an
+        // animated layout would draw the rows still on their way over the new one, and leave the outgoing header text behind.
         // The window is larger than the Card, so the Card's shadow has room to draw.
         .padding(EdgeInsets(
             top: AgentListWindowMargins.top,
