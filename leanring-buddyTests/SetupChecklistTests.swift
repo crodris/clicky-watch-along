@@ -14,7 +14,9 @@ import Testing
 
 @testable import Clicky
 
+/// Serialized, since the accessibility tests turn an app-wide switch on and off around an await.
 @MainActor
+@Suite(.serialized)
 struct SetupChecklistTests {
     /// Everything granted, the test passed, and Chrome control allowed.
     private let everythingDone = SetupFacts(
@@ -128,7 +130,7 @@ struct SetupChecklistTests {
             #expect(setupCaptureSummary.contains(words), "\(words)")
         }
         // fal.ai gets no capture.
-        #expect(setupCaptureSummary.contains("fal.ai receives only the product photo of furniture you try."))
+        #expect(setupCaptureSummary.contains("fal.ai receives only the product photo of anything you try that stands on a surface, also through Clicky's own server."))
     }
 
     @Test func voiceOverReadsTheDisclosureButtonByItsWordsAndItsState() async throws {
@@ -157,6 +159,22 @@ struct SetupChecklistTests {
         #expect(!setupCaptureDisclosure.contains(introduction))
     }
 
+    @Test func readingTheAccessibilityTreeLeavesTheAppWideSwitchAsItFoundIt() async throws {
+        setEnhancedUserInterface(false)
+        _ = try await accessibilityElements(of: SetupWhatGetsSent())
+        #expect(!enhancedUserInterfaceIsOn())
+    }
+
+    private static let enhancedUserInterface = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+
+    private func enhancedUserInterfaceIsOn() -> Bool {
+        NSApplication.shared.accessibilityAttributeValue(Self.enhancedUserInterface) as? Bool ?? false
+    }
+
+    private func setEnhancedUserInterface(_ isOn: Bool) {
+        NSApplication.shared.accessibilitySetValue(isOn, forAttribute: Self.enhancedUserInterface)
+    }
+
     private struct AccessibilityElement {
         let role: String
         let label: String?
@@ -171,8 +189,11 @@ struct SetupChecklistTests {
         window.isReleasedWhenClosed = false
         window.contentView = hostingView
         hostingView.layoutSubtreeIfNeeded()
-        // SwiftUI builds its accessibility tree only for an assistive client, which this stands in for.
-        NSApplication.shared.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
+        // SwiftUI builds its accessibility tree only for an assistive client, which this stands in for. The switch is the
+        // whole app's, and every test shares the app, so it goes back to what it was.
+        let enhancedUserInterfaceWasOn = enhancedUserInterfaceIsOn()
+        defer { setEnhancedUserInterface(enhancedUserInterfaceWasOn) }
+        setEnhancedUserInterface(true)
         // SwiftUI's accessibility nodes do not conform to NSAccessibilityProtocol, so each is asked by selector.
         func read(_ object: NSObject, _ attribute: String) -> Any? {
             let selector = NSSelectorFromString(attribute)

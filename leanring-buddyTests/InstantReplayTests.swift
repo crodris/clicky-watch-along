@@ -665,11 +665,35 @@ struct InstantReplayTests {
         control.show()
         let panel = try #require(control.panelController.panel)
         #expect(panel.ignoresMouseEvents)
-        // A second show places the panel again, and checks the pointer where it is now.
-        control.pointer.location = inTheCard(of: windowFrame)
-        control.show()
-        #expect(!panel.ignoresMouseEvents)
         control.panelController.hide()
+        // The window an open replay widens to, read with the pointer far away.
+        control.pointer.location = CGPoint(x: -30_000, y: -30_000)
+        control.replay.offer(threeStops, sceneNumber: 1)
+        control.show()
+        let offeredPanel = try #require(control.panelController.panel)
+        let offeredFrame = offeredPanel.frame
+        control.replay.playFromTheStart()
+        try await waitUntil { offeredPanel.frame.width > offeredFrame.width }
+        let openFrame = offeredPanel.frame
+        control.panelController.hide()
+        control.replay.step(.end)
+        // A point in the open window's margin, too far outside the narrower window for it to read the mouse, so only the
+        // resize itself can check the pointer.
+        let pointInTheNewMargin = CGPoint(x: openFrame.minX + 4, y: openFrame.midY)
+        #expect(!offeredFrame.insetBy(dx: -8, dy: -8).contains(pointInTheNewMargin))
+        control.pointer.location = pointInTheNewMargin
+        control.show()
+        let resizedPanel = try #require(control.panelController.panel)
+        #expect(resizedPanel.frame == offeredFrame)
+        #expect(!resizedPanel.ignoresMouseEvents)
+        #expect(control.panelController.clickThroughTimer == nil)
+        control.replay.playFromTheStart()
+        try await waitUntil { resizedPanel.frame.width > offeredFrame.width }
+        #expect(resizedPanel.frame == openFrame)
+        #expect(resizedPanel.ignoresMouseEvents)
+        control.replay.forget()
+        control.panelController.hide()
+        withExtendedLifetime(control.recorder) {}
     }
 
     @Test(.showsARealWindow) func theMouseIsReadOnlyWhileThePointerIsNearTheWindow() async throws {
@@ -690,6 +714,8 @@ struct InstantReplayTests {
         )
         let enterEvent = try #require(madeEnterEvent)
         let areaBeforeThePass = try #require(entryTrackingArea())
+        // A drag that ends over the margin, such as one that turns the model, must report the entry too.
+        #expect(areaBeforeThePass.options.contains(.enabledDuringMouseDrag))
         hostingView.mouseEntered(with: enterEvent)
         #expect(panel.ignoresMouseEvents)
         #expect(control.panelController.clickThroughTimer != nil)
@@ -757,6 +783,25 @@ struct InstantReplayTests {
         try await waitUntil { hostingView.rootView.phase.isOpen }
         #expect(hostingView.rootView.phase.isOpen)
         secondReplay.forget()
+        control.panelController.hide()
+        withExtendedLifetime((control.recorder, secondRecorder)) {}
+    }
+
+    @Test(.showsARealWindow) func anUpdateQueuedByAnEarlierReplayNeverDrawsOverTheNewestOne() async throws {
+        let control = OffScreenControl()
+        control.replay.offer(threeStops, sceneNumber: 1)
+        control.show(accentHex: "#3380FF")
+        let panel = try #require(control.panelController.panel)
+        let hostingView = try #require(panel.contentView as? FirstMouseHostingView<InstantReplayControlView>)
+        let secondRecorder = RecordingReplayStage()
+        let secondReplay = InstantReplayController(stage: secondRecorder.stage)
+        secondReplay.offer([threeStops[0]], sceneNumber: 2)
+        // The first replay changes, which queues its update, and the second one is shown in the same turn.
+        control.replay.offer(Array(threeStops.prefix(2)), sceneNumber: 1)
+        control.show(accentHex: "#FF0000", replayController: secondReplay)
+        // The main queue runs in order, so the first replay's queued update has run once this block does.
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        #expect(hostingView.rootView.stops.count == 1)
         control.panelController.hide()
         withExtendedLifetime((control.recorder, secondRecorder)) {}
     }
