@@ -87,6 +87,8 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     /// The layer the panel shows the frames in.
     var metalLayer: CAMetalLayer { get }
     func startASession(onFirstSegmentedFrame: @escaping @Sendable () -> Void, onTheSurfaceLostOrFound: @escaping @Sendable (Bool) -> Void)
+    /// From the moment it returns, no frame is shown and the loop does not move until the next session, a frame already on its
+    /// way included, so a closing panel fades with its last frame and line as they were.
     func endTheSession()
     func process(_ cameraFrame: CVPixelBuffer)
     /// With no anchor, the spot is the bare wall spot for the wall and the bare floor spot for the floor. With no surface,
@@ -173,6 +175,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     private let segmentationRequest: VNGeneratePersonSegmentationRequest
     private let sequenceRequestHandler = VNSequenceRequestHandler()
     private let sRGBColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+
+    /// False from `endTheSession` until the next session. `endTheSession` writes it on the caller's thread, ahead of its queued
+    /// cleanup, so a frame queued or being drawn then shows nothing. Showing a frame and moving the loop hold the lock.
+    private let theSessionStillRuns = OSAllocatedUnfairLock(initialState: true)
 
     // Everything below is read and written on `processingQueue` only.
     private var sessionNumber = 0
@@ -366,6 +372,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     /// room is lost keeps the lost line.
     func startASession(onFirstSegmentedFrame: @escaping @Sendable () -> Void, onTheSurfaceLostOrFound: @escaping @Sendable (Bool) -> Void) {
         processingQueue.sync {
+            theSessionStillRuns.withLock { $0 = true }
             sessionNumber += 1
             self.onFirstSegmentedFrame = onFirstSegmentedFrame
             self.onTheSurfaceLostOrFound = onTheSurfaceLostOrFound
@@ -407,8 +414,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
     }
 
-    /// Stops reporting the first frame, so a closed panel never starts a measurement.
+    /// Stops showing frames and moving the loop at once, and stops reporting the first frame, so a closed panel never starts a
+    /// measurement.
     func endTheSession() {
+        theSessionStillRuns.withLock { $0 = false }
         processingQueue.async {
             self.onFirstSegmentedFrame = nil
             self.onTheSurfaceLostOrFound = nil
@@ -496,8 +505,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         frozenShirt = (frame: CIImage(cgImage: cameraImage), painted: nil, paintedArrivedAt: 0)
         // Until the paint mask's outline is in, the loop traces the learner's own top as last traced, held still, or no line
         // before a first trace.
-        let frozenLoop = shirtLoop(for: torso)
-        latestLoop.withLock { $0 = frozenLoop }
+        publishTheLoop(shirtLoop(for: torso))
         return ShirtFrozenFrame(cameraImage: cameraImage, personMask: personBytes, torso: torso)
     }
 
@@ -541,7 +549,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     func outlineTheAreaBeingPainted(_ outline: [CGPoint]) {
         processingQueue.async {
             guard self.frozenShirt != nil, let paintedAreaLoop = RoomArtLoopSnapshot(tracing: outline) else { return }
-            self.latestLoop.withLock { $0 = paintedAreaLoop }
+            self.publishTheLoop(paintedAreaLoop)
         }
     }
 
@@ -657,9 +665,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             let currentLoopCorners = RoomArtLoopGeometry.corners(of: loopKeyframeTargetCorners ?? loopKeyframeCorners, after: cameraWarp)
             let smoothedLoopCornerPoints = smoothedCorners(previous: smoothedLoopCorners, current: currentLoopCorners.clockwiseFromTopLeft)
             smoothedLoopCorners = smoothedLoopCornerPoints
-            latestLoop.withLock {
-                $0 = RoomArtLoopSnapshot(keyframeCorners: loopKeyframeCorners, currentCorners: RoomArtCorners(clockwiseFromTopLeft: smoothedLoopCornerPoints))
-            }
+            publishTheLoop(RoomArtLoopSnapshot(keyframeCorners: loopKeyframeCorners, currentCorners: RoomArtCorners(clockwiseFromTopLeft: smoothedLoopCornerPoints)))
         }
 
         // The shirt follows the body, not the room: the torso comes from the pose tracker, and the loop traces it.
@@ -753,8 +759,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         if let torso {
             traceTheShirtOutlineIfDue(in: cameraFrame, torso: torso, now: now)
         }
-        let shirtLoopNow = torso.flatMap(shirtLoop(for:))
-        latestLoop.withLock { $0 = shirtLoopNow }
+        publishTheLoop(torso.flatMap(shirtLoop(for:)))
         guard shirtFramingDebouncer.settledKind == .ready else { return nil }
         return torso
     }
@@ -908,11 +913,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         ])
     }
 
-    /// Draws `image` cropped to `extent` into the layer's next drawable. False when no drawable was free or Core Image
-    /// refused the frame.
+    /// Draws `image` cropped to `extent` into the layer's next drawable. False when no drawable was free, Core Image refused
+    /// the frame, or the session has ended.
     private func present(_ image: CIImage, extent: CGRect) -> Bool {
         let composedImage = image.cropped(to: extent)
-        lastComposedImage = composedImage
         guard let commandQueue, let drawable = metalLayer.nextDrawable(), let commandBuffer = commandQueue.makeCommandBuffer() else { return false }
         let renderDestination = CIRenderDestination(mtlTexture: drawable.texture, commandBuffer: commandBuffer)
         renderDestination.colorSpace = sRGBColorSpace
@@ -922,9 +926,14 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             print("Room art: could not draw a frame: \(error)")
             return false
         }
-        commandBuffer.present(drawable)
-        commandBuffer.commit()
-        return true
+        // Asked here, as the frame is about to show, since the session can end while it is drawn.
+        return theSessionStillRuns.withLockUnchecked { sessionStillRuns in
+            guard sessionStillRuns else { return false }
+            commandBuffer.present(drawable)
+            commandBuffer.commit()
+            lastComposedImage = composedImage
+            return true
+        }
     }
 
     func renderTheLastFrame() -> CGImage? {
@@ -1355,7 +1364,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             self.loopKeyframeTargetCorners = footprint
             self.smoothedLoopCorners = nil
             let currentCorners = self.latestCameraWarp.map { RoomArtLoopGeometry.corners(of: footprint, after: $0) } ?? footprint
-            self.latestLoop.withLock { $0 = RoomArtLoopSnapshot(keyframeCorners: keyframeLoopCorners, currentCorners: currentCorners) }
+            self.publishTheLoop(RoomArtLoopSnapshot(keyframeCorners: keyframeLoopCorners, currentCorners: currentCorners))
         }
     }
 
@@ -1416,7 +1425,15 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         loopKeyframeCorners = nil
         loopKeyframeTargetCorners = nil
         smoothedLoopCorners = nil
-        latestLoop.withLock { $0 = nil }
+        publishTheLoop(nil)
+    }
+
+    /// Moves the loop, unless the session has ended, which leaves it where the closing panel last showed it.
+    private func publishTheLoop(_ loop: RoomArtLoopSnapshot?) {
+        theSessionStillRuns.withLock { sessionStillRuns in
+            guard sessionStillRuns else { return }
+            latestLoop.withLock { $0 = loop }
+        }
     }
 
     /// The loop where the footprint or the torso last was, for the panel to draw or fade out.
@@ -3408,9 +3425,9 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
     }
 }
 
-/// The panel's moves. It grows in place with the Glide spring as it fades in, and fades out over `DS.Move.fadeSeconds`.
-/// With Reduce Motion on it only fades. The next panel uses the same window, so only the newest move may order it out, and
-/// a panel opened again before it left only fades back in.
+/// The panel's moves. It grows in place with the Glide spring as it fades in, taking the mouse once it has grown, and fades
+/// out over `DS.Move.fadeSeconds`. With Reduce Motion on it only fades. The next panel uses the same window, so only the
+/// newest move may order it out, and a panel opened again before it left only fades back in.
 @MainActor
 final class RoomArtPanelMotion {
     typealias WindowFade = (_ window: NSWindow, _ alpha: CGFloat, _ seconds: Double, _ completion: @escaping @MainActor () -> Void) -> Void
@@ -3439,13 +3456,10 @@ final class RoomArtPanelMotion {
             reduceMotionIsOn: reduceMotionIsOn(),
             reducedMotionFadeSeconds: DS.Move.glide.reduceMotionForm.fadeSeconds
         )
-        window.ignoresMouseEvents = false
         // A window still fading out fades back in from where it is, with no second grow.
         let theWindowWasOffTheScreen = !window.isVisible
         if theWindowWasOffTheScreen { window.alphaValue = 0 }
         window.orderFrontRegardless()
-        // The closing window ignored the mouse, so a control hovered then never heard the pointer leave.
-        refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: false)
         if theWindowWasOffTheScreen {
             contentView.layer?.removeAnimation(forKey: Self.growAnimationKey)
             if !opening.scales.isEmpty, let contentLayer = contentView.layer {
@@ -3457,10 +3471,20 @@ final class RoomArtPanelMotion {
                 contentLayer.add(grow, forKey: Self.growAnimationKey)
             }
         }
-        fadeTheWindow(window, 1, opening.seconds) { [weak self, weak window] in
+        // The grow moves only what is drawn, and the controls take clicks where they are at full size. So the window takes the
+        // mouse once the content has stopped growing: at once with no grow, or else as the fade ends, which is no earlier than
+        // the grow's end, also for a panel opened again while its first grow still runs.
+        let theContentIsGrowing = contentView.layer?.animation(forKey: Self.growAnimationKey) != nil
+        window.ignoresMouseEvents = theContentIsGrowing
+        // The closing window ignored the mouse, so a control hovered then never heard the pointer leave.
+        if !theContentIsGrowing { refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: false) }
+        fadeTheWindow(window, 1, opening.seconds) { [weak self, weak window, weak contentView] in
             guard let self, thisMove == self.moveNumber else { return }
             // The shadow was cut for the smaller content, so it is cut again at full size.
             window?.invalidateShadow()
+            guard theContentIsGrowing, let window, let contentView else { return }
+            window.ignoresMouseEvents = false
+            refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: false)
         }
     }
 
@@ -3765,7 +3789,7 @@ struct RoomArtPanelButton: View {
             .foregroundStyle(accentColor == nil ? DS.Colors.textPrimary : DS.Colors.inkOnAccent)
             .padding(.horizontal, title == nil ? 0 : 14)
             .frame(minWidth: Self.height, minHeight: Self.height)
-            .background(Capsule().fill(fillColor))
+            .background(RoomArtPanelButtonFill(accentColor: accentColor, isHovered: isHovered))
             .overlay {
                 if accentColor == nil {
                     Capsule().strokeBorder(Color.white.opacity(isHovered ? 0.18 : 0.1), lineWidth: 1)
@@ -3780,10 +3804,19 @@ struct RoomArtPanelButton: View {
         .hoverAndPointer { isNowHovered in isHovered = isNowHovered }
         .accessibilityLabel(accessibilityLabel)
     }
+}
 
-    private var fillColor: Color {
-        guard let accentColor else { return isHovered ? DS.Colors.surface4 : DS.Colors.surface2 }
-        return accentColor.opacity(isHovered ? 0.88 : 1)
+/// A panel button's solid capsule. On hover an accent fill darkens a little, never turning see-through, since the camera
+/// would show behind the label, and the dark surface changes to a lighter one.
+struct RoomArtPanelButtonFill: View {
+    let accentColor: Color?
+    let isHovered: Bool
+
+    var body: some View {
+        Capsule()
+            .fill(accentColor ?? (isHovered ? DS.Colors.surface4 : DS.Colors.surface2))
+            // Darker, not lighter, so a near white accent shows the hover too.
+            .overlay(Capsule().fill(Color.black.opacity(accentColor != nil && isHovered ? 0.08 : 0)))
     }
 }
 

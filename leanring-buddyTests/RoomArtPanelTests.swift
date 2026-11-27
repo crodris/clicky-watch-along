@@ -2,12 +2,16 @@
 //  RoomArtPanelTests.swift
 //  leanring-buddyTests
 //
-//  The room art panel's frame as the learner moves and resizes it, its open and close moves, its status line's words, and its
-//  status pill and buttons drawn at 2x.
+//  The room art panel's frame as the learner moves and resizes it, its open and close moves, the frames that stop at a close,
+//  its status line's words, and its status pill and buttons drawn at 2x.
 //
 
 import AppKit
 import CoreGraphics
+import CoreImage
+import CoreVideo
+import Metal
+import QuartzCore
 import SwiftUI
 import Testing
 @testable import Clicky
@@ -255,6 +259,20 @@ struct RoomArtBottomRowRenderTests {
         let edge = pixels.color(atX: 0.5, y: RoomArtPanelButton.height / 2)
         #expect(channelsAreClose(edge, [0xF9, 0x73, 0x16], within: 10), "the edge is \(edge)")
     }
+
+    @Test(arguments: ["#F97316", "#F4F4F5"])
+    func aHoveredAccentFillStaysSolidAndChangesItsBrightness(accentHex: String) throws {
+        func middle(isHovered: Bool, over page: Color) throws -> [Int] {
+            let fill = RoomArtPanelButtonFill(accentColor: Color(hex: accentHex), isHovered: isHovered).frame(width: 80, height: 32)
+            return try RenderedPixels(fill.background(page)).color(atX: 40, y: 16)
+        }
+        let hoveredOverBlack = try middle(isHovered: true, over: .black)
+        let hoveredOverWhite = try middle(isHovered: true, over: .white)
+        // A see-through fill would take on what is behind it.
+        #expect(channelsAreClose(hoveredOverBlack, hoveredOverWhite), "over black \(hoveredOverBlack), over white \(hoveredOverWhite)")
+        let resting = try middle(isHovered: false, over: .black)
+        #expect(!channelsAreClose(hoveredOverBlack, resting, within: 6), "hovered \(hoveredOverBlack), resting \(resting)")
+    }
 }
 
 struct RoomArtPanelStatusTextTests {
@@ -295,6 +313,88 @@ struct RoomArtPanelStatusTextTests {
     }
 }
 
+/// Whether this session can get a drawable for a layer no window shows. CI's background login may not.
+private func aDrawableCanBeMade() -> Bool {
+    let layer = CAMetalLayer()
+    layer.device = MTLCreateSystemDefaultDevice()
+    layer.drawableSize = CGSize(width: 64, height: 36)
+    return layer.device != nil && layer.nextDrawable() != nil
+}
+
+/// The real frame processor around a close.
+struct RoomArtClosingFrameTests {
+    private static func cameraFrame(_ color: CIColor) throws -> CVPixelBuffer {
+        var buffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, 64, 36, kCVPixelFormatType_32BGRA, [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &buffer)
+        let created = try #require(buffer)
+        let bounds = CGRect(x: 0, y: 0, width: 64, height: 36)
+        CIContext().render(CIImage(color: color).cropped(to: bounds), to: created, bounds: bounds, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+        return created
+    }
+
+    /// Delivers `frame` as the camera does, and waits until it is handled.
+    private static func deliver(_ frame: CVPixelBuffer, to frameProcessor: RoomArtFrameProcessor) {
+        nonisolated(unsafe) let frameToProcess = frame
+        frameProcessor.processingQueue.sync { frameProcessor.process(frameToProcess) }
+    }
+
+    /// Runs `queueTheWork` while the processing queue is busy, ends the session with that work still waiting, and lets the
+    /// queue run, as a close does while a frame is on its way.
+    private static func endTheSessionBehindQueuedWork(of frameProcessor: RoomArtFrameProcessor, _ queueTheWork: () -> Void) {
+        let theQueueIsHeld = DispatchSemaphore(value: 0)
+        frameProcessor.processingQueue.async { theQueueIsHeld.wait() }
+        queueTheWork()
+        frameProcessor.endTheSession()
+        theQueueIsHeld.signal()
+        frameProcessor.processingQueue.sync {}
+    }
+
+    private static func isMostlyRed(_ image: CGImage) throws -> Bool {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = try #require(CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return pixel[0] > 180 && pixel[2] < 80
+    }
+
+    @Test(.enabled(if: aDrawableCanBeMade(), "This session gets no Metal drawable"))
+    func aFrameOnItsWayAsTheSessionEndsIsNotShownAndTheNextSessionDraws() throws {
+        let frameProcessor = RoomArtFrameProcessor()
+        frameProcessor.startASession(onFirstSegmentedFrame: {}, onTheSurfaceLostOrFound: { _ in })
+        Self.deliver(try Self.cameraFrame(.red), to: frameProcessor)
+        #expect(try Self.isMostlyRed(try #require(frameProcessor.renderTheLastFrame())))
+        let lateFrame = try Self.cameraFrame(.blue)
+        Self.endTheSessionBehindQueuedWork(of: frameProcessor) {
+            nonisolated(unsafe) let frame = lateFrame
+            frameProcessor.processingQueue.async { frameProcessor.process(frame) }
+        }
+        #expect(try Self.isMostlyRed(try #require(frameProcessor.renderTheLastFrame())))
+        frameProcessor.startASession(onFirstSegmentedFrame: {}, onTheSurfaceLostOrFound: { _ in })
+        Self.deliver(try Self.cameraFrame(.blue), to: frameProcessor)
+        #expect(try !Self.isMostlyRed(try #require(frameProcessor.renderTheLastFrame())))
+    }
+
+    @Test func theLoopStaysWhereItWasOnceTheSessionEndsAndMovesAgainInTheNext() {
+        let frameProcessor = RoomArtFrameProcessor()
+        func footprint(at x: CGFloat) -> RoomArtCorners {
+            RoomArtCorners(clockwiseFromTopLeft: [CGPoint(x: x, y: 10), CGPoint(x: x + 20, y: 10), CGPoint(x: x + 20, y: 30), CGPoint(x: x, y: 30)])
+        }
+        func loopCornersNow() -> [CGPoint]? {
+            frameProcessor.processingQueue.sync {}
+            return frameProcessor.currentLoop()?.currentCorners.clockwiseFromTopLeft
+        }
+        frameProcessor.startASession(onFirstSegmentedFrame: {}, onTheSurfaceLostOrFound: { _ in })
+        frameProcessor.outlineTheLoop(aroundKeyframeQuadrilateral: footprint(at: 0), inKeyframeNumber: 0)
+        #expect(loopCornersNow() == footprint(at: 0).clockwiseFromTopLeft)
+        Self.endTheSessionBehindQueuedWork(of: frameProcessor) {
+            frameProcessor.outlineTheLoop(aroundKeyframeQuadrilateral: footprint(at: 30), inKeyframeNumber: 0)
+        }
+        #expect(loopCornersNow() == footprint(at: 0).clockwiseFromTopLeft)
+        frameProcessor.startASession(onFirstSegmentedFrame: {}, onTheSurfaceLostOrFound: { _ in })
+        frameProcessor.outlineTheLoop(aroundKeyframeQuadrilateral: footprint(at: 30), inKeyframeNumber: 0)
+        #expect(loopCornersNow() == footprint(at: 30).clockwiseFromTopLeft)
+    }
+}
+
 /// A panel that records being shown and hidden and never reaches the screen.
 private final class RecordingPanel: NSPanel {
     private(set) var isShown = false
@@ -325,7 +425,7 @@ struct RoomArtPanelMotionTests {
     @Test func thePanelGrowsOnTheGlideCurveAsItFadesIn() throws {
         let harness = Harness()
         harness.motion.open(harness.window, growing: harness.content)
-        #expect(harness.window.isShown && !harness.window.ignoresMouseEvents)
+        #expect(harness.window.isShown)
         #expect(harness.fades.map(\.alpha) == [1])
         #expect(harness.fades.map(\.seconds) == [DS.Move.glide.curve.seconds()])
         let grow = try #require(harness.grow)
@@ -334,11 +434,29 @@ struct RoomArtPanelMotionTests {
         #expect(abs((scales.first ?? 0) - roomArtPanelOpeningStartScale) < 0.0001 && abs((scales.last ?? 0) - 1) < 0.0001)
     }
 
+    @Test func aGrowingPanelTakesTheMouseOnlyOnceItHasGrown() {
+        let harness = Harness()
+        harness.motion.open(harness.window, growing: harness.content)
+        // The controls are drawn smaller than where they take clicks until the grow ends.
+        #expect(harness.window.ignoresMouseEvents)
+        harness.fades.last?.end()
+        #expect(!harness.window.ignoresMouseEvents)
+    }
+
+    @Test func aPanelClosedWhileItGrowsNeverTakesTheMouse() {
+        let harness = Harness()
+        harness.motion.open(harness.window, growing: harness.content)
+        harness.motion.close(harness.window)
+        harness.fades[0].end()
+        #expect(harness.window.ignoresMouseEvents)
+    }
+
     @Test func withReduceMotionThePanelOnlyFades() {
         let harness = Harness()
         harness.reduceMotionIsOn = true
         harness.motion.open(harness.window, growing: harness.content)
         #expect(harness.grow == nil)
+        #expect(!harness.window.ignoresMouseEvents)
         #expect(harness.fades.map(\.seconds) == [DS.Move.fadeSeconds])
     }
 
@@ -365,7 +483,11 @@ struct RoomArtPanelMotionTests {
         harness.motion.open(harness.window, growing: harness.content)
         // The close's fade ends after the second open.
         harness.fades[1].end()
-        #expect(harness.window.isShown && !harness.window.ignoresMouseEvents && !theCloseReportedHidden)
+        #expect(harness.window.isShown && !theCloseReportedHidden)
+        // The first open's grow still runs, so the mouse waits for the second open's fade.
+        #expect(harness.window.ignoresMouseEvents)
+        harness.fades[2].end()
+        #expect(!harness.window.ignoresMouseEvents)
     }
 
     @Test func aPanelOpenedAgainDuringItsCloseFadesBackInWithNoSecondGrow() {
@@ -376,6 +498,7 @@ struct RoomArtPanelMotionTests {
         harness.content.layer?.removeAllAnimations()
         harness.motion.open(harness.window, growing: harness.content)
         #expect(harness.grow == nil)
+        #expect(!harness.window.ignoresMouseEvents)
         #expect(harness.fades.map(\.alpha) == [1, 0, 1])
     }
 
@@ -394,8 +517,10 @@ struct RoomArtPanelMotionTests {
         #expect(harness.fades.last?.alpha == 1 && harness.fades.last?.windowAlphaAtTheStart == 0)
     }
 
-    @Test func openingThePanelEndsAHoverThePointerLeftWhileItClosed() {
+    @Test(arguments: [false, true])
+    func openingThePanelEndsAHoverThePointerLeftWhileItClosed(reduceMotionIsOn: Bool) {
         let harness = Harness()
+        harness.reduceMotionIsOn = reduceMotionIsOn
         let hoverView = HoverAndPointerNSView(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
         hoverView.mouseLocationInTheWindow = { _ in CGPoint(x: 500, y: 300) }
         var reportedHovers: [Bool] = []
@@ -405,6 +530,9 @@ struct RoomArtPanelMotionTests {
         // Hovered as the panel closed, and the closing window passed on no exit.
         hoverView.reportTheHover(true)
         harness.motion.open(harness.window, growing: harness.content)
+        // A growing panel takes the mouse, and checks its hovers, as the grow ends. With no grow it does both at once.
+        #expect(reportedHovers == (reduceMotionIsOn ? [true, false] : [true]))
+        harness.fades.last?.end()
         #expect(reportedHovers == [true, false])
     }
 

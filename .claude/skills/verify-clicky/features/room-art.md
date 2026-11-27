@@ -71,6 +71,24 @@ Preconditions:
   The log shows `Room art:` lines for the page read and the wall, then `Room art: N fps, track N ms, segment N ms` every 5 s.
   Run `$V shot room-art-measuring` in the first seconds, while the wall is measured: only the status line "Measuring your wall…" shows over the camera, with no loop and no outline of a bare patch of wall.
   Run `$V shot room-art` once the line "Here it is at <size>." plays: the art hangs on the wall in the panel, and a person in the video stays in front of it.
+- **The panel opening.** Run the panel with a recorded camera once, so the panel's place is saved, and read its window's rect with a `CGWindowListCopyWindowInfo` read of the Clicky windows.
+  Run `screencapture -v -V 20 -R<x>,<y>,<width>,<height> "$RUN/room-art-open.mov" & $V app-launch --room-camera-file <video of a room> "how would this look in my room"; wait`, then `ffmpeg -loglevel error -i "$RUN/room-art-open.mov" -vf fps=30 "$RUN/room-art-open-%04d.png"`.
+  In the first frames that show the panel, it is faint and slightly smaller than its rect, with its top edge in place, and within about half a second it is solid and fills the rect.
+  A click on Close's place during that grow does not close the panel, and the same click after it does.
+- **The panel closing.** With the panel open and a result showing, record 4 s as above into `room-art-close.mov` and click Close during it (`./mouse click <x of the panel's right edge - 32> <y of its top edge + 32>`).
+  The frames show the panel fading out in about 0.15 s with its status line and buttons fading with it, and no control disappears or changes before the panel does.
+  The picture and any loop hold still during the fade: no frame of the plain camera replaces a painting, a placed item, or a painted shirt.
+- **Reopening during the fade.** On a wall art page with collapsed sections, such as an IKEA framed print, run `$V app-launch --room-camera-file <video of a room> "how would this look on my wall|+40 how would this look on my wall"`.
+  While the second request still reads the front tab, before the panel's status line changes, click the wall in the panel, which moves the art, so the request closes the panel and opens it again at once.
+  A recording shows the panel staying at full size and coming back from its fade, with no second grow.
+  The window of time is under a second, and the unit test `aPanelOpenedAgainDuringItsCloseFadesBackInWithNoSecondGrow` pins the rule.
+- **Reduce Motion.** This changes a setting of the Mac, so turn it off again afterward.
+  Turn on System Settings > Accessibility > Display > Reduce motion, then record the panel opening and closing as above.
+  The panel only fades, at its full size from its first frame, and a click on Close counts as soon as the panel shows.
+- **The status pill at the smallest size.** The panel's place is a Debug app default, so save it first with `defaults read com.crodris.clicky-watch-along roomArtPanelFrame`.
+  Run `defaults write com.crodris.clicky-watch-along roomArtPanelFrame '{{200, 200}, {480, 270}}'`, then `$V app-launch --room-camera-file <video that turns> "how would this look on my wall"`.
+  Once the video turns away, `$V shot room-art-pill-small` shows "Lost the wall. Turn back, or click the wall to place it again." whole on 2 lines in a solid dark pill, with Save photo and Close whole beside and above it.
+  Write the saved value back with `defaults write`.
 - **Picture from the image file.** Leave a cookie banner up over the product photo, such as IKEA's, and run `$V app-launch --room-camera-file <video of a room> "how would this look in my room"`.
   The log says `Room art: used the page's image file (WxH) from <host>` with a long side of at most 1280, and `$V shot room-art` shows the art with no banner on it.
   A picture with no usable file (a page whose image is not https, is under 160 pixels, or is hosted on localhost or a private address) logs `Room art: ... so the picture is a screen capture` and falls back to the capture.
@@ -97,6 +115,10 @@ Preconditions:
   While the painting comes, the ghost is at half opacity, the loop's line traces its footprint, and the status says "Arranging it in your room…". About 20 s later the log says `the painted item is N% of the measured box's outline` and `showing the painted composite`, and "Here it is, …" plays.
   Standing in the ghost's box at the placement makes Clicky say "Step aside for a second." once, and the painting waits for a clear frame. The 45 s wait for a render counts from the painting request going out, and a second 45 s wait counts from the placement, so a learner who stays in the box still sees a ready render after 45 s, and with no render hears the could-not-draw line once the 45 s placement wait has run out and the model search has ended with no render, whichever is later.
   The brain eval cases for the ghost run with `node bench/brainEvals.ts run --label ghost --runs 3 --only ghost-move-left,ghost-move-a-foot-closer,ghost-turn-around,ghost-push-back,ghost-place-it-here,ghost-question --port <port>`.
+- **"Step aside" only while arranging.** With a camera video where a person stands in the box the ghost takes, open IKEA's LACK side table and run `$V app-launch --room-camera-file <that video> "how would this table look in my room|+40 right there"`.
+  While the piece is arranged, `$V shot room-art-step-aside` shows "Step aside for a second." in the status line under the half-opacity ghost.
+  About 45 s after the placement the store model's render shows, and `$V shot room-art-step-aside-showing` shows the piece's own line, "On your floor, <size>", although the person still stands in the box.
+  When the video turns away during the wait, the status line says "Lost the floor. Turn back to where the piece stands." instead.
 - **The store's model and the composite.** With the same video, open IKEA's LACK side table (https://www.ikea.com/us/en/p/lack-side-table-white-30449908/), Target's Threshold chair (https://www.target.com/p/-/A-87737798), or Article's Sven sofa, and run the same `app-launch`.
   The log shows `Room art: opened N collapsed sections of the page before reading it` on IKEA, `Room furniture: the page names N model files, ...`, `found the store's own model at <host>`, `rendered in N ms`, and `rendered the storeModel from <host>, held back while the painting comes`, and the render never shows before the painting unless 45 s pass.
   About 20 s after the painting request goes out the log says `showing the painted composite`, and "Here it is" plays then, and `$V shot room-art-furniture-composite` shows the painting.
