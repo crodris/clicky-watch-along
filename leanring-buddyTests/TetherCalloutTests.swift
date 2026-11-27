@@ -341,24 +341,38 @@ struct TetherCalloutTests {
         return renderer.cgImage.map { CGSize(width: CGFloat($0.width) / 2, height: CGFloat($0.height) / 2) } ?? .zero
     }
 
-    @Test func theSpokenWordsUnderlineIsExactlyTwoPointsOfTheAccent() throws {
+    @Test func theSpokenWordsUnderlineIsExactlyTwoPointsOfTheAccent() async throws {
         let accentHex = "#FF00FF"
         let line = SpeechCalloutLine(text: "the fan spins", startOffset: 0)
         let lineView = SpeechCalloutLayout.lineText(of: line, revealedCharacterCount: 6, currentWordRange: 4..<7, accent: Color(hex: accentHex))
             .font(DS.TypeScale.voice.font)
             .spokenWordUnderline(accent: Color(hex: accentHex))
             .fixedSize()
-        let pixels = try renderedPixels(of: lineView, onPage: Color(hex: "#14171E"))
-        let rowsWithTheAccent = (0..<pixels.pixelsHigh).filter { row in
-            (0..<pixels.pixelsWide).contains { column in pixel(pixels.colorAt(x: column, y: row), isCloseTo: accentHex) }
-        }
+        let rendered = try renderedPixels(of: lineView, onPage: Color(hex: "#14171E"))
+        let pixels = try DrawingPixels(drawing: try #require(rendered.cgImage), widthInPoints: CGFloat(rendered.pixelsWide) / 2)
+        let accent = try #require(ThemeRGBColor(hex: accentHex))
+        let accentChannels = [accent.red, accent.green, accent.blue].map { Int(($0 * 255).rounded()) }
+        let (bytes, width, height) = (pixels.bytes, pixels.width, pixels.height)
+        // The scan runs off the main actor, which it would otherwise hold from every other test.
+        let scan = await Task.detached {
+            // The columns of each row that hold the accent, within 3 in every channel as `pixel(_:isCloseTo:)` allows.
+            let accentColumnsByRow = (0..<height).map { row in
+                (0..<width).filter { column in
+                    let offset = (row * width + column) * 4
+                    return (0..<3).allSatisfy { abs(Int(bytes[offset + $0]) - accentChannels[$0]) <= 3 }
+                }
+            }
+            return (accentColumnsByRow: accentColumnsByRow, ranOnTheMainThread: pthread_main_np() != 0)
+        }.value
+        #expect(!scan.ranOnTheMainThread)
+        let rowsWithTheAccent = scan.accentColumnsByRow.indices.filter { !scan.accentColumnsByRow[$0].isEmpty }
         // 2 points at 2x is 4 rows of solid accent, side by side.
         #expect(rowsWithTheAccent.count == 4, "accent rows: \(rowsWithTheAccent)")
         #expect(rowsWithTheAccent.last.map { $0 - rowsWithTheAccent[0] } == 3)
         // The bar spans only the spoken word "fan", not the whole line.
         let barRow = try #require(rowsWithTheAccent.first)
-        let barColumns = (0..<pixels.pixelsWide).filter { column in pixel(pixels.colorAt(x: column, y: barRow), isCloseTo: accentHex) }
-        let lineWidthInPixels = pixels.pixelsWide - 2 * 30 * 2
+        let barColumns = scan.accentColumnsByRow[barRow]
+        let lineWidthInPixels = pixels.width - 2 * 30 * 2
         #expect(barColumns.count > 0 && barColumns.count < lineWidthInPixels / 2)
     }
 
