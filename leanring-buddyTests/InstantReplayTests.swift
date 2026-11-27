@@ -762,7 +762,9 @@ struct InstantReplayTests {
         panelController?.mouseLocationOnScreen = { pointOnTheCard }
         show()
         let timer = try #require(panelController?.clickThroughTimer)
-        weak var releasedController = panelController
+        // Assigned after the declaration, so the compiler sees a mutation and no `weak let` is needed (Xcode 26.0 and 26.1 lack it).
+        weak var releasedController: InstantReplayPanelController?
+        releasedController = panelController
         panelController = nil
         try await waitUntil { !timer.isValid }
         #expect(releasedController == nil)
