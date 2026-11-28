@@ -330,7 +330,7 @@ struct BlueCursorView: View {
             // allowsHitTesting(false) prevents it from intercepting clicks.
             OnboardingVideoPlayerView(player: companionManager.onboardingVideoPlayer)
                 .frame(width: onboardingVideoPlayerWidth, height: onboardingVideoPlayerHeight)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous))
                 .shadow(color: Color.black.opacity(0.4 * companionManager.onboardingVideoOpacity), radius: 12, x: 0, y: 6)
                 .opacity(isCursorOnThisScreen ? companionManager.onboardingVideoOpacity : 0)
                 .position(

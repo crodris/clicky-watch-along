@@ -389,7 +389,7 @@ struct CursorLoopState: Equatable {
 /// runs clockwise, so the overshoot ends a little past the start, drifting inside the line.
 enum CursorLoopOutline {
     static let gapFromTheMediaInPoints: CGFloat = 4
-    static let cornerRadiusInPoints: CGFloat = 13
+    static let cornerRadiusInPoints: CGFloat = 13 // design-token-exempt: the loop outline's corner, drawn as a path
     static let wobbleInPoints: CGFloat = 1
     /// Where along the top edge the line starts and where its overshoot ends, from the outline's left edge.
     static let startOffsetFromTheLeftEdgeInPoints: CGFloat = 30

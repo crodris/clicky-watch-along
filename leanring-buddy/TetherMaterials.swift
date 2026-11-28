@@ -122,7 +122,7 @@ struct TetherCalloutShape: Shape {
     /// The width of the tail where it leaves the pill.
     private static let tailBaseWidth: CGFloat = 13
     /// The pill's corner radius stops growing here, so a Callout of several lines keeps round corners, not round ends.
-    private static let largestCornerRadius: CGFloat = 22
+    private static let largestCornerRadius: CGFloat = 22 // design-token-exempt: the Callout outline's largest corner, drawn as a path
 
     /// Insets the outline, so a rim stroked on it stays inside the fill.
     var inset: CGFloat = 0

@@ -88,10 +88,10 @@ struct ThemeFilePreviewView: View {
                 .foregroundColor(DS.Colors.textTertiary)
                 .frame(width: 46, alignment: .leading)
             ForEach(colors.indices, id: \.self) { colorIndex in
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.swatch)
                     .fill(colors[colorIndex])
                     .frame(width: 16, height: 16)
-                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(DS.Colors.edge, lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.swatch).strokeBorder(DS.Colors.edge, lineWidth: 1))
             }
             if let note {
                 Text(note)

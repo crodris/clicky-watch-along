@@ -193,8 +193,8 @@ struct CompanionPanelView: View {
                     }
                 }
             )
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DS.Colors.surface1))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).fill(DS.Colors.surface1))
+            .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous))
             // A new request, or a new open of the panel, gets a new card, so its summary is measured from the top: the
             // desk forgot what this surface had seen when the panel closed.
             .id("\(shownCard.request.approvalID)-\(presentation.openCount)")
@@ -435,9 +435,9 @@ struct PanelHeaderView: View {
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous)
                     .fill(RadialGradient(colors: [DS.Colors.panelCursorTileTop, DS.Colors.panelCursorTileBottom], center: UnitPoint(x: 0.4, y: 0.35), startRadius: 0, endRadius: 34))
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous)
                     .strokeBorder(DS.Colors.edge, lineWidth: 1)
                 // A new theme's cursor Pops in: each theme is its own view, so the change is a removal and an insertion.
                 SettingsDialCustomCursor(
@@ -562,9 +562,9 @@ struct PanelBannerView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DS.Colors.destructiveSurface))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).fill(DS.Colors.destructiveSurface))
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous)
                 .strokeBorder(DS.Colors.destructiveEdge, lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
@@ -623,8 +623,8 @@ private struct PanelAgentsSection: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DS.Colors.surface2))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).fill(DS.Colors.surface2))
+            .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
 
             if let selectedAgentID, let pickedAgent = agents.first(where: { $0.id == selectedAgentID }) {
                 pickedAgentActions(pickedAgent)
@@ -731,12 +731,12 @@ private struct PanelAgentsOpenListButton: View {
             .lineLimit(1)
             .padding(.vertical, 4)
             .padding(.horizontal, 4)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(isHovered ? 0.06 : 0)))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(Color.white.opacity(isHovered ? 0.06 : 0)))
             .contentShape(Rectangle())
         }
         .buttonStyle(PanelPressStyle())
         .hoverAndPointer { isHovered = $0 }
-        .panelKeyboardControl(cornerRadius: 6, action: open)
+        .panelKeyboardControl(cornerRadius: DS.CornerRadius.chip, action: open)
         .accessibilityLabel([summary.mainText, summary.secondaryText].compactMap { $0 }.joined(separator: ", ") + ". Open the agent list")
     }
 }
@@ -758,8 +758,8 @@ private struct PanelModelPicker: View {
             }
         }
         .padding(2)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(DS.Colors.surface2))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).fill(DS.Colors.surface2))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Model")
     }
@@ -788,14 +788,14 @@ private struct PanelModelOption: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.control, style: .continuous)
                     .fill(isSelected ? DS.Colors.surface4 : Color.white.opacity(isHovered ? 0.05 : 0))
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(PanelPressStyle())
         .hoverAndPointer { isHovered = $0 }
-        .panelKeyboardControl(cornerRadius: 7, action: select)
+        .panelKeyboardControl(cornerRadius: DS.CornerRadius.control, action: select)
         .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: isSelected)
         .accessibilityLabel("\(label), \(detail)")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
@@ -974,8 +974,8 @@ struct SetupAllSetCard: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DS.Colors.setupAllSetSurface))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DS.Colors.setupAllSetEdge, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).fill(DS.Colors.setupAllSetSurface))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).strokeBorder(DS.Colors.setupAllSetEdge, lineWidth: 1))
     }
 }
 
@@ -1059,8 +1059,8 @@ private struct SetupStepRow: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(rowFill))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(rowEdge, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).fill(rowFill))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).strokeBorder(rowEdge, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Step \(stepNumber) of \(stepCount), \(step.title), \(spokenState)")
     }

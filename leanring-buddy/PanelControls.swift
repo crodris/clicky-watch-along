@@ -95,7 +95,7 @@ struct PanelSwitch: View {
             .tint(accentColor)
             .controlSize(.small)
             .hoverAndPointer { _ in }
-            .panelKeyboardControl(cornerRadius: 9) { isOn.toggle() }
+            .panelKeyboardControl(cornerRadius: DS.CornerRadius.pill) { isOn.toggle() }
             .accessibilityLabel(accessibilityLabel)
     }
 }
@@ -113,8 +113,8 @@ struct PanelKeyCap: View {
             .foregroundColor(DS.Colors.textPrimary)
             .padding(.horizontal, 4)
             .frame(minWidth: 16, minHeight: 16)
-            .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(DS.Colors.surface3))
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip, style: .continuous).fill(DS.Colors.surface3))
+            .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.chip, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
     }
 }
 

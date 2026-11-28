@@ -951,7 +951,7 @@ private struct AgentListView: View {
 
     /// The theme's name after a small square in its accent, with every name coming from the theme's file.
     @ViewBuilder private var headerTitle: some View {
-        RoundedRectangle(cornerRadius: 3)
+        RoundedRectangle(cornerRadius: DS.CornerRadius.swatch)
             .fill(themeSettings.shownTheme.cursorColor)
             .frame(width: 10, height: 10)
         // A saved name runs to 24 characters, so it is cut before it pushes the running count off the header.

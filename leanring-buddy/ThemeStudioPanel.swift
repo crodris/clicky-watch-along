@@ -446,8 +446,8 @@ struct ThemeStudioCardView: View {
                 .resizable()
                 .scaledToFill()
                 .frame(width: 22, height: 22)
-                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.chip, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.chip, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
             Text("From your picture")
                 .font(DS.TypeScale.caption.font)
                 .foregroundColor(DS.Colors.textSecondary)
@@ -606,7 +606,7 @@ private struct ThemeStudioTileView: View {
                     .truncationMode(.tail)
                 HStack(spacing: 3) {
                     ForEach(Array(([Color(hex: idea.accentHex)] + idea.agentColorsInOrder.prefix(3).map(\.color)).enumerated()), id: \.offset) { _, swatchColor in
-                        RoundedRectangle(cornerRadius: 2)
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.swatch)
                             .fill(swatchColor)
                             .frame(width: 8, height: 8)
                     }
@@ -724,9 +724,9 @@ private struct ThemeStudioPlaceholderTileView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ShimmerBar(reduceMotion: reduceMotion, cornerRadius: 28).frame(width: 56, height: 56)
-            ShimmerBar(reduceMotion: reduceMotion, cornerRadius: 3).frame(width: 60, height: 10)
-            ShimmerBar(reduceMotion: reduceMotion, cornerRadius: 2).frame(width: 52, height: 8)
+            ShimmerBar(reduceMotion: reduceMotion, cornerRadius: DS.CornerRadius.pill).frame(width: 56, height: 56)
+            ShimmerBar(reduceMotion: reduceMotion, cornerRadius: DS.CornerRadius.swatch).frame(width: 60, height: 10)
+            ShimmerBar(reduceMotion: reduceMotion, cornerRadius: DS.CornerRadius.swatch).frame(width: 52, height: 8)
         }
         .padding(10)
         .frame(width: Self.tileWidth)
@@ -778,7 +778,7 @@ private struct ThemeStudioTagsView: View {
                     .lineLimit(1)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(DS.Colors.surface3))
+                    .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(DS.Colors.surface3))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

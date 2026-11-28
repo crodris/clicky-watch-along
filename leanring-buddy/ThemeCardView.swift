@@ -116,8 +116,8 @@ struct ThemeCardFullNamePill: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .frame(minHeight: Self.oneLineHeight)
-            .background(RoundedRectangle(cornerRadius: 7).fill(DS.Colors.calloutSurface))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(DS.Colors.keyboardFocusRing, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(DS.Colors.calloutSurface))
+            .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).strokeBorder(DS.Colors.keyboardFocusRing, lineWidth: 1))
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
@@ -172,7 +172,7 @@ struct ThemeCard: View {
                     .frame(height: Self.nameHeight, alignment: .top)
                 HStack(spacing: 3) {
                     ForEach(Array(([accentColor] + theme.agentColorsInOrder.prefix(3).map(\.color)).enumerated()), id: \.offset) { _, swatchColor in
-                        RoundedRectangle(cornerRadius: 2)
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.swatch)
                             .fill(swatchColor)
                             .frame(width: 8, height: 8)
                     }
@@ -305,7 +305,7 @@ struct ThemeCard: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 5).fill(DS.Colors.destructiveSurface))
+                .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(DS.Colors.destructiveSurface))
                 .padding(6)
                 .accessibilityAddTraits(.updatesFrequently)
         } else if deleteIsArmed {
@@ -337,9 +337,9 @@ struct ThemeCard: View {
             .foregroundColor(DS.Colors.textPrimary)
             .padding(.horizontal, 5)
             .padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 5).fill(DS.Colors.ground))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(DS.Colors.ground))
             .overlay(
-                RoundedRectangle(cornerRadius: 5)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.chip)
                     .strokeBorder(problemText == nil ? DS.Colors.border : DS.Colors.destructive, lineWidth: 1)
             )
             .focused($nameFieldIsFocused)

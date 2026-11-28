@@ -3718,7 +3718,7 @@ private struct RoomArtPanelView: View {
         }
         .frame(width: roomArtPanelResizeGripSide - 8, height: roomArtPanelResizeGripSide - 8)
         .padding(4)
-        .background(RoundedRectangle(cornerRadius: 6).fill(DS.Colors.ground.opacity(resizeGripIsHovered ? 0.7 : 0)))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(DS.Colors.ground.opacity(resizeGripIsHovered ? 0.7 : 0)))
         .overlay(RoomArtPanelWindowControl(kind: .resizeGrip))
         .hoverAndPointer { isHovered in resizeGripIsHovered = isHovered }
         .padding(roomArtPanelResizeGripEdgeInset)
@@ -3801,7 +3801,7 @@ struct RoomArtStatusPill: View {
     static let mostLines = 2
     static let horizontalPadding: CGFloat = 14
     /// Half the height of a one line pill, so one line reads as a capsule and two keep round corners.
-    private static let cornerRadius: CGFloat = 16
+    private static let cornerRadius: CGFloat = 16 // design-token-exempt: half a one-line pill's height, so two lines keep these corners
 
     private var pillShape: RoundedRectangle { RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous) }
 
