@@ -492,13 +492,6 @@ struct ThemeStudioCardTextTests {
         #expect(!ThemeStudioState.closed.hasIdea(number: 1))
     }
 
-    @Test func theSaveButtonsLettersAreDarkOnABrightAccentAndWhiteOnADarkOne() throws {
-        #expect(try #require(ThemeRGBColor(hex: "#7DD3FC")).readsBetterWithDarkInk)
-        #expect(try #require(ThemeRGBColor(hex: "#FDE68A")).readsBetterWithDarkInk)
-        // A deep violet or blue still has the contrast of 3 the Worker needs against the overlay's dark surface, but white letters read better on it.
-        #expect(!(try #require(ThemeRGBColor(hex: "#2563EB")).readsBetterWithDarkInk))
-        #expect(!(try #require(ThemeRGBColor(hex: "#7C3AED")).readsBetterWithDarkInk))
-    }
 }
 
 struct ThemeStudioCardExitTests {

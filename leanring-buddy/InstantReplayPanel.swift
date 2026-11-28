@@ -322,15 +322,19 @@ private struct InstantReplayButton: View {
 
     private var fillColor: Color {
         switch style {
-        case .accent(let accentHex): return Color(hex: accentHex).opacity(isHovered ? 0.85 : 1)
+        case .accent(let accentHex): return Color(hex: accentHex)
         case .plain: return isHovered ? DS.Colors.surface4 : DS.Colors.surface3
         }
     }
 
+    private var isFilledWithAnAccent: Bool {
+        if case .accent = style { return true }
+        return false
+    }
+
     private var letterColor: Color {
         switch style {
-        // Near-black ink reads on every accent, Clicky blue included, as on the Callout's icon disc.
-        case .accent: return DS.Colors.inkOnAccent
+        case .accent(let accentHex): return Color(hex: ThemeRGBColor.inkHex(onFillHex: accentHex))
         case .plain: return DS.Colors.textPrimary
         }
     }
@@ -342,6 +346,7 @@ private struct InstantReplayButton: View {
                 .padding(.horizontal, 11)
                 .padding(.vertical, 5)
                 .background(Capsule().fill(fillColor))
+                .accentFillHoverRing(Capsule(), ink: letterColor, isShowing: isFilledWithAnAccent && isHovered)
                 .contentShape(Capsule())
                 .fixedSize()
         }

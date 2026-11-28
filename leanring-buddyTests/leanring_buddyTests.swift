@@ -642,7 +642,7 @@ struct leanring_buddyTests {
     }
 
     @Test func framePopoutPageCarriesTheCursorColorForTheQuizLabel() async throws {
-        // The label's "?" must match the cursor that points at it, so the page reads both colors from its data.
+        // The label's "?" must match the cursor that points at it, so the page reads the cursor's color from its data.
         let overlayScreen = try #require(NSScreen.screens.first)
         let frameGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: nil, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
         let framePopout = VideoFramePopout(
@@ -655,7 +655,7 @@ struct leanring_buddyTests {
         )
         let clickyBluePageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: clickyBlueTheme))
         #expect(clickyBluePageHTML.contains("\"quizLabelColor\":\"#3380FF\""))
-        // Text on the accent is the Tether ink from scene-style.css, so the page carries no text color of the theme's.
+        // The overlay sets the ink for text on the accent beside the accent, so the page data carries no text color.
         #expect(!clickyBluePageHTML.contains("quizLabelTextColor"))
         let nekomaPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: bundledTheme("school-nekoma")))
         #expect(nekomaPageHTML.contains("\"quizLabelColor\":\"#E0313B\""))

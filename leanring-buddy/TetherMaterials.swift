@@ -9,7 +9,48 @@
 //  (`prototype/tether/materials` on the `prototype/tether-phase-zero` branch).
 //
 
+import AppKit
 import SwiftUI
+
+// MARK: - Ink
+
+extension Color {
+    /// Each fill's ink once it has been worked out. The key is the color's own value, so an entry never goes out of date
+    /// for the fixed colors the app passes. A dynamic system color must not be passed, since its kept ink would not follow
+    /// the color as it changes. The cache is not trimmed, because the app has only a small number of accent and agent colors.
+    static var inksByFill: [Color: Color] = [:]
+
+    /// The color of text and icons drawn on a fill of this color: near-black or white, whichever reads better on it
+    /// (`ThemeRGBColor.inkHexOnThisFill`). A status line's Callout reads it 30 times a second, so each fill's ink is
+    /// worked out once and kept.
+    var inkOnThisFill: Color {
+        if let keptInk = Self.inksByFill[self] { return keptInk }
+        let ink = workedOutInkOnThisFill
+        Self.inksByFill[self] = ink
+        return ink
+    }
+
+    /// Bridges to AppKit for the color's channels and compares both inks' contrast.
+    private var workedOutInkOnThisFill: Color {
+        guard let fill = NSColor(self).usingColorSpace(.sRGB) else { return Color(hex: ThemeRGBColor.darkInkHex) }
+        let fillColor = ThemeRGBColor(red: fill.redComponent, green: fill.greenComponent, blue: fill.blueComponent)
+        return Color(hex: fillColor.inkHexOnThisFill)
+    }
+}
+
+extension View {
+    /// The hover of a button filled with an accent: a ring just inside the button's edge, in the ink of its letters. The
+    /// fill never changes on hover, since the ink was chosen for the fill as it rests, and a fainter or brighter fill can
+    /// lose that contrast.
+    func accentFillHoverRing(_ buttonShape: some InsettableShape, ink: Color, isShowing: Bool) -> some View {
+        overlay {
+            buttonShape
+                .strokeBorder(ink.opacity(0.35), lineWidth: 2)
+                .opacity(isShowing ? 1 : 0)
+                .allowsHitTesting(false)
+        }
+    }
+}
 
 // MARK: - Card
 
@@ -116,8 +157,9 @@ struct TetherCalloutShape: Shape {
     }
 }
 
-/// The Callout: a solid `#14171e` pill with an accent rim, an accent icon disc with near-black ink,
-/// a tail toward the cursor, and its words in white at 15/700 rounded (`DS.TypeScale.voice`).
+/// The Callout: a solid `#14171e` pill with an accent rim, an accent icon disc with its icon in the ink that reads on
+/// that accent (`Color.inkOnThisFill`), a tail toward the cursor, and its words in white at 15/700 rounded
+/// (`DS.TypeScale.voice`).
 /// Its one shadow is black. The rim alone carries the accent, so a saturated theme never glows onto the page.
 ///
 ///     TetherCallout(accent: theme.cursorColor, rim: .chip) {
@@ -143,7 +185,7 @@ struct TetherCallout<Icon: View, Content: View>: View {
                 Circle().fill(accent)
                 icon
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(DS.Colors.inkOnAccent)
+                    .foregroundStyle(accent.inkOnThisFill)
             }
             .frame(width: Self.iconDiscDiameter, height: Self.iconDiscDiameter)
             content

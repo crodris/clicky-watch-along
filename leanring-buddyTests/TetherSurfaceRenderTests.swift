@@ -54,7 +54,7 @@ struct TetherSurfaceRenderTests {
     @Test func theDialPlateIsOpaqueSoNoPageShowsThroughIt() throws {
         let bitmap = try render(dialView(), named: "dial-open")
         // Between two tokens, away from every token and the center glyph: a point on the plate at 100 points, 126 degrees
-        // from Team's angle falls between Show and More. A white page behind a translucent plate would read near white.
+        // from Theme's angle falls between Show and More. A white page behind a translucent plate would read near white.
         let plateColor = try #require(pixel(in: bitmap, offsetFromTheCenter: CGPoint(x: 0, y: 98)))
         #expect(plateColor.alphaComponent > 0.99)
         #expect(plateColor.redComponent < 0.2 && plateColor.greenComponent < 0.2 && plateColor.blueComponent < 0.2)
@@ -63,7 +63,7 @@ struct TetherSurfaceRenderTests {
     @Test func theAccentRimIsStrongestAtTheTopOfThePlate() throws {
         let bitmap = try render(dialView(), named: "dial-rim")
         let rimRadius = SettingsDialGeometry.plateRadius - 0.75
-        // Off to the side of Team's label at the top, and in the gap between the two bottom labels, where nothing covers the rim.
+        // Off to the side of Theme's label at the top, and in the gap between the two bottom labels, where nothing covers the rim.
         let topOffsetX: CGFloat = -45
         let rimAtTheTop = try #require(pixel(in: bitmap, offsetFromTheCenter: CGPoint(x: topOffsetX, y: -(rimRadius * rimRadius - topOffsetX * topOffsetX).squareRoot())))
         let rimAtTheBottom = try #require(pixel(in: bitmap, offsetFromTheCenter: CGPoint(x: 0, y: rimRadius)))
@@ -72,8 +72,8 @@ struct TetherSurfaceRenderTests {
         #expect(accentShare(rimAtTheTop) > accentShare(rimAtTheBottom) + 0.2)
     }
 
-    @Test func theTeamFanShowsAndNamesTheHighlightedThemeOnAPillInItsOwnAccent() throws {
-        let bitmap = try render(dialView(selection: SettingsDialSelection(slice: .team, fanItemIndex: 1)), named: "dial-team-fan")
+    @Test func theThemeFanShowsAndNamesTheHighlightedThemeOnAPillInItsOwnAccent() throws {
+        let bitmap = try render(dialView(selection: SettingsDialSelection(slice: .theme, fanItemIndex: 1)), named: "dial-theme-fan")
         #expect(bitmap.pixelsWide == Int(SettingsDialPlacement.panelSize.width * 2))
     }
 

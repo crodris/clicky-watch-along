@@ -44,6 +44,11 @@ final class ThemeStudioPanelController {
     private var highlightedTileCursorCenterInTheWindow: CGPoint?
     /// The card window's level, which a test reads to see when the card rises above the cursor overlay.
     var windowLevel: NSWindow.Level? { panel?.level }
+    /// The window's height and the height its card asks for, which a test reads to see the window follow the card.
+    var windowHeightAndCardHeight: (window: CGFloat, card: CGFloat)? {
+        guard let panel, let contentView = panel.contentView else { return nil }
+        return (panel.frame.height, contentView.fittingSize.height)
+    }
     /// The Glide out of the cursor while it plays, which a test reads to see that a close during it shows nothing whole.
     private(set) var openingFlight: CarrierFlight?
     /// The studio whose card this is, which a card that closes plays its move with.
@@ -325,8 +330,6 @@ struct ThemeStudioCardView: View {
     let onHighlightedCursorCenterChange: (CGPoint?) -> Void
     let onContentSizeChange: (CGSize) -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     private static let hint = "Say one, two, or three · or what to change · say save it"
 
     /// The state the card draws: the studio's, or its last open one while the card closes on the carrier.
@@ -356,14 +359,7 @@ struct ThemeStudioCardView: View {
                 ThemeStudioTagsView(tags: themeStudioTags(for: highlightedIdea))
             }
             if studio.showsTheDesignFailedNotice {
-                TetherCallout(accent: DS.Colors.destructive, rim: .chip) {
-                    Image(systemName: "xmark")
-                } content: {
-                    Text("Couldn't design that. Your ideas are still here.")
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .transition(.opacity)
+                ThemeStudioDesignFailedRow()
             }
             Text(Self.hint)
                 .font(DS.TypeScale.caption.font)
@@ -376,7 +372,8 @@ struct ThemeStudioCardView: View {
         .fixedSize(horizontal: false, vertical: true)
         .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous))
         .tetherCard()
-        .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: studio.showsTheDesignFailedNotice)
+        // No animation covers the whole Card. A change that adds or removes a row changes the window's height at once, so an
+        // animated layout would draw the rows still on their way over the new one, and leave the outgoing header text behind.
         // The window is larger than the Card, so the Card's shadow has room to draw.
         .padding(EdgeInsets(
             top: AgentListWindowMargins.top,
@@ -615,7 +612,7 @@ private struct ThemeStudioTileView: View {
             if isStamped {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(DS.Colors.inkOnAccent, accentColor)
+                    .foregroundStyle(accentColor.inkOnThisFill, accentColor)
                     .padding(6)
                     .transition(reduceMotion ? .opacity : .scale(scale: DS.Move.popStartScale).combined(with: .opacity))
             }
@@ -635,6 +632,27 @@ private struct ThemeStudioTileView: View {
             }
         }
         .accessibilityLabel("\(idea.name), idea")
+    }
+}
+
+/// A design that failed with the old ideas still on the Card says so in a red-tinted row of the Card. It is not a Callout,
+/// whose tail points at the cursor.
+private struct ThemeStudioDesignFailedRow: View {
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .heavy))
+                .foregroundColor(DS.Colors.destructiveText)
+            Text("Couldn't design that. Your ideas are still here.")
+                .font(DS.TypeScale.body.font)
+                .foregroundColor(DS.Colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous).fill(DS.Colors.destructiveSurface))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -814,16 +832,20 @@ struct ThemeStudioButton: View {
 
     private var fillColor: Color {
         switch style {
-        case .primary(let accentHex?): return Color(hex: accentHex).opacity(isHovered && isEnabled ? 0.85 : 1)
+        case .primary(let accentHex?): return Color(hex: accentHex)
         case .primary(nil), .plain: return isHovered && isEnabled ? DS.Colors.surface4 : DS.Colors.surface3
         }
+    }
+
+    private var isFilledWithAnAccent: Bool {
+        if case .primary(.some) = style { return true }
+        return false
     }
 
     private var letterColor: Color {
         switch style {
         case .primary(let accentHex?):
-            let accentReadsBetterWithDarkInk = ThemeRGBColor(hex: accentHex)?.readsBetterWithDarkInk ?? false
-            return accentReadsBetterWithDarkInk ? Color(hex: "#111111") : .white
+            return Color(hex: ThemeRGBColor.inkHex(onFillHex: accentHex))
         case .primary(nil), .plain:
             return DS.Colors.textPrimary
         }
@@ -837,6 +859,11 @@ struct ThemeStudioButton: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
                 .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(fillColor))
+                .accentFillHoverRing(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium),
+                    ink: letterColor,
+                    isShowing: isFilledWithAnAccent && isHovered && isEnabled
+                )
                 .opacity(isEnabled ? 1 : 0.4)
                 .contentShape(Rectangle())
         }

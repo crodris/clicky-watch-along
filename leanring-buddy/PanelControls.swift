@@ -117,6 +117,11 @@ struct PanelButton: View {
             .padding(.vertical, prominence == .quiet ? 4 : 6)
             .frame(maxWidth: fillsTheWidth ? .infinity : nil)
             .background(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous).fill(backgroundColor))
+            .accentFillHoverRing(
+                RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous),
+                ink: foregroundColor,
+                isShowing: prominence == .primary && isHovered
+            )
             .overlay {
                 if prominence == .secondary {
                     RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
@@ -133,7 +138,7 @@ struct PanelButton: View {
 
     private var foregroundColor: Color {
         switch prominence {
-        case .primary: return DS.Colors.inkOnAccent
+        case .primary: return accentColor.inkOnThisFill
         case .secondary: return DS.Colors.textPrimary
         case .quiet: return isHovered ? DS.Colors.textPrimary : DS.Colors.textSecondary
         case .destructive: return .white
@@ -142,7 +147,7 @@ struct PanelButton: View {
 
     private var backgroundColor: Color {
         switch prominence {
-        case .primary: return accentColor.opacity(isHovered ? 0.88 : 1)
+        case .primary: return accentColor
         case .secondary: return isHovered ? DS.Colors.surface4 : DS.Colors.surface2
         case .quiet: return Color.white.opacity(isHovered ? 0.08 : 0)
         case .destructive: return isHovered ? DS.Colors.destructiveHover : DS.Colors.destructive

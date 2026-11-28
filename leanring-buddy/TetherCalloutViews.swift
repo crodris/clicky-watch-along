@@ -523,24 +523,22 @@ extension View {
 
 // MARK: - Views
 
-/// The icon of a speech Callout: the cursor's own triangle, tilted as the cursor and the agent tokens tilt it, in ink on the
-/// accent disc.
+/// The icon of a speech Callout: the cursor's own triangle, tilted as the cursor and the agent tokens tilt it, in the ink
+/// the Callout gives its icon disc.
 struct TetherCalloutCursorIcon: View {
     var body: some View {
         Triangle()
-            .fill(DS.Colors.inkOnAccent)
             .frame(width: 11, height: 11)
             .rotationEffect(.degrees(-35))
     }
 }
 
-/// The icon of a failure Callout: a cross, in ink on the red disc. The cross stays with Reduce Motion on, where the shake
-/// is dropped, so a failure never rests on color or motion alone.
+/// The icon of a failure Callout: a cross, in the ink the Callout gives its red disc. The cross stays with Reduce Motion
+/// on, where the shake is dropped, so a failure never rests on color or motion alone.
 struct TetherCalloutCrossIcon: View {
     var body: some View {
         Image(systemName: "xmark")
             .font(.system(size: 11, weight: .heavy))
-            .foregroundStyle(DS.Colors.inkOnAccent)
     }
 }
 

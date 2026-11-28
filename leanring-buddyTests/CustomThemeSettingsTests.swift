@@ -38,7 +38,7 @@ struct CustomThemeSettingsTests {
     @Test func aSavedThemeTakesItsColorsFromTheTwoColorsItSet() throws {
         let theme = try customTheme()
         #expect(theme.cursorColorHex == "#7DD3FC")
-        #expect(theme.cursorContrastColorHex == "#1E1B4B")
+        #expect(theme.contrastHex == "#1E1B4B")
         #expect(theme.name == "Moonlit")
     }
 
@@ -51,7 +51,7 @@ struct CustomThemeSettingsTests {
         #expect(try customTheme(sounds: customSounds).sounds == customSounds)
     }
 
-    @Test func theDialsTeamFanListsTheNewestSavedThemesFirstWhileTheSavedListKeepsNameOrder() throws {
+    @Test func theDialsThemeFanListsTheNewestSavedThemesFirstWhileTheSavedListKeepsNameOrder() throws {
         try withATemporaryThemeStore { store in
             // A day ahead of the clock, in whole seconds, so the dates are exact and APFS leaves the creation dates alone.
             let dayFromNow = Date().timeIntervalSinceReferenceDate.rounded() + 86_400
@@ -69,7 +69,7 @@ struct CustomThemeSettingsTests {
             let themeSettings = makeThemeSettings(customThemeStore: store)
             #expect(themeSettings.savedCustomThemes.map(\.name) == ["Alpha", "Beta", "Gamma"])
             let fans = SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: themeSettings.savedCustomThemesWithSavedDates)
-            #expect(fans.teamThemes.suffix(3).map(\.name) == ["Gamma", "Alpha", "Beta"])
+            #expect(fans.themeFanThemes.suffix(3).map(\.name) == ["Gamma", "Alpha", "Beta"])
         }
     }
 

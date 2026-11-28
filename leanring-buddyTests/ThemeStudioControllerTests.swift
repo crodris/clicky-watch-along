@@ -8,6 +8,7 @@
 
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import Clicky
 
@@ -41,6 +42,97 @@ private final class DesignGate {
     func waitUntilSomeoneIsWaiting() async {
         while !isWaiting { await Task.yield() }
     }
+}
+
+/// A drawing of a view: raw sRGB bytes, 4 for each pixel, in rows from the top. Reading each pixel through `colorAt`
+/// holds the main actor for seconds.
+struct DrawingPixels {
+    let width: Int
+    private(set) var height: Int
+    let pixelsPerPoint: CGFloat
+    private(set) var bytes: Data
+
+    init(drawing image: CGImage, widthInPoints: CGFloat) throws {
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try #require(CGContext(
+            data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        width = image.width
+        height = image.height
+        pixelsPerPoint = CGFloat(image.width) / widthInPoints
+        bytes = Data(bytes: try #require(context.data), count: image.width * image.height * 4)
+    }
+
+    /// This drawing with clear rows added below it, up to `pixelHeight`. A drawing that is already taller keeps its
+    /// height, so it never matches a shorter drawing.
+    func withClearRowsBelow(upTo pixelHeight: Int) -> DrawingPixels {
+        var taller = self
+        taller.height = max(height, pixelHeight)
+        taller.bytes.append(Data(count: (taller.height - height) * width * 4))
+        return taller
+    }
+
+    /// Fails the test unless `other` is the size of this drawing, since a comparison reads the same pixel of each.
+    func requireTheSameSize(as other: DrawingPixels) throws {
+        try #require(
+            other.width == width && other.height == height,
+            "the drawings differ in size: \(width) by \(height) pixels and \(other.width) by \(other.height)"
+        )
+    }
+
+    /// How many channels differ from those of `other`, a drawing of the same size, from the window's top edge down to
+    /// `points`, or in the whole drawing. Two drawings of one state can round the Card's gradient and shadow a few levels
+    /// apart, so those do not count. The scan runs off the main actor, which it would otherwise hold from every other test.
+    func channelsThatDiffer(from other: DrawingPixels, downTo points: CGFloat? = nil) async throws -> Int {
+        try requireTheSameSize(as: other)
+        let byteCount = points.map { Int(max(0, $0) * pixelsPerPoint) * width * 4 } ?? bytes.count
+        let (ownBytes, otherBytes) = (bytes.prefix(byteCount), other.bytes.prefix(byteCount))
+        return await Task.detached {
+            zip(ownBytes, otherBytes).count { abs(Int($0) - Int($1)) > 6 }
+        }.value
+    }
+}
+
+/// The card in a window off every screen that is never ordered front. The hosting view is the window's content, as in the
+/// card's panel, so it grows the window as the card grows. `ImageRenderer` would draw the hover views as placeholders.
+@MainActor
+private final class OffscreenCard {
+    private let window: NSWindow
+    private let hostingView: NSHostingView<ThemeStudioCardView>
+    var size: CGSize { hostingView.bounds.size }
+    /// The height the card asks for, whatever size its window is.
+    var fittingHeight: CGFloat { hostingView.fittingSize.height }
+
+    init(studio: ThemeStudioController, size givenSize: CGSize? = nil) {
+        hostingView = NSHostingView(rootView: ThemeStudioCardView(
+            studio: studio, landsTilesIn: false, onSaveClicked: { _ in },
+            onHighlightedCursorCenterChange: { _ in }, onContentSizeChange: { _ in }
+        ))
+        let size = givenSize ?? hostingView.fittingSize
+        window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -10_000, y: -10_000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        hostingView.frame = NSRect(origin: .zero, size: size)
+    }
+
+    func draw() throws -> DrawingPixels {
+        hostingView.layoutSubtreeIfNeeded()
+        let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        return try DrawingPixels(drawing: try #require(bitmap.cgImage), widthInPoints: hostingView.bounds.width)
+    }
+
+    func close() {
+        window.close()
+    }
+}
+
+/// The two changes that add or remove the failed design row, and so change the card's height.
+enum ThemeStudioCardHeightChange: CaseIterable {
+    case theDesignFails
+    case aNewDesignStartsAfterAFailure
 }
 
 @MainActor
@@ -84,9 +176,41 @@ private final class StudioHarness {
 
 private struct WorkerFailure: Error {}
 
-private func reply(names: [String], spokenLine: String = "Here are three.", pictureCursor: Bool = false) throws -> ThemeIdeasReply {
+/// The card before a save and as the save leaves it, with the saved tile stamped, for ideas that all have `accentHex`.
+@MainActor
+func themeStudioCardDrawingsAroundASave(accentHex: String) async throws -> (beforeTheSave: DrawingPixels, stamped: DrawingPixels) {
+    var drawings: (beforeTheSave: DrawingPixels, stamped: DrawingPixels)?
+    // The save writes a theme, so it goes to a store of its own.
+    try await withATemporaryThemeStore { store in
+        let harness = StudioHarness(themeSettings: makeThemeSettings(customThemeStore: store))
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"], stillCursor: true, accentHex: accentHex) }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        let cardBeforeTheSave = OffscreenCard(studio: harness.studio)
+        defer { cardBeforeTheSave.close() }
+        let beforeTheSave = try cardBeforeTheSave.draw()
+        _ = harness.studio.saveTheHighlightedIdea()
+        try #require(harness.studio.isStampingTheSavedIdea)
+        // A new card draws the stamp in place, with nothing to animate from.
+        let stampedCard = OffscreenCard(studio: harness.studio, size: cardBeforeTheSave.size)
+        defer { stampedCard.close() }
+        drawings = (beforeTheSave, try stampedCard.draw())
+    }
+    return try #require(drawings)
+}
+
+private func reply(names: [String], spokenLine: String = "Here are three.", pictureCursor: Bool = false, stillCursor: Bool = false, accentHex: String? = nil) throws -> ThemeIdeasReply {
     let ideas = names.map { ideaName -> JSONValue in
-        replacingField(in: pictureCursor ? goodPictureCursorThemeIdea : goodThemeIdea, at: ["name"], with: .string(ideaName))
+        var idea = replacingField(in: pictureCursor ? goodPictureCursorThemeIdea : goodThemeIdea, at: ["name"], with: .string(ideaName))
+        if let accentHex {
+            idea = replacingField(in: idea, at: ["accent"], with: .string(accentHex))
+        }
+        // A cursor with no streaks and no thinking motion draws the same pixels at any moment.
+        if stillCursor {
+            idea = replacingField(in: idea, at: ["motion", "trailStreaks"], with: .number(0))
+            idea = replacingField(in: idea, at: ["motion", "whileThinking"], with: .string("none"))
+        }
+        return idea
     }
     let body = JSONValue.object(["title": .string("Ideas"), "spokenLine": .string(spokenLine), "ideas": .array(ideas)])
     return try ThemeIdeasReply(responseData: Data(body.compactJSONText.utf8), pictureWasSent: pictureCursor)
@@ -501,6 +625,126 @@ struct ThemeStudioTetherTests {
         #expect(!harness.studio.showsTheDesignFailedNotice)
     }
 
+    /// The notice is a row of the Card, not a Callout: a red-tinted fill across the Card's content with a red cross on it.
+    @Test func theFailedNoticeIsARedTintedRowAcrossTheCard() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }, { throw WorkerFailure() }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        harness.studio.design(request: "more", basedOnIdea: 1, pictureChoice: .keepTheCardsPicture)
+        await harness.studio.waitForTheDesign()
+
+        let card = OffscreenCard(studio: harness.studio)
+        defer { card.close() }
+        let pixels = try card.draw()
+
+        func channels(of color: Color) throws -> [Int] {
+            let color = try #require(NSColor(color).usingColorSpace(.sRGB))
+            return [color.redComponent, color.greenComponent, color.blueComponent].map { Int(($0 * 255).rounded()) }
+        }
+        let tintChannels = try channels(of: DS.Colors.destructiveSurface)
+        let crossChannels = try channels(of: DS.Colors.destructiveText)
+        let (bytes, width, height) = (pixels.bytes, pixels.width, pixels.height)
+        // The scan runs off the main actor, which it would otherwise hold from every other test.
+        let scan = await Task.detached {
+            func pixel(at offset: Int, isCloseTo expected: [Int]) -> Bool {
+                (0..<3).allSatisfy { abs(Int(bytes[offset + $0]) - expected[$0]) < 8 }
+            }
+            var widestTintedRunInPixels = 0
+            var redCrossPixels = 0
+            for y in 0..<height {
+                var tintedRunInPixels = 0
+                for x in 0..<width {
+                    let offset = (y * width + x) * 4
+                    tintedRunInPixels = pixel(at: offset, isCloseTo: tintChannels) ? tintedRunInPixels + 1 : 0
+                    widestTintedRunInPixels = max(widestTintedRunInPixels, tintedRunInPixels)
+                    if pixel(at: offset, isCloseTo: crossChannels) { redCrossPixels += 1 }
+                }
+            }
+            return (widestTintedRunInPixels: widestTintedRunInPixels, redCrossPixels: redCrossPixels, ranOnTheMainThread: pthread_main_np() != 0)
+        }.value
+        #expect(!scan.ranOnTheMainThread)
+        // The row spans the Card inside its 14 point padding, less its own round ends.
+        #expect(CGFloat(scan.widestTintedRunInPixels) / pixels.pixelsPerPoint > ThemeStudioPanelController.cardWidth - 28 - 20)
+        #expect(scan.redCrossPixels > 5)
+    }
+
+    /// Changes the height of a card already on show, and draws its first frame after the change beside the same state drawn
+    /// by a new card at its own fitting size, which has nothing to animate from. The first card's window grows with its
+    /// card but does not shrink here, so the settled drawing gets clear rows down to the first frame's height. A first
+    /// frame that is cut off stays shorter than the settled drawing.
+    private func firstAndSettledFrames(after change: ThemeStudioCardHeightChange) async throws -> (first: DrawingPixels, settled: DrawingPixels) {
+        let harness = StudioHarness()
+        let gate = DesignGate()
+        let ideas = { try reply(names: ["Ember", "Moonlit", "Forest"], stillCursor: true) }
+        let heldFailure: () async throws -> ThemeIdeasReply = {
+            await gate.wait()
+            throw WorkerFailure()
+        }
+        harness.workerReplies = change == .theDesignFails ? [ideas, heldFailure] : [ideas, { throw WorkerFailure() }, heldFailure]
+        func designAgain() {
+            harness.studio.design(request: "more", basedOnIdea: 1, pictureChoice: .keepTheCardsPicture)
+        }
+        func letTheHeldDesignFail() async {
+            await gate.waitUntilSomeoneIsWaiting()
+            gate.open()
+            await harness.studio.waitForTheDesign()
+        }
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        if change == .aNewDesignStartsAfterAFailure {
+            designAgain()
+            await harness.studio.waitForTheDesign()
+        }
+
+        let card = OffscreenCard(studio: harness.studio)
+        defer { card.close() }
+        _ = try card.draw()
+        let firstFrame: DrawingPixels
+        switch change {
+        case .theDesignFails:
+            designAgain()
+            _ = try card.draw()
+            await letTheHeldDesignFail()
+            firstFrame = try card.draw()
+        case .aNewDesignStartsAfterAFailure:
+            designAgain()
+            firstFrame = try card.draw()
+        }
+        let settledCard = OffscreenCard(studio: harness.studio)
+        defer { settledCard.close() }
+        let settledDrawing = try settledCard.draw()
+        // A cut off reference would match a first frame that is cut off the same way. It is measured before the held design
+        // fails, which changes the card's height.
+        let settledCardIsWhole = CGFloat(settledDrawing.height) == settledCard.fittingHeight * settledDrawing.pixelsPerPoint
+        // The held design is let go before the check can throw, so it never runs against a released harness.
+        if change == .aNewDesignStartsAfterAFailure {
+            await letTheHeldDesignFail()
+        }
+        try #require(settledCardIsWhole, "the settled card is cut off")
+        let settledFrame = settledDrawing.withClearRowsBelow(upTo: firstFrame.height)
+        return (firstFrame, settledFrame)
+    }
+
+    /// An animated height change slid the card down its window and left the outgoing "Designing…" behind, cut off at the
+    /// card's top edge.
+    @Test(arguments: ThemeStudioCardHeightChange.allCases)
+    func theHeaderStaysInsideTheCardWhenItsHeightChanges(_ change: ThemeStudioCardHeightChange) async throws {
+        let frames = try await firstAndSettledFrames(after: change)
+        // The window's margin, the card's 14 point padding, and the header's one line of text.
+        let headerBottom = AgentListWindowMargins.top + 14 + 16
+        #expect(try await frames.first.channelsThatDiffer(from: frames.settled, downTo: headerBottom) == 0)
+    }
+
+    /// An animated height change put the failed design row at its final place while the hint and Save were still on their way
+    /// down, so they drew over each other.
+    @Test(arguments: ThemeStudioCardHeightChange.allCases)
+    func nothingDrawsOverAnythingElseWhenTheCardsHeightChanges(_ change: ThemeStudioCardHeightChange) async throws {
+        let frames = try await firstAndSettledFrames(after: change)
+        #expect(frames.first.height == frames.settled.height)
+        #expect(try await frames.first.channelsThatDiffer(from: frames.settled) == 0)
+    }
+
     @Test func theFailedNoticeIsUpBeforeTheFailureLineIsSpokenSoTheChipCanLeaveItOut() async throws {
         let harness = StudioHarness()
         harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }, { throw WorkerFailure() }]
@@ -557,6 +801,49 @@ struct ThemeStudioCardGlideInCloseTests {
         cardPanel.hide(because: .dismissed)
         #expect(glideIn.carriedViewIsHidden)
         #expect(cardPanel.openingFlight == nil)
+    }
+
+    /// The real panel's window grows with the card, which the offscreen frame tests leave out: a window shorter than its card
+    /// would cut the card off. The hosting view's own sizing holds the window no shorter than the card, so on 2026-11-27 a
+    /// callback that set the frame 60 points short, or set nothing, still passed. A card that shrinks leaves the window
+    /// taller than it, since the panel's resize does not take the window down, so this test checks only growth until that
+    /// is fixed.
+    @Test(.showsARealWindow)
+    func theRealPanelsWindowGrowsWithTheCardAsIdeasArriveAndADesignFails() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [
+            { try reply(names: ["Ember", "Moonlit", "Forest"]) },
+            { throw WorkerFailure() },
+        ]
+        let cardPanel = ThemeStudioPanelController(onSaveClicked: { _ in })
+        defer { cardPanel.hide(because: .dismissed) }
+
+        /// Waits until the card's height has changed from `previousCardHeight` and the window fits it, or 10 seconds pass,
+        /// so a first poll that still reads the old card and its old window never counts.
+        func heightsOnceTheWindowFitsANewCardHeight(previousCardHeight: CGFloat) async throws -> (window: CGFloat, card: CGFloat) {
+            let deadline = Date().addingTimeInterval(10)
+            while true {
+                let heights = try #require(cardPanel.windowHeightAndCardHeight)
+                let cardChanged = abs(heights.card - previousCardHeight) >= 1
+                if (cardChanged && abs(heights.window - heights.card) < 1) || Date() >= deadline { return heights }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+        }
+
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        cardPanel.show(studio: harness.studio)
+        let whileDesigning = try #require(cardPanel.windowHeightAndCardHeight)
+        await harness.studio.waitForTheDesign()
+        let withIdeas = try await heightsOnceTheWindowFitsANewCardHeight(previousCardHeight: whileDesigning.card)
+        #expect(abs(withIdeas.card - whileDesigning.card) >= 1, "the ideas should change the card's height")
+        #expect(abs(withIdeas.window - withIdeas.card) < 1, "window \(withIdeas.window), card \(withIdeas.card)")
+
+        // A failed design keeps the ideas and adds the failed row, so the card grows.
+        harness.studio.design(request: "warmer", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        let afterTheFailure = try await heightsOnceTheWindowFitsANewCardHeight(previousCardHeight: withIdeas.card)
+        #expect(afterTheFailure.card > withIdeas.card, "the failed row should make the card taller")
+        #expect(abs(afterTheFailure.window - afterTheFailure.card) < 1, "window \(afterTheFailure.window), card \(afterTheFailure.card)")
     }
 
     /// A design from a picture raises the real card above the cursor overlay while it runs, and a refine that keeps the

@@ -25,7 +25,8 @@ nonisolated struct ClickyTheme: Equatable, Sendable {
     let name: String
     /// The cursor's glow, ring, loop, bubble, and chip color, `#RRGGBB`. Bright enough to read on the dark overlay surfaces.
     let accentHex: String
-    /// For letters drawn on an accent fill, such as the navigation bubble's text.
+    /// The theme file's second color, `#RRGGBB`, shown as a swatch in the Quick Look preview and thumbnail. Text on an accent
+    /// fill takes `accentInkHex` instead.
     let contrastHex: String
     let cursor: CustomCursorDrawing
     let motion: CustomCursorMotion
@@ -34,6 +35,9 @@ nonisolated struct ClickyTheme: Equatable, Sendable {
     let sounds: CustomThemeSounds
     /// Where the theme came from, which decides how the settings name it and where its images are.
     let origin: ThemeOrigin
+
+    /// The color of text and icons drawn on an accent fill, `#RRGGBB`.
+    var accentInkHex: String { ThemeRGBColor.inkHex(onFillHex: accentHex) }
 
     /// The Pop, Glide, and Point springs this theme gives the app: its own, or Clicky's.
     var moveSprings: ThemeMoveSprings { motion.springs ?? .standard }
@@ -267,6 +271,18 @@ nonisolated struct ThemeRGBColor: Equatable, Sendable {
     /// The dark surface the overlay draws the cursor, ring, and tokens on. The accent and every agent color must read on it.
     static let overlaySurfaceHex = "#101211"
     static let leastContrastAgainstTheSurface = 3.0
+    /// The two inks text and icons take on an accent fill: near-black and white.
+    static let darkInkHex = "#0B0C0E"
+    static let lightInkHex = "#FFFFFF"
+    private static let darkInk = ThemeRGBColor(red: 0x0B / 255.0, green: 0x0C / 255.0, blue: 0x0E / 255.0)
+    private static let lightInk = ThemeRGBColor(red: 1, green: 1, blue: 1)
+
+    /// A color from channels that each run from 0 to 1.
+    init(red: Double, green: Double, blue: Double) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
 
     /// Nil unless the text is exactly `#` and six hex digits, in either case.
     init?(hex: String) {
@@ -296,6 +312,19 @@ nonisolated struct ThemeRGBColor: Equatable, Sendable {
         let lighterLuminance = max(relativeLuminance, other.relativeLuminance)
         let darkerLuminance = min(relativeLuminance, other.relativeLuminance)
         return (lighterLuminance + 0.05) / (darkerLuminance + 0.05)
+    }
+
+    /// The ink for text and icons on a fill of this color: near-black or white, whichever has the higher WCAG contrast.
+    var inkHexOnThisFill: String {
+        let contrastWithTheDarkInk = contrastRatio(against: Self.darkInk)
+        let contrastWithTheLightInk = contrastRatio(against: Self.lightInk)
+        return contrastWithTheDarkInk >= contrastWithTheLightInk ? Self.darkInkHex : Self.lightInkHex
+    }
+
+    /// `inkHexOnThisFill` for a fill written as `#RRGGBB`. Text that is not a color gets the dark ink. A theme's colors are
+    /// checked when it is parsed.
+    static func inkHex(onFillHex fillHex: String) -> String {
+        ThemeRGBColor(hex: fillHex)?.inkHexOnThisFill ?? darkInkHex
     }
 
     /// HSL hue in degrees, 0 to 360, and 0 for a gray.

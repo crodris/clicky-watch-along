@@ -3714,9 +3714,10 @@ private struct RoomArtPanelSurface: View {
     }
 }
 
-/// One look for every button on the panel: a solid capsule that dips on the Snap move as it is pressed, changes its fill on
-/// hover, and shows the pointing hand. With an accent it is filled with it and set in the Tether ink, and without one it is
-/// a dark surface with an edge. With no title it is a circle around its icon.
+/// One look for every button on the panel: a solid capsule that dips on the Snap move as it is pressed, shows its hover,
+/// and shows the pointing hand. With an accent it is filled with it and set in the ink that reads on that fill, with a ring
+/// in that ink on hover, and without one it is a dark surface with an edge that lightens on hover. With no title it is a
+/// circle around its icon.
 struct RoomArtPanelButton: View {
     var title: String? = nil
     var systemImageName: String? = nil
@@ -3731,27 +3732,8 @@ struct RoomArtPanelButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                if let systemImageName {
-                    Image(systemName: systemImageName)
-                }
-                if let title {
-                    Text(title)
-                }
-            }
-            .font(DS.TypeScale.title.font)
-            .foregroundStyle(accentColor == nil ? DS.Colors.textPrimary : DS.Colors.inkOnAccent)
-            .padding(.horizontal, title == nil ? 0 : 14)
-            .frame(minWidth: Self.height, minHeight: Self.height)
-            .background(RoomArtPanelButtonFill(accentColor: accentColor, isHovered: isHovered))
-            .overlay {
-                if accentColor == nil {
-                    Capsule().strokeBorder(Color.white.opacity(isHovered ? 0.18 : 0.1), lineWidth: 1)
-                }
-            }
-            .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
-            .contentShape(Capsule())
-            .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: isHovered)
+            RoomArtPanelButtonLook(title: title, systemImageName: systemImageName, accentColor: accentColor, isHovered: isHovered)
+                .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: isHovered)
         }
         .buttonStyle(PanelPressStyle())
         .fixedSize()
@@ -3760,8 +3742,40 @@ struct RoomArtPanelButton: View {
     }
 }
 
-/// A panel button's solid capsule. On hover an accent fill darkens a little, never turning see-through, since the camera
-/// would show behind the label, and the dark surface changes to a lighter one.
+/// How a panel button looks, resting or hovered, apart from the hover tracking, so a test can draw it hovered.
+struct RoomArtPanelButtonLook: View {
+    let title: String?
+    let systemImageName: String?
+    let accentColor: Color?
+    let isHovered: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let systemImageName {
+                Image(systemName: systemImageName)
+            }
+            if let title {
+                Text(title)
+            }
+        }
+        .font(DS.TypeScale.title.font)
+        .foregroundStyle(accentColor?.inkOnThisFill ?? DS.Colors.textPrimary)
+        .padding(.horizontal, title == nil ? 0 : 14)
+        .frame(minWidth: RoomArtPanelButton.height, minHeight: RoomArtPanelButton.height)
+        .background(RoomArtPanelButtonFill(accentColor: accentColor, isHovered: isHovered))
+        .accentFillHoverRing(Capsule(), ink: accentColor?.inkOnThisFill ?? .clear, isShowing: accentColor != nil && isHovered)
+        .overlay {
+            if accentColor == nil {
+                Capsule().strokeBorder(Color.white.opacity(isHovered ? 0.18 : 0.1), lineWidth: 1)
+            }
+        }
+        .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+        .contentShape(Capsule())
+    }
+}
+
+/// A panel button's solid capsule. An accent fill stays the same on hover, since its ink was chosen for the fill as it
+/// rests, and the button's ring shows the hover instead. The dark surface changes to a lighter one on hover.
 struct RoomArtPanelButtonFill: View {
     let accentColor: Color?
     let isHovered: Bool
@@ -3769,8 +3783,6 @@ struct RoomArtPanelButtonFill: View {
     var body: some View {
         Capsule()
             .fill(accentColor ?? (isHovered ? DS.Colors.surface4 : DS.Colors.surface2))
-            // Darker, not lighter, so a near white accent shows the hover too.
-            .overlay(Capsule().fill(Color.black.opacity(accentColor != nil && isHovered ? 0.08 : 0)))
     }
 }
 

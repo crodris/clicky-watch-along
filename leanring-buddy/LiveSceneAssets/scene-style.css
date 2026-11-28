@@ -1,7 +1,7 @@
 /*
   The one stylesheet for what Clicky draws inside a live scene: part labels, the quiz label, the experiment panel,
   and the landmark page's loading state. LiveSceneOverlay adds it to every page before the page's own markup,
-  bundled and generated alike, and sets --clicky-accent from the shown theme.
+  bundled and generated alike, and sets --clicky-accent and --clicky-accent-ink from the shown theme.
   Rules start with :root, so they win over a generated page's own .scene-label rule, which sets only its position.
   It sets only how things look, never where they sit, since each page places its labels itself.
   The timings mirror DS.Move in DesignSystem.swift: Pop (a 0.32 s spring from 0.4 scale), Glide, and Shake (0.45 s, 7 points).
@@ -9,7 +9,7 @@
 */
 :root {
   --clicky-accent: #3380ff;
-  /* Text on an accent fill, near black on every accent, as on the Callout's icon disc. Mirrors DS.Colors.inkOnAccent. */
+  /* Text on an accent fill: near black or white, whichever reads better on the accent. This is the ink of the default accent. */
   --clicky-accent-ink: #0b0c0e;
   /* Mirrors DS.Colors.success. */
   --clicky-success-green: #34d399;
@@ -164,9 +164,10 @@
   color: var(--clicky-accent-ink);
   font: 700 13px -apple-system, system-ui, sans-serif;
   cursor: pointer;
-  transition: filter 0.15s, scale 0.15s, background-color 0.15s, color 0.15s;
+  transition: box-shadow 0.15s, scale 0.15s, background-color 0.15s, color 0.15s;
 }
-:root #clicky-simulation-panel .clicky-run-button:hover:not(:disabled) { filter: brightness(1.1); }
+/* Hover rings the button in its own text color and leaves the fill as it rests, since the ink was chosen for that fill. */
+:root #clicky-simulation-panel .clicky-run-button:hover:not(:disabled) { box-shadow: inset 0 0 0 2px color-mix(in srgb, currentColor 35%, transparent); }
 :root #clicky-simulation-panel .clicky-run-button:active:not(:disabled) { scale: 0.97; }
 :root #clicky-simulation-panel .clicky-run-button:disabled { cursor: default; opacity: 0.7; }
 /* Before the guess, Run is locked and reads "Say your guess". A click still skips the guess, so it keeps the pointing hand. */

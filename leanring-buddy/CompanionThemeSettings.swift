@@ -32,12 +32,11 @@ extension ClickyTheme {
     /// The color of the cursor, its glow, the ring, the loop, and the navigation bubble.
     var cursorColor: Color { Color(hex: accentHex) }
 
-    /// For text drawn on a cursor-colored fill, such as the navigation bubble's letters.
-    var cursorContrastColor: Color { Color(hex: contrastHex) }
+    /// For text and icons drawn on a cursor-colored fill: near-black or white, whichever reads better on it.
+    var accentInk: Color { Color(hex: accentInkHex) }
 
-    /// The same two colors as hex strings, for the frame pop-out page's quiz label.
+    /// The cursor color as a hex string, for the frame pop-out page's quiz label.
     var cursorColorHex: String { accentHex }
-    var cursorContrastColorHex: String { contrastHex }
 }
 
 extension ThemeSound {
@@ -158,11 +157,11 @@ final class CompanionThemeSettings: ObservableObject {
         }
     }
 
-    /// The themes the app bundles, Clicky blue first, in the order the menu bar panel and the dial's Team fan show them.
+    /// The themes the app bundles, Clicky blue first, in the order the menu bar panel and the dial's Theme fan show them.
     let bundledThemes: [ClickyTheme]
 
     /// The custom themes the learner saved with their saved dates, sorted by name. The menu bar panel's All themes page lists
-    /// them in this order, and its home and the settings dial's Team fan sort the same list by date.
+    /// them in this order, and its home and the settings dial's Theme fan sort the same list by date.
     @Published private(set) var savedCustomThemesWithSavedDates: [SavedCustomTheme]
 
     var savedCustomThemes: [ClickyTheme] { savedCustomThemesWithSavedDates.map(\.theme) }
@@ -296,13 +295,12 @@ final class CompanionThemeSettings: ObservableObject {
 // MARK: - Roster faces
 
 /// A roster face an agent wears for its whole life, with what it needs to draw itself after the theme changes: the
-/// theme's two colors for the initials and the portrait file's location.
+/// theme's accent for the initials' circle and the portrait file's location.
 struct AgentRosterFace: Equatable, Hashable {
     /// The theme the face came from, since two themes may each have a player of one name.
     let themeID: String
     let player: ThemeRosterPlayer
     let accentHex: String
-    let contrastHex: String
     /// Nil when the player has no portrait, or the theme is an idea with no folder.
     let portraitURL: URL?
 
@@ -310,7 +308,6 @@ struct AgentRosterFace: Equatable, Hashable {
         themeID = theme.id
         self.player = player
         accentHex = theme.accentHex
-        contrastHex = theme.contrastHex
         let imagesFolderURL: URL?
         switch theme.origin {
         case .bundled(let bundledImagesFolderURL): imagesFolderURL = bundledImagesFolderURL
@@ -400,7 +397,7 @@ struct RosterFaceView: View {
                     Circle().fill(Color(hex: rosterFace.accentHex))
                     Text(rosterFace.player.initials)
                         .font(.system(size: size * 0.38, weight: .bold, design: .rounded))
-                        .foregroundColor(Color(hex: rosterFace.contrastHex))
+                        .foregroundColor(Color(hex: ThemeRGBColor.inkHex(onFillHex: rosterFace.accentHex)))
                 }
                 .grayscale(isGrayscale ? 1 : 0)
             }

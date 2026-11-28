@@ -46,8 +46,14 @@ enum LiveSceneStatusLine: CaseIterable {
         }
     }
 
-    /// The colors the line's icon draws with: near-black ink on the accent disc.
-    var palette: StatusLabelPalette { .onDisc(accent: calloutAccent) }
+    /// The colors the line's icon draws with: ink on the accent disc. The hues are fixed, so each line's ink is worked out
+    /// once and reading it on every frame costs nothing.
+    // The table is built from `allCases`, so every line has an entry.
+    var palette: StatusLabelPalette { Self.palettesByLine[self]! }
+
+    private static let palettesByLine = Dictionary(
+        uniqueKeysWithValues: allCases.map { ($0, StatusLabelPalette(onDisc: $0.calloutAccent)) }
+    )
 
     /// The lines the scene build shows. Only the scene build hides these.
     static let sceneBuildLines: Set<LiveSceneStatusLine> = [.readingYourScreen, .buildingYourScene, .almostThere]
@@ -94,10 +100,10 @@ enum LiveSceneStatusLine: CaseIterable {
     }
 }
 
-/// The colors a status icon draws with on the Callout's accent disc: near-black ink at several strengths, so the icon
-/// reads on every hue (`DS.Colors.inkOnAccent` is 5.3 or more against each accent), and the accent itself for what the
-/// icon cuts out of its drawing. Each look is a constant, so reading it on every frame costs nothing.
-struct StatusLabelPalette {
+/// The colors a status icon draws with on the Callout's accent disc: the ink that reads on that accent
+/// (`Color.inkOnThisFill`) at several strengths, and the accent itself for what the icon cuts out of its drawing. It is a
+/// class so each line's one palette is shared by every frame, and a test can tell it from one made per frame.
+final class StatusLabelPalette {
     let iconColor: Color
     let textColor: Color
     let lightColor: Color
@@ -107,16 +113,15 @@ struct StatusLabelPalette {
     /// The disc's own fill, for the parts of an icon that show the disc through it.
     let discColor: Color
 
-    static func onDisc(accent: Color) -> StatusLabelPalette {
-        StatusLabelPalette(
-            iconColor: DS.Colors.inkOnAccent,
-            textColor: DS.Colors.inkOnAccent,
-            lightColor: DS.Colors.inkOnAccent.opacity(0.7),
-            paleColor: DS.Colors.inkOnAccent.opacity(0.3),
-            washColor: DS.Colors.inkOnAccent.opacity(0.12),
-            highlightColor: DS.Colors.inkOnAccent,
-            discColor: accent
-        )
+    init(onDisc accent: Color) {
+        let ink = accent.inkOnThisFill
+        iconColor = ink
+        textColor = ink
+        lightColor = ink.opacity(0.7)
+        paleColor = ink.opacity(0.3)
+        washColor = ink.opacity(0.12)
+        highlightColor = ink
+        discColor = accent
     }
 }
 

@@ -980,18 +980,19 @@ func screenUnderTheMouseCursor() -> NSScreen? {
     return NSScreen.screens.first
 }
 
-/// The user script that adds scene-style.css to a page as it starts, and sets the accent it reads. Text on an accent fill
-/// uses the Tether ink (`DS.Colors.inkOnAccent`, mirrored in the stylesheet) on every accent, as the Callout does.
+/// The user script that adds scene-style.css to a page as it starts, and sets the accent it reads and the ink for text on
+/// that accent (`ThemeRGBColor.inkHexOnThisFill`), as the app's own surfaces pick it.
 /// WebKit runs a document start script once the root element exists, so the style lands ahead of the page's own head.
 /// The page text is JSON encoded, so no character in the stylesheet or the color can end the script's strings.
 func sceneStyleUserScriptSource(styleSheet: String, accentHex: String) -> String {
-    let encodedPieces = [styleSheet, accentHex].map { piece in
+    let encodedPieces = [styleSheet, accentHex, ThemeRGBColor.inkHex(onFillHex: accentHex)].map { piece in
         (try? JSONEncoder().encode(piece)).flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
     }
     return """
     (() => {
       const root = document.documentElement;
       root.style.setProperty("--clicky-accent", \(encodedPieces[1]));
+      root.style.setProperty("--clicky-accent-ink", \(encodedPieces[2]));
       const style = document.createElement("style");
       style.id = "clicky-scene-style";
       style.textContent = \(encodedPieces[0]);

@@ -20,7 +20,7 @@ enum SettingsDialGeometry {
     static let tokenRingRadius: CGFloat = 78
     static let tokenDiameter: CGFloat = 44
     static let fanRadius: CGFloat = 152
-    /// A Team fan ball, and the one under the pointer. The tests check that the gaps between balls leave room for both.
+    /// A Theme fan ball, and the one under the pointer. The tests check that the gaps between balls leave room for both.
     static let fanBallDiameter: CGFloat = 21
     static let emphasizedFanBallDiameter: CGFloat = 30
     /// Releasing inside this circle around the cursor glyph cancels, so a hold with no movement changes nothing.
@@ -35,7 +35,7 @@ enum SettingsDialGeometry {
 
 /// How far the dial's window reaches from the dial's center, wide enough for the plate, both fans with their labels,
 /// and the first-run hint. One fixed size keeps the window from resizing as a fan opens.
-/// The sides reach past the Team fan's widest built-in label pill, "Clicky blue" at the fan's left end, and the top reaches
+/// The sides reach past the Theme fan's widest built-in label pill, "Clicky blue" at the fan's left end, and the top reaches
 /// past the pills above the fan's top balls. A saved theme's name can be longer than any built-in one, so a fan label that
 /// would stick out is cut to fit (`SettingsDialLabel.fanLabelText`), and the right side reaches farther than the left, since
 /// the saved themes sit at the fan's right end. `SettingsDialTests` checks that every pill fits.
@@ -123,11 +123,11 @@ enum SettingsDialLabel {
         )
     }
 
-    /// How far a token label's pill center sits from the token's center, vertically. The design puts Team's label above
+    /// How far a token label's pill center sits from the token's center, vertically. The design puts Theme's label above
     /// its token and the others below.
     static func tokenLabelCenterOffsetY(for slice: SettingsDialSlice, labelPillHeight: CGFloat) -> CGFloat {
         let distance = SettingsDialGeometry.tokenDiameter / 2 + gapFromItem + labelPillHeight / 2
-        return slice == .team ? -distance : distance
+        return slice == .theme ? -distance : distance
     }
 
     /// Where the pill of the highlighted fan ball goes, as an offset from the dial's center. The pill sits just outside
@@ -222,15 +222,26 @@ struct SettingsDialFanLayout: Equatable {
 
 /// The five tokens on the dial. Each owns an angle, and the pointer picks the slice nearest its own angle.
 enum SettingsDialSlice: CaseIterable, Equatable {
-    case team
+    case theme
     case model
     case agents
     case show
     case more
 
+    /// The word on the token's label pill.
+    var title: String {
+        switch self {
+        case .theme: return "Theme"
+        case .model: return "Model"
+        case .agents: return "Agents"
+        case .show: return "Show"
+        case .more: return "More"
+        }
+    }
+
     var angleDegrees: Double {
         switch self {
-        case .team: return -90
+        case .theme: return -90
         case .model: return -18
         case .agents: return 54
         case .show: return 126
@@ -247,22 +258,22 @@ enum SettingsDialSlice: CaseIterable, Equatable {
     }
 }
 
-/// What the two fans offer, fixed when the dial opens. Team and Model fan their choices on the outer arc, and the other
-/// slices act on release. The Team fan's size depends on how many themes the learner saved, so every pick goes through
+/// What the two fans offer, fixed when the dial opens. Theme and Model fan their choices on the outer arc, and the other
+/// slices act on release. The Theme fan's size depends on how many themes the learner saved, so every pick goes through
 /// this value instead of a constant.
 struct SettingsDialFans: Equatable {
-    /// How many saved themes the Team fan lists after the bundled ones. Eleven bundled themes plus three is the most the
+    /// How many saved themes the Theme fan lists after the bundled ones. Eleven bundled themes plus three is the most the
     /// ring holds.
-    static let mostSavedThemesInTheTeamFan = 3
-    /// The Team fan always spans this many degrees across the top, whatever it holds: the first item at -168 degrees, where
+    static let mostSavedThemesInTheThemeFan = 3
+    /// The Theme fan always spans this many degrees across the top, whatever it holds: the first item at -168 degrees, where
     /// its label has room, and the last item at -12 degrees. More items only narrow the gaps, from 15.6 degrees at 11 items
     /// to 12 at 14, a chord of 31.8 points at the 152 point fan radius. That is wider than the 25.5 points an enlarged ball
     /// (30 points) next to an ordinary one (21 points) needs, so no ball touches the next. A wider span would push the
     /// right end, where the saved themes' long names sit, nearer the window's edge.
-    static let teamFanSpanDegrees = 156.0
+    static let themeFanSpanDegrees = 156.0
 
-    /// The Team fan's items in order: the bundled themes (Clicky blue first), then up to 3 saved themes, the newest first.
-    let teamThemes: [ClickyTheme]
+    /// The Theme fan's items in order: the bundled themes (Clicky blue first), then up to 3 saved themes, the newest first.
+    let themeFanThemes: [ClickyTheme]
 
     /// `savedCustomThemes` in any order. The newest by saved date go after the bundled themes, and a tie keeps the order of
     /// the theme ids, so the fan never reshuffles between two openings.
@@ -273,17 +284,17 @@ struct SettingsDialFans: Equatable {
                     ? firstSavedTheme.theme.id < secondSavedTheme.theme.id
                     : firstSavedTheme.savedDate > secondSavedTheme.savedDate
             }
-            .prefix(Self.mostSavedThemesInTheTeamFan)
-        teamThemes = bundledThemes + newestSavedThemes.map(\.theme)
+            .prefix(Self.mostSavedThemesInTheThemeFan)
+        themeFanThemes = bundledThemes + newestSavedThemes.map(\.theme)
     }
 
     func layout(of slice: SettingsDialSlice) -> SettingsDialFanLayout? {
         switch slice {
-        case .team:
+        case .theme:
             return SettingsDialFanLayout(
                 centerAngleDegrees: slice.angleDegrees,
-                angleBetweenItemsDegrees: Self.teamFanSpanDegrees / Double(teamThemes.count - 1),
-                itemCount: teamThemes.count
+                angleBetweenItemsDegrees: Self.themeFanSpanDegrees / Double(themeFanThemes.count - 1),
+                itemCount: themeFanThemes.count
             )
         case .model:
             // Two labeled pills need more room than the balls do.
@@ -380,13 +391,13 @@ enum SettingsDialChoice: Equatable {
     case toggleShowClicky
     case more
 
-    /// Nil when the release cancels: in the center, or on Team or Model with no item of their fan highlighted.
+    /// Nil when the release cancels: in the center, or on Theme or Model with no item of their fan highlighted.
     init?(committing selection: SettingsDialSelection, fans: SettingsDialFans) {
         guard let slice = selection.slice else { return nil }
         switch slice {
-        case .team:
-            guard let themeIndex = selection.fanItemIndex, fans.teamThemes.indices.contains(themeIndex) else { return nil }
-            self = .theme(fans.teamThemes[themeIndex])
+        case .theme:
+            guard let themeIndex = selection.fanItemIndex, fans.themeFanThemes.indices.contains(themeIndex) else { return nil }
+            self = .theme(fans.themeFanThemes[themeIndex])
         case .model:
             guard let modelIndex = selection.fanItemIndex, SettingsDialModelChoice.allCases.indices.contains(modelIndex) else { return nil }
             self = .model(SettingsDialModelChoice.allCases[modelIndex])

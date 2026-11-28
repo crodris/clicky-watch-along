@@ -107,8 +107,8 @@ struct VideoQuizSummaryTests {
             accentHex: "#E0313B"
         )
         #expect(script.contains(##"root.style.setProperty("--clicky-accent", "#E0313B");"##))
-        // Text on the accent keeps the stylesheet's Tether ink, so the script never sets it from the theme.
-        #expect(!script.contains("--clicky-accent-ink"))
+        // Nekoma's red reads better with white than with near-black.
+        #expect(script.contains(##"root.style.setProperty("--clicky-accent-ink", "#FFFFFF");"##))
         #expect(script.contains("root.prepend(style);"))
         // The stylesheet is a JSON string, so its quotes cannot end the script's string.
         #expect(script.contains(##"style.textContent = ":root .scene-label { color: #fff; } \/* \"<\/script> *\/";"##))
