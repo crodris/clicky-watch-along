@@ -50,6 +50,20 @@ final class SettingsDialViewModel: ObservableObject {
     }
 }
 
+/// Whether a settings dial's window is on screen, from the moment it opens until its window is gone, its leaving included.
+/// The cursor overlay reads it and hides its cursor, since the dial draws its own cursor glyph in the center: the overlay's
+/// cursor sits 35 points right of and 25 below the mouse, under the plate, and showed through the plate while the dial
+/// faded in and out. A static shared instance, since the overlay's windows and the dial's controller share no owner but the
+/// app.
+@MainActor
+final class SettingsDialPresence: ObservableObject {
+    static let shared = SettingsDialPresence()
+    @Published private(set) var isOnScreen = false
+
+    func dialWindowIsOnScreen() { isOnScreen = true }
+    func dialWindowIsGone() { isOnScreen = false }
+}
+
 /// How the dial is leaving: the form of its close, and, for a commit, which item was picked, so the view flies that item
 /// into the center.
 struct SettingsDialClosing: Equatable {
@@ -73,6 +87,8 @@ final class SettingsDialController {
     private static let secondsBetweenPointerReads: TimeInterval = 1.0 / 60
 
     private let userDefaults: UserDefaults
+    /// Tells the cursor overlay while the dial's window is on screen, so it hides its cursor under the dial.
+    private let presence: SettingsDialPresence
     private var panel: SettingsDialPanel?
     private var viewModel: SettingsDialViewModel?
     private var picker: SettingsDialPicker?
@@ -82,8 +98,9 @@ final class SettingsDialController {
     /// Removes the window once the way the dial leaves has played.
     private var removeThePanelTask: Task<Void, Never>?
 
-    init(userDefaults: UserDefaults = .standard) {
+    init(userDefaults: UserDefaults = .standard, presence: SettingsDialPresence? = nil) {
         self.userDefaults = userDefaults
+        self.presence = presence ?? .shared
     }
 
     /// A dial that is leaving is no longer open: Escape and every other check treat it as gone.
@@ -129,6 +146,7 @@ final class SettingsDialController {
         panel = settingsDialPanel
         // Not makeKeyAndOrderFront, which would take the keyboard from the app under the dial.
         settingsDialPanel.orderFrontRegardless()
+        presence.dialWindowIsOnScreen()
         withAnimation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)) { viewModel.isPresented = true }
         startReadingThePointer()
     }
@@ -180,6 +198,7 @@ final class SettingsDialController {
         pointerReadTimer?.invalidate()
         pointerReadTimer = nil
         panel?.orderOut(nil)
+        presence.dialWindowIsGone()
         // Dropping the view stops its animations.
         panel?.contentView = nil
         panel = nil
