@@ -1620,8 +1620,10 @@ final class RoomArtPreviewController: ObservableObject {
         /// Plays a countdown sound of the shirt's step-back capture: a tick for each number and a different sound when the
         /// frame freezes. A test counts them instead of playing them.
         var playTheShirtCountdownSound: (ShirtCountdownSound) -> Void = { $0.play() }
-        /// Shows a chip above the cursor, as a failure when `isAFailure` is true: what Save photo did.
+        /// Shows a chip above the cursor, as a failure when `isAFailure` is true: what Save photo did when it failed.
         var showTheChip: (_ phrase: String, _ isAFailure: Bool) -> Void = { _, _ in }
+        /// Shows the paper receipt above the cursor for a photo Save photo wrote.
+        var showThePhotoReceipt: (_ photoReceipt: RoomArtPhotoReceipt) -> Void = { _ in }
         /// The panel is open now: a request's cursor loop around the page's media, started before the panel opened, goes at once, since
         /// the cursor overlay's windows sit above the panel's and the loop would draw over its camera view.
         var thePanelOpened: () -> Void = {}
@@ -1639,6 +1641,7 @@ final class RoomArtPreviewController: ObservableObject {
             endTheSpokenLine: @escaping () -> Void,
             theLearnerAskedThePanel: @escaping () -> Void,
             showTheChip: @escaping (String, Bool) -> Void,
+            showThePhotoReceipt: @escaping (RoomArtPhotoReceipt) -> Void,
             thePanelOpened: @escaping () -> Void
         ) -> Environment {
             let roomArtClient = RoomArtClient(workerBaseURL: workerBaseURL)
@@ -1723,6 +1726,7 @@ final class RoomArtPreviewController: ObservableObject {
                 },
                 theLearnerAskedThePanel: theLearnerAskedThePanel,
                 showTheChip: showTheChip,
+                showThePhotoReceipt: showThePhotoReceipt,
                 thePanelOpened: thePanelOpened
             )
         }
@@ -2567,16 +2571,19 @@ final class RoomArtPreviewController: ObservableObject {
         let frameProcessor = frameProcessor, photoFolder = environment.photoFolder, savedAt = Date()
         photoSavingTask = Task { [weak self] in
             // The render waits on the processing queue and the write on the disk, so neither runs on the main actor.
-            let outcome = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
+            let outcome = await Task.detached(priority: .userInitiated) { () -> Result<RoomArtPhotoReceipt, Error> in
                 guard let frameImage = frameProcessor.renderTheLastFrame() else { return .failure(RoomArtPhotoSaving.SaveError.nothingDrawnYet) }
-                return Result { try RoomArtPhotoSaving.save(frameImage, itemTitle: itemTitle, savedAt: savedAt, in: photoFolder) }
+                return Result {
+                    let savedFile = try RoomArtPhotoSaving.save(frameImage, itemTitle: itemTitle, savedAt: savedAt, in: photoFolder)
+                    return RoomArtPhotoReceipt(fileURL: savedFile, thumbnail: roomArtPhotoReceiptThumbnail(of: frameImage))
+                }
             }.value
             guard let self else { return }
             photoSavingTask = nil
             switch outcome {
-            case .success(let photoURL):
-                print("Room art: saved the photo to \(photoURL.path)")
-                environment.showTheChip(roomArtPhotoSavedChip, false)
+            case .success(let photoReceipt):
+                print("Room art: saved the photo to \(photoReceipt.fileURL.path)")
+                environment.showThePhotoReceipt(photoReceipt)
             case .failure(let error):
                 print("Room art: could not save the photo: \(error)")
                 environment.showTheChip(roomArtPhotoNotSavedChip, true)

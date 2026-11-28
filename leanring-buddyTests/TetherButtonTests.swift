@@ -241,4 +241,40 @@ struct TetherButtonTests {
         .frame(width: 200)
         #expect(NSHostingView(rootView: row).fittingSize.width == 200)
     }
+
+    @Test func theFilledPaperButtonIsInkWithAPaperWhiteLabelAndKeepsItsFillOnHover() throws {
+        func look(isHovered: Bool) throws -> RenderedButton {
+            try RenderedButton(TetherButtonLook(title: "Study guide", role: .paperFilled, shape: .capsule, size: .prominent, isHovered: isHovered), backdrop: DS.Colors.paperSurface)
+        }
+        let resting = try look(isHovered: false)
+        let hovered = try look(isHovered: true)
+        #expect(resting.heightInPoints == 32)
+        // Clear of the capsule's round end and its label, the fill is the ink, resting or hovered.
+        #expect(close(resting.color(atX: 8, y: 16), channels(of: DS.Colors.paperInk)))
+        #expect(close(hovered.color(atX: 8, y: 16), channels(of: DS.Colors.paperInk)))
+        // The label is paper white on it.
+        #expect(resting.pixelsNear(channels(of: DS.Colors.paperInkButtonLabel)) > 20)
+        // Hover shows a ring in the label color just inside the edge.
+        #expect(close(hovered.color(atX: resting.widthInPoints / 2, y: 1), channels(of: DS.Colors.paperInk), within: 3) == false)
+    }
+
+    @Test func theOutlinedPaperButtonRestsClearWithAHairlineAndWashesOnHover() throws {
+        func look(isHovered: Bool) throws -> RenderedButton {
+            try RenderedButton(TetherButtonLook(title: "Close", role: .paperOutline, shape: .capsule, size: .prominent, isHovered: isHovered), backdrop: DS.Colors.paperSurface)
+        }
+        let resting = try look(isHovered: false)
+        let hovered = try look(isHovered: true)
+        let paper = channels(of: DS.Colors.paperSurface)
+        // No fill at rest, so the paper shows, and a hover washes it slightly darker.
+        #expect(close(resting.color(atX: 8, y: 16), paper, within: 2))
+        let washed = hovered.color(atX: 8, y: 16)
+        #expect(washed.reduce(0, +) < paper.reduce(0, +) && washed.reduce(0, +) > paper.reduce(0, +) - 60, "washed \(washed)")
+        // The edge is a hairline at rest and stronger on hover.
+        let restingEdge = resting.color(atX: resting.widthInPoints / 2, y: 0.5)
+        let hoveredEdge = hovered.color(atX: resting.widthInPoints / 2, y: 0.5)
+        #expect(restingEdge.reduce(0, +) < paper.reduce(0, +))
+        #expect(hoveredEdge.reduce(0, +) < restingEdge.reduce(0, +))
+        // The label is the ink.
+        #expect(resting.pixelsNear(channels(of: DS.Colors.paperInk)) > 20)
+    }
 }

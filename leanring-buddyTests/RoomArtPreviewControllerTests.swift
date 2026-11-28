@@ -940,6 +940,8 @@ private final class HarnessRecorder {
     var tabsThePictureWasCapturedFrom: [String] = []
     /// Each chip the controller showed, with whether it was a failure.
     var chips: [(phrase: String, isAFailure: Bool)] = []
+    /// The paper receipts a save that worked showed.
+    var photoReceipts: [RoomArtPhotoReceipt] = []
     /// A folder of this harness's own under the temporary directory, where Save photo writes.
     let photoFolder = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-room-art-photos-\(UUID().uuidString)", isDirectory: true)
 }
@@ -1025,6 +1027,7 @@ private struct RoomArtHarness {
         environment.theLearnerAskedThePanel = { recorder.timesTheLearnerAskedThePanel += 1 }
         environment.playTheShirtCountdownSound = { recorder.countdownSounds.append($0) }
         environment.showTheChip = { phrase, isAFailure in recorder.chips.append((phrase, isAFailure)) }
+        environment.showThePhotoReceipt = { photoReceipt in recorder.photoReceipts.append(photoReceipt) }
         environment.thePanelOpened = { recorder.panelWasOpenWhenItSaidSo.append(recorder.controllerIsOpen()) }
         environment.photoFolder = recorder.photoFolder
         let controller = RoomArtPreviewController(environment: environment, frameProcessor: frameProcessor, panelPresenter: panel)
@@ -1158,8 +1161,14 @@ struct RoomArtPreviewControllerTests {
         // The frame as the panel drew it, at its own size.
         let savedImage = try #require(CGImageSourceCreateWithURL(harness.recorder.photoFolder.appendingPathComponent(savedFile) as CFURL, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) })
         #expect(savedImage.width == 64 && savedImage.height == 36)
-        #expect(harness.recorder.chips.map(\.phrase) == [roomArtPhotoSavedChip])
-        #expect(harness.recorder.chips.map(\.isAFailure) == [false])
+        // A save that worked shows the paper receipt and no chip: the receipt names the saved file and holds its thumbnail.
+        #expect(harness.recorder.chips.isEmpty)
+        let photoReceipt = try #require(harness.recorder.photoReceipts.first)
+        #expect(harness.recorder.photoReceipts.count == 1)
+        #expect(photoReceipt.fileURL.lastPathComponent == savedFile)
+        #expect(photoReceipt.locationLine == "\(harness.recorder.photoFolder.lastPathComponent) folder · \(savedFile)")
+        let thumbnail = try #require(photoReceipt.thumbnail)
+        #expect(thumbnail.width == 136 && thumbnail.height == 104)
         #expect(harness.artIsShowing())
         harness.controller.close()
     }
@@ -1177,6 +1186,7 @@ struct RoomArtPreviewControllerTests {
         #expect(!FileManager.default.fileExists(atPath: harness.recorder.photoFolder.path))
         #expect(harness.recorder.chips.map(\.phrase) == [roomArtPhotoNotSavedChip])
         #expect(harness.recorder.chips.map(\.isAFailure) == [true])
+        #expect(harness.recorder.photoReceipts.isEmpty)
         #expect(harness.artIsShowing())
         harness.controller.close()
     }

@@ -146,6 +146,39 @@ enum DS {
         /// theme's accent, so it reads beside an accent border and on every theme.
         static let keyboardFocusRing = Color(hex: "#8fb6ff")
 
+        // ── Paper ────────────────────────────────────────────────────
+        // The material for what the learner keeps (`PaperMaterial.swift`): the quiz recap Card and the Save photo receipt.
+        // Paper is opaque and light in light and dark mode alike, so these are fixed colors, never dynamic ones. Live controls,
+        // approvals, status lines, and labels over video stay on the dark Card and Callout.
+
+        /// The paper's surface, a warm off-white.
+        static let paperSurface = Color(hex: "#F6F5F1")
+
+        /// Body text and titles on paper. 16.4 contrast on `paperSurface`.
+        static let paperInk = Color(hex: "#15171C")
+
+        /// Secondary text on paper, such as the kicker's line under a score. 7.4 contrast.
+        static let paperInkSecondary = Color(hex: "#4B505B")
+
+        /// Small print on paper: the kicker, the numerals, the colophon. 4.8 contrast, a little darker than the mock's
+        /// `#737986`, which reads at only 4.0 at 11 points.
+        static let paperInkTertiary = Color(hex: "#676D7A")
+
+        /// The ink of a section rule and of an outlined button's edge: `paperInk` at 13%.
+        static let paperHairline = Color(hex: "#15171C").opacity(0.13)
+
+        /// The edge of an outlined paper button while the pointer is on it: `paperInk` at 28%.
+        static let paperHairlineHover = Color(hex: "#15171C").opacity(0.28)
+
+        /// A wash over paper for a hovered row or button: `paperInk` at 5%.
+        static let paperWash = Color(hex: "#15171C").opacity(0.05)
+
+        /// The paper's own edge, which keeps it apart from a bright page behind it: black at 35%, half a point wide.
+        static let paperEdge = Color.black.opacity(0.35)
+
+        /// The label of a button filled with `paperInk`. 17.0 contrast on it.
+        static let paperInkButtonLabel = Color(hex: "#F9F9F6")
+
         // ── Settings Dial ────────────────────────────────────────────
 
         /// The dial's plate and the first-run hint's background, a near-black blue.
@@ -184,6 +217,8 @@ enum DS {
         static let row: CGFloat = 10
         /// The Tether Card (`tetherCard()`).
         static let card: CGFloat = 14
+        /// Paper (`paperCard()`) and the Save photo receipt. Squarer than the Card, like a printed page.
+        static let paper: CGFloat = 8
         /// A capsule or a circle. SwiftUI clamps a radius to half the shorter side.
         static let pill: CGFloat = .infinity
     }
@@ -239,6 +274,44 @@ enum DS {
         }
 
         var font: Font { .system(size: pointSize, weight: weight, design: design) }
+    }
+
+    // MARK: - Paper type
+
+    /// The serif styles of paper (`paperCard()`), in New York, the system serif, so nothing is bundled. Everything else on
+    /// paper is set in the Tether type scale: the kicker and the score in `caption` and `title`, the lines in `body`, the
+    /// colophon and the timestamps in `data`.
+    enum PaperType {
+        /// 28/600: the recap's title.
+        case title
+        /// 14/400 italic: a section's label, such as "Review these first".
+        case sectionLabel
+        /// 14/600: a numeral beside a learned line.
+        case numeral
+        /// 15/600: the Save photo receipt's line.
+        case receiptTitle
+
+        var pointSize: CGFloat {
+            switch self {
+            case .title: return 28
+            case .sectionLabel, .numeral: return 14
+            case .receiptTitle: return 15
+            }
+        }
+
+        var weight: Font.Weight {
+            switch self {
+            case .title, .numeral, .receiptTitle: return .semibold
+            case .sectionLabel: return .regular
+            }
+        }
+
+        var isItalic: Bool { self == .sectionLabel }
+
+        var font: Font {
+            let serifFont = Font.system(size: pointSize, weight: weight, design: .serif)
+            return isItalic ? serifFont.italic() : serifFont
+        }
     }
 
     /// A symbol or number whose size follows the disc or badge it sits in, such as a check on a 22 point agent disc.

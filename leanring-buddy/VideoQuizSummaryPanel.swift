@@ -2,8 +2,8 @@
 //  VideoQuizSummaryPanel.swift
 //  leanring-buddy
 //
-//  The Card at the end of a video quiz or a video: the score, each question to look at again (a button that goes back to
-//  it), what the learner learned, and the study guide link. At the end of a quiz it Glides out of the video; at the end of
+//  The Card at the end of a video quiz or a video, printed on paper since the learner keeps it (`paperCard()`): the score,
+//  each question to look at again (a button that goes back to it), what the learner learned, and the study guide link. At the end of a quiz it Glides out of the video; at the end of
 //  a video it Glides out of the cursor, after the agent discs gather there. It closes back into where it came from on the
 //  shared carrier, and shows in a full-screen space too.
 //
@@ -40,83 +40,97 @@ func appKitRect(of screenRect: ScreenRectInChromeCoordinates, mainDisplayHeight:
     CGRect(x: screenRect.rectX, y: mainDisplayHeight - (screenRect.rectY + screenRect.rectHeight), width: screenRect.rectWidth, height: screenRect.rectHeight)
 }
 
+/// The recap printed on paper (`paperCard()`), since it is what the learner keeps: a kicker, a serif title, the score on a flat
+/// highlight in the theme's accent, the questions to go back to, what the learner learned, and a colophon with the time the
+/// Card was made beside the buttons.
 struct VideoQuizSummaryCardView: View {
-    static let cardWidth: CGFloat = 320
+    static let cardWidth: CGFloat = 360
 
     let recap: VideoRecap
     let moment: VideoRecapMoment
     let accentColor: Color
+    /// When the Card was made, for its colophon. The panel makes the Card once and carries the same value on and off the screen.
+    var madeAt = Date()
     let goBackToTheMissedQuestion: (VideoQuizMissedQuestion) -> Void
     let openTheStudyGuide: () -> Void
     let close: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(recap.title(when: moment))
-                    .font(DS.TypeScale.voice.font)
-                    .foregroundStyle(Color.white)
-                Spacer(minLength: 8)
-                if let summary = recap.summary {
-                    Text(summary.scoreText)
-                        .font(DS.TypeScale.title.font)
-                        // Green means right in Clicky, so only a quiz with every answer right shows its score in green.
-                        .foregroundStyle(summary.missedQuestions.isEmpty ? DS.Colors.success : DS.Colors.textPrimary)
-                }
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            Text(recap.kicker(when: moment))
+                .font(DS.TypeScale.caption.font.weight(.semibold))
+                .foregroundStyle(DS.Colors.paperInkTertiary)
+            Text(recap.title(when: moment))
+                .font(DS.PaperType.title.font)
+                .foregroundStyle(DS.Colors.paperInk)
+                .padding(.top, 8)
+                .accessibilityAddTraits(.isHeader)
             if let summary = recap.summary {
-                Text(summary.captionText)
-                    .font(DS.TypeScale.caption.font)
-                    .foregroundStyle(DS.Colors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    PaperHighlight(text: summary.scoreText, accent: accentColor)
+                    Text(summary.captionText)
+                        .font(DS.TypeScale.body.font)
+                        .foregroundStyle(DS.Colors.paperInkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 8)
             }
             // The missed questions come first, since they are what the learner can act on.
             // A long list scrolls inside the Card, so its Close button always stays on screen.
             if let summary = recap.summary, !summary.missedQuestions.isEmpty {
-                if summary.missedQuestions.count > Self.missedQuestionsShownWithoutScrolling {
-                    ScrollView {
+                section("Review these first") {
+                    if summary.missedQuestions.count > Self.missedQuestionsShownWithoutScrolling {
+                        ScrollView {
+                            missedQuestionButtons(of: summary)
+                        }
+                        .frame(height: Self.scrollingListHeight)
+                    } else {
                         missedQuestionButtons(of: summary)
                     }
-                    .frame(height: Self.scrollingListHeight)
-                } else {
-                    missedQuestionButtons(of: summary)
                 }
             }
             if !recap.learnedLines.isEmpty {
-                learnedLines
-            }
-            HStack(spacing: 8) {
-                if recap.studyGuideURL != nil {
-                    TetherButton("Study guide", systemImage: "arrow.up.right", role: .primary(accent: accentColor), action: openTheStudyGuide)
+                section("What you learned") {
+                    learnedLines
                 }
-                Spacer()
-                TetherButton("Close", role: .quiet, action: close)
             }
+            footer
         }
-        .padding(14)
+        .padding(EdgeInsets(top: 18, leading: 20, bottom: 16, trailing: 20))
         .frame(width: Self.cardWidth, alignment: .leading)
-        .tetherCard()
+        .paperCard()
     }
 
     static let missedQuestionsShownWithoutScrolling = 5
     /// About five rows of two lines each.
     static let scrollingListHeight: CGFloat = 300
 
+    /// A section: a hairline rule, its italic serif label, and its content.
+    private func section<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            PaperRule()
+            Text(label)
+                .font(DS.PaperType.sectionLabel.font)
+                .foregroundStyle(DS.Colors.paperInkSecondary)
+                .padding(.top, 4)
+                .accessibilityAddTraits(.isHeader)
+            content()
+        }
+        .padding(.top, 14)
+    }
+
     private var learnedLines: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("What you learned")
-                .font(DS.TypeScale.caption.font)
-                .foregroundStyle(DS.Colors.textSecondary)
-            ForEach(recap.learnedLines, id: \.self) { learnedLine in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Circle()
-                        .fill(accentColor)
-                        .frame(width: 5, height: 5)
-                        // The dot sits on the first line's middle, not its baseline.
-                        .offset(y: -2)
+            ForEach(Array(recap.learnedLines.enumerated()), id: \.offset) { learnedLineIndex, learnedLine in
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(verbatim: "\(learnedLineIndex + 1)")
+                        .font(DS.PaperType.numeral.font)
+                        .foregroundStyle(DS.Colors.paperInkTertiary)
+                        .frame(width: 18, alignment: .leading)
                     Text(learnedLine)
                         .font(DS.TypeScale.body.font)
-                        .foregroundStyle(DS.Colors.textPrimary)
+                        .foregroundStyle(DS.Colors.paperInk)
+                        .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -124,10 +138,47 @@ struct VideoQuizSummaryCardView: View {
         }
     }
 
+    /// The colophon on the left and the buttons on the right, or the buttons under the colophon when they do not fit side by side.
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            PaperRule()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    colophon
+                    Spacer(minLength: 10)
+                    buttons
+                }
+                VStack(alignment: .trailing, spacing: 10) {
+                    colophon.frame(maxWidth: .infinity, alignment: .leading)
+                    buttons
+                }
+            }
+            .padding(.top, 12)
+        }
+        .padding(.top, 14)
+    }
+
+    private var colophon: some View {
+        Text(verbatim: videoRecapColophonText(madeAt: madeAt))
+            .font(DS.TypeScale.data.font.weight(.medium))
+            .foregroundStyle(DS.Colors.paperInkTertiary)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private var buttons: some View {
+        HStack(spacing: 8) {
+            TetherButton("Close", role: .paperOutline, shape: .capsule, size: .prominent, action: close)
+            if recap.studyGuideURL != nil {
+                TetherButton("Study guide", role: .paperFilled, shape: .capsule, size: .prominent, action: openTheStudyGuide)
+            }
+        }
+    }
+
     private func missedQuestionButtons(of summary: VideoQuizSummary) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
             ForEach(summary.missedQuestions) { missedQuestion in
-                VideoQuizMissedQuestionButton(missedQuestion: missedQuestion, accentColor: accentColor) {
+                VideoQuizMissedQuestionButton(missedQuestion: missedQuestion) {
                     goBackToTheMissedQuestion(missedQuestion)
                 }
             }
@@ -135,38 +186,44 @@ struct VideoQuizSummaryCardView: View {
     }
 }
 
+/// A question to look at again: a go-back arrow, the question, and its timestamp in a monospaced column. A click takes the
+/// learner back to it, and the row says so with a wash and the pointing hand.
 private struct VideoQuizMissedQuestionButton: View {
     let missedQuestion: VideoQuizMissedQuestion
-    let accentColor: Color
     let action: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(DS.glyphFont(pointSize: 11, weight: .semibold))
+                    .foregroundStyle(DS.Colors.paperInkSecondary)
+                    .accessibilityHidden(true)
                 Text(missedQuestion.question)
-                    .font(DS.TypeScale.body.font)
-                    .foregroundStyle(DS.Colors.textPrimary)
+                    .font(DS.TypeScale.title.font)
+                    .foregroundStyle(DS.Colors.paperInk)
                     .multilineTextAlignment(.leading)
                     .lineLimit(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(verbatim: missedQuestion.timestampText)
-                    .font(DS.TypeScale.data.font)
-                    .foregroundStyle(accentColor)
+                    .font(DS.TypeScale.data.font.weight(.medium))
+                    .monospacedDigit()
+                    .foregroundStyle(DS.Colors.paperInkSecondary)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
             .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.control, style: .continuous)
-                    .fill(Color.white.opacity(isHovered ? 0.1 : 0.05))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.control, style: .continuous)
-                    .strokeBorder(isHovered ? accentColor : DS.Colors.edge, lineWidth: 1)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.chip, style: .continuous)
+                    .fill(isHovered ? DS.Colors.paperWash : .clear)
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The row's text lines up with the rest of the Card, so its own padding hangs out into the Card's.
+        .padding(.horizontal, -6)
+        .accessibilityLabel("\(missedQuestion.question), at \(missedQuestion.timestampText)")
+        .accessibilityHint("Goes back to this question")
         .hoverAndPointer { hovering in
             withAnimation(DS.Move.snap.animation(reduceMotionIsOn: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
                 isHovered = hovering
