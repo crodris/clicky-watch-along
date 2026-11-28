@@ -101,8 +101,10 @@ struct PanelButton: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 if let systemImageName {
+                    // The title says what the button does, so VoiceOver skips the symbol.
                     Image(systemName: systemImageName)
                         .font(.system(size: 10, weight: .semibold))
+                        .accessibilityHidden(true)
                 }
                 Text(title)
                     .font(DS.TypeScale.caption.font)

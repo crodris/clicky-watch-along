@@ -2,8 +2,8 @@
 //  VideoQuizSummaryPanel.swift
 //  leanring-buddy
 //
-//  The Card at the end of a video quiz or a video: the score, what the learner learned, each question to look at again
-//  (a button that goes back to it), and the study guide link. At the end of a quiz it Glides out of the video; at the end of
+//  The Card at the end of a video quiz or a video: the score, each question to look at again (a button that goes back to
+//  it), what the learner learned, and the study guide link. At the end of a quiz it Glides out of the video; at the end of
 //  a video it Glides out of the cursor, after the agent discs gather there. It closes back into where it came from on the
 //  shared carrier, and shows in a full-screen space too.
 //
@@ -70,9 +70,7 @@ struct VideoQuizSummaryCardView: View {
                     .foregroundStyle(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if !recap.learnedLines.isEmpty {
-                learnedLines
-            }
+            // The missed questions come first, since they are what the learner can act on.
             // A long list scrolls inside the Card, so its Close button always stays on screen.
             if let summary = recap.summary, !summary.missedQuestions.isEmpty {
                 if summary.missedQuestions.count > Self.missedQuestionsShownWithoutScrolling {
@@ -83,6 +81,9 @@ struct VideoQuizSummaryCardView: View {
                 } else {
                     missedQuestionButtons(of: summary)
                 }
+            }
+            if !recap.learnedLines.isEmpty {
+                learnedLines
             }
             HStack(spacing: 8) {
                 if recap.studyGuideURL != nil {

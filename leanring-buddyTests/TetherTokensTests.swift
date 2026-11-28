@@ -2,7 +2,7 @@
 //  TetherTokensTests.swift
 //  leanring-buddyTests
 //
-//  The Tether tokens: the type scale's four sizes, each move's curve and Reduce Motion form as the spec gives them, the
+//  The Tether tokens: the type scale's five sizes (`display` is the largest), each move's curve and Reduce Motion form as the spec gives them, the
 //  curves' math, and the Card and Callout drawn at 2x.
 //
 
@@ -16,8 +16,9 @@ import Testing
 struct TetherTokensTests {
     // MARK: - Type scale
 
-    @Test func theSixTypeStylesUseOnlyTheFourSizes() {
-        #expect(Set(DS.TypeScale.allCases.map(\.pointSize)) == [17, 15, 13, 11])
+    @Test func theTypeStylesUseOnlyTheFiveSizes() {
+        #expect(Set(DS.TypeScale.allCases.map(\.pointSize)) == [120, 17, 15, 13, 11])
+        #expect(DS.TypeScale.display.pointSize == 120 && DS.TypeScale.display.weight == .bold && DS.TypeScale.display.design == .rounded)
         #expect(DS.TypeScale.voice.pointSize == 15 && DS.TypeScale.voice.weight == .bold && DS.TypeScale.voice.design == .rounded)
         #expect(DS.TypeScale.data.design == .monospaced)
     }
@@ -177,9 +178,57 @@ struct TetherTokensTests {
         // The tail reaches below the pill near its left end, and the white page shows to its right.
         let tailY = (30 + 40 + 4) * 2
         let tailTip = TetherCalloutShape.tailTip(inCalloutOfSize: CGSize(width: 200, height: 49))
-        // The accent halo tints the page around the pill, so the page beside the tail is light, not pure white.
+        // The drop shadow darkens the page around the pill a little, so the page beside the tail is light, not pure white.
         #expect((pixels.colorAt(x: Int((30 + tailTip.x + 4) * 2), y: tailY)?.brightnessComponent ?? 1) < 0.3, "tail")
         #expect((pixels.colorAt(x: (30 + 60) * 2, y: tailY)?.brightnessComponent ?? 0) > 0.6, "page beside the tail")
+    }
+
+    /// The rim is what separates the Callout from the page, and no accent glow reaches past it.
+    @Test(arguments: ["#ffffff", "#0b0c10"])
+    func theCalloutsRimSeparatesItFromALightAndADarkPageWithNoGlow(pageHex: String) throws {
+        // A saturated orange, the kind of accent that glowed.
+        let accentHex = "#F97316"
+        let callout = TetherCallout(accent: Color(hex: accentHex)) {
+            Image(systemName: "arrow.counterclockwise")
+        } content: {
+            Text("Turning it left")
+        }
+        let renderer = ImageRenderer(content: callout.padding(30).background(Color(hex: pageHex)))
+        renderer.scale = 2
+        let pixels = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+        // The middle of the pill's left end, where the rim is outermost.
+        let bodyMiddleY = (30 + 20) * 2
+        let rim = pixels.colorAt(x: 30 * 2 + 1, y: bodyMiddleY)
+        #expect(pixel(rim, matches: accentHex, tolerance: 40), "rim \(hex(of: rim))")
+        // 4 points outside the rim, the page keeps its own hue: only the black shadow reaches it. An accent halo would add
+        // far more red than blue here.
+        let beside = try #require(pixels.colorAt(x: (30 - 4) * 2, y: bodyMiddleY))
+        let page = try #require(pixels.colorAt(x: 2, y: 2))
+        let warmthBesideTheRim = beside.redComponent - beside.blueComponent
+        let warmthOfThePage = page.redComponent - page.blueComponent
+        #expect(abs(warmthBesideTheRim - warmthOfThePage) < 0.02, "beside \(hex(of: beside)), page \(hex(of: page))")
+        // Just under the pill, its one shadow darkens a white page and leaves it gray.
+        if pageHex == "#ffffff" {
+            // 60 points along the pill and 2 points under its 40 point body, at 2 pixels a point.
+            let underColumn: Int = 180
+            let underRow: Int = 144
+            let under = try #require(pixels.colorAt(x: underColumn, y: underRow))
+            #expect(under.redComponent < 0.9, "under \(hex(of: under))")
+            #expect(abs(under.redComponent - under.blueComponent) < 0.02, "under \(hex(of: under))")
+        }
+    }
+
+    /// The web quiz "?" label is a Callout too, drawn by the scene stylesheet. The file is read next to the sources, since
+    /// only Xcode's test host bundles it.
+    @Test func theWebQuizLabelDrawsNoAccentGlowAsTheCalloutDrawsNone() throws {
+        let repositoryRootURL = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
+        let stylesheetURL = repositoryRootURL.appendingPathComponent("leanring-buddy/LiveSceneAssets/scene-style.css")
+        let stylesheet = try String(contentsOf: stylesheetURL, encoding: .utf8)
+        let ruleBody = try #require(stylesheet.components(separatedBy: ".scene-label.quiz-answer.unanswered {").dropFirst().first?.components(separatedBy: "}").first)
+        let shadow = try #require(ruleBody.components(separatedBy: "box-shadow:").dropFirst().first?.components(separatedBy: ";").first)
+        #expect(ruleBody.contains("border: 1.5px solid var(--clicky-accent);"))
+        #expect(shadow.contains("rgba(0, 0, 0,"))
+        #expect(!shadow.contains("accent"), "\(shadow)")
     }
 
     @Test func theCardSurfaceRunsFromItsTopColorToItsBottomColor() throws {

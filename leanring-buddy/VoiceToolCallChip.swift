@@ -184,7 +184,7 @@ final class VoiceToolCallChip {
     nonisolated static let gapBetweenStackedChips: CGFloat = 4
     /// How far a chip rises when a new one pushes it up: the Callout's height with its tail (49) and the gap.
     nonisolated static let stackStepHeight: CGFloat = tetherSingleLineCalloutHeight + gapBetweenStackedChips
-    /// The panel holds a Callout with its tail (49), the margin for its halo and shadow on both sides (28), and one step
+    /// The panel holds a Callout with its tail (49), the margin for its shadow on both sides (28), and one step
     /// for the upper slot's chip to rise into.
     nonisolated static let panelSize = CGSize(width: 520, height: tetherSingleLineCalloutHeight + 2 * tetherCalloutPanelMargin + stackStepHeight)
     nonisolated static let defaultSecondsOnScreen: TimeInterval = 1.4

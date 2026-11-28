@@ -203,7 +203,7 @@ struct VoiceToolCallChipStackTests {
         return pairs.allSatisfy { abs(Int(($0.0 * 255).rounded()) - Int(($0.1 * 255).rounded())) <= 3 }
     }
 
-    /// Whether a pixel is the light page, which a Callout's halo and shadow tint a little but never darken below this.
+    /// Whether a pixel is the light page, which a Callout's shadow darkens a little but never below this.
     private func pixelIsLightPage(_ color: NSColor?) -> Bool {
         guard let color else { return false }
         return min(color.redComponent, color.greenComponent, color.blueComponent) >= 0.7

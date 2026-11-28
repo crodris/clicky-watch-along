@@ -16,8 +16,9 @@ import SwiftUI
 
 // MARK: - Where a Callout sits
 
-/// The room around a Callout inside its panel, for the accent halo and the drop shadow (a 9 point blur and a 5 point blur
-/// offset 3 down), so the panel does not clip either.
+/// The room around a Callout inside its panel, so the panel does not clip the drop shadow (a 5 point blur offset 3 down).
+/// 14 points is more than the shadow needs: rendered, it reaches 10.5 points below the Callout, 9 to each side, and 7
+/// above.
 let tetherCalloutPanelMargin: CGFloat = 14
 
 /// The height of a Callout whose words fit on one line: the 26 point icon disc, 7 points of padding above and below it, and
