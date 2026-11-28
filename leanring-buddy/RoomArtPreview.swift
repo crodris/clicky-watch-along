@@ -1622,6 +1622,9 @@ final class RoomArtPreviewController: ObservableObject {
         var playTheShirtCountdownSound: (ShirtCountdownSound) -> Void = { $0.play() }
         /// Shows a chip above the cursor, as a failure when `isAFailure` is true: what Save photo did.
         var showTheChip: (_ phrase: String, _ isAFailure: Bool) -> Void = { _, _ in }
+        /// The panel is open now: a request's cursor loop around the page's media, started before the panel opened, goes at once, since
+        /// the cursor overlay's windows sit above the panel's and the loop would draw over its camera view.
+        var thePanelOpened: () -> Void = {}
         /// Where Save photo writes, ~/Pictures/Clicky. A test passes a folder of its own.
         var photoFolder: URL = RoomArtPhotoSaving.standardFolder
 
@@ -1635,7 +1638,8 @@ final class RoomArtPreviewController: ObservableObject {
             loopTracerLook: @escaping () -> CursorLoopTracerLook?,
             endTheSpokenLine: @escaping () -> Void,
             theLearnerAskedThePanel: @escaping () -> Void,
-            showTheChip: @escaping (String, Bool) -> Void
+            showTheChip: @escaping (String, Bool) -> Void,
+            thePanelOpened: @escaping () -> Void
         ) -> Environment {
             let roomArtClient = RoomArtClient(workerBaseURL: workerBaseURL)
             let shirtPaintingClient = ShirtPaintingClient(workerBaseURL: workerBaseURL)
@@ -1718,7 +1722,8 @@ final class RoomArtPreviewController: ObservableObject {
                     }.value
                 },
                 theLearnerAskedThePanel: theLearnerAskedThePanel,
-                showTheChip: showTheChip
+                showTheChip: showTheChip,
+                thePanelOpened: thePanelOpened
             )
         }
     }
@@ -1941,12 +1946,14 @@ final class RoomArtPreviewController: ObservableObject {
             environment.speak(RoomArtFailure.appSecretMissing.spokenLine, true)
             return
         }
-        guard let frontTab = await environment.readTheFrontTab() else {
+        let readFrontTab = await environment.readTheFrontTab()
+        // The read waits while the page's sections open, so a newer request or Escape may have moved on meanwhile, and a request
+        // that did must not speak, not even the line for a tab with no picture.
+        guard thisRequest == requestNumber, !Task.isCancelled else { return }
+        guard let frontTab = readFrontTab else {
             environment.speak(roomArtNoPictureLine, true)
             return
         }
-        // The read waits while the page's sections open, so a newer request or Escape may have moved on meanwhile.
-        guard thisRequest == requestNumber, !Task.isCancelled else { return }
         guard frontTab.url.lowercased().hasPrefix("https://") else {
             environment.speak(RoomArtFailure.pageNotHTTPS.spokenLine, true)
             return
@@ -1960,7 +1967,7 @@ final class RoomArtPreviewController: ObservableObject {
         let pictureTask = Task { await capturePicture(frontTab) }
         self.pictureTask = pictureTask
         let picture = await withTaskCancellationHandler { await pictureTask.value } onCancel: { pictureTask.cancel() }
-        // Escape or a new request moved the opening number on, and a push-to-talk press cancelled this task, so the
+        // Escape or a new request moved the request number on, and a push-to-talk press cancelled this task, so the
         // learner moved on and nothing opens or speaks.
         guard thisRequest == requestNumber, !Task.isCancelled else { return }
         guard let picture,
@@ -1996,6 +2003,7 @@ final class RoomArtPreviewController: ObservableObject {
         }
         environment.clearTheLiveScene()
         phase = phase.opening()
+        environment.thePanelOpened()
         if keepsTheRoom {
             // The panel, the camera, and its session run on, and the camera already has a frame, so the item is measured as
             // soon as the page is read.

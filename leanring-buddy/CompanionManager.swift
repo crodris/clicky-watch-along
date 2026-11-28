@@ -410,7 +410,8 @@ final class CompanionManager: ObservableObject {
         },
         showTheChip: { phrase, isAFailure in
             VoiceToolCallChip.shared.show(phrase, sender: isAFailure ? .failure : .voiceToolCall)
-        }
+        },
+        thePanelOpened: { [weak self] in self?.cursorLoopController.theRoomArtPanelOpened() }
     ))
     /// The room art line waiting for its turn or playing. A new line replaces it, and every close of the panel ends it.
     private var roomArtSpeechTask: Task<Void, Never>?

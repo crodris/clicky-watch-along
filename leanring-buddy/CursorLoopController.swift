@@ -159,8 +159,22 @@ final class CursorLoopController: ObservableObject {
             let media = readTheMediaInTheFrontTab(frontTabRead)
             print("Cursor loop: read the front tab's media in \(Int((Self.now - readStartedAt) * 1000)) ms, \(media == nil ? "none to frame" : "found")")
             guard !Task.isCancelled else { return }
+            // The panel may have opened while the rect was read, and a rect that arrives then must not start a loop under it.
+            guard !theRoomArtPanelIsOpen() else {
+                change { $0.theRoomArtPanelOpened() }
+                return
+            }
             change { $0.mediaRectArrived(media, at: Self.now, agentsMayJoinTheLine: agentSparksMayDraw()) }
         }
+    }
+
+    /// The room art panel opened. A request's loop that already shows, or one still waiting for its media rect, goes at once,
+    /// since the room art route starts the loop before the panel opens and the overlay's windows sit above the panel's.
+    func theRoomArtPanelOpened() {
+        mediaRectReadTask?.cancel()
+        idleMustHoldTask?.cancel()
+        print("Cursor loop: the room art panel opened, so the request's loop is removed")
+        change { $0.theRoomArtPanelOpened() }
     }
 
     /// The request became a look at the media on screen. The caller skips this while a scene already covers it.
@@ -286,7 +300,8 @@ final class CursorLoopController: ObservableObject {
 
     /// The loop to draw on the screen with this frame, or nil when the media is on another screen or no loop shows.
     func loopToDraw(onScreenWithFrame screenFrame: CGRect) -> CursorLoopOnScreen? {
-        guard let loopOnTheMedia = state.loopOnTheMedia else { return nil }
+        // The overlay's windows sit above the room art panel's, so no loop draws over its camera view, a fading one included.
+        guard !theRoomArtPanelIsOpen(), let loopOnTheMedia = state.loopOnTheMedia else { return nil }
         let target = loopOnTheMedia.target
         let screens = NSScreen.screens
         guard let screenIndex = indexOfTheScreenFrameHolding(target.screenRect, screenFramesInAppKitCoordinates: screens.map(\.frame)),

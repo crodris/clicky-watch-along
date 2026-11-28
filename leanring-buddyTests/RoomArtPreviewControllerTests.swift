@@ -922,6 +922,10 @@ private final class HarnessRecorder {
     var timesTheLearnerAskedThePanel = 0
     /// The step-back countdown's sounds, in the order the controller played them.
     var countdownSounds: [ShirtCountdownSound] = []
+    /// Whether the controller counted itself open each time it told the cursor loop that the panel opened.
+    var panelWasOpenWhenItSaidSo: [Bool] = []
+    /// Reads the controller, which the environment's closures are made before.
+    var controllerIsOpen: () -> Bool = { false }
     /// What Chrome's front tab holds, which a test may change between requests.
     var frontTab: RoomArtFrontTab?
     /// While set, a front tab read waits here, and then returns the tab as it was when the read started.
@@ -1021,9 +1025,11 @@ private struct RoomArtHarness {
         environment.theLearnerAskedThePanel = { recorder.timesTheLearnerAskedThePanel += 1 }
         environment.playTheShirtCountdownSound = { recorder.countdownSounds.append($0) }
         environment.showTheChip = { phrase, isAFailure in recorder.chips.append((phrase, isAFailure)) }
+        environment.thePanelOpened = { recorder.panelWasOpenWhenItSaidSo.append(recorder.controllerIsOpen()) }
         environment.photoFolder = recorder.photoFolder
         let controller = RoomArtPreviewController(environment: environment, frameProcessor: frameProcessor, panelPresenter: panel)
         self.controller = controller
+        recorder.controllerIsOpen = { [weak controller] in controller?.isOpen ?? false }
         if placesTheGhostAtOnce {
             // The phase publishes before it changes, so the placement runs on the next turn of the main actor.
             recorder.ghostPlacer = controller.$phase.sink { newPhase in
@@ -2330,6 +2336,37 @@ struct RoomArtPreviewControllerTests {
         // Only the second request took a picture, from its own tab, and only its page was read.
         #expect(harness.recorder.tabsThePictureWasCapturedFrom == ["https://shop.example/lamp"])
         #expect(harness.worker.pageRequests.map(\.pageURL) == ["https://shop.example/lamp"])
+        harness.controller.close()
+    }
+
+    @Test func aRequestOvertakenWhileItReadsAFrontTabWithNoPictureSpeaksNothing() async throws {
+        // A tab with no picture reads as nil. The line for it belongs to the request that is still current, so a request that
+        // Escape or a newer request overtook during the read stays silent.
+        let frontTabReadGate = TestGate()
+        let harness = RoomArtHarness(frontTab: nil)
+        harness.recorder.frontTabReadGate = frontTabReadGate
+        let overtakenRequest = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
+        try await waitFor("the request's front tab read") { frontTabReadGate.someoneIsWaiting }
+
+        #expect(harness.controller.closeOnEscape())
+        frontTabReadGate.open()
+        await overtakenRequest.value
+
+        #expect(harness.spokenLines().isEmpty)
+        #expect(!harness.controller.isOpen)
+    }
+
+    @Test func aCurrentRequestWhoseFrontTabHasNoPictureSaysSo() async {
+        let harness = RoomArtHarness(frontTab: nil)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        #expect(harness.spokenLines() == [roomArtNoPictureLine])
+    }
+
+    @Test func theCursorLoopIsToldOnceThePanelIsOpen() async throws {
+        // The room art route starts the loop around the media before the panel opens, and the loop must go as the panel opens.
+        let harness = RoomArtHarness()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid)
+        #expect(harness.recorder.panelWasOpenWhenItSaidSo == [true])
         harness.controller.close()
     }
 
