@@ -369,6 +369,8 @@ struct RoomArtClosingFrameTests {
         }
         #expect(try Self.isMostlyRed(try #require(frameProcessor.renderTheLastFrame())))
         frameProcessor.startASession(onFirstSegmentedFrame: {}, onTheSurfaceLostOrFound: { _ in })
+        // Nothing to save until the new session draws, so Save photo never writes the last session's frame.
+        #expect(frameProcessor.renderTheLastFrame() == nil)
         Self.deliver(try Self.cameraFrame(.blue), to: frameProcessor)
         #expect(try !Self.isMostlyRed(try #require(frameProcessor.renderTheLastFrame())))
     }

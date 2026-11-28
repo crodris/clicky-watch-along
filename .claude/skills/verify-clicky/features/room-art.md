@@ -73,13 +73,16 @@ Preconditions:
   Run `$V shot room-art` once the line "Here it is at <size>." plays: the art hangs on the wall in the panel, and a person in the video stays in front of it.
 - **The panel opening.** Run the panel with a recorded camera once, and read its window's rect with a `CGWindowListCopyWindowInfo` read of the Clicky windows.
   The next open uses the same rect while the mouse stays on that display, since only a move or a resize saves another place.
+  Run `$V app-quit` before the recording, since `app-launch` refuses to start while that Clicky still runs.
   Run `screencapture -v -V 20 -R<x>,<y>,<width>,<height> "$RUN/room-art-open.mov" & $V app-launch --room-camera-file <video of a room> "how would this look in my room"; wait`, then `ffmpeg -loglevel error -i "$RUN/room-art-open.mov" -vf fps=30 "$RUN/room-art-open-%04d.png"`.
   In the first frames that show the panel, it is faint and already fills its rect, and within about half a second it is solid.
 - **The panel closing.** With the panel open and a result showing, record 4 s as above into `room-art-close.mov` and click Close during it (`swift demo/scripts/mouse/mouse.swift click <x of the panel's right edge - 32> <y of its top edge + 32>`).
   The frames show the panel fading out in about 0.15 s with its status line and buttons fading with it, and no control disappears or changes before the panel does.
   The picture and any loop hold still during the fade: no frame of the plain camera replaces a painting, a placed item, or a painted shirt.
-- **Reopening during the fade.** On a wall art page with collapsed sections, such as an IKEA framed print, run `$V app-launch --room-camera-file <video of a room> "how would this look on my wall|+40 how would this look on my wall"`.
+- **Reopening during the fade.** On a wall art page with collapsed sections, such as an IKEA framed print, reload the page first so its sections are collapsed again, then run `$V app-launch --room-camera-file <video of a room> "how would this look on my wall|+40 how would this look on my wall"`.
   While the second request still reads the front tab, before the panel's status line changes, click the wall in the panel, which moves the art, so the request closes the panel and opens it again at once.
+  The first request leaves the sections open, so the second read takes no 600 ms wait, and the click may come too late.
+  When the log shows the second request kept the room instead, reload the page and run the step again.
   A recording shows the panel staying at full size and coming back from its fade.
   The window of time is under a second, and the unit test `aPanelOpenedAgainDuringItsCloseStaysAndFadesBackInFromWhereItIs` pins the rule.
 - **Reduce Motion.** This changes a setting of the Mac, so turn it off again afterward.

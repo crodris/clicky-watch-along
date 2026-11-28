@@ -382,6 +382,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             onTheShirtFramingSettled = nil
             shirtCapture = nil
             frozenShirt = nil
+            // A new session saves nothing until it has drawn a frame of its own, so Save photo never writes the last one's.
+            lastComposedImage = nil
             livePaintedTop = nil
             latestShirtOutline = nil
             shirtOutlineFailureWasLogged = false
