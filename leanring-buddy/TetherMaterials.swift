@@ -87,7 +87,7 @@ struct TetherCardEdge: View {
     private let cardShape = RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous)
 
     var body: some View {
-        cardShape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        cardShape.strokeBorder(DS.Colors.edge, lineWidth: 1)
             // The inner top highlight: the edge is brighter along the top quarter and fades out going down.
             .overlay(cardShape.strokeBorder(
                 LinearGradient(colors: [Color.white.opacity(0.10), Color.white.opacity(0)], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.25)),
@@ -122,7 +122,7 @@ struct TetherCalloutShape: Shape {
     /// The width of the tail where it leaves the pill.
     private static let tailBaseWidth: CGFloat = 13
     /// The pill's corner radius stops growing here, so a Callout of several lines keeps round corners, not round ends.
-    private static let largestCornerRadius: CGFloat = 22
+    private static let largestCornerRadius: CGFloat = 22 // design-token-exempt: the Callout outline's largest corner, drawn as a path
 
     /// Insets the outline, so a rim stroked on it stays inside the fill.
     var inset: CGFloat = 0
@@ -184,7 +184,7 @@ struct TetherCallout<Icon: View, Content: View>: View {
             ZStack {
                 Circle().fill(accent)
                 icon
-                    .font(.system(size: 12, weight: .bold))
+                    .font(DS.glyphFont(pointSize: 12, weight: .bold))
                     .foregroundStyle(accent.inkOnThisFill)
             }
             .frame(width: Self.iconDiscDiameter, height: Self.iconDiscDiameter)
@@ -199,6 +199,14 @@ struct TetherCallout<Icon: View, Content: View>: View {
         .background(TetherCalloutShape().fill(DS.Colors.calloutSurface))
         .overlay(TetherCalloutShape(inset: rim.lineWidth / 2).stroke(accent, style: StrokeStyle(lineWidth: rim.lineWidth, lineJoin: .round)))
         .compositingGroup()
-        .shadow(color: .black.opacity(0.4), radius: 5, x: 0, y: 3)
+        .tetherCalloutDropShadow()
+    }
+}
+
+extension View {
+    /// The Callout's one shadow, black at 40%, 5 points of blur and 3 down. A surface drawn over a video or a bright page
+    /// takes it too, so its edge stays separate from what is behind it. The design system allows only this and the Card's pair.
+    func tetherCalloutDropShadow() -> some View {
+        shadow(color: .black.opacity(0.4), radius: 5, x: 0, y: 3)
     }
 }

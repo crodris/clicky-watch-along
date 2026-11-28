@@ -113,7 +113,7 @@ struct ApprovalCardTests {
             reduceMotionOverride: reduceMotionIsOn
         )
         // A hosting view in a 2x window, since ImageRenderer draws neither a scroll view nor a focusable button.
-        let hostingView = NSHostingView(rootView: card.frame(width: AgentListPanelController.panelWidth).background(DS.Colors.background))
+        let hostingView = NSHostingView(rootView: card.frame(width: AgentListPanelController.panelWidth).background(DS.Colors.ground))
         let cardSize = hostingView.fittingSize
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: cardSize), styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = hostingView

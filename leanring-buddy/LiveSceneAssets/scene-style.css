@@ -20,9 +20,9 @@
   --clicky-callout-surface: #14171e;
   --clicky-card-top: #121419;
   --clicky-card-bottom: #171a21;
-  --clicky-text: #eceeed;
+  --clicky-text: #edeef0;
   /* Mirrors DS.Colors.textSecondary. */
-  --clicky-caption: #adb5b2;
+  --clicky-caption: #aeb3c0;
   --clicky-miss-amber: #ffcf75;
   /* A spring with Pop's overshoot, as a CSS curve. */
   --clicky-pop-curve: cubic-bezier(0.34, 1.56, 0.64, 1);

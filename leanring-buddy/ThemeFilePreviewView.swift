@@ -22,6 +22,9 @@ struct ThemeFilePreviewView: View {
     let picture: NSImage?
 
     static let size = CGSize(width: 520, height: 260)
+    /// The color of the 11 point "Double-click to add it" line. Secondary text, since the tertiary gray reads at about 3.6 to 1
+    /// on the Card, under the 4.5 to 1 that text this small needs.
+    static let addHintColor = DS.Colors.textSecondary
     private static let cursorDiscDiameter: CGFloat = 132
     /// The 24 point box drawn about four times its size, so a school's volleyball fills the disc as the triangle does.
     private static let cursorDrawingSide: CGFloat = 96
@@ -60,7 +63,7 @@ struct ThemeFilePreviewView: View {
                 swatchRow(title: "Agents", colors: agentColors, note: agentsNote)
                 Text("Double-click to add it to Clicky")
                     .font(DS.TypeScale.caption.font)
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .foregroundColor(Self.addHintColor)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -88,10 +91,10 @@ struct ThemeFilePreviewView: View {
                 .foregroundColor(DS.Colors.textTertiary)
                 .frame(width: 46, alignment: .leading)
             ForEach(colors.indices, id: \.self) { colorIndex in
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.swatch)
                     .fill(colors[colorIndex])
                     .frame(width: 16, height: 16)
-                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.swatch).strokeBorder(DS.Colors.edge, lineWidth: 1))
             }
             if let note {
                 Text(note)

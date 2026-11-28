@@ -45,6 +45,10 @@ final class CursorLoopController: ObservableObject {
     /// media, and each time the line is drawn, so a line that is already showing hides at the next redraw of the overlay after
     /// it turns false, and an agent held back joins at the first release that allows it. Until it is set, no spark draws.
     var agentSparksMayDraw: () -> Bool = { false }
+    /// Whether the room art panel is open. The cursor overlay's windows sit above the panel's, so a loop around Chrome's media
+    /// would draw over the panel's camera view, and a request that becomes a look at the media or at a circled region while the
+    /// panel is open draws none. `CompanionManager` sets it. Until it is set, no panel counts as open.
+    var theRoomArtPanelIsOpen: () -> Bool = { false }
     /// Where the front app changing is heard. A test passes its own center, since a real app switch on a busy machine would
     /// otherwise end the loop a test is checking.
     private let appActivationNotificationCenter: NotificationCenter
@@ -155,12 +159,30 @@ final class CursorLoopController: ObservableObject {
             let media = readTheMediaInTheFrontTab(frontTabRead)
             print("Cursor loop: read the front tab's media in \(Int((Self.now - readStartedAt) * 1000)) ms, \(media == nil ? "none to frame" : "found")")
             guard !Task.isCancelled else { return }
+            // The panel may have opened while the rect was read, and a rect that arrives then must not start a loop under it.
+            guard !theRoomArtPanelIsOpen() else {
+                change { $0.theRoomArtPanelOpened() }
+                return
+            }
             change { $0.mediaRectArrived(media, at: Self.now, agentsMayJoinTheLine: agentSparksMayDraw()) }
         }
     }
 
+    /// The room art panel opened. A request's loop that already shows, or one still waiting for its media rect, goes at once,
+    /// since the room art route starts the loop before the panel opens and the overlay's windows sit above the panel's.
+    func theRoomArtPanelOpened() {
+        mediaRectReadTask?.cancel()
+        idleMustHoldTask?.cancel()
+        print("Cursor loop: the room art panel opened, so the request's loop is removed")
+        change { $0.theRoomArtPanelOpened() }
+    }
+
     /// The request became a look at the media on screen. The caller skips this while a scene already covers it.
     func requestBecameALookAtTheMedia() {
+        guard !theRoomArtPanelIsOpen() else {
+            print("Cursor loop: the room art panel is open, so the request's loop around the media is not drawn")
+            return
+        }
         print("Cursor loop: the request became a look at the media, turn is \(state.turn == .notWaitingForALoop ? "not waiting for a loop" : "waiting")")
         change { $0.requestBecameALookAtTheMedia(at: Self.now) }
     }
@@ -169,6 +191,10 @@ final class CursorLoopController: ObservableObject {
     /// as its picture. The loop goes around the learner's own line, at once, since the region was in hand at the release.
     func requestBecameALookAtTheCircledRegion(_ circledRegion: CircledRegion) {
         mediaRectReadTask?.cancel()
+        guard !theRoomArtPanelIsOpen() else {
+            print("Cursor loop: the room art panel is open, so the request's loop around the circled region is not drawn")
+            return
+        }
         print("Cursor loop: the request became a look at the region the learner circled")
         change { $0.requestBecameALookAtTheCircledRegion(circledRegion, at: Self.now) }
     }
@@ -274,7 +300,8 @@ final class CursorLoopController: ObservableObject {
 
     /// The loop to draw on the screen with this frame, or nil when the media is on another screen or no loop shows.
     func loopToDraw(onScreenWithFrame screenFrame: CGRect) -> CursorLoopOnScreen? {
-        guard let loopOnTheMedia = state.loopOnTheMedia else { return nil }
+        // The overlay's windows sit above the room art panel's, so no loop draws over its camera view, a fading one included.
+        guard !theRoomArtPanelIsOpen(), let loopOnTheMedia = state.loopOnTheMedia else { return nil }
         let target = loopOnTheMedia.target
         let screens = NSScreen.screens
         guard let screenIndex = indexOfTheScreenFrameHolding(target.screenRect, screenFramesInAppKitCoordinates: screens.map(\.frame)),

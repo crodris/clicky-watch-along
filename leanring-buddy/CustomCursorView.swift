@@ -92,7 +92,7 @@ enum CustomCursorMotionRules {
     static let pictureLongSideInPoints: CGFloat = 32
     /// The shortest a picture cursor's short side gets, so a banner shaped picture is still a shape the eye can follow.
     static let pictureShortSideMinimumInPoints: CGFloat = 12
-    static let pictureCornerRadiusInPoints: CGFloat = 4
+    static let pictureCornerRadiusInPoints: CGFloat = 4 // design-token-exempt: cursor glyph geometry
     static let pictureOutlineWidthInPoints: CGFloat = 1.5
 
     /// The size a picture cursor draws at: a round crop is a square, and a whole picture keeps its shape with the long side

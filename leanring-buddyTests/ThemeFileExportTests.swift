@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import SwiftUI
 import Foundation
 import Testing
 @testable import Clicky
@@ -190,6 +191,21 @@ struct ThemeFileExportTests {
             let rightSideColor = try #require(bitmap.colorAt(x: bitmap.pixelsWide - 40, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.sRGB))
             #expect(rightSideColor.alphaComponent > 0.95 && rightSideColor.brightnessComponent < 0.2)
         }
+    }
+
+    @Test func theAddHintReadsAtFourAndAHalfToOneOnBothEndsOfTheCardGradient() throws {
+        // The 11 point hint is small text, so it needs 4.5 to 1. The tertiary gray measured about 3.6 to 1 on the Card.
+        func themeColor(_ color: Color) throws -> ThemeRGBColor {
+            let sRGBColor = try #require(NSColor(color).usingColorSpace(.sRGB))
+            return ThemeRGBColor(red: sRGBColor.redComponent, green: sRGBColor.greenComponent, blue: sRGBColor.blueComponent)
+        }
+        let hintColor = try themeColor(ThemeFilePreviewView.addHintColor)
+        for (surfaceName, surface) in [("top", DS.Colors.cardSurfaceTop), ("bottom", DS.Colors.cardSurfaceBottom)] {
+            let contrast = hintColor.contrastRatio(against: try themeColor(surface))
+            #expect(contrast >= 4.5, "the hint on the Card's \(surfaceName) is \(contrast) to 1")
+        }
+        // The old color, to keep the measurement honest.
+        #expect(try themeColor(DS.Colors.textTertiary).contrastRatio(against: themeColor(DS.Colors.cardSurfaceTop)) < 4.5)
     }
 
     @MainActor

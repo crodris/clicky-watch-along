@@ -188,7 +188,7 @@ struct AgentTokenPeekCardView: View {
                 HStack(spacing: 3) {
                     ForEach(0..<meter.stepCount, id: \.self) { stepIndex in
                         Capsule()
-                            .fill(stepIndex < meter.litStepCount ? accentColor : DS.Colors.agentTokenTrack)
+                            .fill(stepIndex < meter.litStepCount ? accentColor : DS.Colors.surface4)
                             .frame(height: 3)
                     }
                 }

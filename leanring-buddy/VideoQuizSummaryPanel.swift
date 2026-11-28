@@ -87,10 +87,10 @@ struct VideoQuizSummaryCardView: View {
             }
             HStack(spacing: 8) {
                 if recap.studyGuideURL != nil {
-                    VideoRecapStudyGuideButton(accentColor: accentColor, action: openTheStudyGuide)
+                    TetherButton("Study guide", systemImage: "arrow.up.right", role: .primary(accent: accentColor), action: openTheStudyGuide)
                 }
                 Spacer()
-                VideoQuizSummaryCloseButton(close: close)
+                TetherButton("Close", role: .quiet, action: close)
             }
         }
         .padding(14)
@@ -135,42 +135,6 @@ struct VideoQuizSummaryCardView: View {
     }
 }
 
-/// Opens the video's study guide, in the accent, at the Card's foot beside Close.
-private struct VideoRecapStudyGuideButton: View {
-    let accentColor: Color
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Text("Study guide")
-                    .font(DS.TypeScale.title.font)
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .foregroundStyle(accentColor)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .fill(Color.white.opacity(isHovered ? 0.1 : 0.05))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .strokeBorder(isHovered ? accentColor : Color.white.opacity(0.1), lineWidth: 1)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverAndPointer { hovering in
-            withAnimation(DS.Move.snap.animation(reduceMotionIsOn: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
-                isHovered = hovering
-            }
-        }
-    }
-}
-
 private struct VideoQuizMissedQuestionButton: View {
     let missedQuestion: VideoQuizMissedQuestion
     let accentColor: Color
@@ -193,40 +157,14 @@ private struct VideoQuizMissedQuestionButton: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 9)
             .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.control, style: .continuous)
                     .fill(Color.white.opacity(isHovered ? 0.1 : 0.05))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .strokeBorder(isHovered ? accentColor : Color.white.opacity(0.1), lineWidth: 1)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.control, style: .continuous)
+                    .strokeBorder(isHovered ? accentColor : DS.Colors.edge, lineWidth: 1)
             )
             .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverAndPointer { hovering in
-            withAnimation(DS.Move.snap.animation(reduceMotionIsOn: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
-                isHovered = hovering
-            }
-        }
-    }
-}
-
-private struct VideoQuizSummaryCloseButton: View {
-    let close: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: close) {
-            Text("Close")
-                .font(DS.TypeScale.title.font)
-                .foregroundStyle(isHovered ? Color.white : DS.Colors.textSecondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                        .fill(Color.white.opacity(isHovered ? 0.1 : 0))
-                )
-                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .hoverAndPointer { hovering in
@@ -240,7 +178,16 @@ private struct VideoQuizSummaryCloseButton: View {
 /// Owns the summary Card's panel: a nonactivating panel that never becomes key, so the page under it keeps the keyboard.
 @MainActor
 final class VideoQuizSummaryPanelController {
-    private var panel: NonKeyFloatingPanel?
+    /// Readable by a test, which checks the window's frame and its mouse state.
+    private(set) var panel: NonKeyFloatingPanel?
+    /// Lets the mouse pass through the window's shadow margin to the page under it (`ShadowMarginMousePassThrough`).
+    private var shadowMarginMouse: ShadowMarginMousePassThrough?
+    /// Where the pointer is on screen. A test sets it, since the real pointer is wherever the learner left it.
+    var mouseLocationOnScreen: () -> CGPoint = { NSEvent.mouseLocation } {
+        didSet { shadowMarginMouse?.mouseLocationOnScreen = mouseLocationOnScreen }
+    }
+    /// A test sets this to put the Card in a frame far off every screen, with no screen to Glide on, so no one sees it.
+    var visibleFrameForTests: CGRect?
     private var shownCardFrame: CGRect?
     private var glideOrigin: CGPoint = .zero
     private var shownCardView: VideoQuizSummaryCardView?
@@ -293,11 +240,11 @@ final class VideoQuizSummaryPanelController {
             height: windowSize.height - AgentListWindowMargins.vertical
         )
         let mouseLocation = NSEvent.mouseLocation
-        let screen = videoRect.flatMap { rect in NSScreen.screens.first { $0.frame.intersects(rect) } }
+        let screen = visibleFrameForTests != nil ? nil : videoRect.flatMap { rect in NSScreen.screens.first { $0.frame.intersects(rect) } }
             ?? NSScreen.screens.first { $0.frame.contains(mouseLocation) }
             ?? NSScreen.main
-        guard let screen else { return }
-        let cardFrame = videoQuizSummaryCardFrame(cardSize: cardSize, videoRect: videoRect, visibleFrame: screen.visibleFrame)
+        guard let visibleFrame = visibleFrameForTests ?? screen?.visibleFrame else { return }
+        let cardFrame = videoQuizSummaryCardFrame(cardSize: cardSize, videoRect: videoRect, visibleFrame: visibleFrame)
         let windowTopLeft = AgentListWindowMargins.windowTopLeft(forCardTopLeft: CGPoint(x: cardFrame.minX, y: cardFrame.maxY))
         let windowFrame = CGRect(x: windowTopLeft.x, y: windowTopLeft.y - windowSize.height, width: windowSize.width, height: windowSize.height)
         let summaryPanel = NonKeyFloatingPanel(contentRect: windowFrame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -319,11 +266,16 @@ final class VideoQuizSummaryPanelController {
         case .quizEnded:
             glideOrigin = videoQuizSummaryGlideOrigin(videoRect: videoRect, mouseLocation: mouseLocation)
         case .videoEnded:
-            glideOrigin = videoRecapGlideOrigin(cursorPoint: cursorPoint, cardScreenFrame: screen.frame, videoRect: videoRect, mouseLocation: mouseLocation)
+            glideOrigin = videoRecapGlideOrigin(cursorPoint: cursorPoint, cardScreenFrame: screen?.frame ?? visibleFrame, videoRect: videoRect, mouseLocation: mouseLocation)
         }
         print("Video quiz summary: showing the Card at \(cardFrame.integral) after \(moment == .videoEnded ? "the video ended" : "the quiz ended"), \(videoRect == nil ? "with no video in front" : "over the video")")
 
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        let mousePassThrough = ShadowMarginMousePassThrough(panel: summaryPanel, mouseLocationOnScreen: mouseLocationOnScreen)
+        mousePassThrough.start()
+        shadowMarginMouse = mousePassThrough
+
+        // With no screen to Glide on, the Card fades in place.
+        guard let screen, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             summaryPanel.alphaValue = 0
             summaryPanel.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { context in
@@ -349,6 +301,10 @@ final class VideoQuizSummaryPanelController {
     func close(animated: Bool) {
         guard let closingPanel = panel else { return }
         panel = nil
+        shadowMarginMouse?.stop()
+        shadowMarginMouse = nil
+        // The Card fades or Glides for a moment, and a click on it then must not reach its buttons.
+        closingPanel.ignoresMouseEvents = true
         onClosed?(glideOrigin)
         // A Card still Gliding in lands at once and leaves with it, and the guard in its landing keeps the real panel from
         // showing.

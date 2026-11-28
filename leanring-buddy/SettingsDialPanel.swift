@@ -50,6 +50,20 @@ final class SettingsDialViewModel: ObservableObject {
     }
 }
 
+/// Whether a settings dial's window is on screen, from the moment it opens until its window is gone, its leaving included.
+/// The cursor overlay reads it and hides its cursor, since the dial draws its own cursor glyph in the center: the overlay's
+/// cursor sits 35 points right of and 25 below the mouse, under the plate, and showed through the plate while the dial
+/// faded in and out. A static shared instance, since the overlay's windows and the dial's controller share no owner but the
+/// app.
+@MainActor
+final class SettingsDialPresence: ObservableObject {
+    static let shared = SettingsDialPresence()
+    @Published private(set) var isOnScreen = false
+
+    func dialWindowIsOnScreen() { isOnScreen = true }
+    func dialWindowIsGone() { isOnScreen = false }
+}
+
 /// How the dial is leaving: the form of its close, and, for a commit, which item was picked, so the view flies that item
 /// into the center.
 struct SettingsDialClosing: Equatable {
@@ -73,6 +87,8 @@ final class SettingsDialController {
     private static let secondsBetweenPointerReads: TimeInterval = 1.0 / 60
 
     private let userDefaults: UserDefaults
+    /// Tells the cursor overlay while the dial's window is on screen, so it hides its cursor under the dial.
+    private let presence: SettingsDialPresence
     private var panel: SettingsDialPanel?
     private var viewModel: SettingsDialViewModel?
     private var picker: SettingsDialPicker?
@@ -82,8 +98,9 @@ final class SettingsDialController {
     /// Removes the window once the way the dial leaves has played.
     private var removeThePanelTask: Task<Void, Never>?
 
-    init(userDefaults: UserDefaults = .standard) {
+    init(userDefaults: UserDefaults = .standard, presence: SettingsDialPresence? = nil) {
         self.userDefaults = userDefaults
+        self.presence = presence ?? .shared
     }
 
     /// A dial that is leaving is no longer open: Escape and every other check treat it as gone.
@@ -129,6 +146,7 @@ final class SettingsDialController {
         panel = settingsDialPanel
         // Not makeKeyAndOrderFront, which would take the keyboard from the app under the dial.
         settingsDialPanel.orderFrontRegardless()
+        presence.dialWindowIsOnScreen()
         withAnimation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)) { viewModel.isPresented = true }
         startReadingThePointer()
     }
@@ -180,6 +198,7 @@ final class SettingsDialController {
         pointerReadTimer?.invalidate()
         pointerReadTimer = nil
         panel?.orderOut(nil)
+        presence.dialWindowIsGone()
         // Dropping the view stops its animations.
         panel?.contentView = nil
         panel = nil
@@ -220,7 +239,7 @@ struct SettingsDialView: View {
     private var accentColor: Color { theme.cursorColor }
     /// For line icons and letters drawn on the accent color.
     private var inkColor: Color { theme.accentInk }
-    private let tokenFillColor = DS.Colors.settingsDialToken
+    private let tokenFillColor = DS.Colors.surface1
     private var centerInView: CGPoint {
         CGPoint(x: SettingsDialPlacement.reachLeft, y: SettingsDialPlacement.reachAbove)
     }
@@ -345,8 +364,8 @@ struct SettingsDialView: View {
         .overlay(alignment: .topTrailing) {
             if slice == .agents, viewModel.snapshot.runningAgentCount > 0 {
                 Text("\(viewModel.snapshot.runningAgentCount)")
-                    .font(.system(size: 9, weight: .heavy))
-                    .foregroundColor(DS.Colors.settingsDialDarkInk)
+                    .font(DS.glyphFont(pointSize: 9, weight: .heavy))
+                    .foregroundColor(DS.Colors.inkOnAccent)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
                     .background(Capsule().fill(Color.white))
@@ -379,7 +398,7 @@ struct SettingsDialView: View {
             }
         case .model:
             Image(systemName: "sparkle")
-                .font(.system(size: 17, weight: .semibold))
+                .font(DS.TypeScale.headline.font.weight(.semibold))
                 .foregroundColor(lineColor)
         case .agents:
             // Two rings, the look of two agents' progress rings. A theme whose agents wear its accent shows the accent.
@@ -392,11 +411,11 @@ struct SettingsDialView: View {
             }
         case .show:
             Image(systemName: viewModel.snapshot.isClickyCursorEnabled ? "eye" : "eye.slash")
-                .font(.system(size: 17, weight: .semibold))
+                .font(DS.TypeScale.headline.font.weight(.semibold))
                 .foregroundColor(lineColor)
         case .more:
             Image(systemName: "ellipsis")
-                .font(.system(size: 17, weight: .bold))
+                .font(DS.TypeScale.headline.font)
                 .foregroundColor(lineColor)
         }
     }
@@ -500,7 +519,7 @@ struct SettingsDialView: View {
             ForEach(Array(modelChoices.enumerated()), id: \.offset) { itemIndex, modelChoice in
                 let isEmphasized = emphasizedIndex == itemIndex
                 Text(modelChoice.displayName)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(DS.TypeScale.caption.font.weight(.semibold))
                     .foregroundColor(isEmphasized ? inkColor : Color.white.opacity(0.9))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -524,7 +543,7 @@ struct SettingsDialView: View {
     /// `accentTheme` makes the pill that theme's own accent, with the letters in that accent's ink.
     private func labelPill(_ text: String, accentTheme: ClickyTheme? = nil) -> some View {
         Text(text)
-            .font(.system(size: SettingsDialLabel.fontSize, weight: .semibold))
+            .font(DS.TypeScale.caption.font.weight(.semibold))
             .foregroundColor(accentTheme?.accentInk ?? Color.white.opacity(0.92))
             .lineLimit(1)
             .fixedSize()
@@ -540,11 +559,11 @@ struct SettingsDialView: View {
 
     private var hint: some View {
         Text(Self.firstRunHintText)
-            .font(.system(size: 11, weight: .semibold))
+            .font(DS.TypeScale.caption.font.weight(.semibold))
             .foregroundColor(Color.white.opacity(0.82))
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous).fill(DS.Colors.settingsDialPlate.opacity(0.84)))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.control, style: .continuous).fill(DS.Colors.settingsDialPlate.opacity(0.84)))
             .fixedSize()
             // The mock puts the hint's top edge 16 points under the plate.
             .position(x: centerInView.x, y: centerInView.y + SettingsDialGeometry.plateRadius + 16 + 12)
@@ -583,7 +602,7 @@ private struct SettingsDialThemeBall: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(DS.Colors.settingsDialToken)
+            Circle().fill(DS.Colors.surface1)
             Circle().stroke(Color.white.opacity(0.14), lineWidth: 1)
             SettingsDialCustomCursor(
                 customTheme: theme,

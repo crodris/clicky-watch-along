@@ -98,11 +98,11 @@ struct AgentPausedDiscView: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(DS.Colors.agentTokenTrack)
+            Circle().fill(DS.Colors.surface4)
             Circle()
                 .strokeBorder(DS.Colors.textTertiary, lineWidth: Self.ringWidth)
             Circle()
-                .fill(DS.Colors.agentTokenFace)
+                .fill(DS.Colors.surface1)
                 .padding(Self.ringWidth)
             HStack(spacing: Self.gapBetweenBars) {
                 Capsule().frame(width: Self.barWidth, height: Self.barHeight)
@@ -115,12 +115,12 @@ struct AgentPausedDiscView: View {
             if pausedAgentCount > 1 {
                 // A capsule, so two digits fit. Its right edge stays on the panel's edge, and it grows to the left.
                 Text("\(min(pausedAgentCount, 99))")
-                    .font(.system(size: 7.5, weight: .bold, design: .rounded))
-                    .foregroundColor(DS.Colors.agentTokenFace)
+                    .font(DS.glyphFont(pointSize: 7.5, weight: .bold, design: .rounded))
+                    .foregroundColor(DS.Colors.surface1)
                     .padding(.horizontal, 2.5)
                     .frame(minWidth: Self.badgeDiameter, minHeight: Self.badgeDiameter, maxHeight: Self.badgeDiameter)
                     .background(Capsule().fill(DS.Colors.textSecondary))
-                    .overlay(Capsule().strokeBorder(DS.Colors.agentTokenTrack, lineWidth: 1))
+                    .overlay(Capsule().strokeBorder(DS.Colors.surface4, lineWidth: 1))
                     .fixedSize()
                     .offset(x: 3, y: 3)
             }

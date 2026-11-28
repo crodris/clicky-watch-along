@@ -69,91 +69,7 @@ private struct PanelKeyboardControl: ViewModifier {
 
 // MARK: - Buttons
 
-/// How a panel button reads.
-enum PanelButtonProminence {
-    /// Filled with the theme's accent: the one action the panel wants next.
-    case primary
-    /// A dark surface with an edge.
-    case secondary
-    /// Text only, for the footer.
-    case quiet
-    /// Red: a delete that waits for a second click.
-    case destructive
-}
-
-/// A button of the panel: hover, the pointing hand, the keyboard, and a press that dips on the Snap move.
-struct PanelButton: View {
-    let title: String
-    var systemImageName: String? = nil
-    let prominence: PanelButtonProminence
-    /// The shown theme's accent, which only a primary button uses.
-    var accentColor: Color = DS.Colors.overlayCursorBlue
-    var accessibilityHint: String? = nil
-    /// Stretches the button's fill across its container, as a card's armed Delete bar does.
-    var fillsTheWidth = false
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    private static let cornerRadius: CGFloat = 8
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                if let systemImageName {
-                    // The title says what the button does, so VoiceOver skips the symbol.
-                    Image(systemName: systemImageName)
-                        .font(.system(size: 10, weight: .semibold))
-                        .accessibilityHidden(true)
-                }
-                Text(title)
-                    .font(DS.TypeScale.caption.font)
-                    .fontWeight(prominence == .quiet ? .medium : .semibold)
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-            .foregroundColor(foregroundColor)
-            .padding(.horizontal, prominence == .quiet ? 6 : 10)
-            .padding(.vertical, prominence == .quiet ? 4 : 6)
-            .frame(maxWidth: fillsTheWidth ? .infinity : nil)
-            .background(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous).fill(backgroundColor))
-            .accentFillHoverRing(
-                RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous),
-                ink: foregroundColor,
-                isShowing: prominence == .primary && isHovered
-            )
-            .overlay {
-                if prominence == .secondary {
-                    RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-                        .strokeBorder(Color.white.opacity(isHovered ? 0.18 : 0.1), lineWidth: 1)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PanelPressStyle())
-        .hoverAndPointer { isHovered = $0 }
-        .panelKeyboardControl(cornerRadius: Self.cornerRadius, action: action)
-        .accessibilityHint(accessibilityHint ?? "")
-    }
-
-    private var foregroundColor: Color {
-        switch prominence {
-        case .primary: return accentColor.inkOnThisFill
-        case .secondary: return DS.Colors.textPrimary
-        case .quiet: return isHovered ? DS.Colors.textPrimary : DS.Colors.textSecondary
-        case .destructive: return .white
-        }
-    }
-
-    private var backgroundColor: Color {
-        switch prominence {
-        case .primary: return accentColor
-        case .secondary: return isHovered ? DS.Colors.surface4 : DS.Colors.surface2
-        case .quiet: return Color.white.opacity(isHovered ? 0.08 : 0)
-        case .destructive: return isHovered ? DS.Colors.destructiveHover : DS.Colors.destructive
-        }
-    }
-}
+// The panel's buttons are `TetherButton` (TetherButton.swift), the one button every Tether surface uses.
 
 /// A press dips the control to `DS.Move.snapPressScale` on the Snap move, and holds still with Reduce Motion on.
 struct PanelPressStyle: ButtonStyle {
@@ -179,7 +95,7 @@ struct PanelSwitch: View {
             .tint(accentColor)
             .controlSize(.small)
             .hoverAndPointer { _ in }
-            .panelKeyboardControl(cornerRadius: 9) { isOn.toggle() }
+            .panelKeyboardControl(cornerRadius: DS.CornerRadius.pill) { isOn.toggle() }
             .accessibilityLabel(accessibilityLabel)
     }
 }
@@ -197,8 +113,8 @@ struct PanelKeyCap: View {
             .foregroundColor(DS.Colors.textPrimary)
             .padding(.horizontal, 4)
             .frame(minWidth: 16, minHeight: 16)
-            .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(DS.Colors.surface3))
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip, style: .continuous).fill(DS.Colors.surface3))
+            .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.chip, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
     }
 }
 

@@ -2,9 +2,9 @@
 //  DesignSystem.swift
 //  leanring-buddy
 //
-//  Centralized design tokens for a blue accent palette on dark surfaces:
-//  colors, corner radii, animation durations, and the pointer cursor
-//  modifier. Every view reads them from here.
+//  Centralized dark-surface design tokens: colors, corner radii, the type
+//  scale, the moves, and the pointer cursor modifier. Every view reads them
+//  from here.
 //
 
 import SwiftUI
@@ -13,133 +13,68 @@ import AppKit
 // MARK: - Design System Namespace
 
 /// The top-level namespace for all design system tokens.
-/// Usage: `DS.Colors.background`, `DS.Colors.accent`, etc.
+/// Usage: `DS.Colors.surface2`, `DS.CornerRadius.row`, `DS.TypeScale.caption.font`, etc.
 enum DS {
 
     // MARK: - Color Tokens
 
     enum Colors {
 
-        // ── Backgrounds ──────────────────────────────────────────────
-        // Layered surfaces from deepest to most elevated.
-        // Higher surfaces are lighter, creating a sense of depth.
+        // ── Grays ────────────────────────────────────────────────────
+        // One family: the Card's blue-gray (hue about 222, saturation 16 to 22 percent), so every panel, card, button, and
+        // track reads as one set of surfaces. Layered surfaces from deepest to most elevated. Higher surfaces are lighter,
+        // creating a sense of depth. `GrayFamilyTests` pins each one's hue to the Card's, and their order by lightness.
 
-        /// The deepest background - used for the main app window fill.
-        static let background = Color(hex: "#101211")
+        /// The deepest background, for an input field or a well set into a surface.
+        static let ground = Color(hex: "#101216")
 
-        /// First elevation layer - used for cards, sidebar, top bar backgrounds.
-        static let surface1 = Color(hex: "#171918")
+        /// First elevation layer: the Card's own bottom color (`cardSurfaceBottom`), for a box inside a Card and the face of a
+        /// dark disc or token.
+        static let surface1 = Color(hex: "#171A21")
 
-        /// Second elevation layer - used for input fields, elevated cards, chat bubbles.
-        static let surface2 = Color(hex: "#202221")
+        /// Second elevation layer: a control at rest on the Card, the lit row of the next setup step.
+        static let surface2 = Color(hex: "#1C2029")
 
-        /// Third elevation layer - used for hover backgrounds on interactive elements.
-        static let surface3 = Color(hex: "#272A29")
+        /// Third elevation layer: a secondary button at rest, a track, a key cap, a hovered row.
+        static let surface3 = Color(hex: "#232833")
 
-        /// Fourth elevation layer - used for active/pressed states on interactive elements.
-        static let surface4 = Color(hex: "#2E3130")
+        /// Fourth elevation layer: a hovered secondary button, the dark track of an agent token's ring.
+        static let surface4 = Color(hex: "#2B303B")
 
         // ── Borders ──────────────────────────────────────────────────
 
-        /// Subtle border - used for card outlines, dividers, input field borders.
-        static let borderSubtle = Color(hex: "#373B39")
+        /// A card's outline, a divider, an input field's border.
+        static let border = Color(hex: "#343A49")
+
+        /// The Card's own edge: a 1 point white line at 8 percent.
+        static let edge = Color.white.opacity(0.08)
+
+        /// The edge of a control the pointer is over.
+        static let edgeHover = Color.white.opacity(0.18)
 
         // ── Text ─────────────────────────────────────────────────────
 
         /// Primary text - main body text, titles, headings.
-        static let textPrimary = Color(hex: "#ECEEED")
+        static let textPrimary = Color(hex: "#EDEEF0")
 
         /// Secondary text - descriptions, hints, muted labels.
-        static let textSecondary = Color(hex: "#ADB5B2")
+        static let textSecondary = Color(hex: "#AEB3C0")
 
         /// Tertiary text - very muted, used for section labels, timestamps, disabled text.
-        static let textTertiary = Color(hex: "#6B736F")
+        static let textTertiary = Color(hex: "#687187")
 
-        /// Text used on top of the accent fill (#2563eb blue), like the primary button label.
-        /// White on #2563eb achieves ~5.1:1 contrast - WCAG AA compliant.
-        /// White on #1d4ed8 hover achieves ~6.5:1 - also WCAG AA compliant.
-        static let textOnAccent: Color = .white
+        // ── Status Line Accents ─────────────────────────────────────
+        // One Tailwind CSS v4 400 step for each status line (`LiveSceneStatusLine.calloutAccent`), which a Callout takes as
+        // its accent. The agent palette (`AgentPaletteColor`) and the Quick Look preview's agent swatches read sky and
+        // pink too. Every other step of these hues was unused and is gone.
 
-        // ── Tailwind Blue Scale ─────────────────────────────────────
-        // Full Tailwind CSS v4 blue palette for consistent blue usage.
-        //
-        // Usage guide:
-        //   50-100  → Very subtle tinted backgrounds (selected rows, hover fills on dark surfaces)
-        //   200-300 → Light text/icons on dark backgrounds, disabled states
-        //   400     → Bright accent text, links, icons, chat user bubbles
-        //   500     → Mid-tone fills, badges, secondary buttons
-        //   600     → Primary action fills (buttons, toggles) - main accent
-        //   700     → Hover/pressed state for primary actions
-        //   800-900 → Deep backgrounds, dark overlays, header bars
-
-        static let blue50  = Color(hex: "#eff6ff")
-        static let blue200 = Color(hex: "#bfdbfe")
         static let blue400 = Color(hex: "#60a5fa")
-        static let blue600 = Color(hex: "#2563eb")
-        static let blue700 = Color(hex: "#1d4ed8")
-        static let blue800 = Color(hex: "#1e40af")
-        static let blue900 = Color(hex: "#1e3a8a")
-
-        // ── Status Line Palettes ────────────────────────────────────
-        // Tailwind CSS v4 purple, orange, green, pink, and sky shades for the status label's
-        // lines (LiveSceneStatusLine). Most lines use their hue's shades this way:
-        //   500  → icon color        700  → text and deep icon strokes
-        //   300  → light strokes     400  → letter highlight
-        //   100 or 200 → pale fills  50   → wash behind the icon
-        // The pink line has no 500, so it uses 400 for the icon and 300 for the highlight.
-        // The pop-out line uses the blue scale above.
-
-        static let purple50  = Color(hex: "#faf5ff")
-        static let purple100 = Color(hex: "#f3e8ff")
-        static let purple300 = Color(hex: "#d8b4fe")
         static let purple400 = Color(hex: "#c084fc")
-        static let purple500 = Color(hex: "#a855f7")
-        static let purple700 = Color(hex: "#7e22ce")
-
-        static let orange50  = Color(hex: "#fff7ed")
-        static let orange200 = Color(hex: "#fed7aa")
-        static let orange300 = Color(hex: "#fdba74")
         static let orange400 = Color(hex: "#fb923c")
-        static let orange500 = Color(hex: "#f97316")
-        static let orange700 = Color(hex: "#c2410c")
-
-        static let green50  = Color(hex: "#f0fdf4")
-        static let green100 = Color(hex: "#dcfce7")
-        static let green300 = Color(hex: "#86efac")
         static let green400 = Color(hex: "#4ade80")
-        static let green500 = Color(hex: "#22c55e")
-        static let green700 = Color(hex: "#15803d")
-
-        static let pink50  = Color(hex: "#fdf2f8")
-        static let pink100 = Color(hex: "#fce7f3")
-        static let pink300 = Color(hex: "#f9a8d4")
         static let pink400 = Color(hex: "#f472b6")
-        static let pink700 = Color(hex: "#be185d")
-
-        static let sky50  = Color(hex: "#f0f9ff")
-        static let sky100 = Color(hex: "#e0f2fe")
-        static let sky300 = Color(hex: "#7dd3fc")
         static let sky400 = Color(hex: "#38bdf8")
-        static let sky500 = Color(hex: "#0ea5e9")
-        static let sky700 = Color(hex: "#0369a1")
-
-        static let teal50  = Color(hex: "#f0fdfa")
-        static let teal100 = Color(hex: "#ccfbf1")
-        static let teal300 = Color(hex: "#5eead4")
         static let teal400 = Color(hex: "#2dd4bf")
-        static let teal500 = Color(hex: "#14b8a6")
-        static let teal700 = Color(hex: "#0f766e")
-
-        // Lime, for the experiment agent, which needs a lab green that reads apart from teal and green.
-        static let lime500 = Color(hex: "#84cc16")
-        static let lime700 = Color(hex: "#4d7c0f")
-
-        // ── Accent (derived from blue scale) ───────────────────────
-        // The primary fill is Blue 600.
-
-        /// Accent fill - used for solid button backgrounds.
-        /// #2563eb → ~5.1:1 contrast with white text (WCAG AA).
-        static let accent = blue600
 
         // ── Semantic Colors ──────────────────────────────────────────
 
@@ -160,11 +95,9 @@ enum DS {
         /// The dark tile under the header's cursor, lighter at its upper left.
         static let panelCursorTileTop = Color(hex: "#24324f")
         static let panelCursorTileBottom = Color(hex: "#111620")
-        /// The setup checklist: the bar's empty track and an undone step's circle, the lit row of the next step, a done
-        /// step's circle, a turned-off step's circle, and the green box that suggests a first question.
-        static let setupTrack = Color(hex: "#232833")
-        static let setupNextStepSurface = Color(hex: "#1c2029")
-        static let setupNextStepEdge = Color(hex: "#2f3646")
+        /// The setup checklist's states that are a hue and not a gray: a done step's circle, a turned-off step's circle, and
+        /// the green box that suggests a first question. Its grays are `surface2` (the lit row of the next step), `surface3`
+        /// (the bar's empty track and an undone step's circle), and `border` (the lit row's edge).
         static let setupDoneCircle = Color(hex: "#173d2f")
         static let setupTurnedOffCircle = Color(hex: "#3a1416")
         static let setupAllSetSurface = Color(hex: "#16261f")
@@ -197,8 +130,8 @@ enum DS {
         /// The top of the Card's surface gradient.
         static let cardSurfaceTop = Color(hex: "#121419")
 
-        /// The bottom of the Card's surface gradient.
-        static let cardSurfaceBottom = Color(hex: "#171a21")
+        /// The bottom of the Card's surface gradient, the same color as `surface1`.
+        static let cardSurfaceBottom = surface1
 
         /// The Callout's solid surface. Solid, not blurred: a blur turned it mid gray on a white page, where white words
         /// fell from 17.9 to 5.4 contrast in the phase-zero prototype.
@@ -218,12 +151,6 @@ enum DS {
         /// The dial's plate and the first-run hint's background, a near-black blue.
         static let settingsDialPlate = Color(hex: "#0a0c12")
 
-        /// An unselected token's fill, and the fill of a Model pill.
-        static let settingsDialToken = Color(hex: "#171b24")
-
-        /// Dark text on the agent count's white badge, and the Random ball's outline.
-        static let settingsDialDarkInk = Color(hex: "#111111")
-
         // ── Background Agents ────────────────────────────────────────
 
         /// The color of a study guide agent. Each new agent kind gets its own color here.
@@ -235,41 +162,30 @@ enum DS {
         /// The color of a general task agent. Tailwind Teal 400, apart from the cursor's blue, the guide's amber, and the model's violet.
         static let backgroundAgentTaskTeal = Color(hex: "#2dd4bf")
 
-        /// The opaque dark track of an agent token's progress ring, so the ring reads on a light menu bar and a bright wallpaper.
-        static let agentTokenTrack = Color(hex: "#2b303b")
-
-        /// The dark face of a token that shows a kind's triangle, and of the "+N" disc.
-        static let agentTokenFace = Color(hex: "#171b24")
-
-        /// The color of an experiment agent. Lime reads apart from the model's violet and the task's teal.
-        static let backgroundAgentExperimentLime = lime500
+        /// The color of an experiment agent. Tailwind Lime 500, a lab green that reads apart from the model's violet, the
+        /// task's teal, and the done check's green.
+        static let backgroundAgentExperimentLime = Color(hex: "#84cc16")
 
     }
 
     // MARK: - Corner Radii
 
+    /// Every corner radius a surface draws is one of these steps, by what it is. `tools/design-token-check.py` fails the
+    /// build on a radius written as a number anywhere else. A shape drawn to its own geometry, such as a cursor or the
+    /// Callout's outline, ends its line with `// design-token-exempt: <why>`.
     enum CornerRadius {
-        /// Small elements like tags, badges.
-        static let small: CGFloat = 6
-        /// Buttons, input fields, small cards.
-        static let medium: CGFloat = 8
-        /// Cards, dialogs, chat bubbles.
-        static let large: CGFloat = 10
+        /// A mark of 16 points or less: a color swatch, a shimmer bar.
+        static let swatch: CGFloat = 3
+        /// A chip, a tag, a key cap, a text field, a small thumbnail.
+        static let chip: CGFloat = 6
+        /// A button or a segment of a control (`TetherButton`'s rounded shape).
+        static let control: CGFloat = 8
+        /// A row, a banner, or a box inside a Card, and a control group that holds `control` segments 2 points in.
+        static let row: CGFloat = 10
         /// The Tether Card (`tetherCard()`).
         static let card: CGFloat = 14
-        /// Pill-shaped buttons (the continue button).
+        /// A capsule or a circle. SwiftUI clamps a radius to half the shorter side.
         static let pill: CGFloat = .infinity
-    }
-
-    // MARK: - Animation Durations
-
-    enum Animation {
-        /// Quick state changes - hover in/out, press feedback.
-        static let fast: Double = 0.15
-        /// Standard transitions - content reveal, button state changes.
-        static let normal: Double = 0.25
-        /// Slower, more dramatic - fade-ins, celebration screen elements.
-        static let slow: Double = 0.4
     }
 
     // MARK: - Tether type scale
@@ -323,6 +239,13 @@ enum DS {
         }
 
         var font: Font { .system(size: pointSize, weight: weight, design: design) }
+    }
+
+    /// A symbol or number whose size follows the disc or badge it sits in, such as a check on a 22 point agent disc.
+    /// Text never uses it: text takes a `TypeScale` style. This is the one other place a font size is written, so
+    /// `tools/design-token-check.py` accepts a size here and nowhere else.
+    static func glyphFont(pointSize: CGFloat, weight: Font.Weight, design: Font.Design = .default) -> Font {
+        .system(size: pointSize, weight: weight, design: design)
     }
 
     // MARK: - Tether moves

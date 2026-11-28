@@ -374,6 +374,14 @@ struct CursorLoopState: Equatable {
         }
     }
 
+    /// The room art panel opened. The cursor overlay's windows sit above the panel's, so a request's loop, one that fades out, or
+    /// a turn still waiting for its media rect would draw over the camera view. All of them go at once, with no fade, since a
+    /// fade is also a drawing. The agent line is held back by `agentSparksMayDraw` instead.
+    mutating func theRoomArtPanelOpened() {
+        turn = .notWaitingForALoop
+        loop = .hidden
+    }
+
     /// The fade is over, so the loop leaves the screen.
     mutating func fadeOutFinished() {
         if case .fadingOut = loop {
@@ -389,7 +397,7 @@ struct CursorLoopState: Equatable {
 /// runs clockwise, so the overshoot ends a little past the start, drifting inside the line.
 enum CursorLoopOutline {
     static let gapFromTheMediaInPoints: CGFloat = 4
-    static let cornerRadiusInPoints: CGFloat = 13
+    static let cornerRadiusInPoints: CGFloat = 13 // design-token-exempt: the loop outline's corner, drawn as a path
     static let wobbleInPoints: CGFloat = 1
     /// Where along the top edge the line starts and where its overshoot ends, from the outline's left edge.
     static let startOffsetFromTheLeftEdgeInPoints: CGFloat = 30

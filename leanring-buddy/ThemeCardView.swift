@@ -116,8 +116,8 @@ struct ThemeCardFullNamePill: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .frame(minHeight: Self.oneLineHeight)
-            .background(RoundedRectangle(cornerRadius: 7).fill(DS.Colors.calloutSurface))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(DS.Colors.keyboardFocusRing, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(DS.Colors.calloutSurface))
+            .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).strokeBorder(DS.Colors.keyboardFocusRing, lineWidth: 1))
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
@@ -151,7 +151,7 @@ struct ThemeCard: View {
     @State private var problemText: String?
     @FocusState private var nameFieldIsFocused: Bool
 
-    static let cornerRadius = DS.CornerRadius.medium
+    static let cornerRadius = DS.CornerRadius.control
     private static let secondsAnArmedDeleteWaits: Double = 3
     /// Two lines of the title type, so a long name keeps the card's height.
     private static let nameHeight: CGFloat = 34
@@ -172,7 +172,7 @@ struct ThemeCard: View {
                     .frame(height: Self.nameHeight, alignment: .top)
                 HStack(spacing: 3) {
                     ForEach(Array(([accentColor] + theme.agentColorsInOrder.prefix(3).map(\.color)).enumerated()), id: \.offset) { _, swatchColor in
-                        RoundedRectangle(cornerRadius: 2)
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.swatch)
                             .fill(swatchColor)
                             .frame(width: 8, height: 8)
                     }
@@ -185,7 +185,7 @@ struct ThemeCard: View {
             .background(RoundedRectangle(cornerRadius: Self.cornerRadius).fill(isHovered ? DS.Colors.surface4 : DS.Colors.surface3))
             .overlay(
                 RoundedRectangle(cornerRadius: Self.cornerRadius)
-                    .stroke(isSelected ? accentColor : DS.Colors.borderSubtle, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? accentColor : DS.Colors.border, lineWidth: isSelected ? 1.5 : 1)
             )
             // As on the studio's tiles, the chosen card is the bright one. The pointer and the keyboard focus brighten any card.
             .opacity(isSelected || isHovered || cardHasTheFocus ? 1 : 0.75)
@@ -225,7 +225,8 @@ struct ThemeCard: View {
             showsTheFocusRing = isNowFocused && theKeyboardMovedTheFocus()
         }
         .panelKeyboardFocusRing(isShowing: showsTheFocusRing && cardItselfHasTheFocus, cornerRadius: Self.cornerRadius)
-        .overlay(alignment: .topTrailing) { savedActions }
+        .overlay(alignment: .topLeading) { renameButton }
+        .overlay(alignment: .topTrailing) { deleteButton }
         .overlay(alignment: .bottom) { bottomOfTheTile }
         .overlay(alignment: .bottom) { fullNameOverTheFocusedCard }
         .zIndex(cardHasTheFocus ? 1 : 0)
@@ -274,30 +275,31 @@ struct ThemeCard: View {
 
     // MARK: Saved theme actions
 
-    @ViewBuilder private var savedActions: some View {
+    /// The pencil and the trash can sit in the card's two top corners, not side by side in one, so the middle of the card stays
+    /// the cursor's. A pair at one corner covered the tip of a paper plane. A card is about 97 points wide, and the cursor is
+    /// drawn in the middle 38 points, or 45 for a picture (`ThemeCardCursor.pictureScale`), so each corner has 26 points of
+    /// gutter for a 24 point button and its 2 point inset.
+    static let savedActionInset: CGFloat = 2
+
+    @ViewBuilder private var renameButton: some View {
         if rename != nil {
-            HStack(spacing: 3) {
-                ThemeCardIconButton(
-                    systemImageName: "pencil",
-                    accessibilityLabel: "Rename \(theme.name)",
-                    hoverColor: DS.Colors.textPrimary,
-                    focus: focus,
-                    focusValue: .renameButton(themeID: theme.id),
-                    action: startRename
-                )
-                ThemeCardIconButton(
-                    systemImageName: "trash",
-                    accessibilityLabel: "Delete \(theme.name)",
-                    hoverColor: DS.Colors.destructiveText,
-                    focus: focus,
-                    focusValue: .deleteButton(themeID: theme.id),
-                    action: { deleteIsArmed = true }
-                )
-            }
-            .padding(4)
-            .opacity(savedActionsShow ? 1 : 0)
-            .allowsHitTesting(savedActionsShow)
-            .animation(.easeOut(duration: DS.Move.fadeSeconds), value: savedActionsShow)
+            TetherButton(
+                systemImage: "pencil", role: .secondary, shape: .circle, size: .compact,
+                takesItsOwnKeyboardFocus: false, accessibilityLabel: "Rename \(theme.name)", action: startRename
+            )
+            .themeCardGridFocus(focus, equals: .renameButton(themeID: theme.id), action: startRename)
+            .savedActionPresence(savedActionsShow)
+        }
+    }
+
+    @ViewBuilder private var deleteButton: some View {
+        if rename != nil {
+            TetherButton(
+                systemImage: "trash", role: .secondaryDestructive, shape: .circle, size: .compact,
+                takesItsOwnKeyboardFocus: false, accessibilityLabel: "Delete \(theme.name)", action: { deleteIsArmed = true }
+            )
+            .themeCardGridFocus(focus, equals: .deleteButton(themeID: theme.id), action: { deleteIsArmed = true })
+            .savedActionPresence(savedActionsShow)
         }
     }
 
@@ -311,11 +313,11 @@ struct ThemeCard: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 5).fill(DS.Colors.destructiveSurface))
+                .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(DS.Colors.destructiveSurface))
                 .padding(6)
                 .accessibilityAddTraits(.updatesFrequently)
         } else if deleteIsArmed {
-            PanelButton(title: "Delete", prominence: .destructive, fillsTheWidth: true, action: confirmDelete)
+            TetherButton("Delete", role: .destructive, size: .compact, fillsTheWidth: true, action: confirmDelete)
             .padding(6)
             .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
             .accessibilityLabel("Confirm delete \(theme.name)")
@@ -343,10 +345,10 @@ struct ThemeCard: View {
             .foregroundColor(DS.Colors.textPrimary)
             .padding(.horizontal, 5)
             .padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 5).fill(DS.Colors.background))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(DS.Colors.ground))
             .overlay(
-                RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(problemText == nil ? DS.Colors.borderSubtle : DS.Colors.destructive, lineWidth: 1)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.chip)
+                    .strokeBorder(problemText == nil ? DS.Colors.border : DS.Colors.destructive, lineWidth: 1)
             )
             .focused($nameFieldIsFocused)
             .onSubmit(commitRename)
@@ -409,6 +411,16 @@ struct ThemeCard: View {
     }
 }
 
+private extension View {
+    /// A saved card's button: in its corner, shown on hover or focus, and taking clicks only while shown.
+    func savedActionPresence(_ isShowing: Bool) -> some View {
+        padding(ThemeCard.savedActionInset)
+            .opacity(isShowing ? 1 : 0)
+            .allowsHitTesting(isShowing)
+            .animation(.easeOut(duration: DS.Move.fadeSeconds), value: isShowing)
+    }
+}
+
 /// The card's cursor, drawn the way the Theme Studio's highlighted tile draws an idea's: its thinking motion and its streaks
 /// pulsing, while `runsItsMotion`. Otherwise it holds still. With Reduce Motion on the motion and the streaks stay off.
 struct ThemeCardCursor: View {
@@ -419,6 +431,16 @@ struct ThemeCardCursor: View {
 
     private var picture: NSImage? {
         theme.usesPicture ? CustomThemePictureCache.image(forThemeID: theme.id) : nil
+    }
+
+    /// A card's cursor is drawn at 1.6 times its size, as on the studio's tiles. A picture cursor is up to 32 points long, so it
+    /// is drawn at 1.4, which keeps it clear of the buttons in the card's two top corners (`ThemeCard.savedActionInset`).
+    static let shapeScale: CGFloat = 1.6
+    static let pictureScale: CGFloat = 1.4
+
+    private var scaleOfTheCursor: CGFloat {
+        if case .picture = theme.cursor { return Self.pictureScale }
+        return Self.shapeScale
     }
 
     var body: some View {
@@ -439,7 +461,7 @@ struct ThemeCardCursor: View {
         }
         // The cursor at about 1.6 times its real size, as on the studio's tiles, and the triangle at its pointer angle, as the
         // header and the settings dial draw it.
-        .scaleEffect(1.6)
+        .scaleEffect(scaleOfTheCursor)
         .rotationEffect(.degrees(theme.cursorFacing == .pointerAngle ? -35 : 0))
         .accessibilityHidden(true)
     }
@@ -457,7 +479,7 @@ private struct ThemeCardAgentTokenView: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(DS.Colors.agentTokenTrack)
+            Circle().fill(DS.Colors.surface4)
             Circle()
                 .stroke(firstAgentColor, lineWidth: Self.ringWidth)
                 .padding(Self.ringWidth / 2)
@@ -477,44 +499,41 @@ private struct ThemeCardAgentTokenView: View {
     }
 }
 
-/// The pencil and the trash can on a saved card: a 20 point square tile on a dark backing, so it reads over any cursor.
-private struct ThemeCardIconButton: View {
-    let systemImageName: String
-    let accessibilityLabel: String
-    /// The icon's color under the pointer.
-    let hoverColor: Color
+extension View {
+    /// Puts a control of a theme card in the grid's keyboard focus: the arrow keys move it, Return or Space runs `action`,
+    /// and the ring shows only when the keyboard moved the focus. The control draws and hovers itself, as a `TetherButton`
+    /// with `takesItsOwnKeyboardFocus: false` does, so this only adds the focus.
+    fileprivate func themeCardGridFocus(
+        _ focus: FocusState<ThemeGridFocus?>.Binding,
+        equals focusValue: ThemeGridFocus,
+        action: @escaping () -> Void
+    ) -> some View {
+        modifier(ThemeCardGridFocusModifier(focus: focus, focusValue: focusValue, action: action))
+    }
+}
+
+private struct ThemeCardGridFocusModifier: ViewModifier {
     var focus: FocusState<ThemeGridFocus?>.Binding
     let focusValue: ThemeGridFocus
     let action: () -> Void
 
-    @State private var isHovered = false
     @State private var showsTheFocusRing = false
 
     private var hasTheFocus: Bool { focus.wrappedValue == focusValue }
 
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImageName)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isHovered ? hoverColor : DS.Colors.textSecondary)
-                .frame(width: 20, height: 20)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(DS.Colors.calloutSurface.opacity(isHovered ? 1 : 0.85)))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(PanelPressStyle())
-        .hoverAndPointer { isHovered = $0 }
-        .focusable()
-        .focusEffectDisabled()
-        .focused(focus, equals: focusValue)
-        .onKeyPress(keys: [.return, .space]) { _ in
-            action()
-            return .handled
-        }
-        .onChange(of: hasTheFocus) { _, isNowFocused in
-            showsTheFocusRing = isNowFocused && theKeyboardMovedTheFocus()
-        }
-        .panelKeyboardFocusRing(isShowing: showsTheFocusRing && hasTheFocus, cornerRadius: 6)
-        .accessibilityLabel(accessibilityLabel)
+    func body(content: Content) -> some View {
+        content
+            .focusable()
+            .focusEffectDisabled()
+            .focused(focus, equals: focusValue)
+            .onKeyPress(keys: [.return, .space]) { _ in
+                action()
+                return .handled
+            }
+            .onChange(of: hasTheFocus) { _, isNowFocused in
+                showsTheFocusRing = isNowFocused && theKeyboardMovedTheFocus()
+            }
+            .panelKeyboardFocusRing(isShowing: showsTheFocusRing && hasTheFocus, cornerRadius: TetherButtonSize.compact.height / 2)
     }
 }
 
@@ -536,7 +555,7 @@ private struct DesignOneThemeCard: View {
                     .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
                     .foregroundColor(isHovered || hasTheFocus ? DS.Colors.textPrimary : DS.Colors.textTertiary)
                     .frame(width: 30, height: 30)
-                    .overlay(Image(systemName: "plus").font(.system(size: 13, weight: .semibold)).foregroundColor(DS.Colors.textSecondary))
+                    .overlay(Image(systemName: "plus").font(DS.TypeScale.title.font).foregroundColor(DS.Colors.textSecondary))
                     .frame(width: 56, height: 56)
                 Text("Design one")
                     .font(DS.TypeScale.title.font)
@@ -553,7 +572,7 @@ private struct DesignOneThemeCard: View {
             .overlay(
                 RoundedRectangle(cornerRadius: ThemeCard.cornerRadius)
                     .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    .foregroundColor(DS.Colors.borderSubtle)
+                    .foregroundColor(DS.Colors.border)
             )
             .contentShape(Rectangle())
         }

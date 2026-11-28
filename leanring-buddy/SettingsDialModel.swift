@@ -106,7 +106,7 @@ enum SettingsDialClosingForm: Equatable {
 /// The dial's text labels. Text never sits on the bare page: every label is drawn on its own dark pill that is sized to
 /// the text with padding, so the text shows inside its background however long it is.
 enum SettingsDialLabel {
-    static let fontSize: CGFloat = 11
+    static let fontSize: CGFloat = DS.TypeScale.caption.pointSize
     static let horizontalPadding: CGFloat = 8
     static let verticalPadding: CGFloat = 3
     /// The space between a token or fan ball and the pill of its label.

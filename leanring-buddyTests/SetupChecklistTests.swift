@@ -153,8 +153,7 @@ struct SetupChecklistTests {
             isAFirstRun: false,
             isRequestingTheScreenTest: false,
             shownTheme: try #require(bundledThemesForTests.first),
-            runStep: { _, _ in },
-            start: {}
+            runStep: { _, _ in }
         )
         let elements = try await accessibilityElements(of: checklist)
         let introduction = "Each step below is for one job."
@@ -238,6 +237,14 @@ struct SetupChecklistTests {
             #expect(setupCaptureDisclosure.contains(capture))
         }
         #expect(setupCaptureDisclosure.contains("Anthropic") && setupCaptureDisclosure.contains("OpenAI"))
+        // Voice goes to speech and AI services too: transcription (Apple Speech by default), the voice command brain, and the
+        // spoken reply. Task agents can also reach the MCP servers the learner lists in mcp.json.
+        for voiceWords in ["Apple's speech recognition", "runs on this Mac when it supports on-device recognition and otherwise sends your audio to Apple", "AssemblyAI", "ElevenLabs", "your audio", "Your words go through Clicky's own server to Anthropic"] {
+            #expect(setupCaptureDisclosure.contains(voiceWords))
+        }
+        for mcpWords in ["MCP servers you list in mcp.json", "A call to one waits for your OK.", "Choosing For this task lets that tool run again without asking until the task ends.", "The server receives what the agent passes it."] {
+            #expect(setupCaptureDisclosure.contains(mcpWords))
+        }
         // The room art's camera frames and a standing item's product photo have their own destinations.
         for roomArtWords in ["camera", "depth service", "fal.ai"] {
             #expect(setupCaptureDisclosure.contains(roomArtWords))

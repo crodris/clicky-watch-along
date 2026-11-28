@@ -410,7 +410,8 @@ final class CompanionManager: ObservableObject {
         },
         showTheChip: { phrase, isAFailure in
             VoiceToolCallChip.shared.show(phrase, sender: isAFailure ? .failure : .voiceToolCall)
-        }
+        },
+        thePanelOpened: { [weak self] in self?.cursorLoopController.theRoomArtPanelOpened() }
     ))
     /// The room art line waiting for its turn or playing. A new line replaces it, and every close of the panel ends it.
     private var roomArtSpeechTask: Task<Void, Never>?
@@ -1307,6 +1308,7 @@ final class CompanionManager: ObservableObject {
                 self?.cursorLoopController.end(because: .scrolled)
             }
         cursorLoopController.agentSparksMayDraw = { [weak self] in self?.agentSparksMayDraw ?? false }
+        cursorLoopController.theRoomArtPanelIsOpen = { [weak self] in self?.roomArtPreviewController.isOpen ?? false }
         // A finished agent's spark completes its lap, and a failed or cancelled agent's goes at once.
         cursorLoopAgentSparksCancellable = backgroundAgentStore.$agents
             .receive(on: DispatchQueue.main)

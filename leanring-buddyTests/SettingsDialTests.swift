@@ -556,3 +556,85 @@ struct SettingsDialCustomCursorRenderTests {
         #expect(try #require(pixels.colorAt(x: 44, y: 24)).alphaComponent < 0.05)
     }
 }
+
+// MARK: - The cursor under the dial
+
+/// The dial draws its own cursor glyph in the center, so the overlay's cursor, which sits 35 points right of and 25 below the
+/// mouse under the plate, hides while the dial is on screen. Before, it showed through the plate as the dial faded in and out.
+@MainActor
+struct SettingsDialBuddyTests {
+    private let everyNavigationMode: [BuddyNavigationMode] = [.followingCursor, .navigatingToTarget, .pointingAtTarget]
+
+    @Test func noBuddyDrawsOnAnyScreenInAnyModeWhileTheDialIsOnScreen() {
+        for navigationMode in everyNavigationMode {
+            for anotherScreensBuddyIsBusy in [false, true] {
+                for isCursorOnThisScreen in [false, true] {
+                    #expect(!buddyIsVisible(
+                        navigationMode: navigationMode,
+                        anotherScreensBuddyIsBusy: anotherScreensBuddyIsBusy,
+                        isCursorOnThisScreen: isCursorOnThisScreen,
+                        settingsDialIsOnScreen: true
+                    ), "\(navigationMode), another screen busy \(anotherScreensBuddyIsBusy), cursor here \(isCursorOnThisScreen)")
+                }
+            }
+        }
+    }
+
+    @Test func theBuddyGoesAtOnceAsTheDialOpensAndFadesBackInOnceTheDialIsGone() {
+        // The dial's own cursor fades in as it opens, so a buddy that also faded out would show beside it as a second cursor.
+        #expect(buddyFadeAsTheSettingsDialChanges(settingsDialIsOnScreen: true) == nil)
+        #expect(buddyFadeAsTheSettingsDialChanges(settingsDialIsOnScreen: false) == .easeInOut(duration: DS.Move.fadeSeconds))
+    }
+
+    @Test func theBuddyDrawsAsBeforeWhenNoDialIsOnScreen() {
+        func isVisible(_ navigationMode: BuddyNavigationMode, anotherScreensBuddyIsBusy: Bool = false, isCursorOnThisScreen: Bool = true) -> Bool {
+            buddyIsVisible(
+                navigationMode: navigationMode,
+                anotherScreensBuddyIsBusy: anotherScreensBuddyIsBusy,
+                isCursorOnThisScreen: isCursorOnThisScreen,
+                settingsDialIsOnScreen: false
+            )
+        }
+        // Following the mouse, it draws on the screen the mouse is on, and on no other, or while another screen's buddy is busy.
+        #expect(isVisible(.followingCursor))
+        #expect(!isVisible(.followingCursor, isCursorOnThisScreen: false))
+        #expect(!isVisible(.followingCursor, anotherScreensBuddyIsBusy: true))
+        // Flying to a target or pointing at it, the buddy draws wherever its own screen draws it.
+        #expect(isVisible(.navigatingToTarget, isCursorOnThisScreen: false))
+        #expect(isVisible(.pointingAtTarget, anotherScreensBuddyIsBusy: true, isCursorOnThisScreen: false))
+    }
+
+    @Test func thePresenceFollowsTheDialsWindow() {
+        let presence = SettingsDialPresence()
+        #expect(!presence.isOnScreen)
+        presence.dialWindowIsOnScreen()
+        #expect(presence.isOnScreen)
+        presence.dialWindowIsGone()
+        #expect(!presence.isOnScreen)
+    }
+
+    /// The real controller: the dial is on screen from `open` until its window is removed, so the overlay hides its cursor
+    /// for the dial's whole life, its fade in and out included.
+    @Test(.showsARealWindow)
+    func theControllerTellsThePresenceFromOpenUntilItsWindowIsRemoved() throws {
+        let presence = SettingsDialPresence()
+        let suiteName = "SettingsDialBuddyTests-\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        let controller = SettingsDialController(userDefaults: userDefaults, presence: presence)
+        controller.open(snapshot: SettingsDialSnapshot(
+            theme: clickyBlueTheme,
+            themePicture: nil,
+            modelID: "claude-sonnet-5-5",
+            isClickyCursorEnabled: true,
+            runningAgentCount: 0,
+            fans: SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: [])
+        ))
+        #expect(presence.isOnScreen)
+        // A release that cancels keeps the window while it fades, and the presence stays until the window is removed.
+        controller.close()
+        #expect(presence.isOnScreen)
+        controller.closeAtOnce()
+        #expect(!presence.isOnScreen)
+    }
+}

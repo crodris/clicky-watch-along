@@ -35,11 +35,24 @@ final class ThemeStudioPanelController {
     /// Called with what a click on Save did, so the app can say so the way it does for the voice tool.
     private let onSaveClicked: (ThemeStudioController.SaveOutcome) -> Void
 
-    private var panel: NonKeyFloatingPanel?
+    /// Readable by a test, which checks the window's frame and its mouse state.
+    private(set) var panel: NonKeyFloatingPanel?
+    /// Lets the mouse pass through the window's shadow margin to the page under it (`ShadowMarginMousePassThrough`).
+    private var shadowMarginMouse: ShadowMarginMousePassThrough?
+    /// Readable by a test, which checks that the timer runs only while the pointer is near the window.
+    var clickThroughTimer: Timer? { shadowMarginMouse?.clickThroughTimer }
+    /// Where the pointer is on screen. A test sets it, since the real pointer is wherever the learner left it.
+    var mouseLocationOnScreen: () -> CGPoint = { NSEvent.mouseLocation } {
+        didSet { shadowMarginMouse?.mouseLocationOnScreen = mouseLocationOnScreen }
+    }
+    /// A test sets this to put the card in a frame far off every screen, with no screen to Glide on, so no one sees it.
+    var visibleFrameForTests: CGRect?
     /// Where the Card's top-left corner sits, fixed when it opens so a taller card grows downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
     private var resizeObserver: NSObjectProtocol?
+    /// Whether a resize to the card's height waits for the next turn (`followTheCardWithTheWindow`).
+    private var windowResizeIsScheduled = false
     /// The center of the highlighted tile's cursor in the window's coordinates (y grows down), which a save flies from.
     private var highlightedTileCursorCenterInTheWindow: CGPoint?
     /// The card window's level, which a test reads to see when the card rises above the cursor overlay.
@@ -74,8 +87,8 @@ final class ThemeStudioPanelController {
         guard panel == nil else { return }
         self.studio = studio
         let mouseLocation = NSEvent.mouseLocation
-        let screen = screenUnderTheMouseCursor()
-        visibleFrame = screen?.visibleFrame ?? .zero
+        let screen = visibleFrameForTests == nil ? screenUnderTheMouseCursor() : nil
+        visibleFrame = visibleFrameForTests ?? screen?.visibleFrame ?? .zero
         let pictureRect = pictureTheLoopIsAround()
         anchorTopLeft = themeStudioCardAnchorTopLeft(
             pictureRect: pictureRect,
@@ -85,7 +98,8 @@ final class ThemeStudioPanelController {
             gapFromTheMouse: Self.gapFromTheMouse
         )
 
-        let hostingView = FirstMouseHostingView(rootView: makeCardView(studio: studio, landsTilesIn: true, reportsItsSize: true))
+        let hostingView = CardSizeReportingHostingView(rootView: makeCardView(studio: studio, landsTilesIn: true))
+        hostingView.onTheCardSizeMayHaveChanged = { [weak self] in self?.followTheCardWithTheWindow() }
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
         let initialSize = CGSize(
@@ -122,6 +136,9 @@ final class ThemeStudioPanelController {
         }
         resizePanel(to: initialSize)
         showThePanel(cardPanel, studio: studio, screen: screen)
+        let mousePassThrough = ShadowMarginMousePassThrough(panel: cardPanel, mouseLocationOnScreen: mouseLocationOnScreen)
+        mousePassThrough.start()
+        shadowMarginMouse = mousePassThrough
     }
 
     /// Glides the card out of the cursor on the carrier, with the real panel appearing at the landing, or crossfades it in
@@ -139,7 +156,7 @@ final class ThemeStudioPanelController {
         let panelFrame = cardPanel.frame
         openingFlight = TetherCarrier.shared.play(
             .glideFromOrigin(cursorGlyphPoint, into: panelFrame),
-            carrying: makeCardView(studio: studio, landsTilesIn: false, reportsItsSize: false)
+            carrying: makeCardView(studio: studio, landsTilesIn: false)
                 .frame(width: panelFrame.width, height: panelFrame.height, alignment: .top),
             onDisplay: screen.displayID,
             tetherColor: NSColor(studio.themeSettings.shownTheme.cursorColor),
@@ -152,19 +169,29 @@ final class ThemeStudioPanelController {
         )
     }
 
-    private func makeCardView(studio: ThemeStudioController, landsTilesIn: Bool, reportsItsSize: Bool) -> ThemeStudioCardView {
+    private func makeCardView(studio: ThemeStudioController, landsTilesIn: Bool) -> ThemeStudioCardView {
         ThemeStudioCardView(
             studio: studio,
             landsTilesIn: landsTilesIn,
             onSaveClicked: onSaveClicked,
             onHighlightedCursorCenterChange: { [weak self] cursorCenter in
                 self?.highlightedTileCursorCenterInTheWindow = cursorCenter
-            },
-            onContentSizeChange: { [weak self] contentSize in
-                guard reportsItsSize else { return }
-                self?.resizePanel(to: contentSize)
             }
         )
+    }
+
+    /// Sets the window to the card's height each time the card asks for another one, taller or shorter. The card's size is read
+    /// from the hosting view, since the size a SwiftUI preference reported came as 0 and never followed the card. One resize
+    /// per turn covers every change the card makes in it.
+    private func followTheCardWithTheWindow() {
+        guard !windowResizeIsScheduled else { return }
+        windowResizeIsScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            windowResizeIsScheduled = false
+            guard let contentView = panel?.contentView else { return }
+            resizePanel(to: contentView.fittingSize)
+        }
     }
 
     func hide(because reason: ThemeStudioCardClosing) {
@@ -174,6 +201,8 @@ final class ThemeStudioPanelController {
             self.resizeObserver = nil
         }
         levelFollowsTheDesign = nil
+        shadowMarginMouse?.stop()
+        shadowMarginMouse = nil
         let flightToEnd = openingFlight
         openingFlight = nil
         let closingPanel = panel
@@ -261,7 +290,7 @@ final class ThemeStudioPanelController {
         closingPanel.contentView = nil
         TetherCarrier.shared.play(
             .glideClose(from: closingFrame, into: cursorGlyphPoint),
-            carrying: makeCardView(studio: studio, landsTilesIn: false, reportsItsSize: false)
+            carrying: makeCardView(studio: studio, landsTilesIn: false)
                 .frame(width: closingFrame.width, height: closingFrame.height, alignment: .top),
             onDisplay: screen.displayID,
             tetherColor: NSColor(studio.themeSettings.shownTheme.cursorColor),
@@ -304,13 +333,6 @@ func themeStudioCardExit(
 
 // MARK: - Card
 
-private struct ThemeStudioCardSizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
 /// The highlighted tile's cursor center in the window's coordinates, which a save flies from.
 private struct HighlightedTileCursorCenterPreferenceKey: PreferenceKey {
     static var defaultValue: CGPoint?
@@ -328,7 +350,6 @@ struct ThemeStudioCardView: View {
     let landsTilesIn: Bool
     let onSaveClicked: (ThemeStudioController.SaveOutcome) -> Void
     let onHighlightedCursorCenterChange: (CGPoint?) -> Void
-    let onContentSizeChange: (CGSize) -> Void
 
     private static let hint = "Say one, two, or three · or what to change · say save it"
 
@@ -381,14 +402,6 @@ struct ThemeStudioCardView: View {
             bottom: AgentListWindowMargins.bottom,
             trailing: AgentListWindowMargins.trailing
         ))
-        .background(
-            GeometryReader { geometryProxy in
-                Color.clear.preference(key: ThemeStudioCardSizePreferenceKey.self, value: geometryProxy.size)
-            }
-        )
-        .onPreferenceChange(ThemeStudioCardSizePreferenceKey.self) { contentSize in
-            onContentSizeChange(contentSize)
-        }
         .onPreferenceChange(HighlightedTileCursorCenterPreferenceKey.self) { cursorCenter in
             onHighlightedCursorCenterChange(cursorCenter)
         }
@@ -422,8 +435,8 @@ struct ThemeStudioCardView: View {
                 .resizable()
                 .scaledToFill()
                 .frame(width: 22, height: 22)
-                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.chip, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.chip, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
             Text("From your picture")
                 .font(DS.TypeScale.caption.font)
                 .foregroundColor(DS.Colors.textSecondary)
@@ -461,14 +474,15 @@ struct ThemeStudioCardView: View {
 
     private var buttons: some View {
         HStack(spacing: 8) {
-            ThemeStudioButton(
-                title: "Save",
-                style: .primary(accentHex: highlightedIdea?.accentHex),
+            // With no idea yet, Save is a neutral secondary button.
+            TetherButton(
+                "Save",
+                role: highlightedIdea.map { .primary(accent: Color(hex: $0.accentHex)) } ?? .secondary,
                 isEnabled: shownState.isShowingIdeas
             ) {
                 onSaveClicked(studio.saveTheHighlightedIdea())
             }
-            ThemeStudioButton(title: "Close", style: .plain, isEnabled: true) {
+            TetherButton("Close", role: .secondary) {
                 studio.close()
             }
             Spacer(minLength: 0)
@@ -581,7 +595,7 @@ private struct ThemeStudioTileView: View {
                     .truncationMode(.tail)
                 HStack(spacing: 3) {
                     ForEach(Array(([Color(hex: idea.accentHex)] + idea.agentColorsInOrder.prefix(3).map(\.color)).enumerated()), id: \.offset) { _, swatchColor in
-                        RoundedRectangle(cornerRadius: 2)
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.swatch)
                             .fill(swatchColor)
                             .frame(width: 8, height: 8)
                     }
@@ -591,10 +605,10 @@ private struct ThemeStudioTileView: View {
             }
             .padding(10)
             .frame(width: Self.tileWidth)
-            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(isHovered && !isDimmedWhileDesigning ? DS.Colors.surface4 : DS.Colors.surface3))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.control).fill(isHovered && !isDimmedWhileDesigning ? DS.Colors.surface4 : DS.Colors.surface3))
             .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
-                    .stroke(isHighlighted ? accentColor : DS.Colors.borderSubtle, lineWidth: isHighlighted ? 1.5 : 1)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.control)
+                    .stroke(isHighlighted ? accentColor : DS.Colors.border, lineWidth: isHighlighted ? 1.5 : 1)
             )
             .opacity(isDimmedWhileDesigning ? 0.4 : (isHighlighted ? 1 : 0.75))
             .contentShape(Rectangle())
@@ -604,14 +618,17 @@ private struct ThemeStudioTileView: View {
         .hoverAndPointer(isEnabled: !isDimmedWhileDesigning) { isHovered = $0 }
         .overlay(alignment: .topTrailing) {
             if isHighlighted && !isDimmedWhileDesigning {
-                SoundPreviewButton(accentColor: accentColor, playSounds: playSounds)
-                    .padding(6)
+                TetherButton(
+                    systemImage: "speaker.wave.2.fill", role: .secondary, shape: .circle, size: .compact,
+                    accessibilityLabel: "Hear this theme's sounds", action: playSounds
+                )
+                .padding(6)
             }
         }
         .overlay(alignment: .topLeading) {
             if isStamped {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(DS.TypeScale.headline.font)
                     .foregroundStyle(accentColor.inkOnThisFill, accentColor)
                     .padding(6)
                     .transition(reduceMotion ? .opacity : .scale(scale: DS.Move.popStartScale).combined(with: .opacity))
@@ -641,7 +658,7 @@ private struct ThemeStudioDesignFailedRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: "xmark")
-                .font(.system(size: 11, weight: .heavy))
+                .font(DS.TypeScale.caption.font.weight(.heavy))
                 .foregroundColor(DS.Colors.destructiveText)
             Text("Couldn't design that. Your ideas are still here.")
                 .font(DS.TypeScale.body.font)
@@ -651,30 +668,8 @@ private struct ThemeStudioDesignFailedRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous).fill(DS.Colors.destructiveSurface))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.control, style: .continuous).fill(DS.Colors.destructiveSurface))
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// The highlighted tile's speaker button, which plays the idea's three sounds in a row.
-private struct SoundPreviewButton: View {
-    let accentColor: Color
-    let playSounds: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: playSounds) {
-            Image(systemName: "speaker.wave.2.fill")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isHovered ? accentColor : DS.Colors.textSecondary)
-                .frame(width: 22, height: 22)
-                .background(Circle().fill(isHovered ? DS.Colors.surface4 : DS.Colors.surface2))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .hoverAndPointer { isHovered = $0 }
-        .accessibilityLabel("Hear this theme's sounds")
     }
 }
 
@@ -691,7 +686,7 @@ private struct ThemeStudioAgentTokenView: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(DS.Colors.agentTokenTrack)
+            Circle().fill(DS.Colors.surface4)
             Circle()
                 .stroke(firstAgentColor, lineWidth: Self.ringWidth)
                 .padding(Self.ringWidth / 2)
@@ -718,14 +713,14 @@ private struct ThemeStudioPlaceholderTileView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ShimmerBar(reduceMotion: reduceMotion, cornerRadius: 28).frame(width: 56, height: 56)
-            ShimmerBar(reduceMotion: reduceMotion, cornerRadius: 3).frame(width: 60, height: 10)
-            ShimmerBar(reduceMotion: reduceMotion, cornerRadius: 2).frame(width: 52, height: 8)
+            ShimmerBar(reduceMotion: reduceMotion, cornerRadius: DS.CornerRadius.pill).frame(width: 56, height: 56)
+            ShimmerBar(reduceMotion: reduceMotion, cornerRadius: DS.CornerRadius.swatch).frame(width: 60, height: 10)
+            ShimmerBar(reduceMotion: reduceMotion, cornerRadius: DS.CornerRadius.swatch).frame(width: 52, height: 8)
         }
         .padding(10)
         .frame(width: Self.tileWidth)
-        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(DS.Colors.surface3))
-        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.borderSubtle, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.control).fill(DS.Colors.surface3))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.control).stroke(DS.Colors.border, lineWidth: 1))
         .accessibilityHidden(true)
     }
 }
@@ -746,7 +741,7 @@ private struct ShimmerBar: View {
                         LinearGradient(
                             stops: [
                                 .init(color: DS.Colors.surface4, location: max(0, sweep - 0.3)),
-                                .init(color: DS.Colors.borderSubtle, location: sweep),
+                                .init(color: DS.Colors.border, location: sweep),
                                 .init(color: DS.Colors.surface4, location: min(1, sweep + 0.3)),
                             ],
                             startPoint: .leading,
@@ -767,12 +762,12 @@ private struct ThemeStudioTagsView: View {
         WrappingTagsLayout(spacing: 4) {
             ForEach(tags, id: \.self) { tag in
                 Text(tag)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(DS.TypeScale.data.font)
                     .foregroundColor(DS.Colors.textSecondary)
                     .lineLimit(1)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(DS.Colors.surface3))
+                    .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(DS.Colors.surface3))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -811,65 +806,6 @@ private struct WrappingTagsLayout: Layout {
             widestRow = max(widestRow, rowOrigin.x - spacing)
         }
         return (CGSize(width: widestRow, height: rowOrigin.y + rowHeight), origins)
-    }
-}
-
-// MARK: - Buttons
-
-enum ThemeStudioButtonStyle {
-    /// Filled with the highlighted idea's accent, with letters that read on it. With no idea yet, a neutral fill.
-    case primary(accentHex: String?)
-    case plain
-}
-
-struct ThemeStudioButton: View {
-    let title: String
-    let style: ThemeStudioButtonStyle
-    let isEnabled: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    private var fillColor: Color {
-        switch style {
-        case .primary(let accentHex?): return Color(hex: accentHex)
-        case .primary(nil), .plain: return isHovered && isEnabled ? DS.Colors.surface4 : DS.Colors.surface3
-        }
-    }
-
-    private var isFilledWithAnAccent: Bool {
-        if case .primary(.some) = style { return true }
-        return false
-    }
-
-    private var letterColor: Color {
-        switch style {
-        case .primary(let accentHex?):
-            return Color(hex: ThemeRGBColor.inkHex(onFillHex: accentHex))
-        case .primary(nil), .plain:
-            return DS.Colors.textPrimary
-        }
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(letterColor)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(fillColor))
-                .accentFillHoverRing(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium),
-                    ink: letterColor,
-                    isShowing: isFilledWithAnAccent && isHovered && isEnabled
-                )
-                .opacity(isEnabled ? 1 : 0.4)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .hoverAndPointer(isEnabled: isEnabled) { isHovered = $0 }
     }
 }
 

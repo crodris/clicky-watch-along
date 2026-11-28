@@ -1622,6 +1622,9 @@ final class RoomArtPreviewController: ObservableObject {
         var playTheShirtCountdownSound: (ShirtCountdownSound) -> Void = { $0.play() }
         /// Shows a chip above the cursor, as a failure when `isAFailure` is true: what Save photo did.
         var showTheChip: (_ phrase: String, _ isAFailure: Bool) -> Void = { _, _ in }
+        /// The panel is open now: a request's cursor loop around the page's media, started before the panel opened, goes at once, since
+        /// the cursor overlay's windows sit above the panel's and the loop would draw over its camera view.
+        var thePanelOpened: () -> Void = {}
         /// Where Save photo writes, ~/Pictures/Clicky. A test passes a folder of its own.
         var photoFolder: URL = RoomArtPhotoSaving.standardFolder
 
@@ -1635,7 +1638,8 @@ final class RoomArtPreviewController: ObservableObject {
             loopTracerLook: @escaping () -> CursorLoopTracerLook?,
             endTheSpokenLine: @escaping () -> Void,
             theLearnerAskedThePanel: @escaping () -> Void,
-            showTheChip: @escaping (String, Bool) -> Void
+            showTheChip: @escaping (String, Bool) -> Void,
+            thePanelOpened: @escaping () -> Void
         ) -> Environment {
             let roomArtClient = RoomArtClient(workerBaseURL: workerBaseURL)
             let shirtPaintingClient = ShirtPaintingClient(workerBaseURL: workerBaseURL)
@@ -1718,7 +1722,8 @@ final class RoomArtPreviewController: ObservableObject {
                     }.value
                 },
                 theLearnerAskedThePanel: theLearnerAskedThePanel,
-                showTheChip: showTheChip
+                showTheChip: showTheChip,
+                thePanelOpened: thePanelOpened
             )
         }
     }
@@ -1767,9 +1772,14 @@ final class RoomArtPreviewController: ObservableObject {
     /// The picture's download or capture, which a close cancels, so Escape stops a slow download at once.
     private var pictureTask: Task<RoomArtPicture?, Never>?
     private var lastMeasurementNumber = 0
-    /// Each request and each close counts up, so an await that resumes after the panel closed, reopened, or moved on to a
-    /// new item changes nothing.
+    /// Each opening counts up when a request commits to a new item (its checks passed and its picture is in hand) and on each
+    /// close, so an await that resumes after the panel closed, reopened, or moved on to a new item changes nothing. A request
+    /// that fails a check never moves it, so the item that still shows keeps its pending painting and the painting still lands.
     private var openingNumber = 0
+    /// Each request and each close counts up, so a request that a newer request, Escape, or a close overtook stops where it is.
+    /// It is apart from `openingNumber` so a request that fails a check, before it commits to anything, leaves the shown
+    /// item's work alone.
+    private var requestNumber = 0
     /// Each camera session counts up: a request that opens the panel starts one and a close ends it. A request that keeps the
     /// room (`RoomArtPhase.keepsTheRoomForANewItem`) keeps the session, so the frame processor's reports for it still reach
     /// the panel while `openingNumber` moves on to the new item.
@@ -1894,6 +1904,10 @@ final class RoomArtPreviewController: ObservableObject {
     /// who places the piece where Clicky put it waits less. A move drops it.
     private var paintingAhead: (boxInTheKeyframe: [CGPoint], task: Task<RoomFurniturePaintingAheadOutcome, Never>)?
     private var stepAsideWasSaid = false
+    /// The placement whose painting asked the learner to step aside (`waitingForTheLearnerToStepAside`). A painting task that
+    /// a pick-up cancelled ends a moment after the next placement's task started, so it clears the flag only while the flag
+    /// is still its own, and never one the newer placement set.
+    private var placementTheLearnerIsAskedToStepAsideFor: RoomArtMeasurementID?
     /// The keyframe taken while the page is still read, and the wall measured on it, so the depth service's run overlaps the
     /// page read. The first measurement uses it, and the depth service answers the floor on it from its cache.
     private var earlyMeasurement: RoomArtEarlyMeasurement?
@@ -1921,23 +1935,25 @@ final class RoomArtPreviewController: ObservableObject {
     /// page that shows nothing keeps it (`RoomArtPhase.roomKeptAfterAFailedItem`). Any other open panel closes and opens again.
     func showTheArtInTheRoom(learnerRequest: String) async {
         if isOpen, !phase.keepsTheRoomForANewItem { close() }
-        openingNumber += 1
-        var thisOpening = openingNumber
+        requestNumber += 1
+        var thisRequest = requestNumber
         // An earlier request still fetching its picture is stale now, so its download stops instead of running to its deadline.
         pictureTask?.cancel()
         anOpeningIsUnderway = true
-        defer { if thisOpening == openingNumber { anOpeningIsUnderway = false } }
+        defer { if thisRequest == requestNumber { anOpeningIsUnderway = false } }
 
         guard environment.appSecretIsSet() else {
             environment.speak(RoomArtFailure.appSecretMissing.spokenLine, true)
             return
         }
-        guard let frontTab = await environment.readTheFrontTab() else {
+        let readFrontTab = await environment.readTheFrontTab()
+        // The read waits while the page's sections open, so a newer request or Escape may have moved on meanwhile, and a request
+        // that did must not speak, not even the line for a tab with no picture.
+        guard thisRequest == requestNumber, !Task.isCancelled else { return }
+        guard let frontTab = readFrontTab else {
             environment.speak(roomArtNoPictureLine, true)
             return
         }
-        // The read waits while the page's sections open, so a newer request or Escape may have moved on meanwhile.
-        guard thisOpening == openingNumber, !Task.isCancelled else { return }
         guard frontTab.url.lowercased().hasPrefix("https://") else {
             environment.speak(RoomArtFailure.pageNotHTTPS.spokenLine, true)
             return
@@ -1951,9 +1967,9 @@ final class RoomArtPreviewController: ObservableObject {
         let pictureTask = Task { await capturePicture(frontTab) }
         self.pictureTask = pictureTask
         let picture = await withTaskCancellationHandler { await pictureTask.value } onCancel: { pictureTask.cancel() }
-        // Escape or a new request moved the opening number on, and a push-to-talk press cancelled this task, so the
+        // Escape or a new request moved the request number on, and a push-to-talk press cancelled this task, so the
         // learner moved on and nothing opens or speaks.
-        guard thisOpening == openingNumber, !Task.isCancelled else { return }
+        guard thisRequest == requestNumber, !Task.isCancelled else { return }
         guard let picture,
               let pictureSource = CGImageSourceCreateWithData(picture.jpegData as CFData, nil),
               let pictureImage = CGImageSourceCreateImageAtIndex(pictureSource, 0, nil) else {
@@ -1965,9 +1981,12 @@ final class RoomArtPreviewController: ObservableObject {
         let keepsTheRoom = phase.keepsTheRoomForANewItem
         if isOpen, !keepsTheRoom {
             close()
-            thisOpening = openingNumber
+            thisRequest = requestNumber
             anOpeningIsUnderway = true
         }
+        // Every check passed, so this request now owns an item. Work asked for the item before it stops being current.
+        openingNumber += 1
+        let thisOpening = openingNumber
         if keepsTheRoom {
             // The item that showed stops being the newest: its own work ends, and it stays in the room for the new one.
             stopTheItemsWork()
@@ -1984,6 +2003,7 @@ final class RoomArtPreviewController: ObservableObject {
         }
         environment.clearTheLiveScene()
         phase = phase.opening()
+        environment.thePanelOpened()
         if keepsTheRoom {
             // The panel, the camera, and its session run on, and the camera already has a frame, so the item is measured as
             // soon as the page is read.
@@ -2057,6 +2077,7 @@ final class RoomArtPreviewController: ObservableObject {
             closingPanel = RoomArtClosingPanel(content: livePanelContent, ghostTrackedWarp: trackedWarpForTheGhost())
         }
         openingNumber += 1
+        requestNumber += 1
         cameraSessionNumber += 1
         anOpeningIsUnderway = false
         stopTheItemsWork()
@@ -2287,6 +2308,7 @@ final class RoomArtPreviewController: ObservableObject {
         furnitureGhost = nil
         furnitureGhostDraw = nil
         waitingForTheLearnerToStepAside = false
+        placementTheLearnerIsAskedToStepAsideFor = nil
         stepAsideWasSaid = false
         wallOfTheLatestMeasurement = nil
         ghostScrollTurn = RoomFurnitureScrollTurn()
@@ -2841,6 +2863,7 @@ final class RoomArtPreviewController: ObservableObject {
         furnitureRenderIsRunning = false
         furnitureRenderHeldBack = nil
         waitingForTheLearnerToStepAside = false
+        placementTheLearnerIsAskedToStepAsideFor = nil
         stepAsideWasSaid = false
     }
 
@@ -3008,7 +3031,7 @@ extension RoomArtPreviewController {
                 }
             }
             if finishedPainting == nil, !paintingsWereAskedFor, !compositeServiceIsUnavailable,
-               let paintingFrame = await aClearFrameForThePainting(boxInTheKeyframe: boxInTheKeyframe, thisOpening: thisOpening) {
+               let paintingFrame = await aClearFrameForThePainting(boxInTheKeyframe: boxInTheKeyframe, measurementID: measurementID, thisOpening: thisOpening) {
                 let request = Task { () -> RoomFurniturePaintingAheadOutcome in
                     let painting = await paintTheComposite(
                         furniture: placement.furniture, paintingFrame: paintingFrame, boxInTheKeyframe: boxInTheKeyframe,
@@ -3104,13 +3127,21 @@ extension RoomArtPreviewController {
 
     /// The newest frame once the learner is out of the box, which the painting is made on. While they cover it, Clicky
     /// says "Step aside for a second." once and the status line asks too. Nil when the task is cancelled or the panel closed.
-    private func aClearFrameForThePainting(boxInTheKeyframe: [CGPoint], thisOpening: Int) async -> RoomArtPaintingFrame? {
-        defer { if thisOpening == openingNumber { waitingForTheLearnerToStepAside = false } }
+    private func aClearFrameForThePainting(boxInTheKeyframe: [CGPoint], measurementID: RoomArtMeasurementID, thisOpening: Int) async -> RoomArtPaintingFrame? {
+        // Only this placement's own ask is taken back. A task that a pick-up cancelled ends after the next placement's task
+        // set its ask, and must not clear it until that task's next look, 300 ms later, sets it again.
+        defer {
+            if placementTheLearnerIsAskedToStepAsideFor == measurementID {
+                waitingForTheLearnerToStepAside = false
+                placementTheLearnerIsAskedToStepAsideFor = nil
+            }
+        }
         while !Task.isCancelled, thisOpening == openingNumber {
             if let paintingFrame = await frameProcessor.aFrameForThePainting(boxInTheKeyframe: boxInTheKeyframe) {
                 guard !Task.isCancelled, thisOpening == openingNumber else { return nil }
                 if paintingFrame.shareOfTheBoxThePersonCovers <= roomFurnitureMostOfTheBoxThePersonMayCover { return paintingFrame }
                 waitingForTheLearnerToStepAside = true
+                placementTheLearnerIsAskedToStepAsideFor = measurementID
                 if !stepAsideWasSaid {
                     stepAsideWasSaid = true
                     print(String(format: "Room furniture: the learner covers %.0f%% of the box, so the painting waits for them to step aside", paintingFrame.shareOfTheBoxThePersonCovers * 100))
@@ -3675,7 +3706,7 @@ private struct RoomArtPanelView: View {
             .fill(DS.Colors.textPrimary.opacity(moveHandleIsHovered ? 0.85 : 0.45))
             .frame(width: moveHandleIsHovered ? 52 : 44, height: 5)
             .frame(width: 96, height: 22)
-            .background(Capsule().fill(DS.Colors.background.opacity(moveHandleIsHovered ? 0.7 : 0.45)))
+            .background(Capsule().fill(DS.Colors.ground.opacity(moveHandleIsHovered ? 0.7 : 0.45)))
             .overlay(RoomArtPanelWindowControl(kind: .moveHandle))
             .hoverAndPointer { isHovered in moveHandleIsHovered = isHovered }
             .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: moveHandleIsHovered)
@@ -3695,7 +3726,7 @@ private struct RoomArtPanelView: View {
         }
         .frame(width: roomArtPanelResizeGripSide - 8, height: roomArtPanelResizeGripSide - 8)
         .padding(4)
-        .background(RoundedRectangle(cornerRadius: 6).fill(DS.Colors.background.opacity(resizeGripIsHovered ? 0.7 : 0)))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(DS.Colors.ground.opacity(resizeGripIsHovered ? 0.7 : 0)))
         .overlay(RoomArtPanelWindowControl(kind: .resizeGrip))
         .hoverAndPointer { isHovered in resizeGripIsHovered = isHovered }
         .padding(roomArtPanelResizeGripEdgeInset)
@@ -3703,7 +3734,7 @@ private struct RoomArtPanelView: View {
     }
 
     private var closeButton: some View {
-        RoomArtPanelButton(systemImageName: "xmark", accessibilityLabel: "Close") { previewController.close() }
+        TetherButton(systemImage: "xmark", role: .secondary, shape: .circle, size: .prominent, isOverVideo: true, accessibilityLabel: "Close") { previewController.close() }
     }
 }
 
@@ -3711,78 +3742,6 @@ private struct RoomArtPanelView: View {
 private struct RoomArtPanelSurface: View {
     var body: some View {
         LinearGradient(colors: [DS.Colors.cardSurfaceTop, DS.Colors.cardSurfaceBottom], startPoint: .top, endPoint: .bottom)
-    }
-}
-
-/// One look for every button on the panel: a solid capsule that dips on the Snap move as it is pressed, shows its hover,
-/// and shows the pointing hand. With an accent it is filled with it and set in the ink that reads on that fill, with a ring
-/// in that ink on hover, and without one it is a dark surface with an edge that lightens on hover. With no title it is a
-/// circle around its icon.
-struct RoomArtPanelButton: View {
-    var title: String? = nil
-    var systemImageName: String? = nil
-    var accentColor: Color? = nil
-    let accessibilityLabel: String
-    let action: () -> Void
-
-    @State private var isHovered = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    static let height: CGFloat = 32
-
-    var body: some View {
-        Button(action: action) {
-            RoomArtPanelButtonLook(title: title, systemImageName: systemImageName, accentColor: accentColor, isHovered: isHovered)
-                .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: isHovered)
-        }
-        .buttonStyle(PanelPressStyle())
-        .fixedSize()
-        .hoverAndPointer { isNowHovered in isHovered = isNowHovered }
-        .accessibilityLabel(accessibilityLabel)
-    }
-}
-
-/// How a panel button looks, resting or hovered, apart from the hover tracking, so a test can draw it hovered.
-struct RoomArtPanelButtonLook: View {
-    let title: String?
-    let systemImageName: String?
-    let accentColor: Color?
-    let isHovered: Bool
-
-    var body: some View {
-        HStack(spacing: 6) {
-            if let systemImageName {
-                Image(systemName: systemImageName)
-            }
-            if let title {
-                Text(title)
-            }
-        }
-        .font(DS.TypeScale.title.font)
-        .foregroundStyle(accentColor?.inkOnThisFill ?? DS.Colors.textPrimary)
-        .padding(.horizontal, title == nil ? 0 : 14)
-        .frame(minWidth: RoomArtPanelButton.height, minHeight: RoomArtPanelButton.height)
-        .background(RoomArtPanelButtonFill(accentColor: accentColor, isHovered: isHovered))
-        .accentFillHoverRing(Capsule(), ink: accentColor?.inkOnThisFill ?? .clear, isShowing: accentColor != nil && isHovered)
-        .overlay {
-            if accentColor == nil {
-                Capsule().strokeBorder(Color.white.opacity(isHovered ? 0.18 : 0.1), lineWidth: 1)
-            }
-        }
-        .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
-        .contentShape(Capsule())
-    }
-}
-
-/// A panel button's solid capsule. An accent fill stays the same on hover, since its ink was chosen for the fill as it
-/// rests, and the button's ring shows the hover instead. The dark surface changes to a lighter one on hover.
-struct RoomArtPanelButtonFill: View {
-    let accentColor: Color?
-    let isHovered: Bool
-
-    var body: some View {
-        Capsule()
-            .fill(accentColor ?? (isHovered ? DS.Colors.surface4 : DS.Colors.surface2))
     }
 }
 
@@ -3811,13 +3770,13 @@ struct RoomArtPanelBottomRow: View {
             }
             Spacer(minLength: 0)
             if showsSavePhoto {
-                RoomArtPanelButton(title: "Save photo", systemImageName: "square.and.arrow.down", accessibilityLabel: "Save photo", action: onSavePhoto)
+                TetherButton("Save photo", systemImage: "square.and.arrow.down", role: .secondary, shape: .capsule, size: .prominent, isOverVideo: true, action: onSavePhoto)
             }
             if showsPlace {
-                RoomArtPanelButton(title: "Place", systemImageName: "checkmark", accentColor: accentColor, accessibilityLabel: "Place it here", action: onPlace)
+                TetherButton("Place", systemImage: "checkmark", role: .primary(accent: accentColor), shape: .capsule, size: .prominent, isOverVideo: true, accessibilityLabel: "Place it here", action: onPlace)
             }
             if let shirtButtonTitle {
-                RoomArtPanelButton(title: shirtButtonTitle, accentColor: accentColor, accessibilityLabel: shirtButtonTitle, action: onShirtButton)
+                TetherButton(shirtButtonTitle, role: .primary(accent: accentColor), shape: .capsule, size: .prominent, isOverVideo: true, action: onShirtButton)
             }
         }
     }
@@ -3850,7 +3809,7 @@ struct RoomArtStatusPill: View {
     static let mostLines = 2
     static let horizontalPadding: CGFloat = 14
     /// Half the height of a one line pill, so one line reads as a capsule and two keep round corners.
-    private static let cornerRadius: CGFloat = 16
+    private static let cornerRadius: CGFloat = 16 // design-token-exempt: half a one-line pill's height, so two lines keep these corners
 
     private var pillShape: RoundedRectangle { RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous) }
 
@@ -3865,7 +3824,7 @@ struct RoomArtStatusPill: View {
             .padding(.horizontal, Self.horizontalPadding)
             .padding(.vertical, 8)
             .background(pillShape.fill(DS.Colors.calloutSurface))
-            .overlay(pillShape.strokeBorder(DS.Colors.borderSubtle, lineWidth: 1))
+            .overlay(pillShape.strokeBorder(DS.Colors.border, lineWidth: 1))
             .allowsHitTesting(false)
     }
 }

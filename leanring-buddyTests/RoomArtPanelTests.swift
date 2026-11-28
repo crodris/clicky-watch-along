@@ -224,6 +224,22 @@ struct RoomArtBottomRowRenderTests {
         }
     }
 
+    @Test func everyButtonOverTheVideoCastsTheCalloutsDropShadowOnABrightWall() throws {
+        // The buttons sit over the camera view, so over a white wall each needs the shadow to stay separate. A page with no
+        // shadow stays pure white just under a button.
+        for row in [Row(statusText: "", showsSavePhoto: true), Row(statusText: "", showsPlace: true), Row(statusText: "", shirtButtonTitle: "Paint it")] {
+            let bottomRowOnAWhiteWall = bottomRow(of: row, statusMostLines: nil)
+                .frame(width: rowWidth)
+                .padding(.bottom, 16)
+                .background(Color.white)
+            let pixels = try RenderedPixels(bottomRowOnAWhiteWall)
+            // The buttons are 32 points tall and sit at the row's right end, so a point 1 point under one, 40 points in. A page
+            // with no shadow stays 255 there, and the shadow's strength varies with the screen's scale, so the bar is low.
+            let underTheButton = pixels.color(atX: rowWidth - 40, y: 32 + 1)
+            #expect(underTheButton[0] < 240, "no shadow under \(row) \(underTheButton)")
+        }
+    }
+
     @Test func oneLineWouldCutTheLostWallLineSoTheSecondLineIsNeeded() throws {
         #expect(try !showsWhole(Row(statusText: RoomArtSurfaceKind.wall.lostLine, showsSavePhoto: true), mostLines: 1))
     }
@@ -253,18 +269,19 @@ struct RoomArtBottomRowRenderTests {
     @Test func anAccentButtonIsFilledToItsEdgeWithNoStroke() throws {
         let accent = Color(hex: "#F97316")
         let pixels = try RenderedPixels(
-            RoomArtPanelButton(title: "Paint it", accentColor: accent, accessibilityLabel: "Paint it") {}.background(Color.black)
+            TetherButton("Paint it", role: .primary(accent: accent), shape: .capsule, size: .prominent) {}.background(Color.black)
         )
         // Half a point inside the capsule's left end, where a 1 point stroke would draw.
-        let edge = pixels.color(atX: 0.5, y: RoomArtPanelButton.height / 2)
+        let edge = pixels.color(atX: 0.5, y: TetherButtonSize.prominent.height / 2)
         #expect(channelsAreClose(edge, [0xF9, 0x73, 0x16], within: 10), "the edge is \(edge)")
     }
 
     @Test(arguments: ["#F97316", "#F4F4F5"])
     func aHoveredAccentFillStaysSolidAndUnchanged(accentHex: String) throws {
         func middle(isHovered: Bool, over page: Color) throws -> [Int] {
-            let fill = RoomArtPanelButtonFill(accentColor: Color(hex: accentHex), isHovered: isHovered).frame(width: 80, height: 32)
-            return try RenderedPixels(fill.background(page)).color(atX: 40, y: 16)
+            let look = TetherButtonLook(title: "Place", role: .primary(accent: Color(hex: accentHex)), shape: .capsule, size: .prominent, isHovered: isHovered)
+            // Inside the left padding, clear of the letters and of the 2 point ring at the edge.
+            return try RenderedPixels(look.background(page)).color(atX: 10, y: TetherButtonSize.prominent.height / 2)
         }
         let hoveredOverBlack = try middle(isHovered: true, over: .black)
         let hoveredOverWhite = try middle(isHovered: true, over: .white)
@@ -278,7 +295,7 @@ struct RoomArtBottomRowRenderTests {
     @Test(arguments: ["#F97316", "#1D3A8A"])
     func aHoveredAccentButtonShowsARingInItsInk(accentHex: String) throws {
         func pixelJustInsideTheEdge(isHovered: Bool) throws -> [Int] {
-            let look = RoomArtPanelButtonLook(title: "Place", systemImageName: nil, accentColor: Color(hex: accentHex), isHovered: isHovered)
+            let look = TetherButtonLook(title: "Place", role: .primary(accent: Color(hex: accentHex)), shape: .capsule, size: .prominent, isHovered: isHovered)
             // 1 point inside the capsule's top edge, over the middle, where the 2 point ring draws and no letter does.
             return try RenderedPixels(look.background(Color.black)).color(atX: 30, y: 1)
         }
@@ -294,7 +311,7 @@ struct RoomArtBottomRowRenderTests {
     @Test func anAccentButtonOnADarkAccentIsSetInWhite() throws {
         // On a dark blue fill near-black ink would barely read, so the label takes white (`Color.inkOnThisFill`).
         let pixels = try RenderedPixels(
-            RoomArtPanelButton(title: "Place", accentColor: Color(hex: "#1D3A8A"), accessibilityLabel: "Place") {}.background(Color.black)
+            TetherButton("Place", role: .primary(accent: Color(hex: "#1D3A8A")), shape: .capsule, size: .prominent) {}.background(Color.black)
         )
         let whitePixelCount = stride(from: 0, to: pixels.bytes.count, by: 4).filter { offset in
             (0..<3).allSatisfy { channel in pixels.bytes[offset + channel] > 220 }

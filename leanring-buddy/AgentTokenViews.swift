@@ -57,11 +57,11 @@ struct AgentTokenDiscView: View {
         if isWaitingForApproval {
             // The "!" is the state's shape, so amber is never the only signal.
             Circle()
-                .fill(DS.Colors.agentTokenFace)
+                .fill(DS.Colors.surface1)
                 .frame(width: faceDiameter, height: faceDiameter)
                 .overlay(
                     Text("!")
-                        .font(.system(size: 12, weight: .heavy, design: .rounded))
+                        .font(DS.glyphFont(pointSize: 12, weight: .heavy, design: .rounded))
                         .foregroundColor(DS.Colors.warning)
                 )
         } else if let approvalSettledMark {
@@ -73,7 +73,7 @@ struct AgentTokenDiscView: View {
             ThemePictureFaceView(picture: themePicture, size: faceDiameter, isGrayscale: agent.phase.isFailed)
         } else {
             Circle()
-                .fill(DS.Colors.agentTokenFace)
+                .fill(DS.Colors.surface1)
                 .frame(width: faceDiameter, height: faceDiameter)
                 .overlay(
                     Triangle()
@@ -87,7 +87,7 @@ struct AgentTokenDiscView: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(DS.Colors.agentTokenTrack)
+            Circle().fill(DS.Colors.surface4)
             AgentProgressView(agent: agent) { shownProgress in
                 Circle()
                     .trim(from: 0, to: ringProgress(shownProgress: shownProgress))
@@ -99,7 +99,7 @@ struct AgentTokenDiscView: View {
                 // The notch: the track's color drawn over the ring, centered on 12 o'clock.
                 Circle()
                     .trim(from: 0, to: Self.approvalNotchShareOfTheRing)
-                    .stroke(DS.Colors.agentTokenTrack, style: StrokeStyle(lineWidth: Self.ringWidth + 0.5, lineCap: .butt))
+                    .stroke(DS.Colors.surface4, style: StrokeStyle(lineWidth: Self.ringWidth + 0.5, lineCap: .butt))
                     .rotationEffect(.degrees(-90 - 180 * Self.approvalNotchShareOfTheRing))
                     .padding(Self.ringWidth / 2)
             }
@@ -184,14 +184,14 @@ struct AgentOverflowDiscView: View {
 
     var body: some View {
         Text("+\(overflowCount)")
-            .font(.system(size: AgentOverflowDiscText.fontSize(overflowCount: overflowCount), weight: .bold, design: .rounded))
+            .font(DS.glyphFont(pointSize: AgentOverflowDiscText.fontSize(overflowCount: overflowCount), weight: .bold, design: .rounded))
             .foregroundColor(.white)
             .lineLimit(1)
             // A three digit count is cut down to fit instead of touching the edge.
             .minimumScaleFactor(0.7)
             .padding(.horizontal, AgentOverflowDiscText.horizontalPadding)
             .frame(width: AgentTokenMetrics.discDiameter, height: AgentTokenMetrics.discDiameter)
-            .background(Circle().fill(DS.Colors.agentTokenFace))
+            .background(Circle().fill(DS.Colors.surface1))
             .agentTokenEdgeAndShadow(isHovered: isHovered, edgeWidth: 1.5)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(overflowCount) more agents")
@@ -459,13 +459,13 @@ struct AgentTokenBadgeView: View {
             FinishedCheckMark(size: size)
         case .failed:
             Image(systemName: "xmark")
-                .font(.system(size: size * 0.5, weight: .heavy))
+                .font(DS.glyphFont(pointSize: size * 0.5, weight: .heavy))
                 .foregroundColor(.white)
                 .frame(width: size, height: size)
                 .background(Circle().fill(DS.Colors.destructive))
         case .needsYourOK:
             Text("!")
-                .font(.system(size: size * 0.72, weight: .heavy, design: .rounded))
+                .font(DS.glyphFont(pointSize: size * 0.72, weight: .heavy, design: .rounded))
                 .foregroundColor(.black)
                 .frame(width: size, height: size)
                 .background(Circle().fill(DS.Colors.warning))
@@ -480,13 +480,13 @@ struct AgentTokenApprovalSettledFace: View {
 
     var body: some View {
         Circle()
-            .fill(mark == .allowed ? DS.Colors.success : DS.Colors.agentTokenFace)
+            .fill(mark == .allowed ? DS.Colors.success : DS.Colors.surface1)
             .frame(width: diameter, height: diameter)
             .overlay {
                 switch mark {
                 case .allowed:
                     Image(systemName: "checkmark")
-                        .font(.system(size: diameter * 0.5, weight: .heavy))
+                        .font(DS.glyphFont(pointSize: diameter * 0.5, weight: .heavy))
                         .foregroundColor(.white)
                 case .notAllowed:
                     Capsule()
@@ -503,7 +503,7 @@ struct FinishedCheckMark: View {
 
     var body: some View {
         Image(systemName: "checkmark")
-            .font(.system(size: size * 0.55, weight: .heavy))
+            .font(DS.glyphFont(pointSize: size * 0.55, weight: .heavy))
             .foregroundColor(.white)
             .frame(width: size, height: size)
             .background(Circle().fill(DS.Colors.success))

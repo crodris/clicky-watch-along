@@ -96,13 +96,13 @@ struct CompanionPanelView: View {
             case .allThemes:
                 // All themes scrolls its own grid, so it sits outside the page scroll and never nests two of them.
                 allThemesPage
-            case .home, .setup:
+            case .home:
                 // A tall page scrolls under the header instead of running off the bottom of the screen.
-                ScrollView(.vertical) {
-                    if presentation.page == .home { homePage } else { setupPage }
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: max(PanelMetrics.shortestScrollingPageHeight, presentation.tallestPageHeight - bannerSlotHeight))
+                ScrollView(.vertical) { homePage }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(maxHeight: max(PanelMetrics.shortestScrollingPageHeight, presentation.tallestPageHeight - bannerSlotHeight))
+            case .setup:
+                setupPage
             }
         }
         .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: banner)
@@ -193,8 +193,8 @@ struct CompanionPanelView: View {
                     }
                 }
             )
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DS.Colors.surface1))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).fill(DS.Colors.surface1))
+            .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous))
             // A new request, or a new open of the panel, gets a new card, so its summary is measured from the top: the
             // desk forgot what this surface had seen when the panel closed.
             .id("\(shownCard.request.approvalID)-\(presentation.openCount)")
@@ -250,9 +250,10 @@ struct CompanionPanelView: View {
             .panelRowRise(order: 3, hasGlidedIn: hasGlidedIn, reduceMotion: reduceMotion)
 
             PanelSectionLabel(title: "Theme") {
-                PanelButton(
-                    title: "All \(themeSettings.bundledThemes.count + themeSettings.savedCustomThemes.count) themes ›",
-                    prominence: .quiet,
+                TetherButton(
+                    "All \(themeSettings.bundledThemes.count + themeSettings.savedCustomThemes.count) themes ›",
+                    role: .quiet,
+                    size: .compact,
                     action: { presentation.page = .allThemes }
                 )
             }
@@ -304,17 +305,17 @@ struct CompanionPanelView: View {
             #endif
             Divider().overlay(Color.white.opacity(0.07))
             HStack(spacing: 0) {
-                PanelButton(title: "Send feedback", prominence: .quiet, accessibilityHint: "Opens a new issue on GitHub") {
+                TetherButton("Send feedback", role: .quiet, size: .compact, accessibilityHint: "Opens a new issue on GitHub") {
                     if let newIssueURL = URL(string: Self.newIssueURLString) { NSWorkspace.shared.open(newIssueURL) }
                 }
                 Spacer(minLength: 4)
-                PanelButton(title: "Setup", prominence: .quiet, accessibilityHint: "The six setup steps, Chrome control included") {
+                TetherButton("Setup", role: .quiet, size: .compact, accessibilityHint: "The six setup steps, Chrome control included") {
                     presentation.page = .setup
                 }
                 Spacer(minLength: 4)
-                PanelButton(title: "Replay intro", prominence: .quiet) { companionManager.replayOnboarding() }
+                TetherButton("Replay intro", role: .quiet, size: .compact) { companionManager.replayOnboarding() }
                 Spacer(minLength: 4)
-                PanelButton(title: "Quit", prominence: .quiet) { NSApp.terminate(nil) }
+                TetherButton("Quit", role: .quiet, size: .compact) { NSApp.terminate(nil) }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -371,40 +372,23 @@ struct CompanionPanelView: View {
     // MARK: - Setup
 
     private var setupPage: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if companionManager.setupIsFinished {
-                PanelPageTitleBar(title: "Setup", back: { presentation.page = .home })
-            }
-            SetupChecklistView(
-                stepStates: setupStepStateList,
-                isAFirstRun: !companionManager.setupIsFinished,
-                isRequestingTheScreenTest: companionManager.isRequestingScreenContent,
-                shownTheme: themeSettings.shownTheme,
-                runStep: { step, action in companionManager.runSetupStep(step, action: action) },
-                start: {
-                    companionManager.finishSetup()
-                    // A first run's Start closes the panel for the intro, so the next open finds the home. A Debug
-                    // `--show-setup` run stays open, and goes to the home here.
-                    presentation.page = .home
-                }
-            )
-            .padding(.horizontal, 16)
-            .padding(.top, companionManager.setupIsFinished ? 4 : 0)
-            .padding(.bottom, 14)
-            .panelRowRise(order: 1, hasGlidedIn: hasGlidedIn, reduceMotion: reduceMotion)
-
-            if !companionManager.setupIsFinished {
-                // Quit stays reachable on a first run, since the home's footer is not there yet.
-                Divider().overlay(Color.white.opacity(0.07))
-                HStack {
-                    Spacer()
-                    PanelButton(title: "Quit", prominence: .quiet) { NSApp.terminate(nil) }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-            }
-        }
-        .transition(.opacity)
+        PanelSetupPage(
+            stepStates: setupStepStateList,
+            setupIsFinished: companionManager.setupIsFinished,
+            isRequestingTheScreenTest: companionManager.isRequestingScreenContent,
+            shownTheme: themeSettings.shownTheme,
+            tallestPageHeight: presentation.tallestPageHeight,
+            hasGlidedIn: hasGlidedIn,
+            back: { presentation.page = .home },
+            runStep: { step, action in companionManager.runSetupStep(step, action: action) },
+            start: {
+                companionManager.finishSetup()
+                // A first run's Start closes the panel for the intro, so the next open finds the home. A Debug
+                // `--show-setup` run stays open, and goes to the home here.
+                presentation.page = .home
+            },
+            quit: { NSApp.terminate(nil) }
+        )
     }
 }
 
@@ -451,10 +435,10 @@ struct PanelHeaderView: View {
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous)
                     .fill(RadialGradient(colors: [DS.Colors.panelCursorTileTop, DS.Colors.panelCursorTileBottom], center: UnitPoint(x: 0.4, y: 0.35), startRadius: 0, endRadius: 34))
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous)
+                    .strokeBorder(DS.Colors.edge, lineWidth: 1)
                 // A new theme's cursor Pops in: each theme is its own view, so the change is a removal and an insertion.
                 SettingsDialCustomCursor(
                     customTheme: shownTheme,
@@ -479,7 +463,7 @@ struct PanelHeaderView: View {
                     .accessibilityLabel(status.spokenText)
             }
             Spacer(minLength: 0)
-            PanelCloseButton(close: close)
+            TetherButton(systemImage: "xmark", role: .secondary, shape: .circle, size: .compact, accessibilityLabel: "Close", action: close)
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
@@ -503,34 +487,13 @@ struct PanelHeaderView: View {
                     .font(DS.TypeScale.caption.font)
                     .foregroundColor(DS.Colors.textSecondary)
                     .accessibilityHidden(true)
-                PanelButton(title: "Stop quiz", prominence: .quiet, action: stopTheQuiz)
+                TetherButton("Stop quiz", role: .quiet, size: .compact, action: stopTheQuiz)
             }
         default:
             Text(status.spokenText)
                 .font(DS.TypeScale.caption.font)
                 .foregroundColor(status.isAProblem ? DS.Colors.warningText : DS.Colors.textSecondary)
         }
-    }
-}
-
-private struct PanelCloseButton: View {
-    let close: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: close) {
-            Image(systemName: "xmark")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isHovered ? DS.Colors.textPrimary : DS.Colors.textSecondary)
-                .frame(width: 26, height: 26)
-                .background(Circle().fill(isHovered ? DS.Colors.surface4 : DS.Colors.surface2))
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
-                .contentShape(Circle())
-        }
-        .buttonStyle(PanelPressStyle())
-        .hoverAndPointer { isHovered = $0 }
-        .panelKeyboardControl(cornerRadius: 13, action: close)
-        .accessibilityLabel("Close")
     }
 }
 
@@ -541,7 +504,7 @@ private struct PanelPageTitleBar: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            PanelButton(title: "Home", systemImageName: "chevron.left", prominence: .quiet, action: back)
+            TetherButton("Home", systemImage: "chevron.left", role: .quiet, size: .compact, action: back)
             Text(title)
                 .font(DS.TypeScale.title.font)
                 .foregroundColor(DS.Colors.textPrimary)
@@ -595,13 +558,13 @@ struct PanelBannerView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            PanelButton(title: words.buttonTitle, prominence: .secondary, action: run)
+            TetherButton(words.buttonTitle, role: .secondary, size: .compact, action: run)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DS.Colors.destructiveSurface))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).fill(DS.Colors.destructiveSurface))
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous)
                 .strokeBorder(DS.Colors.destructiveEdge, lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
@@ -660,8 +623,8 @@ private struct PanelAgentsSection: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DS.Colors.surface2))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).fill(DS.Colors.surface2))
+            .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
 
             if let selectedAgentID, let pickedAgent = agents.first(where: { $0.id == selectedAgentID }) {
                 pickedAgentActions(pickedAgent)
@@ -687,7 +650,7 @@ private struct PanelAgentsSection: View {
                 .lineLimit(2)
             HStack(spacing: 6) {
                 ForEach(Array(companionManager.agentDiscMenuItemsForThePanel(agentID: pickedAgent.id).enumerated()), id: \.offset) { _, menuItem in
-                    PanelButton(title: menuItem.title, prominence: menuItem == .cancelAgent ? .quiet : .secondary) {
+                    TetherButton(menuItem.title, role: menuItem == .cancelAgent ? .quiet : .secondary, size: .compact) {
                         companionManager.runTheAgentDiscMenuItemFromThePanel(menuItem, agentID: pickedAgent.id)
                     }
                 }
@@ -762,18 +725,18 @@ private struct PanelAgentsOpenListButton: View {
                 }
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(DS.TypeScale.caption.font.weight(.semibold))
                     .foregroundColor(isHovered ? DS.Colors.textPrimary : DS.Colors.textSecondary)
             }
             .lineLimit(1)
             .padding(.vertical, 4)
             .padding(.horizontal, 4)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(isHovered ? 0.06 : 0)))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(Color.white.opacity(isHovered ? 0.06 : 0)))
             .contentShape(Rectangle())
         }
         .buttonStyle(PanelPressStyle())
         .hoverAndPointer { isHovered = $0 }
-        .panelKeyboardControl(cornerRadius: 6, action: open)
+        .panelKeyboardControl(cornerRadius: DS.CornerRadius.chip, action: open)
         .accessibilityLabel([summary.mainText, summary.secondaryText].compactMap { $0 }.joined(separator: ", ") + ". Open the agent list")
     }
 }
@@ -795,8 +758,8 @@ private struct PanelModelPicker: View {
             }
         }
         .padding(2)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(DS.Colors.surface2))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).fill(DS.Colors.surface2))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Model")
     }
@@ -825,14 +788,14 @@ private struct PanelModelOption: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.control, style: .continuous)
                     .fill(isSelected ? DS.Colors.surface4 : Color.white.opacity(isHovered ? 0.05 : 0))
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(PanelPressStyle())
         .hoverAndPointer { isHovered = $0 }
-        .panelKeyboardControl(cornerRadius: 7, action: select)
+        .panelKeyboardControl(cornerRadius: DS.CornerRadius.control, action: select)
         .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: isSelected)
         .accessibilityLabel("\(label), \(detail)")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
@@ -859,6 +822,76 @@ private struct PanelDebugToolCallLoggingRow: View {
 
 // MARK: - Setup checklist
 
+/// The setup page under the panel's header. The checklist scrolls when the page is taller than `tallestPageHeight`, and
+/// the footer under it does not: the all-set box with the Start button, and Quit. A first run must always reach Start, and
+/// as the last thing in the scroll area it was cut off below the card's bottom edge until the learner scrolled to it.
+struct PanelSetupPage: View {
+    let stepStates: [(step: SetupStep, state: SetupStepState)]
+    let setupIsFinished: Bool
+    let isRequestingTheScreenTest: Bool
+    let shownTheme: ClickyTheme
+    /// The tallest the page may be, footer included, before the checklist scrolls, so the card ends above the screen's bottom.
+    let tallestPageHeight: CGFloat
+    let hasGlidedIn: Bool
+    let back: () -> Void
+    let runStep: (SetupStep, SetupStepAction) -> Void
+    let start: () -> Void
+    let quit: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var everyRequiredStepIsDone: Bool { everyRequiredSetupStepIsDone(stepStates) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if setupIsFinished {
+                        PanelPageTitleBar(title: "Setup", back: back)
+                    }
+                    SetupChecklistView(
+                        stepStates: stepStates,
+                        isAFirstRun: !setupIsFinished,
+                        isRequestingTheScreenTest: isRequestingTheScreenTest,
+                        shownTheme: shownTheme,
+                        runStep: runStep
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.top, setupIsFinished ? 4 : 0)
+                    .padding(.bottom, 14)
+                    .panelRowRise(order: 1, hasGlidedIn: hasGlidedIn, reduceMotion: reduceMotion)
+                }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+
+            if everyRequiredStepIsDone {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Where the scrolling checklist ends, so a row cut at the scroll area's edge reads as scrolled and not clipped.
+                    Divider().overlay(Color.white.opacity(0.07))
+                    SetupAllSetCard(isAFirstRun: !setupIsFinished, shownTheme: shownTheme, start: start)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                }
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
+
+            if !setupIsFinished {
+                // Quit stays reachable on a first run, since the home's footer is not there yet.
+                Divider().overlay(Color.white.opacity(0.07))
+                HStack {
+                    Spacer()
+                    TetherButton("Quit", role: .quiet, size: .compact, action: quit)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            }
+        }
+        .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: everyRequiredStepIsDone)
+        .frame(maxHeight: max(PanelMetrics.shortestScrollingPageHeight, tallestPageHeight))
+        .transition(.opacity)
+    }
+}
+
 /// The six setup steps: what Clicky captures and where it goes, with the full detail behind "What gets sent", a bar that
 /// fills as steps finish, one row per step, and a first question to try once every required step is done.
 struct SetupChecklistView: View {
@@ -868,7 +901,6 @@ struct SetupChecklistView: View {
     let isRequestingTheScreenTest: Bool
     let shownTheme: ClickyTheme
     let runStep: (SetupStep, SetupStepAction) -> Void
-    let start: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var pointingCursorNamespace
@@ -913,30 +945,37 @@ struct SetupChecklistView: View {
             }
             .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: nextStep)
 
-            if everyRequiredSetupStepIsDone(stepStates) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("All set. Try a first question:")
-                        .font(DS.TypeScale.title.font)
-                        .foregroundColor(DS.Colors.textPrimary)
-                    // One run of text, with no-break spaces inside the quoted question, so it never wraps inside the quote.
-                    (Text("Open a YouTube video, hold ") + Text("⌃ ⌥").fontWeight(.bold).foregroundColor(DS.Colors.textPrimary) + Text(", and ask \u{201C}what\u{00A0}is\u{00A0}this?\u{201D}"))
-                        .font(DS.TypeScale.caption.font)
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Open a YouTube video, hold Control and Option, and ask what is this?")
-                    if isAFirstRun {
-                        PanelButton(title: "Start Clicky", prominence: .primary, accentColor: shownTheme.cursorColor, action: start)
-                    }
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DS.Colors.setupAllSetSurface))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DS.Colors.setupAllSetEdge, lineWidth: 1))
-                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+}
+
+/// The green box that says every required step is done, with a first question to try and, on a first run, the Start
+/// button. The setup page pins it under its scroll area, so a tall checklist never cuts the button off.
+struct SetupAllSetCard: View {
+    let isAFirstRun: Bool
+    let shownTheme: ClickyTheme
+    let start: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("All set. Try a first question:")
+                .font(DS.TypeScale.title.font)
+                .foregroundColor(DS.Colors.textPrimary)
+            // One run of text, with no-break spaces inside the quoted question, so it never wraps inside the quote.
+            (Text("Open a YouTube video, hold ") + Text("⌃ ⌥").fontWeight(.bold).foregroundColor(DS.Colors.textPrimary) + Text(", and ask \u{201C}what\u{00A0}is\u{00A0}this?\u{201D}"))
+                .font(DS.TypeScale.caption.font)
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Open a YouTube video, hold Control and Option, and ask what is this?")
+            if isAFirstRun {
+                TetherButton("Start Clicky", role: .primary(accent: shownTheme.cursorColor), size: .compact, action: start)
             }
         }
-        .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: everyRequiredSetupStepIsDone(stepStates))
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).fill(DS.Colors.setupAllSetSurface))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).strokeBorder(DS.Colors.setupAllSetEdge, lineWidth: 1))
     }
 }
 
@@ -948,12 +987,12 @@ struct SetupWhatGetsSent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            PanelButton(title: "What gets sent", systemImageName: isOpen ? "chevron.down" : "chevron.right", prominence: .quiet) {
+            TetherButton("What gets sent", systemImage: isOpen ? "chevron.down" : "chevron.right", role: .quiet, size: .compact) {
                 withAnimation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)) { isOpen.toggle() }
             }
             .accessibilityValue(isOpen ? "Shown" : "Hidden")
             // The quiet button pads its words, so it moves left to start where the text around it starts.
-            .padding(.leading, -6)
+            .padding(.leading, -TetherButtonSize.compact.horizontalPadding)
             if isOpen {
                 Text(setupCaptureDisclosure)
                     .font(DS.TypeScale.caption.font)
@@ -974,7 +1013,7 @@ private struct SetupProgressBar: View {
     var body: some View {
         GeometryReader { barProxy in
             ZStack(alignment: .leading) {
-                Capsule().fill(DS.Colors.setupTrack)
+                Capsule().fill(DS.Colors.surface3)
                 Capsule()
                     .fill(DS.Colors.success)
                     .frame(width: barProxy.size.width * fraction)
@@ -1020,8 +1059,8 @@ private struct SetupStepRow: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(rowFill))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(rowEdge, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).fill(rowFill))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous).strokeBorder(rowEdge, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Step \(stepNumber) of \(stepCount), \(step.title), \(spokenState)")
     }
@@ -1038,12 +1077,12 @@ private struct SetupStepRow: View {
 
     private var rowFill: Color {
         if isTurnedOff { return DS.Colors.destructiveSurface }
-        return isNext ? DS.Colors.setupNextStepSurface : .clear
+        return isNext ? DS.Colors.surface2 : .clear
     }
 
     private var rowEdge: Color {
         if isTurnedOff { return DS.Colors.destructiveEdge }
-        return isNext ? DS.Colors.setupNextStepEdge : .clear
+        return isNext ? DS.Colors.border : .clear
     }
 
     @ViewBuilder private var trailing: some View {
@@ -1073,13 +1112,13 @@ private struct SetupStepRow: View {
                 }
                 VStack(alignment: .trailing, spacing: 4) {
                     ForEach(Array(buttons.enumerated()), id: \.offset) { buttonIndex, button in
-                        PanelButton(
-                            title: isRunning ? "Testing…" : button.title,
-                            prominence: buttonIndex == 0 && (isNext || isTurnedOff) ? (isNext ? .primary : .secondary) : (buttonIndex == 0 ? .secondary : .quiet),
-                            accentColor: shownTheme.cursorColor,
+                        TetherButton(
+                            isRunning ? "Testing…" : button.title,
+                            role: buttonIndex == 0 && (isNext || isTurnedOff) ? (isNext ? .primary(accent: shownTheme.cursorColor) : .secondary) : (buttonIndex == 0 ? .secondary : .quiet),
+                            size: .compact,
+                            isEnabled: !isRunning,
                             action: { run(button.action) }
                         )
-                        .disabled(isRunning)
                     }
                 }
             }
@@ -1115,7 +1154,7 @@ private struct SetupStepMark: View {
                     .frame(width: 11, height: 11)
             } else if state == .turnedOff {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(DS.glyphFont(pointSize: 9, weight: .bold))
                     .foregroundColor(DS.Colors.destructiveText)
             } else {
                 Text("\(stepNumber)")
@@ -1144,7 +1183,7 @@ private struct SetupStepMark: View {
     private var circleFill: Color {
         if state.countsAsDone { return DS.Colors.setupDoneCircle }
         if state == .turnedOff { return DS.Colors.setupTurnedOffCircle }
-        return DS.Colors.setupTrack
+        return DS.Colors.surface3
     }
 }
 

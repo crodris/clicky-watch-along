@@ -68,6 +68,34 @@ enum BuddyNavigationMode {
     case pointingAtTarget
 }
 
+/// Whether the buddy draws on one screen. While the settings dial is on screen the buddy draws nowhere: the dial draws its
+/// own cursor glyph in the center, and the buddy, which sits 35 points right of and 25 below the mouse, would show through
+/// the plate as it fades in and out, a second cursor under the dial. Otherwise it draws on the screen the mouse is on while it
+/// follows the mouse, on every screen while it flies to or points at a target, and on no screen another screen's buddy is
+/// busy on (so only one buddy ever shows).
+func buddyIsVisible(
+    navigationMode: BuddyNavigationMode,
+    anotherScreensBuddyIsBusy: Bool,
+    isCursorOnThisScreen: Bool,
+    settingsDialIsOnScreen: Bool
+) -> Bool {
+    if settingsDialIsOnScreen { return false }
+    switch navigationMode {
+    case .followingCursor:
+        return !anotherScreensBuddyIsBusy && isCursorOnThisScreen
+    case .navigatingToTarget, .pointingAtTarget:
+        return true
+    }
+}
+
+/// The buddy's fade as the settings dial's presence changes. It goes at once as the dial opens, since the dial's own cursor
+/// glyph fades in then, and a buddy that faded out over the same 150 ms would show beside it as a second cursor. It fades back
+/// in once the dial's window is gone, instead of cutting. SwiftUI reads the animation after the change, so the one for "on
+/// screen" is the animation of the buddy leaving.
+func buddyFadeAsTheSettingsDialChanges(settingsDialIsOnScreen: Bool) -> Animation? {
+    settingsDialIsOnScreen ? nil : .easeInOut(duration: DS.Move.fadeSeconds)
+}
+
 /// How the buddy gets from where it is to a target, or back to the mouse.
 enum CursorFlightMotion: Equatable {
     /// Travels along the bezier arc, swooping and turning toward its direction of travel.
@@ -119,6 +147,8 @@ struct BlueCursorView: View {
     @ObservedObject private var statusLinePresence: TetherCalloutPresence
     /// The slide along a video's progress bar before a voice seek.
     @ObservedObject private var cursorScrubController: CursorScrubController
+    /// Whether the settings dial is on screen. The buddy hides while it is (see `buddyIsVisible`).
+    @ObservedObject private var settingsDialPresence = SettingsDialPresence.shared
     /// The scrub this screen's buddy is playing, from the flight to the bar until it is back at the mouse.
     @State private var playingScrubID: UUID?
     @State private var cursorPosition: CGPoint
@@ -308,7 +338,7 @@ struct BlueCursorView: View {
             // allowsHitTesting(false) prevents it from intercepting clicks.
             OnboardingVideoPlayerView(player: companionManager.onboardingVideoPlayer)
                 .frame(width: onboardingVideoPlayerWidth, height: onboardingVideoPlayerHeight)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous))
                 .shadow(color: Color.black.opacity(0.4 * companionManager.onboardingVideoOpacity), radius: 12, x: 0, y: 6)
                 .opacity(isCursorOnThisScreen ? companionManager.onboardingVideoOpacity : 0)
                 .position(
@@ -363,6 +393,7 @@ struct BlueCursorView: View {
                 CursorLandingRingView(landingRing: landingRing, color: themeSettings.shownTheme.cursorColor)
                     .position(landingRing.center)
                     .opacity(buddyIsVisibleOnThisScreen ? cursorOpacity : 0)
+                    .animation(buddyFadeForTheSettingsDial, value: settingsDialPresence.isOnScreen)
             }
 
             // The loop around the video or image Clicky is looking at, under the cursor so the triangle stays on top. The
@@ -410,6 +441,7 @@ struct BlueCursorView: View {
                 landedAt: buddyLandedAt
             )
                 .opacity(buddyIsVisibleOnThisScreen ? cursorOpacity * flightFadeOpacity : 0)
+                .animation(buddyFadeForTheSettingsDial, value: settingsDialPresence.isOnScreen)
                 .position(cursorPosition)
                 .animation(
                     buddyNavigationMode == .followingCursor
@@ -434,6 +466,7 @@ struct BlueCursorView: View {
                 aStatusLineShows: statusLinePresence.isInTheViewTree
             )
                 .opacity(buddyIsVisibleOnThisScreen ? cursorOpacity * flightFadeOpacity : 0)
+                .animation(buddyFadeForTheSettingsDial, value: settingsDialPresence.isOnScreen)
                 .position(cursorPosition)
                 .animation(
                     buddyNavigationMode == .followingCursor
@@ -555,21 +588,24 @@ struct BlueCursorView: View {
     /// screen isn't the one animating), hide the cursor so only one buddy
     /// is ever visible at a time.
     private var buddyIsVisibleOnThisScreen: Bool {
-        switch buddyNavigationMode {
-        case .followingCursor:
-            // If another screen's BlueCursorView is navigating to an element, scrubbing, or drawing the loop,
-            // hide the cursor on this screen to prevent a duplicate buddy
-            if companionManager.detectedElementScreenLocation != nil || cursorScrubController.request != nil {
-                return false
-            }
-            if let screenFrameWhereTheBuddyDrawsTheLoop = cursorLoopController.screenFrameWhereTheBuddyDrawsTheLoop,
-               screenFrameWhereTheBuddyDrawsTheLoop != screenFrame, loopDrawAwayToken == nil {
-                return false
-            }
-            return isCursorOnThisScreen
-        case .navigatingToTarget, .pointingAtTarget:
-            return true
-        }
+        // If another screen's BlueCursorView is navigating to an element, scrubbing, or drawing the loop,
+        // the cursor on this screen hides to prevent a duplicate buddy.
+        let anotherScreenLoopDrawHoldsTheBuddy = cursorLoopController.screenFrameWhereTheBuddyDrawsTheLoop.map {
+            $0 != screenFrame && loopDrawAwayToken == nil
+        } ?? false
+        let anotherScreensBuddyIsBusy = companionManager.detectedElementScreenLocation != nil
+            || cursorScrubController.request != nil
+            || anotherScreenLoopDrawHoldsTheBuddy
+        return buddyIsVisible(
+            navigationMode: buddyNavigationMode,
+            anotherScreensBuddyIsBusy: anotherScreensBuddyIsBusy,
+            isCursorOnThisScreen: isCursorOnThisScreen,
+            settingsDialIsOnScreen: settingsDialPresence.isOnScreen
+        )
+    }
+
+    private var buddyFadeForTheSettingsDial: Animation? {
+        buddyFadeAsTheSettingsDialChanges(settingsDialIsOnScreen: settingsDialPresence.isOnScreen)
     }
 
     // MARK: - Cursor Tracking

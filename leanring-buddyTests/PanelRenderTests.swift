@@ -101,8 +101,7 @@ struct PanelRenderTests {
                 isAFirstRun: true,
                 isRequestingTheScreenTest: false,
                 shownTheme: theme,
-                runStep: { _, _ in },
-                start: {}
+                runStep: { _, _ in }
             )
             let bitmap = try render(checklist.padding(16).frame(width: CompanionPanelView.contentWidth).tetherCard(), named: fileName)
             #expect(bitmap.size.height > 400)
@@ -170,12 +169,241 @@ struct PanelRenderTests {
         #expect(abs(bitmap.size.height - cappedHeight) <= 2)
     }
 
+    /// How many pixels of a render are this sRGB color, give or take a few levels per channel.
+    private func pixelCount(in bitmap: NSBitmapImageRep, near color: (red: Int, green: Int, blue: Int)) throws -> Int {
+        let pixels = try DrawingPixels(drawing: try #require(bitmap.cgImage), widthInPoints: bitmap.size.width)
+        let tolerance = 8
+        return stride(from: 0, to: pixels.bytes.count, by: 4).count { byteOffset in
+            abs(Int(pixels.bytes[byteOffset]) - color.red) <= tolerance
+                && abs(Int(pixels.bytes[byteOffset + 1]) - color.green) <= tolerance
+                && abs(Int(pixels.bytes[byteOffset + 2]) - color.blue) <= tolerance
+        }
+    }
+
+    @Test func theStartButtonStaysInViewWhenTheSetupPageIsTallerThanItsCap() throws {
+        let everyStepDone = SetupFacts(
+            microphoneStatus: .authorized,
+            speechRecognitionStatus: .authorized,
+            hasScreenRecording: true,
+            screenTestPassed: true,
+            screenTestFailed: false,
+            hasAccessibility: true,
+            chromeControlStatus: .granted,
+            stepsAskedForThisLaunch: []
+        )
+        // A cap well under the page's natural height, as on a short screen or with "What gets sent" open, and one that fits it.
+        for cap in [CGFloat(420), 520, 2_000] {
+            let setupPage = PanelSetupPage(
+                stepStates: setupStepStates(for: everyStepDone),
+                setupIsFinished: false,
+                isRequestingTheScreenTest: false,
+                shownTheme: clickyBlueTheme,
+                tallestPageHeight: cap,
+                hasGlidedIn: true,
+                back: {},
+                runStep: { _, _ in },
+                start: {},
+                quit: {}
+            )
+            let bitmap = try render(setupPage.frame(width: CompanionPanelView.contentWidth).tetherCard(), named: "setup-page-done-cap-\(Int(cap))")
+            // The page keeps to its cap, and the primary Start Clicky button (Clicky blue's #3380FF fill) is drawn in full: a
+            // button cut off at the scroll area's bottom edge draws too few of those pixels, so the count must reach 95
+            // percent of the same button drawn alone.
+            let renderPadding: CGFloat = 48
+            #expect(bitmap.size.height <= cap + renderPadding + 1, "cap \(cap)")
+            let startButtonPixels = try pixelCount(in: bitmap, near: (red: 0x33, green: 0x80, blue: 0xFF))
+            let fullButton = TetherButton("Start Clicky", role: .primary(accent: clickyBlueTheme.cursorColor), size: .compact) {}
+            let fullButtonBitmap = try render(fullButton, named: "start-button-alone")
+            let pixelsInAFullButton = try pixelCount(in: fullButtonBitmap, near: (red: 0x33, green: 0x80, blue: 0xFF))
+            try #require(pixelsInAFullButton > 500, "the button alone drew \(pixelsInAFullButton) blue pixels")
+            #expect(startButtonPixels >= pixelsInAFullButton * 95 / 100, "cap \(cap): \(startButtonPixels) blue pixels, a full button has \(pixelsInAFullButton)")
+        }
+    }
+
     // MARK: - Keyboard focus
+
+    /// `DS.CornerRadius.pill` is infinite, which SwiftUI clamps to half the shorter side. The switch's ring takes it, so it
+    /// must still draw a ring that follows the pill and not a blank or a square one.
+    @Test func aPillFocusRingFollowsTheShapeOfTheControlItRings() throws {
+        let control = Color.clear.frame(width: 30, height: 16)
+            .panelKeyboardFocusRing(isShowing: true, cornerRadius: DS.CornerRadius.pill)
+        let bitmap = try render(control, named: "pill-focus-ring", background: .black)
+        let pixelsPerPoint = scale(of: bitmap)
+        func color(atX x: CGFloat, y: CGFloat) -> NSColor {
+            bitmap.colorAt(x: Int(x * pixelsPerPoint), y: Int(y * pixelsPerPoint)) ?? .clear
+        }
+        // The render pads the control by 24 points. The ring sits 3 points outside the control and is 2 points wide.
+        let ringTopMiddle = color(atX: 24 + 15, y: 24 - 3 + 1)
+        let ringColor = NSColor(DS.Colors.keyboardFocusRing).usingColorSpace(.sRGB) ?? .white
+        #expect(abs(ringTopMiddle.redComponent - ringColor.redComponent) < 0.05, "the ring's top middle is \(ringTopMiddle)")
+        // A square ring would fill this corner. A pill leaves it as the page.
+        let outerCorner = color(atX: 24 - 3 + 0.5, y: 24 - 3 + 0.5)
+        #expect(luminance(outerCorner) < 0.05, "the ring's outer corner is \(outerCorner)")
+    }
 
     @Test func onlyTheKeyboardShowsTheFocusRing() {
         #expect(theKeyboardMovedTheFocus(currentEventType: .keyDown))
         #expect(!theKeyboardMovedTheFocus(currentEventType: .leftMouseDown))
         #expect(!theKeyboardMovedTheFocus(currentEventType: nil))
+    }
+
+    // MARK: - A saved card's buttons and its cursor
+
+    /// The Amber Paper Plane theme as the Theme Studio saved it: a shapes cursor whose tip reaches up near the middle of the
+    /// card's top, where a pencil beside the trash can used to cover it.
+    private static let amberPaperPlaneThemeJSON = """
+    {"version": 2, "accent": "#FFA94D", "contrast": "#2B1200", "name": "Amber Paper Plane",
+     "agents": {"ring": "perAgent", "colors": ["#FFB36B", "#FFD27A", "#F08FB0"], "faces": {"kind": "triangle"}},
+     "cursor": {"kind": "shapes", "picture": null, "shapes": [
+       {"d": "M12 2 L21 21 L12 17 L3 21 Z", "fill": "#FFA94D", "stroke": "#FFF1D6", "strokeWidth": 1.5},
+       {"d": "M12 2 L12 17", "fill": null, "stroke": "#B8541A", "strokeWidth": 1.5}]},
+     "motion": {"trailStreaks": 2, "turnsTowardMovement": true, "whileListening": "pulse", "whileThinking": "wobble"},
+     "sounds": {"correct": "Glass", "done": "Hero", "needsYourOK": "Tink"}}
+    """
+
+    private func amberPaperPlane(origin: ThemeOrigin) throws -> ClickyTheme {
+        let themeJSON = try JSONDecoder().decode(JSONValue.self, from: Data(Self.amberPaperPlaneThemeJSON.utf8))
+        return try ClickyTheme.parse(themeJSON: themeJSON, id: "amber-paper-plane-test", origin: origin, pictureIsAvailable: false)
+    }
+
+    /// One theme card as the panel's grid draws it, in the hover state, as raw RGB bytes. A hover makes the pencil and trash can
+    /// show on a saved card. The cursor holds still, since the panel counts as closed, so a draw is the same each time once the
+    /// buttons' fade has finished. The window sits off every screen.
+    private func hoveredCardPixels(of theme: ClickyTheme) async throws -> (width: Int, height: Int, pixelsPerPoint: CGFloat, bytes: [UInt8]) {
+        let cardWidth = (CompanionPanelView.contentWidth - 32 - CGFloat(ThemeCardGrid.columnCount - 1) * ThemeCardGrid.spacing) / CGFloat(ThemeCardGrid.columnCount)
+        let grid = ThemeCardGrid(
+            themes: [theme], selectedTheme: clickyBlueTheme, designATheme: nil,
+            pick: { _ in }, rename: { _, _ in }, delete: { _ in }
+        )
+        let hostingView = NSHostingView(rootView: grid.frame(width: cardWidth * 3 + 2 * ThemeCardGrid.spacing).background(Color(hex: "#0b0c10")).environment(\.menuPanelIsOpen, false))
+        let fittingSize = hostingView.fittingSize
+        let window = NSWindow(contentRect: NSRect(x: -90_000, y: -90_000, width: fittingSize.width, height: fittingSize.height), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = hostingView
+        hostingView.frame = NSRect(origin: .zero, size: fittingSize)
+        hostingView.layoutSubtreeIfNeeded()
+        // The card's own hover view is the largest one, since each button inside it has a smaller one.
+        let cardHoverView = try #require(hoverAndPointerViews(in: hostingView).max { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height })
+
+        func draw() throws -> (width: Int, height: Int, pixelsPerPoint: CGFloat, bytes: [UInt8]) {
+            let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+            hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+            let image = try #require(bitmap.cgImage)
+            let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+            let context = try #require(CGContext(
+                data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            let data = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+            return (image.width, image.height, CGFloat(image.width) / hostingView.bounds.width, Array(UnsafeBufferPointer(start: data, count: image.width * image.height * 4)))
+        }
+        let atRest = try draw()
+        cardHoverView.reportTheHover(true)
+        var previousDraw = atRest
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(60))
+            let nextDraw = try draw()
+            // The hover has landed once the card differs from its resting look, and the fade has finished once two draws match.
+            if nextDraw.bytes == previousDraw.bytes, nextDraw.bytes != atRest.bytes { return nextDraw }
+            previousDraw = nextDraw
+        }
+        Issue.record("the hovered card never settled")
+        return previousDraw
+    }
+
+    @Test func aSavedCardsPencilAndTrashCanNeverCoverItsCursor() async throws {
+        let savedTheme = try amberPaperPlane(origin: .saved(folderURL: URL(fileURLWithPath: "/nonexistent-saved-theme")))
+        // The same theme as a bundled one has no buttons, so its hovered card shows the cursor alone.
+        let cursorOnly = try amberPaperPlane(origin: .bundled(imagesFolderURL: URL(fileURLWithPath: "/nonexistent-images")))
+        let withButtons = try await hoveredCardPixels(of: savedTheme)
+        let withoutButtons = try await hoveredCardPixels(of: cursorOnly)
+        #expect(withButtons.width == withoutButtons.width && withButtons.height == withoutButtons.height)
+
+        func channels(of draw: (width: Int, height: Int, pixelsPerPoint: CGFloat, bytes: [UInt8]), column: Int, row: Int) -> [Int] {
+            let firstByte = (row * draw.width + column) * 4
+            return (0..<3).map { Int(draw.bytes[firstByte + $0]) }
+        }
+        func differ(_ first: [Int], _ second: [Int], by tolerance: Int) -> Bool {
+            zip(first, second).contains { abs($0 - $1) > tolerance }
+        }
+        let scale = withButtons.pixelsPerPoint
+        // The cursor's frame: the card's top 66 points, between its 20 point margins. The card's own color sits at 20 points in.
+        let cardBackground = channels(of: withoutButtons, column: Int(20 * scale), row: Int(40 * scale))
+        var cursorPixels = 0
+        var buttonPixels = 0
+        var coveredCursorPixels = 0
+        for row in 0..<Int(66 * scale) {
+            for column in Int(2 * scale)..<(withButtons.width - Int(2 * scale)) {
+                let cursorOnlyColor = channels(of: withoutButtons, column: column, row: row)
+                let withButtonsColor = channels(of: withButtons, column: column, row: row)
+                let isTheCursor = differ(cursorOnlyColor, cardBackground, by: 24) && column > Int(20 * scale) && column < Int(77 * scale)
+                let isAButton = differ(withButtonsColor, cursorOnlyColor, by: 6)
+                if isTheCursor { cursorPixels += 1 }
+                if isAButton { buttonPixels += 1 }
+                if isTheCursor && isAButton { coveredCursorPixels += 1 }
+            }
+        }
+        #expect(cursorPixels > 200, "the cursor drew \(cursorPixels) pixels")
+        #expect(buttonPixels > 400, "the buttons drew \(buttonPixels) pixels")
+        #expect(coveredCursorPixels == 0, "the buttons cover \(coveredCursorPixels) of the cursor's pixels")
+    }
+
+    // MARK: - The pointing hand on entry
+
+    @Test func enteringAControlSetsThePointingHandAndLeavingSetsTheArrow() {
+        // A tracking area that is `.activeAlways` gets no cursorUpdate, so moving from one control to the next in an open
+        // panel must set the hand on entry, or the arrow the first control's exit set stays. The overrides only call these.
+        let hoverView = HoverAndPointerNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
+        var cursorsSet: [NSCursor] = []
+        hoverView.setTheCursor = { cursorsSet.append($0) }
+        hoverView.thePointerEntered()
+        #expect(cursorsSet.count == 1 && cursorsSet[0] === NSCursor.pointingHand)
+        #expect(hoverView.reportedHover)
+        hoverView.thePointerLeft()
+        #expect(cursorsSet.count == 2 && cursorsSet[1] !== NSCursor.pointingHand)
+        #expect(!hoverView.reportedHover)
+    }
+
+    @Test func movingBetweenTwoAdjacentControlsLeavesTheHandInEitherEventOrder() {
+        // AppKit may deliver the new control's entry before the old control's exit, so the exit must look at where the pointer is
+        // instead of assuming it left every control. Both views sit in one window, with the pointer over the second.
+        func cursorsSetAfter(pointerAt pointerLocation: CGPoint, _ events: (_ firstView: HoverAndPointerNSView, _ secondView: HoverAndPointerNSView) -> Void) -> [String] {
+            let window = NSWindow(contentRect: NSRect(x: -92_000, y: -92_000, width: 160, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 40))
+            let firstView = HoverAndPointerNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
+            let secondView = HoverAndPointerNSView(frame: NSRect(x: 80, y: 0, width: 80, height: 40))
+            contentView.addSubview(firstView)
+            contentView.addSubview(secondView)
+            window.contentView = contentView
+            var cursorsSet: [String] = []
+            for (name, hoverView) in [("first", firstView), ("second", secondView)] {
+                hoverView.mouseLocationInTheWindow = { _ in pointerLocation }
+                hoverView.setTheCursor = { cursorsSet.append("\(name) \($0 === NSCursor.pointingHand ? "hand" : "arrow")") }
+            }
+            events(firstView, secondView)
+            return cursorsSet
+        }
+        let pointerOverTheSecondView = CGPoint(x: 120, y: 20)
+        let enterThenExit = cursorsSetAfter(pointerAt: pointerOverTheSecondView) { firstView, secondView in
+            secondView.thePointerEntered()
+            firstView.thePointerLeft()
+        }
+        #expect(enterThenExit.last?.hasSuffix("hand") == true, "the new control's entry came first, and the old control's exit left \(enterThenExit)")
+        let exitThenEnter = cursorsSetAfter(pointerAt: pointerOverTheSecondView) { firstView, secondView in
+            firstView.thePointerLeft()
+            secondView.thePointerEntered()
+        }
+        #expect(exitThenEnter.last?.hasSuffix("hand") == true, "the old control's exit came first, and the new control's entry left \(exitThenEnter)")
+        // With the pointer over neither control, the exit still sets the arrow.
+        let exitOverNothing = cursorsSetAfter(pointerAt: CGPoint(x: 400, y: 20)) { firstView, _ in
+            firstView.thePointerLeft()
+        }
+        #expect(exitOverNothing == ["first arrow"], "the pointer was over no control, and the exit left \(exitOverNothing)")
     }
 
     // MARK: - Hover under a still pointer

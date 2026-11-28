@@ -199,6 +199,17 @@ class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+/// A Card panel's hosting view, which says when the Card's size may have changed. NSHostingView invalidates its intrinsic size
+/// each time the Card's layout asks for another size. The Theme Studio's window and the agent list's follow their Card with it.
+final class CardSizeReportingHostingView<Content: View>: FirstMouseHostingView<Content> {
+    var onTheCardSizeMayHaveChanged: (() -> Void)?
+
+    override func invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        onTheCardSizeMayHaveChanged?()
+    }
+}
+
 /// Whether the agent list may show a waiting 3D model or experiment, or speak a waiting task answer. A question's scene and
 /// speech belong to the question, so, like the voice tools for the same actions (`AppVoiceTool.showReadyModel` and
 /// `.hearTaskAnswer`), the list waits until the learner answers or skips an open video quiz question.
@@ -305,22 +316,31 @@ final class AgentListPanelController {
     private let actions: AgentListActions
     /// The queue of requests the learner answers with the buttons of the approval card.
     private let approvalDesk: HarnessApprovalDesk
-    private var panel: NonKeyFloatingPanel?
+    /// Readable by a test, which checks the window's frame and its mouse state.
+    private(set) var panel: NonKeyFloatingPanel?
     private var clickOutsideMonitor: Any?
-    /// Sees a click that lands on the window's own shadow margin in the moment before `clickThroughTimer` lets it pass,
+    /// Sees a click that lands on the window's own shadow margin in the moment before `shadowMarginMouse` lets it pass,
     /// which the global monitor never gets, since the window server delivers it to this panel.
     private var clickInTheShadowMonitor: Any?
-    /// Reads the mouse 60 times a second while the list is open and lets the mouse pass through the shadow margin
-    /// (`AgentListWindowMargins.windowPassesTheMouseThrough`). A global monitor misses moves over this panel, and the panel
-    /// is never key, so a poll is the one reading that sees the pointer on both sides of the Card's edge.
-    private var clickThroughTimer: Timer?
+    /// Lets the mouse pass through the shadow margin (`AgentListWindowMargins.windowPassesTheMouseThrough`). It reads the
+    /// mouse 60 times a second only while the pointer is near the window, since a global monitor misses moves over this
+    /// panel, which is never key.
+    private var shadowMarginMouse: ShadowMarginMousePassThrough?
+    /// Readable by a test, which checks that the timer runs only while the pointer is near the window.
+    var clickThroughTimer: Timer? { shadowMarginMouse?.clickThroughTimer }
+    /// Where the pointer is on screen. A test sets it, since the real pointer is wherever the learner left it.
+    var mouseLocationOnScreen: () -> CGPoint = { NSEvent.mouseLocation } {
+        didSet { shadowMarginMouse?.mouseLocationOnScreen = mouseLocationOnScreen }
+    }
     /// Where the Card's top-left corner sits, fixed when it opens so a row that expands grows the Card downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
     private var resizeObserver: NSObjectProtocol?
     /// The disc the list was opened from, nil when the settings dial opened it, so a second click on the same disc closes it.
     private var discTheListWasOpenedFrom: AgentTokenDiscID?
-    private var uiState = AgentListUIState(expandedAgentID: nil)
+    private(set) var uiState = AgentListUIState(expandedAgentID: nil)
+    /// Whether a resize to the Card's height waits for the next turn (`followTheCardWithTheWindow`).
+    private var windowResizeIsScheduled = false
     /// Where the Card Glides out of and closes back into: the disc it was opened from, or the cursor. Nil when no display
     /// holds it, and the list then crossfades.
     private var glideOrigin: GlideOrigin?
@@ -398,7 +418,8 @@ final class AgentListPanelController {
         discTheListWasOpenedFrom = discID
     }
 
-    private func open(anchorTopLeft: CGPoint, visibleFrame: CGRect, initiallyExpandedAgentID: UUID?, glideOriginPoint: CGPoint, screen: NSScreen?) {
+    /// With no `screen`, the list fades in place instead of Gliding, which lets a test open it in a frame off every screen.
+    func open(anchorTopLeft: CGPoint, visibleFrame: CGRect, initiallyExpandedAgentID: UUID?, glideOriginPoint: CGPoint, screen: NSScreen?) {
         guard panel == nil else { return }
         self.visibleFrame = visibleFrame
         self.anchorTopLeft = anchorTopLeft
@@ -434,27 +455,9 @@ final class AgentListPanelController {
         resizePanel(to: initialSize)
         showThePanel(agentListPanel)
         installClickOutsideMonitor()
-        letTheMousePassThroughTheShadow(of: agentListPanel)
-    }
-
-    private func letTheMousePassThroughTheShadow(of agentListPanel: NonKeyFloatingPanel) {
-        let updateWhetherThePanelTakesTheMouse = { [weak agentListPanel] in
-            guard let agentListPanel else { return }
-            let passesTheMouseThrough = AgentListWindowMargins.windowPassesTheMouseThrough(at: NSEvent.mouseLocation, windowFrame: agentListPanel.frame)
-            if agentListPanel.ignoresMouseEvents != passesTheMouseThrough {
-                agentListPanel.ignoresMouseEvents = passesTheMouseThrough
-                if let contentView = agentListPanel.contentView {
-                    refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: passesTheMouseThrough)
-                }
-            }
-        }
-        updateWhetherThePanelTakesTheMouse()
-        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in
-            MainActor.assumeIsolated { updateWhetherThePanelTakesTheMouse() }
-        }
-        // The common modes keep it running while a menu or a drag tracks the mouse.
-        RunLoop.main.add(timer, forMode: .common)
-        clickThroughTimer = timer
+        let mousePassThrough = ShadowMarginMousePassThrough(panel: agentListPanel, mouseLocationOnScreen: mouseLocationOnScreen)
+        mousePassThrough.start()
+        shadowMarginMouse = mousePassThrough
     }
 
     /// Shows the list: it Glides out of its origin on the carrier and the real panel appears at the landing, or, with Reduce
@@ -488,7 +491,8 @@ final class AgentListPanelController {
     }
 
     private func makeHostingView(entrance: AgentListEntrance) -> FirstMouseHostingView<AgentListView> {
-        let hostingView = FirstMouseHostingView(rootView: makeListView(entrance: entrance, reportsItsSize: true))
+        let hostingView = CardSizeReportingHostingView(rootView: makeListView(entrance: entrance, reportsItsSize: true))
+        hostingView.onTheCardSizeMayHaveChanged = { [weak self] in self?.followTheCardWithTheWindow() }
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
         return hostingView
@@ -502,10 +506,6 @@ final class AgentListPanelController {
             actions: actions,
             uiState: uiState,
             entrance: entrance,
-            onContentSizeChange: { [weak self] contentSize in
-                guard reportsItsSize else { return }
-                self?.resizePanel(to: contentSize)
-            },
             onApprovalCardFrameChange: { [weak self] approvalCardFrameInTheWindow in
                 guard reportsItsSize else { return }
                 self?.approvalCardFrameInTheWindow = approvalCardFrameInTheWindow
@@ -621,8 +621,7 @@ final class AgentListPanelController {
                 approvalDesk: approvalDesk,
                 actions: actions,
                 uiState: closingUIState,
-                entrance: .none,
-                onContentSizeChange: { _ in }
+                entrance: .none
             )
             .frame(width: closingFrame.width, height: closingFrame.height, alignment: .top),
             onDisplay: origin.displayID,
@@ -645,8 +644,8 @@ final class AgentListPanelController {
             NSEvent.removeMonitor(clickInTheShadowMonitor)
             self.clickInTheShadowMonitor = nil
         }
-        clickThroughTimer?.invalidate()
-        clickThroughTimer = nil
+        shadowMarginMouse?.stop()
+        shadowMarginMouse = nil
         if let resizeObserver {
             NotificationCenter.default.removeObserver(resizeObserver)
             self.resizeObserver = nil
@@ -667,6 +666,21 @@ final class AgentListPanelController {
             AgentListWindowMargins.windowTopLeft(forCardTopLeft: anchorTopLeft),
             AgentListWindowMargins.frameToKeepTheWindowIn(forCardVisibleFrame: visibleFrame)
         )
+    }
+
+    /// Sets the window to the Card's height each time the Card asks for another one, taller or shorter. A SwiftUI size preference
+    /// only ever grew the window, so a row that collapsed or an approval card that left kept the window tall, and its Card's
+    /// frame for the clicks outside it was wrong. The size is read from the hosting view, as the Theme Studio's window does.
+    /// One resize per turn covers every change the Card makes in it.
+    private func followTheCardWithTheWindow() {
+        guard !windowResizeIsScheduled else { return }
+        windowResizeIsScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            windowResizeIsScheduled = false
+            guard let contentView = panel?.contentView else { return }
+            resizePanel(to: contentView.fittingSize)
+        }
     }
 
     private func resizePanel(to contentSize: CGSize) {
@@ -768,13 +782,48 @@ final class HoverAndPointerNSView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        reportTheHover(true)
+        thePointerEntered()
     }
 
     override func mouseExited(with event: NSEvent) {
-        NSCursor.arrow.set()
-        reportTheHover(false)
+        thePointerLeft()
     }
+
+    /// AppKit sends no cursorUpdate for a tracking area that is `.activeAlways`, which every area here is, since the panels
+    /// never become key. Moving from one control to the next in an open panel would then keep the arrow the first control's
+    /// exit set, so the hand is set on entry. A disabled control has no hover view, so it never sets the hand.
+    func thePointerEntered() {
+        setTheCursor(.pointingHand)
+        reportTheHover(true)
+    }
+
+    /// AppKit may deliver the next control's entry before this control's exit, so the exit cannot assume the pointer left the
+    /// controls. It sets the hand when another hover view in the window is under the pointer, through that view's own cursor
+    /// setter, and the arrow otherwise, so the cursor is the same in either order.
+    func thePointerLeft() {
+        reportTheHover(false)
+        if let hoverViewUnderThePointer = hoverViewUnderThePointerInTheWindow() {
+            hoverViewUnderThePointer.setTheCursor(.pointingHand)
+        } else {
+            setTheCursor(.arrow)
+        }
+    }
+
+    /// The last hover view in the window, so the one drawn on top, whose visible bounds hold the pointer, or nil when the
+    /// pointer is over none.
+    private func hoverViewUnderThePointerInTheWindow() -> HoverAndPointerNSView? {
+        guard let contentView = window?.contentView else { return nil }
+        return hoverAndPointerViews(in: contentView).last { $0.pointerIsInsideTheVisibleBounds }
+    }
+
+    private var pointerIsInsideTheVisibleBounds: Bool {
+        guard let window else { return false }
+        return visibleRect.intersection(bounds).contains(convert(mouseLocationInTheWindow(window), from: nil))
+    }
+
+    /// Sets the cursor the pointer shows. A test replaces it to record the cursor, since reading the system's current cursor
+    /// in a test process is not reliable.
+    var setTheCursor: (NSCursor) -> Void = { $0.set() }
 
     override func cursorUpdate(with event: NSEvent) {
         NSCursor.pointingHand.set()
@@ -829,6 +878,19 @@ extension View {
             }
         }
     }
+}
+
+/// The fade at the bottom of the agent list's scroll area, drawn only while the rows are taller than the area.
+enum AgentListScrollFade {
+    static let height: CGFloat = 12
+    /// The least padding any row keeps under its last control (a compact row's buttons and a plain row both end 10 points
+    /// above their bottom edge), so a scrolling list adds only what the fade still needs under the last row.
+    static let rowsMinimumBottomPadding: CGFloat = 10
+}
+
+/// Whether the agent list's rows are taller than the area that scrolls them. A half point of layout rounding is not overflow.
+func agentListRowsOverflow(contentHeight: CGFloat, scrollAreaHeight: CGFloat) -> Bool {
+    contentHeight > scrollAreaHeight + 0.5
 }
 
 // MARK: - Live line
@@ -907,20 +969,12 @@ nonisolated func agentListHost(ofLink link: String) -> String? {
 
 // MARK: - List
 
-private struct AgentListSizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
 private struct AgentListView: View {
     @ObservedObject var store: BackgroundAgentStore
     @ObservedObject var themeSettings: CompanionThemeSettings
     let actions: AgentListActions
     @ObservedObject var approvalDesk: HarnessApprovalDesk
     @ObservedObject var uiState: AgentListUIState
-    let onContentSizeChange: (CGSize) -> Void
     /// Where the approval card sits in the window, top-left origin, which only the real list reports, so an ended card can
     /// Glide from there into its agent's disc. Nil while no card shows.
     let onApprovalCardFrameChange: (CGRect?) -> Void
@@ -928,6 +982,9 @@ private struct AgentListView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// False until the rows have risen, for the copy of the list that plays on the carrier.
     @State private var rowsHaveRisen: Bool
+    /// The rows' own height, measured before the padding the fade adds, and the height of the area that scrolls them.
+    @State private var rowsContentHeight: CGFloat = 0
+    @State private var rowsScrollAreaHeight: CGFloat = 0
 
     private static let headerHeight: CGFloat = 40
     /// Each row rises this long after the one above it.
@@ -940,7 +997,6 @@ private struct AgentListView: View {
         actions: AgentListActions,
         uiState: AgentListUIState,
         entrance: AgentListEntrance,
-        onContentSizeChange: @escaping (CGSize) -> Void,
         onApprovalCardFrameChange: @escaping (CGRect?) -> Void = { _ in }
     ) {
         self.store = store
@@ -948,7 +1004,6 @@ private struct AgentListView: View {
         self.approvalDesk = approvalDesk
         self.actions = actions
         self.uiState = uiState
-        self.onContentSizeChange = onContentSizeChange
         self.onApprovalCardFrameChange = onApprovalCardFrameChange
         _rowsHaveRisen = State(initialValue: entrance == .none)
     }
@@ -961,7 +1016,7 @@ private struct AgentListView: View {
 
     /// The theme's name after a small square in its accent, with every name coming from the theme's file.
     @ViewBuilder private var headerTitle: some View {
-        RoundedRectangle(cornerRadius: 3)
+        RoundedRectangle(cornerRadius: DS.CornerRadius.swatch)
             .fill(themeSettings.shownTheme.cursorColor)
             .frame(width: 10, height: 10)
         // A saved name runs to 24 characters, so it is cut before it pushes the running count off the header.
@@ -977,6 +1032,11 @@ private struct AgentListView: View {
             runningAgentCount: store.agents.filter(\.isRunning).count,
             agentsNeedingAnOKCount: Set(approvalDesk.waitingRequests.map(\.taskID)).count
         )
+    }
+
+    /// True when the rows are taller than the area that scrolls them, so the last visible row would end in a hard cut.
+    private var rowsOverflowTheirScrollArea: Bool {
+        agentListRowsOverflow(contentHeight: rowsContentHeight, scrollAreaHeight: rowsScrollAreaHeight)
     }
 
     private func riseAnimation(forRowAt rowIndex: Int) -> Animation? {
@@ -999,7 +1059,7 @@ private struct AgentListView: View {
             .frame(height: Self.headerHeight)
 
             Rectangle()
-                .fill(DS.Colors.borderSubtle)
+                .fill(DS.Colors.border)
                 .frame(height: 1)
 
             // The oldest request sits above the rows, so no scroll position can hide it. For a moment after it ends, the
@@ -1028,7 +1088,7 @@ private struct AgentListView: View {
                 .onDisappear { onApprovalCardFrameChange(nil) }
 
                 Rectangle()
-                    .fill(DS.Colors.borderSubtle)
+                    .fill(DS.Colors.border)
                     .frame(height: 1)
             }
 
@@ -1062,9 +1122,26 @@ private struct AgentListView: View {
                             .animation(riseAnimation(forRowAt: rowIndex), value: rowsHaveRisen)
                         }
                     }
+                    // Measured before the padding below, so the padding the fade needs never counts as overflow.
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { rowsContentHeight = $0 }
+                    .padding(.bottom, rowsOverflowTheirScrollArea ? max(0, AgentListScrollFade.height - AgentListScrollFade.rowsMinimumBottomPadding) : 0)
                 }
                 // The scroll view takes its content's height up to the panel's maximum, so a short list has no empty space.
                 .frame(maxHeight: AgentListPanelController.maximumPanelHeight - Self.headerHeight - 1)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { rowsScrollAreaHeight = $0 }
+                // A list taller than the maximum scrolls, and its last visible row would end in a hard cut at the Card's bottom
+                // edge. Then the bottom 12 points fade out instead, so the cut reads as the edge of a scroll area, and the rows
+                // keep at least 12 points of padding under the last control, so scrolled to the end the fade covers only that
+                // padding and no control. A list that does not scroll has no cut to hide, so it has no fade.
+                .mask {
+                    VStack(spacing: 0) {
+                        Rectangle()
+                        if rowsOverflowTheirScrollArea {
+                            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                                .frame(height: AgentListScrollFade.height)
+                        }
+                    }
+                }
             }
         }
         .frame(width: AgentListPanelController.panelWidth)
@@ -1084,14 +1161,6 @@ private struct AgentListView: View {
             bottom: AgentListWindowMargins.bottom,
             trailing: AgentListWindowMargins.trailing
         ))
-        .background(
-            GeometryReader { geometryProxy in
-                Color.clear.preference(key: AgentListSizePreferenceKey.self, value: geometryProxy.size)
-            }
-        )
-        .onPreferenceChange(AgentListSizePreferenceKey.self) { contentSize in
-            onContentSizeChange(contentSize)
-        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
             rowsHaveRisen = true
@@ -1262,20 +1331,21 @@ private struct AgentRowView: View {
                             .frame(width: 12)
                     } else {
                         Text(stepStatus.symbol)
-                            .font(.system(size: 11, weight: stepStatus == .current ? .bold : .regular))
+                            .font(DS.TypeScale.caption.font.weight(stepStatus == .current ? .bold : .regular))
                             .foregroundColor(stepStatus == .current ? DS.Colors.textPrimary : DS.Colors.textSecondary)
                             .frame(width: 12)
                     }
                     // A task agent writes its own step lines, so a long one is cut instead of growing the row.
                     Text(agent.stepNames[stepIndex])
-                        .font(.system(size: 11, weight: stepStatus == .current ? .bold : .regular))
+                        .font(DS.TypeScale.caption.font.weight(stepStatus == .current ? .bold : .regular))
                         .foregroundColor(stepStatus == .pending ? DS.Colors.textSecondary : DS.Colors.textPrimary)
                         .lineLimit(2)
                         .truncationMode(.tail)
                 }
             }
             if agent.isRunning {
-                AgentActionButton(title: "Cancel", titleColor: DS.Colors.destructiveText) { actions.cancelAgent(agent.id) }
+                TetherButton("Cancel", role: .secondaryDestructive, size: .compact) { actions.cancelAgent(agent.id) }
+                    .padding(.top, 2)
             }
         }
         // Lines up under the title, which starts after the disc.
@@ -1325,51 +1395,25 @@ extension AgentRowView {
     @ViewBuilder fileprivate var rowButtons: some View {
         HStack(spacing: 6) {
             if agent.phase.isFailed, agent.canBeTriedAgain {
-                AgentActionButton(title: "Try again", titleColor: DS.Colors.textPrimary) { actions.tryAgain(agent.id) }
+                TetherButton("Try again", role: .secondary, size: .compact) { actions.tryAgain(agent.id) }
             }
             if agent.resultIsWaitingToBeDelivered && resultsMayBeDeliveredNow {
                 switch agent.finishedResult {
                 case .readyScene:
-                    AgentActionButton(title: agent.kind == .experiment ? "Show experiment" : "Show model", titleColor: DS.Colors.textPrimary, action: actions.showReadyScene)
+                    TetherButton(agent.kind == .experiment ? "Show experiment" : "Show model", role: .secondary, size: .compact, action: actions.showReadyScene)
                 case .answer:
-                    AgentActionButton(title: "Hear answer", titleColor: DS.Colors.textPrimary, action: actions.hearTaskAnswer)
+                    TetherButton("Hear answer", role: .secondary, size: .compact, action: actions.hearTaskAnswer)
                 case .notionPage, nil:
                     EmptyView()
                 }
             }
             if let pageURL = agent.finishedResult?.pageURL {
                 // Brings the page forward, unlike the background tab the finished agent opened it in.
-                AgentActionButton(title: "Open page", titleColor: DS.Colors.textPrimary) {
+                TetherButton("Open page", role: .secondary, size: .compact) {
                     NSWorkspace.shared.open(pageURL)
                 }
             }
         }
-    }
-}
-
-private struct AgentActionButton: View {
-    let title: String
-    let titleColor: Color
-    /// A dimmed button is one whose click would not count yet, so it keeps the arrow, shows no hover, and does nothing.
-    var isDimmed = false
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(titleColor)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: DS.CornerRadius.small).fill(isHovered && !isDimmed ? DS.Colors.surface4 : DS.Colors.surface3))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isDimmed)
-        .opacity(isDimmed ? 0.5 : 1)
-        .hoverAndPointer(isEnabled: !isDimmed) { isNowHovered in isHovered = isNowHovered }
         .padding(.top, 2)
     }
 }
@@ -1538,18 +1582,24 @@ struct ApprovalCardView: View {
             // what happened.
             if isWaiting {
                 HStack(spacing: 6) {
-                    ApprovalAnswerButton(title: "Don't allow", isEnabled: true) {
+                    // The three share one look, with no red or green, so no color picks a side. A disabled one keeps the
+                    // arrow, shows no hover, and does nothing, and Tab reaches an enabled one on a surface that takes the
+                    // keyboard.
+                    TetherButton("Don't allow", role: .secondary, fillsTheWidth: true, accessibilityHint: "Counts at once") {
                         answerApproval(approvalRequest.approvalID, false, .once)
                     }
-                    .accessibilityHint("Counts at once")
-                    ApprovalAnswerButton(title: "Allow once", isEnabled: allowButtonsAreEnabled) {
+                    TetherButton(
+                        "Allow once", role: .secondary, fillsTheWidth: true, isEnabled: allowButtonsAreEnabled,
+                        accessibilityHint: "Available once the whole request has been read"
+                    ) {
                         answerApproval(approvalRequest.approvalID, true, .once)
                     }
-                    .accessibilityHint("Available once the whole request has been read")
-                    ApprovalAnswerButton(title: "For this task", isEnabled: allowButtonsAreEnabled) {
+                    TetherButton(
+                        "For this task", role: .secondary, fillsTheWidth: true, isEnabled: allowButtonsAreEnabled,
+                        accessibilityHint: "Allows this tool and kind of access until the agent finishes"
+                    ) {
                         answerApproval(approvalRequest.approvalID, true, .always)
                     }
-                    .accessibilityHint("Allows this tool and kind of access until the agent finishes")
                 }
                 // The panel is never key, so a tooltip would not show. This line says how to answer by voice and what
                 // the third button covers.
@@ -1652,7 +1702,7 @@ struct ApprovalCardView: View {
                 scrollAreaHeight = newScrollAreaHeight
                 recordWhatTheScrollAreaShows()
             }
-            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(DS.Colors.surface2))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.control).fill(DS.Colors.surface2))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Request details, \(percentRead) percent read")
         }
@@ -1733,38 +1783,5 @@ struct ApprovalCardView: View {
               ) else { return }
         seenRanges.record(rangeInView, forApprovalID: approvalRequest.approvalID)
         summaryWasShownWhole(approvalSummaryWasShownWhole(seenRanges: seenRanges.ranges, summaryHeight: summaryFrame.height))
-    }
-}
-
-/// One of the card's three equal buttons. They share one look, with no red or green, so no color picks a side. A
-/// disabled button keeps the arrow, shows no hover, and does nothing. `panelKeyboardControl` lets Tab reach an enabled one
-/// with Full Keyboard Access off, on a surface that takes the keyboard, and Return or Space answers with it.
-private struct ApprovalAnswerButton: View {
-    let title: String
-    let isEnabled: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(verbatim: title)
-                .font(DS.TypeScale.caption.font)
-                .foregroundColor(isEnabled ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, minHeight: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
-                        .fill(isHovered && isEnabled ? DS.Colors.surface4 : DS.Colors.surface3)
-                )
-                .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.borderSubtle, lineWidth: 1))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        // Tab reaches the button, Return or Space answers, and a dimmed Allow button refuses, as a click does.
-        .panelKeyboardControl(cornerRadius: DS.CornerRadius.medium, isEnabled: isEnabled, action: action)
-        .hoverAndPointer(isEnabled: isEnabled) { isNowHovered in isHovered = isNowHovered }
-        .accessibilityLabel(title)
     }
 }
