@@ -33,11 +33,12 @@ private final class TestPointer {
         }
     }
 
-    static let farAwayPoint = CGPoint(x: -60_000, y: -60_000)
+    static let farAwayPoint = CGPoint(x: -80_000, y: -80_000)
 }
 
-/// The off-screen frame every panel test places its window in. No other test uses it.
-private let offScreenVisibleFrame = CGRect(x: -45_000, y: -45_000, width: 1440, height: 900)
+/// The off-screen frame every panel test in this file places its window in. No other test file uses a frame near it: the
+/// others sit at -10,000, -45,000 (the Theme Studio's), -55,000, -56,000, and -60,000 and below.
+private let offScreenVisibleFrame = CGRect(x: -52_000, y: -52_000, width: 1440, height: 900)
 
 @MainActor
 struct ShadowMarginMousePassThroughTests {
@@ -46,7 +47,7 @@ struct ShadowMarginMousePassThroughTests {
     /// A panel with a plain content view, far off every screen.
     private func makePanel(size: CGSize) -> NonKeyFloatingPanel {
         let panel = NonKeyFloatingPanel(
-            contentRect: CGRect(origin: CGPoint(x: -46_000, y: -46_000), size: size),
+            contentRect: CGRect(origin: CGPoint(x: -53_000, y: -53_000), size: size),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false
         )
         panel.isReleasedWhenClosed = false

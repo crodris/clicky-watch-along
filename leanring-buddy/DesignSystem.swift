@@ -2,9 +2,9 @@
 //  DesignSystem.swift
 //  leanring-buddy
 //
-//  Centralized design tokens for a blue accent palette on dark surfaces:
-//  colors, corner radii, the type scale, the moves, and the pointer cursor
-//  modifier. Every view reads them from here.
+//  Centralized dark-surface design tokens: colors, corner radii, the type
+//  scale, the moves, and the pointer cursor modifier. Every view reads them
+//  from here.
 //
 
 import SwiftUI
