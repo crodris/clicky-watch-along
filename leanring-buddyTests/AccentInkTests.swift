@@ -180,28 +180,30 @@ struct AccentInkTests {
         #expect(onClickyBlue.nearBlack > 20 && onClickyBlue.white == 0)
     }
 
-    /// Hovers a button as the mouse does, through its hover view, and compares it with the button at rest: nothing inside
-    /// the ring's 4 point edge may change, and the edge must, or the button shows no hover at all.
-    private func expectHoverToRingTheButtonAndKeepItsFill(_ button: some View) async throws {
-        let offscreenButton = OffscreenButton(button)
-        defer { offscreenButton.close() }
-        let atRest = try offscreenButton.draw()
-        try #require(hoverAndPointerViews(in: offscreenButton.hostingView).first).reportTheHover(true)
-        var hovered = try offscreenButton.draw()
-        // SwiftUI may apply the hover on a later turn.
-        let deadline = ContinuousClock.now + .seconds(10)
-        while try await hovered.channelsThatDiffer(from: atRest) == 0, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-            hovered = try offscreenButton.draw()
-        }
-        let insideTheRing = CGRect(origin: .zero, size: offscreenButton.size).insetBy(dx: 4, dy: 4)
+    /// Draws a button's look at rest and hovered, and compares them: nothing inside the ring's 4 point edge may change, and
+    /// the edge must, or the button shows no hover at all. It draws the look itself, since `TetherButton` animates its hover
+    /// on the Snap move, and an animation in a window that was never shown advances only while a display ticks it, which a
+    /// CI runner's background session has none of.
+    private func expectHoverToRingTheButtonAndKeepItsFill(atRest restingLook: TetherButtonLook, hovered hoveredLook: TetherButtonLook) async throws {
+        let restingButton = OffscreenButton(restingLook)
+        defer { restingButton.close() }
+        let hoveredButton = OffscreenButton(hoveredLook)
+        defer { hoveredButton.close() }
+        try #require(restingButton.size == hoveredButton.size)
+        let atRest = try restingButton.draw()
+        let hovered = try hoveredButton.draw()
+        let insideTheRing = CGRect(origin: .zero, size: restingButton.size).insetBy(dx: 4, dy: 4)
         #expect(try await hovered.channelsThatDiffer(from: atRest, inside: insideTheRing) == 0)
         #expect(try await hovered.channelsThatDiffer(from: atRest) > 0)
     }
 
     @Test(arguments: ["#E0313B", "#3380FF", "#A0457F"], [TetherButtonSize.compact, .standard, .prominent])
     func aHoveredPrimaryButtonKeepsItsFill(accentHex: String, size: TetherButtonSize) async throws {
-        try await expectHoverToRingTheButtonAndKeepItsFill(TetherButton("Save", role: .primary(accent: Color(hex: accentHex)), size: size) {})
+        let role = TetherButtonRole.primary(accent: Color(hex: accentHex))
+        try await expectHoverToRingTheButtonAndKeepItsFill(
+            atRest: TetherButtonLook(title: "Save", role: role, size: size),
+            hovered: TetherButtonLook(title: "Save", role: role, size: size, isHovered: true)
+        )
     }
 
     /// A status line's Callout reads its ink 30 times a second. A different ink put in the cache shows in the drawing only
