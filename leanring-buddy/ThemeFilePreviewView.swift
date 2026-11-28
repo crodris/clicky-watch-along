@@ -22,6 +22,9 @@ struct ThemeFilePreviewView: View {
     let picture: NSImage?
 
     static let size = CGSize(width: 520, height: 260)
+    /// The color of the 11 point "Double-click to add it" line. Secondary text, since the tertiary gray reads at about 3.6 to 1
+    /// on the Card, under the 4.5 to 1 that text this small needs.
+    static let addHintColor = DS.Colors.textSecondary
     private static let cursorDiscDiameter: CGFloat = 132
     /// The 24 point box drawn about four times its size, so a school's volleyball fills the disc as the triangle does.
     private static let cursorDrawingSide: CGFloat = 96
@@ -60,7 +63,7 @@ struct ThemeFilePreviewView: View {
                 swatchRow(title: "Agents", colors: agentColors, note: agentsNote)
                 Text("Double-click to add it to Clicky")
                     .font(DS.TypeScale.caption.font)
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .foregroundColor(Self.addHintColor)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
