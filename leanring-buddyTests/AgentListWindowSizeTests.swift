@@ -154,6 +154,28 @@ struct AgentListWindowSizeTests {
         return bitmap
     }
 
+    /// The largest `largestDifferenceFromTheCardsBottomColor` over rows measured in points above the Card's bottom edge.
+    private func largestDifferenceAboveTheCardsBottomEdge(
+        in bitmap: NSBitmapImageRep, contentView: NSView, pointsAboveTheEdge: [CGFloat], fromX firstX: CGFloat, toX lastX: CGFloat
+    ) -> Int {
+        let cardBottomY = contentView.bounds.height - AgentListWindowMargins.bottom
+        return pointsAboveTheEdge.map {
+            largestDifferenceFromTheCardsBottomColor(in: bitmap, rowAtY: cardBottomY - $0, fromX: firstX, toX: lastX)
+        }.max() ?? 0
+    }
+
+    /// Renders the view again and again, for up to 10 seconds, until `isSettled` accepts a render, and returns the last one. The
+    /// scroll view and the fade's mask follow a scroll on a later pass of the run loop, which no property of the view reports.
+    private func render(_ view: NSView, untilSettled description: String, _ isSettled: (NSBitmapImageRep) -> Bool) async throws -> NSBitmapImageRep {
+        var bitmap = try render(view)
+        try await waitFor(description) {
+            guard let nextBitmap = try? render(view) else { return false }
+            bitmap = nextBitmap
+            return isSettled(nextBitmap)
+        }
+        return bitmap
+    }
+
     /// The brightest channel of any pixel in a box of the render, from its top left in points.
     private func brightestChannel(in bitmap: NSBitmapImageRep, fromX firstX: CGFloat, toX lastX: CGFloat, fromY firstY: CGFloat, toY lastY: CGFloat) -> Int {
         var brightest = 0
@@ -176,21 +198,25 @@ struct AgentListWindowSizeTests {
         try #require(documentView.frame.height > scrollView.contentView.bounds.height, "the list should overflow")
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: documentView.frame.height - scrollView.contentView.bounds.height))
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        try await Task.sleep(for: .milliseconds(200))
         let contentView = try #require(panel.contentView)
-        let bitmap = try render(contentView)
-        // The last row's Hear answer button sits under its title, 52 points in from the Card's left edge, and must end at least
-        // 8 points above the Card's bottom edge, so the 5 points from 7 to 3 above the edge hold only the Card's surface.
         let cardBottomY = contentView.bounds.height - AgentListWindowMargins.bottom
         let buttonColumnsFirstX = AgentListWindowMargins.leading + 52
+        // The last row's Hear answer button sits under its title, 52 points in from the Card's left edge, and must end at least
+        // as high above the Card's bottom edge as the fade is tall, so the 5 points from 7 to 3 above the edge hold only the
+        // Card's surface. The render is taken once the scroll to the end has reached the screen, which is when those rows are bare.
+        let bitmap = try await render(contentView, untilSettled: "the list scrolled to its end to be drawn") {
+            largestDifferenceAboveTheCardsBottomEdge(
+                in: $0, contentView: contentView, pointsAboveTheEdge: [7, 6, 5, 4, 3], fromX: buttonColumnsFirstX, toX: buttonColumnsFirstX + 130
+            ) <= 12
+        }
         for pointsAboveTheEdge in stride(from: 7.0, through: 3.0, by: -1.0) {
             let difference = largestDifferenceFromTheCardsBottomColor(
                 in: bitmap, rowAtY: cardBottomY - pointsAboveTheEdge, fromX: buttonColumnsFirstX, toX: buttonColumnsFirstX + 130
             )
             #expect(difference <= 12, "\(pointsAboveTheEdge) points above the Card's bottom edge, a pixel differs from the surface by \(difference)")
         }
-        // The button is 24 points tall and ends 10 points above the edge, so its white label sits 12 to 24 points above it. The
-        // bottom fade must leave that label whole.
+        // The button is 24 points tall and ends at least 12 points above the edge, so its white label sits well above the fade.
+        // The bottom fade must leave that label whole.
         let labelBrightness = brightestChannel(
             in: bitmap, fromX: buttonColumnsFirstX + 20, toX: buttonColumnsFirstX + 100, fromY: cardBottomY - 24, toY: cardBottomY - 14
         )
@@ -204,9 +230,13 @@ struct AgentListWindowSizeTests {
         // otherwise be a bright hard cut.
         scrollView.contentView.scroll(to: .zero)
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        try await Task.sleep(for: .milliseconds(200))
         let contentView = try #require(panel.contentView)
-        let bitmap = try render(contentView)
+        // The render is taken once the fade has softened the rows under the Card's bottom edge, which is the state asserted below.
+        let bitmap = try await render(contentView, untilSettled: "the scrolled list's bottom rows to be faded") {
+            largestDifferenceAboveTheCardsBottomEdge(
+                in: $0, contentView: contentView, pointsAboveTheEdge: [6, 5, 4, 3, 2, 1], fromX: AgentListWindowMargins.leading + 40, toX: AgentListWindowMargins.leading + 260
+            ) <= 40
+        }
         let cardBottomY = contentView.bounds.height - AgentListWindowMargins.bottom
         for pointsAboveTheEdge in stride(from: 6.0, through: 1.0, by: -1.0) {
             let difference = largestDifferenceFromTheCardsBottomColor(
@@ -214,5 +244,74 @@ struct AgentListWindowSizeTests {
             )
             #expect(difference <= 40, "\(pointsAboveTheEdge) points above the edge, the last visible row is cut hard, differing from the surface by \(difference)")
         }
+    }
+
+    // MARK: - The bottom fade only where a list scrolls
+
+    /// Where the bottom edge of the last row's Hear answer button sits, and how bright its 1 point edge draws there and 23 points
+    /// higher, where the button's top edge is. The button is 24 points tall and its edge has one color, so the two match unless
+    /// the fade softens the bottom one. A bottom edge more than 20 points above the Card's bottom edge is not found.
+    private func lastButtonsEdge(
+        in bitmap: NSBitmapImageRep, contentView: NSView
+    ) -> (bottomEdgePointsAboveTheCardsEdge: CGFloat, bottomEdgeBrightness: Int, topEdgeBrightness: Int)? {
+        let cardBottomY = contentView.bounds.height - AgentListWindowMargins.bottom
+        let buttonColumnsFirstX = AgentListWindowMargins.leading + 52 + 20
+        let buttonColumnsLastX = buttonColumnsFirstX + 80
+        // The Card's own bottom edge draws in the first 2 points, so the search starts above it.
+        var pointsAboveTheEdge: CGFloat = 3
+        while pointsAboveTheEdge <= 20 {
+            let difference = largestDifferenceFromTheCardsBottomColor(
+                in: bitmap, rowAtY: cardBottomY - pointsAboveTheEdge, fromX: buttonColumnsFirstX, toX: buttonColumnsLastX
+            )
+            if difference > 12 {
+                return (
+                    pointsAboveTheEdge,
+                    brightestChannel(in: bitmap, fromX: buttonColumnsFirstX, toX: buttonColumnsLastX, fromY: cardBottomY - pointsAboveTheEdge - 0.5, toY: cardBottomY - pointsAboveTheEdge + 0.5),
+                    brightestChannel(in: bitmap, fromX: buttonColumnsFirstX, toX: buttonColumnsLastX, fromY: cardBottomY - pointsAboveTheEdge - 24, toY: cardBottomY - pointsAboveTheEdge - 22)
+                )
+            }
+            pointsAboveTheEdge += 0.5
+        }
+        return nil
+    }
+
+    @Test(.showsARealWindow) func aScrolledListKeepsItsLastButtonAboveTheFadeAndDrawsItsEdgeWhole() async throws {
+        let (controller, panel, scrollView) = try await overflowingList()
+        defer { controller.close() }
+        let documentView = try #require(scrollView.documentView)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: documentView.frame.height - scrollView.contentView.bounds.height))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        let contentView = try #require(panel.contentView)
+        let bitmap = try await render(contentView, untilSettled: "the list scrolled to its end to be drawn") {
+            lastButtonsEdge(in: $0, contentView: contentView) != nil
+        }
+        let edge = try #require(lastButtonsEdge(in: bitmap, contentView: contentView))
+        #expect(edge.bottomEdgePointsAboveTheCardsEdge >= AgentListScrollFade.height - 0.5, "the last button ends \(edge.bottomEdgePointsAboveTheCardsEdge) points above the Card's edge, inside the \(AgentListScrollFade.height) point fade")
+        #expect(edge.bottomEdgeBrightness >= edge.topEdgeBrightness - 2, "the last button's bottom edge draws at \(edge.bottomEdgeBrightness) and its top edge at \(edge.topEdgeBrightness)")
+    }
+
+    @Test(.showsARealWindow) func aListThatDoesNotScrollHasNoFadeOverItsLastButton() async throws {
+        let themeSettings = makeThemeSettings()
+        let store = BackgroundAgentStore(themeSettings: themeSettings)
+        finishedAgent(in: store, subject: "Find the first landing")
+        let controller = makeController(store: store, themeSettings: themeSettings)
+        let panel = try #require(open(controller, expanding: nil))
+        defer { controller.close() }
+        let contentView = try #require(panel.contentView)
+        try await waitFor("a window as tall as the short list") { panel.frame.height == contentView.fittingSize.height }
+        let bitmap = try await render(contentView, untilSettled: "the short list to be drawn") {
+            lastButtonsEdge(in: $0, contentView: contentView) != nil
+        }
+        let edge = try #require(lastButtonsEdge(in: bitmap, contentView: contentView))
+        // The button ends 10 points above the Card's edge, inside the 12 point strip a fade would cover.
+        #expect(edge.bottomEdgePointsAboveTheCardsEdge < AgentListScrollFade.height, "the short list's last button ends \(edge.bottomEdgePointsAboveTheCardsEdge) points above the Card's edge")
+        #expect(edge.bottomEdgeBrightness >= edge.topEdgeBrightness - 2, "the last button's bottom edge draws at \(edge.bottomEdgeBrightness) and its top edge at \(edge.topEdgeBrightness), so a fade softens it")
+    }
+
+    @Test func rowsOverflowTheirScrollAreaOnlyPastHalfAPointOfRounding() {
+        #expect(agentListRowsOverflow(contentHeight: 520, scrollAreaHeight: 480))
+        #expect(!agentListRowsOverflow(contentHeight: 480, scrollAreaHeight: 480))
+        #expect(!agentListRowsOverflow(contentHeight: 480.4, scrollAreaHeight: 480))
+        #expect(agentListRowsOverflow(contentHeight: 480.6, scrollAreaHeight: 480))
     }
 }

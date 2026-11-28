@@ -277,7 +277,7 @@ struct PanelRenderTests {
         )
         let hostingView = NSHostingView(rootView: grid.frame(width: cardWidth * 3 + 2 * ThemeCardGrid.spacing).background(Color(hex: "#0b0c10")).environment(\.menuPanelIsOpen, false))
         let fittingSize = hostingView.fittingSize
-        let window = NSWindow(contentRect: NSRect(x: -55_000, y: -55_000, width: fittingSize.width, height: fittingSize.height), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: -90_000, y: -90_000, width: fittingSize.width, height: fittingSize.height), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         window.contentView = hostingView
@@ -365,6 +365,45 @@ struct PanelRenderTests {
         hoverView.thePointerLeft()
         #expect(cursorsSet.count == 2 && cursorsSet[1] !== NSCursor.pointingHand)
         #expect(!hoverView.reportedHover)
+    }
+
+    @Test func movingBetweenTwoAdjacentControlsLeavesTheHandInEitherEventOrder() {
+        // AppKit may deliver the new control's entry before the old control's exit, so the exit must look at where the pointer is
+        // instead of assuming it left every control. Both views sit in one window, with the pointer over the second.
+        func cursorsSetAfter(pointerAt pointerLocation: CGPoint, _ events: (_ firstView: HoverAndPointerNSView, _ secondView: HoverAndPointerNSView) -> Void) -> [String] {
+            let window = NSWindow(contentRect: NSRect(x: -92_000, y: -92_000, width: 160, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 40))
+            let firstView = HoverAndPointerNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
+            let secondView = HoverAndPointerNSView(frame: NSRect(x: 80, y: 0, width: 80, height: 40))
+            contentView.addSubview(firstView)
+            contentView.addSubview(secondView)
+            window.contentView = contentView
+            var cursorsSet: [String] = []
+            for (name, hoverView) in [("first", firstView), ("second", secondView)] {
+                hoverView.mouseLocationInTheWindow = { _ in pointerLocation }
+                hoverView.setTheCursor = { cursorsSet.append("\(name) \($0 === NSCursor.pointingHand ? "hand" : "arrow")") }
+            }
+            events(firstView, secondView)
+            return cursorsSet
+        }
+        let pointerOverTheSecondView = CGPoint(x: 120, y: 20)
+        let enterThenExit = cursorsSetAfter(pointerAt: pointerOverTheSecondView) { firstView, secondView in
+            secondView.thePointerEntered()
+            firstView.thePointerLeft()
+        }
+        #expect(enterThenExit.last?.hasSuffix("hand") == true, "the new control's entry came first, and the old control's exit left \(enterThenExit)")
+        let exitThenEnter = cursorsSetAfter(pointerAt: pointerOverTheSecondView) { firstView, secondView in
+            firstView.thePointerLeft()
+            secondView.thePointerEntered()
+        }
+        #expect(exitThenEnter.last?.hasSuffix("hand") == true, "the old control's exit came first, and the new control's entry left \(exitThenEnter)")
+        // With the pointer over neither control, the exit still sets the arrow.
+        let exitOverNothing = cursorsSetAfter(pointerAt: CGPoint(x: 400, y: 20)) { firstView, _ in
+            firstView.thePointerLeft()
+        }
+        #expect(exitOverNothing == ["first arrow"], "the pointer was over no control, and the exit left \(exitOverNothing)")
     }
 
     // MARK: - Hover under a still pointer

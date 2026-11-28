@@ -797,9 +797,28 @@ final class HoverAndPointerNSView: NSView {
         reportTheHover(true)
     }
 
+    /// AppKit may deliver the next control's entry before this control's exit, so the exit cannot assume the pointer left the
+    /// controls. It sets the hand when another hover view in the window is under the pointer, through that view's own cursor
+    /// setter, and the arrow otherwise, so the cursor is the same in either order.
     func thePointerLeft() {
-        setTheCursor(.arrow)
         reportTheHover(false)
+        if let hoverViewUnderThePointer = hoverViewUnderThePointerInTheWindow() {
+            hoverViewUnderThePointer.setTheCursor(.pointingHand)
+        } else {
+            setTheCursor(.arrow)
+        }
+    }
+
+    /// The last hover view in the window, so the one drawn on top, whose visible bounds hold the pointer, or nil when the
+    /// pointer is over none.
+    private func hoverViewUnderThePointerInTheWindow() -> HoverAndPointerNSView? {
+        guard let contentView = window?.contentView else { return nil }
+        return hoverAndPointerViews(in: contentView).last { $0.pointerIsInsideTheVisibleBounds }
+    }
+
+    private var pointerIsInsideTheVisibleBounds: Bool {
+        guard let window else { return false }
+        return visibleRect.intersection(bounds).contains(convert(mouseLocationInTheWindow(window), from: nil))
     }
 
     /// Sets the cursor the pointer shows. A test replaces it to record the cursor, since reading the system's current cursor
@@ -859,6 +878,19 @@ extension View {
             }
         }
     }
+}
+
+/// The fade at the bottom of the agent list's scroll area, drawn only while the rows are taller than the area.
+enum AgentListScrollFade {
+    static let height: CGFloat = 12
+    /// The least padding any row keeps under its last control (a compact row's buttons and a plain row both end 10 points
+    /// above their bottom edge), so a scrolling list adds only what the fade still needs under the last row.
+    static let rowsMinimumBottomPadding: CGFloat = 10
+}
+
+/// Whether the agent list's rows are taller than the area that scrolls them. A half point of layout rounding is not overflow.
+func agentListRowsOverflow(contentHeight: CGFloat, scrollAreaHeight: CGFloat) -> Bool {
+    contentHeight > scrollAreaHeight + 0.5
 }
 
 // MARK: - Live line
@@ -950,10 +982,11 @@ private struct AgentListView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// False until the rows have risen, for the copy of the list that plays on the carrier.
     @State private var rowsHaveRisen: Bool
+    /// The rows' own height, measured before the padding the fade adds, and the height of the area that scrolls them.
+    @State private var rowsContentHeight: CGFloat = 0
+    @State private var rowsScrollAreaHeight: CGFloat = 0
 
     private static let headerHeight: CGFloat = 40
-    /// The fade at the bottom of the rows' scroll area.
-    static let scrollBottomFadeHeight: CGFloat = 12
     /// Each row rises this long after the one above it.
     private static let secondsBetweenRowRises = 0.04
 
@@ -999,6 +1032,11 @@ private struct AgentListView: View {
             runningAgentCount: store.agents.filter(\.isRunning).count,
             agentsNeedingAnOKCount: Set(approvalDesk.waitingRequests.map(\.taskID)).count
         )
+    }
+
+    /// True when the rows are taller than the area that scrolls them, so the last visible row would end in a hard cut.
+    private var rowsOverflowTheirScrollArea: Bool {
+        agentListRowsOverflow(contentHeight: rowsContentHeight, scrollAreaHeight: rowsScrollAreaHeight)
     }
 
     private func riseAnimation(forRowAt rowIndex: Int) -> Animation? {
@@ -1084,17 +1122,24 @@ private struct AgentListView: View {
                             .animation(riseAnimation(forRowAt: rowIndex), value: rowsHaveRisen)
                         }
                     }
+                    // Measured before the padding below, so the padding the fade needs never counts as overflow.
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { rowsContentHeight = $0 }
+                    .padding(.bottom, rowsOverflowTheirScrollArea ? max(0, AgentListScrollFade.height - AgentListScrollFade.rowsMinimumBottomPadding) : 0)
                 }
                 // The scroll view takes its content's height up to the panel's maximum, so a short list has no empty space.
                 .frame(maxHeight: AgentListPanelController.maximumPanelHeight - Self.headerHeight - 1)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { rowsScrollAreaHeight = $0 }
                 // A list taller than the maximum scrolls, and its last visible row would end in a hard cut at the Card's bottom
-                // edge. The bottom 12 points fade out instead, so the cut reads as the edge of a scroll area. Scrolled to the end,
-                // the last row's own 10 to 12 points of bottom padding sit in the fade, so nothing visible is faded.
+                // edge. Then the bottom 12 points fade out instead, so the cut reads as the edge of a scroll area, and the rows
+                // keep at least 12 points of padding under the last control, so scrolled to the end the fade covers only that
+                // padding and no control. A list that does not scroll has no cut to hide, so it has no fade.
                 .mask {
                     VStack(spacing: 0) {
                         Rectangle()
-                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: Self.scrollBottomFadeHeight)
+                        if rowsOverflowTheirScrollArea {
+                            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                                .frame(height: AgentListScrollFade.height)
+                        }
                     }
                 }
             }

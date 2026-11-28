@@ -128,8 +128,8 @@ struct TetherButtonLook: View {
         }
         .foregroundStyle(labelColor)
         .fixedSize(horizontal: !fillsTheWidth, vertical: true)
-        // A circle is as wide as it is tall. A full-width button gets no side padding, since its container's width is the
-        // padding, so a long label keeps all its room.
+        // A circle is as wide as it is tall. A full-width button takes its width from its container, so it gets no side
+        // padding of its own.
         .padding(.horizontal, shape == .circle || fillsTheWidth ? 0 : size.horizontalPadding)
         .frame(minWidth: size.height, maxWidth: shape == .circle ? size.height : (fillsTheWidth ? .infinity : nil))
         .frame(height: size.height)
