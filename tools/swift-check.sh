@@ -3,6 +3,7 @@
 # privacy permissions on this Mac. It assembles a throwaway Swift package that links the sources in place.
 # The package lives in a folder per checkout that later runs reuse.
 # Each run deletes the folders of checkouts that are gone.
+# It first runs tools/design-token-check.py, which fails on a font size or corner radius written outside DesignSystem.swift.
 # Arguments pass through to `swift test`, such as --filter Voice.
 set -euo pipefail
 
@@ -12,6 +13,10 @@ set -euo pipefail
 renice -n 10 -p $$ >/dev/null
 
 checkout_root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+
+# Raw font sizes and corner radii fail here first, in a second, instead of after a compile. CI's bench job runs the same check.
+python3 -I "$checkout_root/tools/design-token-check.py" "$checkout_root"
+
 check_files="$checkout_root/tools/swift-check"
 package_dir="${TMPDIR:-/tmp}/clicky-swift-check-$(printf '%s' "$checkout_root" | shasum | cut -c1-12)"
 

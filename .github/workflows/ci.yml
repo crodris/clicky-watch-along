@@ -80,6 +80,9 @@ jobs:
       - run: node report.ts --out "$RUNNER_TEMP/bench-report" results/*.json
       # swift-check.sh builds at a lower CPU priority, so the apps in use get the CPU first. This test pins that and the build folder's checkout record.
       - run: bash ../tools/swift-check.test.sh
+      # Raw font sizes and corner radii outside DesignSystem.swift fail here, so every surface keeps to the Tether tokens. The test pins what the check flags, passes, and says.
+      - run: bash ../tools/design-token-check.test.sh
+      - run: python3 -I ../tools/design-token-check.py
       # verify-clicky's build checks that the app is newer than every Swift file under leanring-buddy/, and this test pins that check.
       - run: bash ../.claude/skills/verify-clicky/verify-clicky.test.sh
       # The Swift check deletes the build folders of checkouts that are gone, and this test pins which folders that removes.

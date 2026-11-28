@@ -147,7 +147,18 @@ expect_findings "the finding count" leanring-buddy Card.swift \
 expect_findings "one finding is singular" leanring-buddy Card.swift \
   '    RoundedRectangle(cornerRadius: 7)' 'design-token-check: 1 finding.'
 
+# The check runs ahead of the Swift build in swift-check.sh and in CI's bench job, so no raw value merges.
+repository="$(cd "$(dirname "$script")/.." && pwd)"
+if ! grep -q 'design-token-check.py' "$repository/tools/swift-check.sh"; then
+  echo "FAIL: tools/swift-check.sh does not run design-token-check.py"
+  failures=$((failures + 1))
+fi
+if ! grep -q 'design-token-check.py' "$repository/.github/workflows/ci.yml" || ! grep -q 'design-token-check.test.sh' "$repository/.github/workflows/ci.yml"; then
+  echo "FAIL: .github/workflows/ci.yml does not run design-token-check.py and its test"
+  failures=$((failures + 1))
+fi
+
 if [ "$failures" -gt 0 ]; then
   exit 1
 fi
-echo "design-token-check.test.sh: every raw form fails with its fix, and every token form and exemption passes"
+echo "design-token-check.test.sh: every raw form fails with its fix, and every token form and exemption passes, and swift-check.sh and CI run the check"
