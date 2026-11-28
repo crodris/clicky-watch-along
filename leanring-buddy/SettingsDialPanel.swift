@@ -365,7 +365,7 @@ struct SettingsDialView: View {
             if slice == .agents, viewModel.snapshot.runningAgentCount > 0 {
                 Text("\(viewModel.snapshot.runningAgentCount)")
                     .font(.system(size: 9, weight: .heavy))
-                    .foregroundColor(DS.Colors.settingsDialDarkInk)
+                    .foregroundColor(DS.Colors.inkOnAccent)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
                     .background(Capsule().fill(Color.white))

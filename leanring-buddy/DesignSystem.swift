@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  Centralized design tokens for a blue accent palette on dark surfaces:
-//  colors, corner radii, animation durations, and the pointer cursor
+//  colors, corner radii, the type scale, the moves, and the pointer cursor
 //  modifier. Every view reads them from here.
 //
 
@@ -55,91 +55,18 @@ enum DS {
         /// Tertiary text - very muted, used for section labels, timestamps, disabled text.
         static let textTertiary = Color(hex: "#6B736F")
 
-        /// Text used on top of the accent fill (#2563eb blue), like the primary button label.
-        /// White on #2563eb achieves ~5.1:1 contrast - WCAG AA compliant.
-        /// White on #1d4ed8 hover achieves ~6.5:1 - also WCAG AA compliant.
-        static let textOnAccent: Color = .white
+        // ── Status Line Accents ─────────────────────────────────────
+        // One Tailwind CSS v4 400 step for each status line (`LiveSceneStatusLine.calloutAccent`), which a Callout takes as
+        // its accent. The agent palette (`AgentPaletteColor`) and the Quick Look preview's agent swatches read sky and
+        // pink too. Every other step of these hues was unused and is gone.
 
-        // ── Tailwind Blue Scale ─────────────────────────────────────
-        // Full Tailwind CSS v4 blue palette for consistent blue usage.
-        //
-        // Usage guide:
-        //   50-100  → Very subtle tinted backgrounds (selected rows, hover fills on dark surfaces)
-        //   200-300 → Light text/icons on dark backgrounds, disabled states
-        //   400     → Bright accent text, links, icons, chat user bubbles
-        //   500     → Mid-tone fills, badges, secondary buttons
-        //   600     → Primary action fills (buttons, toggles) - main accent
-        //   700     → Hover/pressed state for primary actions
-        //   800-900 → Deep backgrounds, dark overlays, header bars
-
-        static let blue50  = Color(hex: "#eff6ff")
-        static let blue200 = Color(hex: "#bfdbfe")
         static let blue400 = Color(hex: "#60a5fa")
-        static let blue600 = Color(hex: "#2563eb")
-        static let blue700 = Color(hex: "#1d4ed8")
-        static let blue800 = Color(hex: "#1e40af")
-        static let blue900 = Color(hex: "#1e3a8a")
-
-        // ── Status Line Palettes ────────────────────────────────────
-        // Tailwind CSS v4 purple, orange, green, pink, and sky shades for the status label's
-        // lines (LiveSceneStatusLine). Most lines use their hue's shades this way:
-        //   500  → icon color        700  → text and deep icon strokes
-        //   300  → light strokes     400  → letter highlight
-        //   100 or 200 → pale fills  50   → wash behind the icon
-        // The pink line has no 500, so it uses 400 for the icon and 300 for the highlight.
-        // The pop-out line uses the blue scale above.
-
-        static let purple50  = Color(hex: "#faf5ff")
-        static let purple100 = Color(hex: "#f3e8ff")
-        static let purple300 = Color(hex: "#d8b4fe")
         static let purple400 = Color(hex: "#c084fc")
-        static let purple500 = Color(hex: "#a855f7")
-        static let purple700 = Color(hex: "#7e22ce")
-
-        static let orange50  = Color(hex: "#fff7ed")
-        static let orange200 = Color(hex: "#fed7aa")
-        static let orange300 = Color(hex: "#fdba74")
         static let orange400 = Color(hex: "#fb923c")
-        static let orange500 = Color(hex: "#f97316")
-        static let orange700 = Color(hex: "#c2410c")
-
-        static let green50  = Color(hex: "#f0fdf4")
-        static let green100 = Color(hex: "#dcfce7")
-        static let green300 = Color(hex: "#86efac")
         static let green400 = Color(hex: "#4ade80")
-        static let green500 = Color(hex: "#22c55e")
-        static let green700 = Color(hex: "#15803d")
-
-        static let pink50  = Color(hex: "#fdf2f8")
-        static let pink100 = Color(hex: "#fce7f3")
-        static let pink300 = Color(hex: "#f9a8d4")
         static let pink400 = Color(hex: "#f472b6")
-        static let pink700 = Color(hex: "#be185d")
-
-        static let sky50  = Color(hex: "#f0f9ff")
-        static let sky100 = Color(hex: "#e0f2fe")
-        static let sky300 = Color(hex: "#7dd3fc")
         static let sky400 = Color(hex: "#38bdf8")
-        static let sky500 = Color(hex: "#0ea5e9")
-        static let sky700 = Color(hex: "#0369a1")
-
-        static let teal50  = Color(hex: "#f0fdfa")
-        static let teal100 = Color(hex: "#ccfbf1")
-        static let teal300 = Color(hex: "#5eead4")
         static let teal400 = Color(hex: "#2dd4bf")
-        static let teal500 = Color(hex: "#14b8a6")
-        static let teal700 = Color(hex: "#0f766e")
-
-        // Lime, for the experiment agent, which needs a lab green that reads apart from teal and green.
-        static let lime500 = Color(hex: "#84cc16")
-        static let lime700 = Color(hex: "#4d7c0f")
-
-        // ── Accent (derived from blue scale) ───────────────────────
-        // The primary fill is Blue 600.
-
-        /// Accent fill - used for solid button backgrounds.
-        /// #2563eb → ~5.1:1 contrast with white text (WCAG AA).
-        static let accent = blue600
 
         // ── Semantic Colors ──────────────────────────────────────────
 
@@ -221,9 +148,6 @@ enum DS {
         /// An unselected token's fill, and the fill of a Model pill.
         static let settingsDialToken = Color(hex: "#171b24")
 
-        /// Dark text on the agent count's white badge, and the Random ball's outline.
-        static let settingsDialDarkInk = Color(hex: "#111111")
-
         // ── Background Agents ────────────────────────────────────────
 
         /// The color of a study guide agent. Each new agent kind gets its own color here.
@@ -241,8 +165,9 @@ enum DS {
         /// The dark face of a token that shows a kind's triangle, and of the "+N" disc.
         static let agentTokenFace = Color(hex: "#171b24")
 
-        /// The color of an experiment agent. Lime reads apart from the model's violet and the task's teal.
-        static let backgroundAgentExperimentLime = lime500
+        /// The color of an experiment agent. Tailwind Lime 500, a lab green that reads apart from the model's violet, the
+        /// task's teal, and the done check's green.
+        static let backgroundAgentExperimentLime = Color(hex: "#84cc16")
 
     }
 
@@ -259,17 +184,6 @@ enum DS {
         static let card: CGFloat = 14
         /// Pill-shaped buttons (the continue button).
         static let pill: CGFloat = .infinity
-    }
-
-    // MARK: - Animation Durations
-
-    enum Animation {
-        /// Quick state changes - hover in/out, press feedback.
-        static let fast: Double = 0.15
-        /// Standard transitions - content reveal, button state changes.
-        static let normal: Double = 0.25
-        /// Slower, more dramatic - fade-ins, celebration screen elements.
-        static let slow: Double = 0.4
     }
 
     // MARK: - Tether type scale
