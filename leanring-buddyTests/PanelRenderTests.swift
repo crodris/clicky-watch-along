@@ -459,6 +459,18 @@ struct PanelRenderTests {
         return linesNeeded <= linesTheFieldMayDraw && wrappedSize.height <= textField.bounds.height + 3 // a line is 13 points, so the slack hides none
     }
 
+    @Test func aRenamingCardOpensANameWithLineBreaksAsOneLineOfWords() async throws {
+        // A theme someone else made can carry line breaks in its name, which the field would show as one line each.
+        let savedOrigin = ThemeOrigin.saved(folderURL: URL(fileURLWithPath: "/nonexistent-saved-theme"))
+        let importedName = "WW" + String(repeating: "\nW", count: 11)
+        let theme = try amberPaperPlane(origin: savedOrigin).renamed(to: importedName)
+        #expect(theme.name.count == ClickyTheme.longestName)
+        let cardWindow = makeRenamingCardWindow(of: theme, startsRenaming: true)
+        defer { cardWindow.window.close() }
+        let textField = try await layOutUntilTheNameFieldSettles(in: cardWindow, showing: "WW" + String(repeating: " W", count: 11))
+        #expect(!textField.stringValue.contains { $0.isNewline })
+    }
+
     @Test func aRenamingCardShowsTheWholeNameItHolds() async throws {
         let savedOrigin = ThemeOrigin.saved(folderURL: URL(fileURLWithPath: "/nonexistent-saved-theme"))
         let amber = try amberPaperPlane(origin: savedOrigin)

@@ -68,9 +68,8 @@ nonisolated struct VideoRecap: Equatable, Sendable {
 }
 
 /// The colophon at the foot of the recap's paper, such as "Nov 28 · 9:42 AM", from the moment the Card was made. It says no verb,
-/// since the recap is saved nowhere. The
-/// day and the time follow `locale` and `timeZone`, the learner's own by default. A newer macOS puts a narrow no-break space
-/// before "AM", which a monospaced line would show as a gap, so it is a plain space here.
+/// since the recap is saved nowhere. The day and the time follow `locale` and `timeZone`, the learner's own by default. A newer
+/// macOS puts a narrow no-break space before "AM", which a monospaced line would show as a gap, so it is a plain space here.
 func videoRecapColophonText(madeAt date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
     func formatted(_ template: String) -> String {
         let dateFormatter = DateFormatter()

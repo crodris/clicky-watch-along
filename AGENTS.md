@@ -712,6 +712,7 @@ The field wraps to up to 6 lines (`ThemeCard.mostLinesOfTheRenameField`) at the 
 24 emoji, the widest valid name, take 5 lines, and 24 W's or "WILD WONDER WAVES WITHIN" take 4.
 The field is centered in the name's slot, which holds 2 lines, and its extra lines reach over the cursor above it and the swatch row below it, so the card keeps its size.
 A line break typed or pasted into the field becomes one space, a run of breaks is one space, and a break at either end goes (`ThemeCard.nameWithEachLineBreakAsOneSpace`).
+A name imported with line breaks opens in the field the same way.
 Return saves, Escape or a click away cancels, and a refused name keeps the field open with the phrase "1 to 24 characters".
 Escape there does nothing else: `closeLiveSceneOnEscape` returns while a text field in Clicky's own window is being edited, so it does not also close the studio card or a scene.
 `PanelRenderTests` draws a saved card in its renaming state (`ThemeCard`'s `startsRenaming`) with a long name, wide letters, 24 W's, and 24 emoji, and checks that the text fits the field and that the field stays inside the card.
@@ -1429,7 +1430,8 @@ Reduce Motion skips the shake and the ring and keeps the color change.
 For a generated page, `revealQuizLabel` still calls plain `reveal()`, and a first wrong answer reveals nothing.
 When a quiz ends with at least one question finished, whether every moment was asked or the learner said "stop the quiz", a summary Card shows over the quiz video (`VideoQuizSummary`, `VideoQuizSummaryPanelController`), printed on paper (see Paper under **Tether tokens and the carrier**) since the learner keeps it: the kicker "Quiz recap", the serif title "Quiz done", the score ("3 of 4 right") on a flat highlight in the theme's accent, and under "Review these first" one row per missed or skipped question with a go-back arrow and its timestamp in a monospaced column, in video order.
 It Glides out of the video's top edge on the shared carrier and closes back into it, or fades with Reduce Motion on, and it joins full-screen spaces, so it shows over a full-screen video. Its window is the Card grown by the agent list's transparent margin (`AgentListWindowMargins`), where the Card's shadow draws, and it passes the mouse through that margin by the shared rule (see **Shadow margin and the mouse**), and ignores the mouse once it starts to close.
-The Card is no taller than the room its display leaves (`videoQuizSummaryCardHeightBudget`): the visible frame less the window's shadow margins and a 12 point gap on each side, and never under 320 points.
+The Card is no taller than the room its display leaves (`videoQuizSummaryCardHeightBudget`): the visible frame less the window's shadow margins and a 12 point gap on each side.
+The footer comes first, so on a display too short for the whole Card the body shrinks, down to nothing, and Close and Study guide stay on screen.
 A custom layout (`VideoQuizSummaryCardLayout`) keeps the header (kicker, title, score) and the footer (colophon and buttons) whole and gives the body, the missed questions and the learned lines, the room that is left.
 The body is as tall as its content when that fits, so a short list leaves no blank paper, and it scrolls inside the Card when it does not, so Close and Study guide always stay on the display.
 The scroll view reaches 6 points past the text on each side, so a row's hover wash is never cut.

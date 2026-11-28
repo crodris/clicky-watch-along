@@ -488,8 +488,8 @@ struct PaperRecapCardTests {
     @Test func theBudgetFollowsTheDisplayLessTheShadowMarginsAndAGap() {
         let visibleFrame = CGRect(x: 0, y: 25, width: 1366, height: 743)
         #expect(videoQuizSummaryCardHeightBudget(visibleFrame: visibleFrame) == 743 - AgentListWindowMargins.vertical - 24)
-        // A display too short for a whole Card still gets one with a list.
-        #expect(videoQuizSummaryCardHeightBudget(visibleFrame: CGRect(x: 0, y: 0, width: 800, height: 300)) == VideoQuizSummaryCardLayout.leastCardHeight)
+        // A short display gets no floor taller than itself, which would push the footer off it.
+        #expect(videoQuizSummaryCardHeightBudget(visibleFrame: CGRect(x: 0, y: 0, width: 800, height: 280)) == 280 - AgentListWindowMargins.vertical - 24)
     }
 
     @Test func aRecapOnA768PointDisplayKeepsItsButtonsInsideTheVisibleFrame() throws {

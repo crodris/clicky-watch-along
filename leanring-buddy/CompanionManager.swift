@@ -1817,8 +1817,11 @@ final class CompanionManager: ObservableObject {
             respondToTranscript(transcript: transcript, requestedSceneKind: nil)
         case .confirmTheRoomArt:
             // "Right there" places the ghost with no model call, so the confirm never depends on the router.
-            print("Room furniture: placed by voice")
-            roomArtPreviewController.placeTheFurnitureWhereItsGhostStands()
+            if let refusal = roomArtPreviewController.placeTheFurnitureWhereItsGhostStands() {
+                print("Room furniture: a voice placement was refused (\(refusal))")
+            } else {
+                print("Room furniture: placed by voice")
+            }
         case .replayTheExplanation:
             // "Show me again" replays the recorded stops with no model call, so it never builds a paid scene.
             print("Instant replay: replaying on request")

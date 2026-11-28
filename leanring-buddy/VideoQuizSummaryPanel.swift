@@ -43,9 +43,10 @@ func appKitRect(of screenRect: ScreenRectInChromeCoordinates, mainDisplayHeight:
 
 /// Where the summary Card may reach in height on a display: the display's visible frame less the window's shadow margins and a
 /// gap of 12 points on each side (the space `videoQuizSummaryCardFrame` keeps from the edge). The Card scrolls its body inside
-/// this and keeps its footer on screen. It never goes under `VideoQuizSummaryCardLayout.leastCardHeight`.
+/// this and keeps its footer on screen. It has no floor, since a floor taller than a short display would push the footer off
+/// it.
 func videoQuizSummaryCardHeightBudget(visibleFrame: CGRect) -> CGFloat {
-    max(visibleFrame.height - AgentListWindowMargins.vertical - 2 * videoQuizSummaryCardGapFromTheScreenEdge, VideoQuizSummaryCardLayout.leastCardHeight)
+    max(visibleFrame.height - AgentListWindowMargins.vertical - 2 * videoQuizSummaryCardGapFromTheScreenEdge, 0)
 }
 
 /// The space between the Card and the edge of the display's visible frame.
@@ -58,11 +59,6 @@ let videoQuizSummaryCardGapFromTheScreenEdge: CGFloat = 12
 struct VideoQuizSummaryCardLayout: Layout {
     /// The tallest the three parts may be together, in points.
     let maxHeight: CGFloat
-
-    /// The least height the body keeps, so a header and footer taller than the budget still leave a visible list.
-    static let leastBodyHeight: CGFloat = 96
-    /// The least a Card is given, with its padding, whatever the display's height.
-    static let leastCardHeight: CGFloat = 320
 
     private struct PartHeights {
         let header: CGFloat
@@ -80,7 +76,9 @@ struct VideoQuizSummaryCardLayout: Layout {
         let footerHeight = footer.sizeThatFits(widthOnly).height
         guard subviews.count == 3 else { return PartHeights(header: headerHeight, body: 0, footer: footerHeight) }
         let bodyContentHeight = subviews[1].sizeThatFits(widthOnly).height
-        let roomForTheBody = max(maxHeight - headerHeight - footerHeight, Self.leastBodyHeight)
+        // The footer comes first: on a display too short for the whole Card the body shrinks, down to nothing, so Close and
+        // Study guide stay on screen.
+        let roomForTheBody = max(maxHeight - headerHeight - footerHeight, 0)
         return PartHeights(header: headerHeight, body: min(bodyContentHeight, roomForTheBody), footer: footerHeight)
     }
 
@@ -361,7 +359,7 @@ final class VideoQuizSummaryPanelController {
             accentColor: accentColor,
             // A recap taller than the display scrolls its body, so Close and Study guide stay inside the visible frame.
             heightBudget: videoQuizSummaryCardHeightBudget(visibleFrame: visibleFrame),
-            goBackToTheMissedQuestion:{ [weak self] missedQuestion in
+            goBackToTheMissedQuestion: { [weak self] missedQuestion in
                 self?.close(animated: true)
                 goBackToTheMissedQuestion(missedQuestion)
             },

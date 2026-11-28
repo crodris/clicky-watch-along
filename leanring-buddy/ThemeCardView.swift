@@ -170,7 +170,7 @@ struct ThemeCard: View {
         self.delete = delete
         self.moveTheFocus = moveTheFocus
         _isRenaming = State(initialValue: startsRenaming)
-        _draftName = State(initialValue: startsRenaming ? theme.name : "")
+        _draftName = State(initialValue: startsRenaming ? Self.nameWithEachLineBreakAsOneSpace(theme.name) : "")
     }
 
     static let cornerRadius = DS.CornerRadius.control
@@ -422,7 +422,8 @@ struct ThemeCard: View {
     }
 
     private func startRename() {
-        draftName = theme.name
+        // A name imported with line breaks opens as one line of words, as a pasted one does.
+        draftName = Self.nameWithEachLineBreakAsOneSpace(theme.name)
         problemText = nil
         deleteIsArmed = false
         nameFieldHasHadFocus = false
