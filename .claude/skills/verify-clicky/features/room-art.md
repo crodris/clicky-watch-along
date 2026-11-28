@@ -78,7 +78,8 @@ Preconditions:
   In the first frames that show the panel, it is faint and already fills its rect, and within about half a second it is solid.
 - **The panel closing.** With the panel open and a result showing, record 4 s as above into `room-art-close.mov` and click Close during it (`swift demo/scripts/mouse/mouse.swift click <x of the panel's right edge - 32> <y of its top edge + 32>`).
   The frames show the panel fading out in about 0.15 s with its status line and buttons fading with it, and no control disappears or changes before the panel does.
-  The picture and any loop hold still during the fade: no frame of the plain camera replaces a painting, a placed item, or a painted shirt.
+  No frame of the plain camera replaces a painting, a placed item, or a painted shirt during the fade, and the loop's outline stays where it was.
+  The loop's cursor glyph may keep moving around the outline, and one frame sent just before the click may still show.
 - **Reopening during the fade.** On a wall art page with collapsed sections, such as an IKEA framed print, reload the page first so its sections are collapsed again, then run `$V app-launch --room-camera-file <video of a room> "how would this look on my wall|+40 how would this look on my wall"`.
   While the second request still reads the front tab, before the panel's status line changes, click the wall in the panel, which moves the art, so the request closes the panel and opens it again at once.
   The first request leaves the sections open, so the second read takes no 600 ms wait, and the click may come too late.
