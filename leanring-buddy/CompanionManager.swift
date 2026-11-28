@@ -1307,6 +1307,7 @@ final class CompanionManager: ObservableObject {
                 self?.cursorLoopController.end(because: .scrolled)
             }
         cursorLoopController.agentSparksMayDraw = { [weak self] in self?.agentSparksMayDraw ?? false }
+        cursorLoopController.theRoomArtPanelIsOpen = { [weak self] in self?.roomArtPreviewController.isOpen ?? false }
         // A finished agent's spark completes its lap, and a failed or cancelled agent's goes at once.
         cursorLoopAgentSparksCancellable = backgroundAgentStore.$agents
             .receive(on: DispatchQueue.main)
