@@ -38,6 +38,15 @@ struct VoiceToolCallChipStackingStep: Equatable {
     let upperChipIsSentAway: Bool
 }
 
+/// How far the chip in the upper slot sits above the bottom chip, tip to tip: the height of the bottom chip with its tail, and
+/// the gap between stacked chips. A Callout is one line tall (`tetherSingleLineCalloutHeight`), and the Save photo receipt is
+/// taller (`PaperPhotoReceipt.height`), so the rise follows the chip that arrives below, whichever chip is above it. The upper
+/// chip's own height does not matter here, since the rise is measured from the bottom chip's top edge up to the upper chip's tail.
+func voiceToolCallChipRise(overTheBottomChipSentBy sender: VoiceToolCallChipSender) -> CGFloat {
+    let bottomChipHeight = sender == .photoReceipt ? PaperPhotoReceipt.height : tetherSingleLineCalloutHeight
+    return bottomChipHeight + VoiceToolCallChip.gapBetweenStackedChips
+}
+
 /// What showing `newChip` does, given the chip in the bottom slot (nil when that slot is empty) and the chip in the upper
 /// slot (nil when it is empty).
 /// - A bottom slot that is empty takes the new chip with no push. A chip above with the same words leaves, so the same

@@ -162,9 +162,16 @@ struct VoiceToolCallChipStackTests {
 
     // MARK: - Placement
 
-    @Test func theStepIsOneCalloutPlusAGapAndThePanelHasRoomForTheChipRisenOneStep() {
-        #expect(VoiceToolCallChip.stackStepHeight == tetherSingleLineCalloutHeight + 4)
-        #expect(VoiceToolCallChip.panelSize.height == tetherSingleLineCalloutHeight + 2 * tetherCalloutPanelMargin + VoiceToolCallChip.stackStepHeight)
+    @Test func theRiseIsTheHeightOfTheChipBelowPlusAGapAndThePanelHasRoomForTheGreatestRise() {
+        #expect(voiceToolCallChipRise(overTheBottomChipSentBy: .voiceToolCall) == tetherSingleLineCalloutHeight + 4)
+        #expect(voiceToolCallChipRise(overTheBottomChipSentBy: .failure) == tetherSingleLineCalloutHeight + 4)
+        #expect(voiceToolCallChipRise(overTheBottomChipSentBy: .backgroundAgent(color: .teal, face: .triangle)) == tetherSingleLineCalloutHeight + 4)
+        #expect(voiceToolCallChipRise(overTheBottomChipSentBy: .photoReceipt) == PaperPhotoReceipt.height + 4)
+        #expect(VoiceToolCallChip.greatestRiseOverTheBottomChip == PaperPhotoReceipt.height + 4)
+        // The panel is also tall enough for the Save photo receipt, which is taller than a one line Callout, with the chip above it.
+        #expect(VoiceToolCallChip.panelSize.height == max(tetherSingleLineCalloutHeight, PaperPhotoReceipt.greatestHeight) + 2 * tetherCalloutPanelMargin + VoiceToolCallChip.greatestRiseOverTheBottomChip)
+        // A receipt below a receipt: the upper receipt's top edge is rise plus its own height above the bottom tip.
+        #expect(voiceToolCallChipRise(overTheBottomChipSentBy: .photoReceipt) + PaperPhotoReceipt.height <= VoiceToolCallChip.panelSize.height - 2 * tetherCalloutPanelMargin)
     }
 
     @Test func bothChipPanelsStayInsideTheScreenWhateverTheirWidthsAndTheMouseSits() {
@@ -212,7 +219,7 @@ struct VoiceToolCallChipStackTests {
     @Test func twoStackedChipsRenderOneStepApartEachWithItsWordsInsideItsBackground() throws {
         let accentHex = "#F2B53A"
         let accent = Color(hex: accentHex)
-        let step = VoiceToolCallChip.stackStepHeight
+        let step = voiceToolCallChipRise(overTheBottomChipSentBy: .failure)
         let upperCallout = VoiceToolCallChipCallout(chipText: "Turning it left", sender: .voiceToolCall, themeAccent: accent)
         let bottomCallout = VoiceToolCallChipCallout(chipText: "Zooming in", sender: .failure, themeAccent: accent)
         let upperSize = size(of: upperCallout)
@@ -252,5 +259,80 @@ struct VoiceToolCallChipStackTests {
             #expect(pixel(pixels.colorAt(x: Int((CGFloat(padding) + calloutWidth - 6) * 2), y: bodyMiddleRow), isCloseTo: "#14171e"))
             #expect(pixelIsLightPage(pixels.colorAt(x: Int((CGFloat(padding) + calloutWidth + 3) * 2), y: bodyMiddleRow)))
         }
+    }
+
+    // MARK: - Chips of different heights
+
+    private func chipView(for sender: VoiceToolCallChipSender, words: String) -> AnyView {
+        switch sender {
+        case .photoReceipt:
+            return AnyView(PaperPhotoReceipt(thumbnail: nil, locationLine: "Clicky folder · \(words).jpg", accent: Color(hex: "#F2B53A")))
+        default:
+            return AnyView(VoiceToolCallChipCallout(chipText: words, sender: sender, themeAccent: Color(hex: "#F2B53A")))
+        }
+    }
+
+    @Test func theRiseOfEachKindOfChipIsItsDrawnHeightPlusTheGap() {
+        for sender in [VoiceToolCallChipSender.voiceToolCall, .failure, .photoReceipt, .backgroundAgent(color: .teal, face: .triangle)] {
+            let drawnHeight = size(of: chipView(for: sender, words: "Zooming in")).height
+            #expect(abs(voiceToolCallChipRise(overTheBottomChipSentBy: sender) - (drawnHeight + VoiceToolCallChip.gapBetweenStackedChips)) <= 0.5, "\(sender) is drawn \(drawnHeight) tall")
+        }
+    }
+
+    /// Draws `upper` pushed up over `bottom` the way the chip panel lays them out, and reports whether the 2 points just above
+    /// the bottom chip are bare page across its whole width, which an overlap by the upper chip's tail would break.
+    private func theUpperChipClearsTheBottomChip(upper: VoiceToolCallChipSender, bottom: VoiceToolCallChipSender) throws -> Bool {
+        let rise = voiceToolCallChipRise(overTheBottomChipSentBy: bottom)
+        let bottomHeight = size(of: chipView(for: bottom, words: "Zooming in")).height
+        let bottomWidth = size(of: chipView(for: bottom, words: "Zooming in")).width
+        let panelHeight: CGFloat = 150
+        let stacked = ZStack(alignment: .bottomLeading) {
+            chipView(for: upper, words: "Turning it left").offset(y: -rise)
+            chipView(for: bottom, words: "Zooming in")
+        }
+        .frame(width: 400, height: panelHeight, alignment: .bottomLeading)
+        let pixels = try pixelsOnAMagentaPage(of: stacked)
+        let padding: CGFloat = 30
+        let bareRow = Int((padding + panelHeight - bottomHeight - 2) * 2)
+        let columns = stride(from: Int((padding + 2) * 2), to: Int((padding + bottomWidth - 2) * 2), by: 2)
+        return columns.allSatisfy { pixelIsMagentaPage(pixels.colorAt(x: $0, y: bareRow)) }
+    }
+
+    /// Magenta is in neither a dark Callout nor warm paper, so a pixel that is still magenta is bare page, shadow or not.
+    private func pixelsOnAMagentaPage(of view: some View) throws -> NSBitmapImageRep {
+        let renderer = ImageRenderer(content: view.padding(30).background(Color(red: 1, green: 0, blue: 1)))
+        renderer.scale = 2
+        return NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+    }
+
+    private func pixelIsMagentaPage(_ color: NSColor?) -> Bool {
+        guard let color else { return false }
+        return color.redComponent >= 0.7 && color.blueComponent >= 0.7 && color.greenComponent <= 0.2
+    }
+
+    @Test(arguments: [
+        (VoiceToolCallChipSender.voiceToolCall, VoiceToolCallChipSender.photoReceipt),
+        (.failure, .photoReceipt),
+        (.photoReceipt, .voiceToolCall),
+        (.photoReceipt, .failure),
+        (.photoReceipt, .photoReceipt),
+        (.voiceToolCall, .failure),
+    ])
+    func aChipPushedUpClearsTheChipBelowItWhateverTheirHeights(upper: VoiceToolCallChipSender, bottom: VoiceToolCallChipSender) throws {
+        #expect(try theUpperChipClearsTheBottomChip(upper: upper, bottom: bottom), "\(upper) over \(bottom) overlaps")
+    }
+
+    @Test func aReceiptBelowAChipWouldOverlapItAtTheOldFixedStep() throws {
+        // The old step was one Callout plus the gap (53), which is 5 points less than a receipt and its gap.
+        let oldStep = tetherSingleLineCalloutHeight + VoiceToolCallChip.gapBetweenStackedChips
+        #expect(oldStep < voiceToolCallChipRise(overTheBottomChipSentBy: .photoReceipt))
+        let upper = chipView(for: .voiceToolCall, words: "Turning it left")
+        let bottom = chipView(for: .photoReceipt, words: "Zooming in")
+        let bottomHeight = size(of: bottom).height
+        let panelHeight: CGFloat = 150
+        let pixels = try pixelsOnAMagentaPage(of: ZStack(alignment: .bottomLeading) { upper.offset(y: -oldStep); bottom }.frame(width: 400, height: panelHeight, alignment: .bottomLeading))
+        let bareRow = Int((30 + panelHeight - bottomHeight - 2) * 2)
+        let columns = stride(from: 64, to: 560, by: 2)
+        #expect(!columns.allSatisfy { pixelIsMagentaPage(pixels.colorAt(x: $0, y: bareRow)) }, "the old step cleared the receipt, so the test pins nothing")
     }
 }

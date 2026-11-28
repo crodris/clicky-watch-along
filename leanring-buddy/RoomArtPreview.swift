@@ -1537,6 +1537,7 @@ struct RoomArtPanelContent {
     let theFirstFrameIsIn: Bool
     let theSurfaceIsLost: Bool
     let waitingForTheLearnerToStepAside: Bool
+    let furnitureGhostHint: String?
     let shirtCoachingLine: String?
     let thePaintedTopIsOutOfReach: Bool
     let shirtCaptureCountdownNumber: Int?
@@ -1620,8 +1621,10 @@ final class RoomArtPreviewController: ObservableObject {
         /// Plays a countdown sound of the shirt's step-back capture: a tick for each number and a different sound when the
         /// frame freezes. A test counts them instead of playing them.
         var playTheShirtCountdownSound: (ShirtCountdownSound) -> Void = { $0.play() }
-        /// Shows a chip above the cursor, as a failure when `isAFailure` is true: what Save photo did.
+        /// Shows a chip above the cursor, as a failure when `isAFailure` is true: what Save photo did when it failed.
         var showTheChip: (_ phrase: String, _ isAFailure: Bool) -> Void = { _, _ in }
+        /// Shows the paper receipt above the cursor for a photo Save photo wrote.
+        var showThePhotoReceipt: (_ photoReceipt: RoomArtPhotoReceipt) -> Void = { _ in }
         /// The panel is open now: a request's cursor loop around the page's media, started before the panel opened, goes at once, since
         /// the cursor overlay's windows sit above the panel's and the loop would draw over its camera view.
         var thePanelOpened: () -> Void = {}
@@ -1639,6 +1642,7 @@ final class RoomArtPreviewController: ObservableObject {
             endTheSpokenLine: @escaping () -> Void,
             theLearnerAskedThePanel: @escaping () -> Void,
             showTheChip: @escaping (String, Bool) -> Void,
+            showThePhotoReceipt: @escaping (RoomArtPhotoReceipt) -> Void,
             thePanelOpened: @escaping () -> Void
         ) -> Environment {
             let roomArtClient = RoomArtClient(workerBaseURL: workerBaseURL)
@@ -1723,6 +1727,7 @@ final class RoomArtPreviewController: ObservableObject {
                 },
                 theLearnerAskedThePanel: theLearnerAskedThePanel,
                 showTheChip: showTheChip,
+                showThePhotoReceipt: showThePhotoReceipt,
                 thePanelOpened: thePanelOpened
             )
         }
@@ -1822,6 +1827,7 @@ final class RoomArtPreviewController: ObservableObject {
             theFirstFrameIsIn: theFirstFrameIsIn,
             theSurfaceIsLost: theSurfaceIsLost,
             waitingForTheLearnerToStepAside: waitingForTheLearnerToStepAside,
+            furnitureGhostHint: furnitureGhostHint,
             shirtCoachingLine: shirtCoachingLine,
             thePaintedTopIsOutOfReach: thePaintedTopIsOutOfReach,
             shirtCaptureCountdownNumber: shirtCaptureCountdownNumber,
@@ -1897,6 +1903,9 @@ final class RoomArtPreviewController: ObservableObject {
     private(set) var furnitureWidthIsMeasuredFromThePhoto = false
     /// The learner stands where the piece is about to be painted, so the status line asks them to step aside.
     @Published private(set) var waitingForTheLearnerToStepAside = false
+    /// The hint the status line shows while the ghost has a corner behind the camera and the learner tried to place it. A
+    /// move of the ghost clears it.
+    @Published private(set) var furnitureGhostHint: String?
     /// The wall measured on the floor's keyframe, which the ghost snaps to.
     private var wallOfTheLatestMeasurement: WallPlane?
     private var ghostScrollTurn = RoomFurnitureScrollTurn()
@@ -2247,24 +2256,36 @@ final class RoomArtPreviewController: ObservableObject {
         return nil
     }
 
-    /// "Right there", the Place button, or `place_furniture`: the piece is painted where its ghost stands. False when no
-    /// ghost shows.
+    /// "Right there", the Place button, or `place_furniture`: the piece is painted where its ghost stands. Nil when it was
+    /// placed, or why not: no ghost shows, or a corner of the box is behind the camera, which the painting cannot stand, so
+    /// the ghost stays where it is, the panel stays in `placingTheFurniture`, and a hint says to move it back first.
     @discardableResult
-    func placeTheFurnitureWhereItsGhostStands() -> Bool {
-        guard phase.furnitureGhostShows, var ghost = furnitureGhost else { return false }
+    func placeTheFurnitureWhereItsGhostStands() -> RoomFurniturePlacementRefusal? {
+        guard phase.furnitureGhostShows, var ghost = furnitureGhost else { return .noGhost }
         // A placement by voice or by the Place button is the learner's own, so "Step aside" and "Here it is" after it count
         // from this moment and are not dropped for an earlier press.
         environment.theLearnerAskedThePanel()
+        guard !ghost.aCornerIsBehindTheCamera else {
+            // The hint is said once for each time the ghost stands there, and the status line keeps it until the ghost moves.
+            if furnitureGhostHint == nil {
+                furnitureGhostHint = roomFurnitureMoveItFartherBackLine
+                environment.speak(roomFurnitureMoveItFartherBackLine, false)
+            }
+            print("Room furniture: a corner of the box is behind the camera, so the ghost stays until it is moved farther back")
+            return .aCornerIsBehindTheCamera
+        }
+        furnitureGhostHint = nil
         ghost.release()
         furnitureGhost = ghost
         lastMeasurementNumber += 1
         apply(phase.placingTheFurnitureWhereItsGhostStands(placementID: RoomArtMeasurementID(number: lastMeasurementNumber)))
-        return true
+        return nil
     }
 
     /// The ghost moved: it shows there at once, and a painting asked for its earlier box is dropped.
     private func moveTheGhost(to movedGhost: RoomFurnitureGhost) {
         furnitureGhost = movedGhost
+        furnitureGhostHint = nil
         if let paintingAhead, paintingAhead.boxInTheKeyframe != movedGhost.keyframeBoxCorners {
             paintingAhead.task.cancel()
             self.paintingAhead = nil
@@ -2297,8 +2318,8 @@ final class RoomArtPreviewController: ObservableObject {
     /// A closing panel keeps the lines it had.
     func currentGhostLines(cameraSize: CGSize, panelSize: CGSize) -> RoomFurnitureGhostLines? {
         let trackedWarp = if let closingPanel { closingPanel.ghostTrackedWarp } else { trackedWarpForTheGhost() }
-        guard let boxCorners = panelContent.furnitureGhost?.keyframeBoxCorners, let trackedWarp else { return nil }
-        return RoomFurnitureGhostLines(keyframeBoxCorners: boxCorners, keyframeToCurrent: trackedWarp.keyframeToCurrent, fit: RoomArtVideoFit(cameraSize: cameraSize, viewSize: panelSize), cameraSize: cameraSize)
+        guard let ghost = panelContent.furnitureGhost, let trackedWarp else { return nil }
+        return RoomFurnitureGhostLines(ghost: ghost, keyframeToCurrent: trackedWarp.keyframeToCurrent, fit: RoomArtVideoFit(cameraSize: cameraSize, viewSize: panelSize), cameraSize: cameraSize)
     }
 
     /// Forgets the ghost and everything asked for it, for a close or a new measurement.
@@ -2307,6 +2328,7 @@ final class RoomArtPreviewController: ObservableObject {
         paintingAhead = nil
         furnitureGhost = nil
         furnitureGhostDraw = nil
+        furnitureGhostHint = nil
         waitingForTheLearnerToStepAside = false
         placementTheLearnerIsAskedToStepAsideFor = nil
         stepAsideWasSaid = false
@@ -2567,16 +2589,19 @@ final class RoomArtPreviewController: ObservableObject {
         let frameProcessor = frameProcessor, photoFolder = environment.photoFolder, savedAt = Date()
         photoSavingTask = Task { [weak self] in
             // The render waits on the processing queue and the write on the disk, so neither runs on the main actor.
-            let outcome = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
+            let outcome = await Task.detached(priority: .userInitiated) { () -> Result<RoomArtPhotoReceipt, Error> in
                 guard let frameImage = frameProcessor.renderTheLastFrame() else { return .failure(RoomArtPhotoSaving.SaveError.nothingDrawnYet) }
-                return Result { try RoomArtPhotoSaving.save(frameImage, itemTitle: itemTitle, savedAt: savedAt, in: photoFolder) }
+                return Result {
+                    let savedFile = try RoomArtPhotoSaving.save(frameImage, itemTitle: itemTitle, savedAt: savedAt, in: photoFolder)
+                    return RoomArtPhotoReceipt(fileURL: savedFile, thumbnail: roomArtPhotoReceiptThumbnail(of: frameImage))
+                }
             }.value
             guard let self else { return }
             photoSavingTask = nil
             switch outcome {
-            case .success(let photoURL):
-                print("Room art: saved the photo to \(photoURL.path)")
-                environment.showTheChip(roomArtPhotoSavedChip, false)
+            case .success(let photoReceipt):
+                print("Room art: saved the photo to \(photoReceipt.fileURL.path)")
+                environment.showThePhotoReceipt(photoReceipt)
             case .failure(let error):
                 print("Room art: could not save the photo: \(error)")
                 environment.showTheChip(roomArtPhotoNotSavedChip, true)
@@ -3669,7 +3694,8 @@ private struct RoomArtPanelView: View {
                 waitingForTheLearnerToStepAside: content.waitingForTheLearnerToStepAside,
                 theSurfaceIsLost: content.theSurfaceIsLost,
                 shirtCoachingLine: content.shirtCoachingLine,
-                thePaintedTopIsOutOfReach: content.thePaintedTopIsOutOfReach
+                thePaintedTopIsOutOfReach: content.thePaintedTopIsOutOfReach,
+                furnitureGhostHint: content.furnitureGhostHint
             ),
             statusIsAFailure: content.phase.statusLineIsAFailure(theSurfaceIsLost: content.theSurfaceIsLost),
             showsSavePhoto: content.phase.photoTitleToSave != nil,
@@ -3792,9 +3818,12 @@ nonisolated func roomArtPanelStatusText(
     waitingForTheLearnerToStepAside: Bool,
     theSurfaceIsLost: Bool,
     shirtCoachingLine: String?,
-    thePaintedTopIsOutOfReach: Bool
+    thePaintedTopIsOutOfReach: Bool,
+    furnitureGhostHint: String? = nil
 ) -> String {
     if case .arranging = phase, waitingForTheLearnerToStepAside, !theSurfaceIsLost { return roomFurnitureStepAsideLine }
+    // The hint to move a ghost back from the camera shows only while the ghost is placed, and a lost room wins over it.
+    if case .placingTheFurniture = phase, let furnitureGhostHint, !theSurfaceIsLost { return furnitureGhostHint }
     return phase.statusLine(theSurfaceIsLost: theSurfaceIsLost, shirtCoachingLine: shirtCoachingLine, thePaintedTopIsOutOfReach: thePaintedTopIsOutOfReach)
 }
 

@@ -108,17 +108,37 @@ nonisolated struct RoomFurnitureGhost: Equatable, Sendable {
         shownPlacement?.keyframeBoxCorners(focalLengthPixels: floor.focalLengthPixels, principalPoint: floor.principalPoint)
     }
 
-    /// The share of the ghost's projected box inside the keyframe, from 0 (gone from view or behind the camera) to 1 (all
-    /// of it shows). The depth service's principal point is the frame's center.
-    var shareOfTheBoxInTheFrame: Double {
-        guard let boxCorners = keyframeBoxCorners else { return 0 }
-        return shareOfTheBoxInsideTheFrame(projectedCorners: boxCorners, frameSize: CGSize(width: floor.principalPoint.x * 2, height: floor.principalPoint.y * 2))
+    /// Whether a corner of the shown box is behind the camera or closer to it than `roomFurnitureGhostNearPlaneMeters`, so
+    /// the painting cannot stand the piece there. The lines, the pointer, and the scroll wheel still work on such a ghost,
+    /// through the part of the box in front of the camera (`visibleKeyframeBoxPoints`), so the learner can drag it back to
+    /// where it fits.
+    var aCornerIsBehindTheCamera: Bool {
+        guard let boxCornersInCameraSpace = shownPlacement?.boxCorners else { return true }
+        return boxCornersInCameraSpace.contains { $0.z < roomFurnitureGhostNearPlaneMeters }
     }
 
-    /// Whether a keyframe pixel is on the ghost: inside the outline of its projected box.
+    /// The keyframe pixels of the shown box cut to the part at least `roomFurnitureGhostNearPlaneMeters` in front of the
+    /// camera: each box corner in front, and where each of the twelve edges crosses that plane. The hull of these points is
+    /// the box's outline as the camera sees it, the same as the hull of its eight corners while all of them are in front.
+    /// Empty when the whole box is behind the camera.
+    var visibleKeyframeBoxPoints: [CGPoint] {
+        guard let boxCornersInCameraSpace = shownPlacement?.boxCorners else { return [] }
+        return roomFurnitureGhostVisibleBoxPoints(
+            boxCornersInCameraSpace: boxCornersInCameraSpace, focalLengthPixels: floor.focalLengthPixels, principalPoint: floor.principalPoint
+        )
+    }
+
+    /// The share of the ghost's projected box inside the keyframe, from 0 (gone from view or wholly behind the camera) to 1
+    /// (all of it shows). The depth service's principal point is the frame's center.
+    var shareOfTheBoxInTheFrame: Double {
+        shareOfTheBoxInsideTheFrame(projectedCorners: visibleKeyframeBoxPoints, frameSize: CGSize(width: floor.principalPoint.x * 2, height: floor.principalPoint.y * 2))
+    }
+
+    /// Whether a keyframe pixel is on the ghost: inside the outline of the part of its box in front of the camera.
     func contains(keyframePixel: CGPoint) -> Bool {
-        guard let boxCorners = keyframeBoxCorners else { return false }
-        return convexPolygon(convexHull(of: boxCorners), contains: keyframePixel)
+        let visiblePoints = visibleKeyframeBoxPoints
+        guard visiblePoints.count >= 3 else { return false }
+        return convexPolygon(convexHull(of: visiblePoints), contains: keyframePixel)
     }
 
     /// The level direction toward the camera from a floor point, turned `turnDegrees` counterclockwise about up.
@@ -408,6 +428,20 @@ nonisolated enum RoomFurnitureNudgeRefusal: Equatable, Sendable {
     }
 }
 
+/// Why placing the ghost left it where it was, in words the router's model reads back to the learner.
+nonisolated enum RoomFurniturePlacementRefusal: Equatable, Sendable {
+    case noGhost
+    /// The painting cannot stand a piece that is partly behind the camera, so the learner moves it back first.
+    case aCornerIsBehindTheCamera
+
+    var toolError: String {
+        switch self {
+        case .noGhost: return "No furniture is being placed"
+        case .aCornerIsBehindTheCamera: return "Part of the piece is behind the camera, so it stayed where it was. Ask the learner to move it farther back first"
+        }
+    }
+}
+
 /// The farthest one spoken nudge moves the ghost.
 nonisolated let roomFurnitureLongestNudgeMeters = 3.0
 
@@ -544,50 +578,99 @@ nonisolated enum RoomFurnitureGhostGlow {
 
 // MARK: - Its lines in the panel
 
-/// The ghost's lines in the panel's points this moment: the box's corners go from the keyframe through the tracker's turn
-/// to the current frame, then into the panel. The footprint runs front left, front right, back right, back left; the posts
-/// rise from those corners in that order; and the top starts above the back left corner, where the last post ends, so the
-/// tracer's path never jumps there.
+/// One straight piece of a ghost line in the panel's points.
+nonisolated struct RoomFurnitureGhostSegment: Equatable, Sendable {
+    let start: CGPoint
+    let end: CGPoint
+
+    var length: Double { hypot(end.x - start.x, end.y - start.y) }
+}
+
+/// The ghost's lines in the panel's points this moment: the box's corners go from the keyframe camera's space through the
+/// pinhole and the tracker's turn into the panel. Each of the box's edges is cut to the part in front of the camera
+/// (`roomFurnitureGhostNearPlaneMeters`) while it is still in 3D, and then to the panel with a margin
+/// (`drawingMarginInPoints`). So a piece wider than the view, or one dragged next to the camera, never sends a line to
+/// coordinates far outside the panel, and a corner behind the camera hides only the parts of its own edges that are behind
+/// it, not the whole ghost. An edge with no part to show is nil.
+///
+/// The footprint's edges run front, right, back, left from its corners (front left, front right, back right, back left);
+/// the posts rise from those corners in that order; and the top starts above the back left corner, where the last post
+/// ends, so the tracer's path never jumps there: its edges run left, front, right, back.
 nonisolated struct RoomFurnitureGhostLines: Equatable, Sendable {
-    /// Closed, front left first.
-    let footprint: [CGPoint]
-    /// Each from the floor up, in the footprint's order.
-    let posts: [(bottom: CGPoint, top: CGPoint)]
-    /// Closed, back left first.
-    let top: [CGPoint]
+    /// The footprint's four edges, closed, the front edge first.
+    let footprintEdges: [RoomFurnitureGhostSegment?]
+    /// The footprint's visible part as a polygon, for its fill and shadow. Empty when none of it shows.
+    let footprintFill: [CGPoint]
+    /// Each from the floor up, in the footprint's corner order.
+    let posts: [RoomFurnitureGhostSegment?]
+    /// The top's four edges, closed, starting above the back left corner.
+    let topEdges: [RoomFurnitureGhostSegment?]
     /// The camera frame in the panel, which the size pill stays inside.
     let videoRect: CGRect
 
-    static func == (lhs: RoomFurnitureGhostLines, rhs: RoomFurnitureGhostLines) -> Bool {
-        lhs.footprint == rhs.footprint && lhs.top == rhs.top && lhs.videoRect == rhs.videoRect
-            && lhs.posts.map(\.bottom) == rhs.posts.map(\.bottom) && lhs.posts.map(\.top) == rhs.posts.map(\.top)
+    /// How far outside the camera frame a line may run. It is more than the widest stroke, the glow's blur, and the fill's
+    /// shadow, so a polygon cut to this margin has its new edges outside the panel and never draws a line along its border.
+    static let drawingMarginInPoints = 32.0
+
+    /// Nil unless there are 8 box corners and the fit has a frame. `boxCornersInCameraSpace` are
+    /// `RoomFurniturePlacement.boxCorners` in the keyframe camera's space, and `cameraSize` is the frame's, in camera pixels.
+    init?(
+        boxCornersInCameraSpace boxCorners: [SIMD3<Double>], focalLengthPixels: Double, principalPoint: SIMD2<Double>,
+        keyframeToCurrent: EuclideanWarp, fit: RoomArtVideoFit, cameraSize: CGSize
+    ) {
+        guard boxCorners.count == 8, fit.isUsable else { return nil }
+        let videoRect = CGRect(origin: fit.origin, size: CGSize(width: cameraSize.width * fit.scale, height: cameraSize.height * fit.scale))
+        let drawingRect = videoRect.insetBy(dx: -Self.drawingMarginInPoints, dy: -Self.drawingMarginInPoints)
+        func panelPoint(of pointInCameraSpace: SIMD3<Double>) -> CGPoint? {
+            guard let keyframePixel = pinholeProjection(of: pointInCameraSpace, focalLengthPixels: focalLengthPixels, principalPoint: principalPoint) else { return nil }
+            return fit.viewPoint(forCameraPixel: keyframeToCurrent.apply(to: keyframePixel))
+        }
+        // One edge between two box corners, cut to the part in front of the camera and then to the panel.
+        func edge(_ startIndex: Int, _ endIndex: Int) -> RoomFurnitureGhostSegment? {
+            guard let inFront = roomFurnitureGhostSegmentInFrontOfTheCamera(from: boxCorners[startIndex], to: boxCorners[endIndex]),
+                  let start = panelPoint(of: inFront.start), let end = panelPoint(of: inFront.end),
+                  let inThePanel = roomFurnitureGhostSegment(from: start, to: end, clippedTo: drawingRect) else { return nil }
+            return RoomFurnitureGhostSegment(start: inThePanel.start, end: inThePanel.end)
+        }
+        func polygon(_ cornerIndexes: [Int]) -> [CGPoint] {
+            let inFront = roomFurnitureGhostPolygonInFrontOfTheCamera(cornerIndexes.map { boxCorners[$0] })
+            let inThePanel = inFront.compactMap(panelPoint(of:))
+            return inThePanel.count == inFront.count ? clipped(inThePanel, toRectangle: drawingRect) : []
+        }
+        // `RoomFurniturePlacement.boxCorners`: the front face clockwise from its top left (0 to 3), then the back face the same way (4 to 7).
+        let frontLeftBottom = 3, frontRightBottom = 2, backRightBottom = 6, backLeftBottom = 7
+        let frontLeftTop = 0, frontRightTop = 1, backRightTop = 5, backLeftTop = 4
+        let footprintCorners = [frontLeftBottom, frontRightBottom, backRightBottom, backLeftBottom]
+        footprintEdges = footprintCorners.indices.map { index in edge(footprintCorners[index], footprintCorners[(index + 1) % footprintCorners.count]) }
+        footprintFill = polygon(footprintCorners)
+        posts = [(frontLeftBottom, frontLeftTop), (frontRightBottom, frontRightTop), (backRightBottom, backRightTop), (backLeftBottom, backLeftTop)].map { edge($0.0, $0.1) }
+        let topCorners = [backLeftTop, frontLeftTop, frontRightTop, backRightTop]
+        topEdges = topCorners.indices.map { index in edge(topCorners[index], topCorners[(index + 1) % topCorners.count]) }
+        self.videoRect = videoRect
     }
 
-    /// Nil unless there are 8 box corners and the fit has a frame. `cameraSize` is the frame's, in camera pixels.
-    init?(keyframeBoxCorners boxCorners: [CGPoint], keyframeToCurrent: EuclideanWarp, fit: RoomArtVideoFit, cameraSize: CGSize) {
-        guard boxCorners.count == 8, fit.isUsable else { return nil }
-        let inThePanel = boxCorners.map { fit.viewPoint(forCameraPixel: keyframeToCurrent.apply(to: $0)) }
-        // `RoomFurniturePlacement.boxCorners`: the front face clockwise from its top left, then the back face the same way.
-        let frontLeftBottom = inThePanel[3], frontRightBottom = inThePanel[2], backRightBottom = inThePanel[6], backLeftBottom = inThePanel[7]
-        let frontLeftTop = inThePanel[0], frontRightTop = inThePanel[1], backRightTop = inThePanel[5], backLeftTop = inThePanel[4]
-        footprint = [frontLeftBottom, frontRightBottom, backRightBottom, backLeftBottom]
-        posts = [(frontLeftBottom, frontLeftTop), (frontRightBottom, frontRightTop), (backRightBottom, backRightTop), (backLeftBottom, backLeftTop)]
-        top = [backLeftTop, frontLeftTop, frontRightTop, backRightTop]
-        videoRect = CGRect(origin: fit.origin, size: CGSize(width: cameraSize.width * fit.scale, height: cameraSize.height * fit.scale))
+    /// The lines for the box the ghost shows now, or nil when it has none.
+    init?(ghost: RoomFurnitureGhost, keyframeToCurrent: EuclideanWarp, fit: RoomArtVideoFit, cameraSize: CGSize) {
+        guard let placement = ghost.shownPlacement else { return nil }
+        self.init(
+            boxCornersInCameraSpace: placement.boxCorners, focalLengthPixels: ghost.floor.focalLengthPixels, principalPoint: ghost.floor.principalPoint,
+            keyframeToCurrent: keyframeToCurrent, fit: fit, cameraSize: cameraSize
+        )
     }
 
     /// Where the size pill's center sits: over the middle of the part of the top outline the frame shows, a little above
     /// its highest point, with the whole pill at least `pillMarginInPoints` inside the frame's sides, below the Close button,
     /// and above the status line and the Place button, so a piece that runs off the frame's edge still has its size next to it.
     var pillCenter: CGPoint {
-        let visibleTopPoints = top.indices.flatMap { index -> [CGPoint] in
-            let start = top[index], end = top[(index + 1) % top.count]
-            return (0..<24).map { step in
+        let topSegments = topEdges.compactMap { $0 }
+        let visibleTopPoints = topSegments.flatMap { segment in
+            (0...24).map { step -> CGPoint in
                 let share = Double(step) / 24
-                return CGPoint(x: start.x + (end.x - start.x) * share, y: start.y + (end.y - start.y) * share)
+                return CGPoint(x: segment.start.x + (segment.end.x - segment.start.x) * share, y: segment.start.y + (segment.end.y - segment.start.y) * share)
             }
         }.filter { videoRect.contains($0) }
-        let anchorPoints = visibleTopPoints.isEmpty ? top : visibleTopPoints
+        // With none of the top in the frame, the pill goes by where its lines end, and with no line, by the frame's middle.
+        let anchorPoints = visibleTopPoints.isEmpty ? topSegments.flatMap { [$0.start, $0.end] } : visibleTopPoints
         let leftmost = anchorPoints.map(\.x).min() ?? videoRect.midX, rightmost = anchorPoints.map(\.x).max() ?? videoRect.midX
         let highest = anchorPoints.map(\.y).min() ?? videoRect.midY
         let wantedCenter = CGPoint(x: (leftmost + rightmost) / 2, y: highest - Self.pillGapAboveTheTopInPoints)
@@ -608,6 +691,92 @@ nonisolated struct RoomFurnitureGhostLines: Equatable, Sendable {
     static let controlsHeightAtTheTopInPoints = 54.0
     /// The status line and the Place button along the panel's bottom, with the panel's 16 point padding and a gap above.
     static let controlsHeightAtTheBottomInPoints = 72.0
+}
+
+// MARK: - Cutting a line to what the camera and the panel show
+
+/// The nearest a ghost's line may come to the camera. A point just past the camera plane projects to coordinates thousands
+/// of times the frame's size, and one behind it projects mirrored, so each edge is cut at this depth before it is projected.
+nonisolated let roomFurnitureGhostNearPlaneMeters = 0.1
+
+/// The part of the 3D segment at least `nearPlaneMeters` in front of the camera, or nil when none is. The camera looks down
+/// +z, so a point's depth is its z. A segment already in front comes back as it went in.
+nonisolated func roomFurnitureGhostSegmentInFrontOfTheCamera(
+    from start: SIMD3<Double>, to end: SIMD3<Double>, nearPlaneMeters: Double = roomFurnitureGhostNearPlaneMeters
+) -> (start: SIMD3<Double>, end: SIMD3<Double>)? {
+    guard [start.x, start.y, start.z, end.x, end.y, end.z].allSatisfy(\.isFinite) else { return nil }
+    let startIsInFront = start.z >= nearPlaneMeters, endIsInFront = end.z >= nearPlaneMeters
+    if startIsInFront && endIsInFront { return (start, end) }
+    if !startIsInFront && !endIsInFront { return nil }
+    // The segment crosses the plane once, where z equals the near plane.
+    let share = (nearPlaneMeters - start.z) / (end.z - start.z)
+    let crossing = start + (end - start) * share
+    return startIsInFront ? (start, crossing) : (crossing, end)
+}
+
+/// The box's twelve edges as pairs of `RoomFurniturePlacement.boxCorners` indexes: the front face, the back face, and the four
+/// edges between them.
+nonisolated let roomFurnitureBoxEdgeCornerIndexes: [(Int, Int)] = [
+    (0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4), (0, 4), (1, 5), (2, 6), (3, 7),
+]
+
+/// The keyframe pixels of a box cut to the part in front of the camera: the ends of each edge's part in front
+/// (`roomFurnitureGhostSegmentInFrontOfTheCamera`), so the box's corners in front and where its edges cross the near plane.
+/// A box wholly in front of the camera gives its eight corners, and one wholly behind it gives none.
+nonisolated func roomFurnitureGhostVisibleBoxPoints(
+    boxCornersInCameraSpace boxCorners: [SIMD3<Double>], focalLengthPixels: Double, principalPoint: SIMD2<Double>,
+    nearPlaneMeters: Double = roomFurnitureGhostNearPlaneMeters
+) -> [CGPoint] {
+    guard boxCorners.count == 8 else { return [] }
+    return roomFurnitureBoxEdgeCornerIndexes
+        .compactMap { roomFurnitureGhostSegmentInFrontOfTheCamera(from: boxCorners[$0.0], to: boxCorners[$0.1], nearPlaneMeters: nearPlaneMeters) }
+        .flatMap { [$0.start, $0.end] }
+        .compactMap { pinholeProjection(of: $0, focalLengthPixels: focalLengthPixels, principalPoint: principalPoint) }
+}
+
+/// The convex polygon cut to the half space at least `nearPlaneMeters` in front of the camera (Sutherland and Hodgman).
+nonisolated func roomFurnitureGhostPolygonInFrontOfTheCamera(_ polygon: [SIMD3<Double>], nearPlaneMeters: Double = roomFurnitureGhostNearPlaneMeters) -> [SIMD3<Double>] {
+    var cutPolygon: [SIMD3<Double>] = []
+    for index in polygon.indices {
+        let current = polygon[index]
+        let previous = polygon[(index + polygon.count - 1) % polygon.count]
+        let currentIsInFront = current.z >= nearPlaneMeters, previousIsInFront = previous.z >= nearPlaneMeters
+        if currentIsInFront != previousIsInFront {
+            let share = (nearPlaneMeters - previous.z) / (current.z - previous.z)
+            cutPolygon.append(previous + (current - previous) * share)
+        }
+        if currentIsInFront { cutPolygon.append(current) }
+    }
+    return cutPolygon
+}
+
+/// The part of the 2D segment inside the rectangle (Liang and Barsky), or nil when none is or a point is not a number. A
+/// segment already inside comes back as it went in.
+nonisolated func roomFurnitureGhostSegment(from start: CGPoint, to end: CGPoint, clippedTo rectangle: CGRect) -> (start: CGPoint, end: CGPoint)? {
+    guard start.x.isFinite, start.y.isFinite, end.x.isFinite, end.y.isFinite else { return nil }
+    let deltaX = end.x - start.x, deltaY = end.y - start.y
+    var firstShare = 0.0, lastShare = 1.0
+    // Each border keeps the side where `distanceInside` is not negative, and `rate` is how fast that distance changes along the segment.
+    let borders: [(rate: Double, distanceInside: Double)] = [
+        (-deltaX, start.x - rectangle.minX), (deltaX, rectangle.maxX - start.x),
+        (-deltaY, start.y - rectangle.minY), (deltaY, rectangle.maxY - start.y),
+    ]
+    for border in borders {
+        if border.rate == 0 {
+            if border.distanceInside < 0 { return nil }
+            continue
+        }
+        let share = border.distanceInside / border.rate
+        if border.rate < 0 {
+            if share > lastShare { return nil }
+            firstShare = max(firstShare, share)
+        } else {
+            if share < firstShare { return nil }
+            lastShare = min(lastShare, share)
+        }
+    }
+    func point(at share: Double) -> CGPoint { CGPoint(x: start.x + deltaX * share, y: start.y + deltaY * share) }
+    return (firstShare == 0 ? start : point(at: firstShare), lastShare == 1 ? end : point(at: lastShare))
 }
 
 /// The size pill's words, such as "90″ wide · 32″ tall", or "~5″ wide · 10″ tall" for a width measured from the photo.
@@ -648,6 +817,9 @@ nonisolated let roomFurnitureMostOfTheBoxThePersonMayCover = 0.03
 /// status line says the same in fewer words, and nothing was spoken at this point, which left a quiet panel for the seconds
 /// the learner takes to read it.
 nonisolated let roomFurnitureGhostLine = "Here's where it would go. Drag it, or say right there."
+/// What Clicky says, and the status line shows, when the learner places a ghost that has a corner behind the camera. It is a
+/// hint and not a failure, so the cursor does not shake.
+nonisolated let roomFurnitureMoveItFartherBackLine = "Move it farther back first."
 /// What Clicky says once when the learner stands where the piece is about to be painted.
 nonisolated let roomFurnitureStepAsideLine = "Step aside for a second."
 

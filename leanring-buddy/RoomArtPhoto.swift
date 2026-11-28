@@ -93,9 +93,45 @@ nonisolated func roomArtSavePhraseRunsAheadOfTheRouter(asksToSave: Bool, aPhotoC
     asksToSave && aPhotoCanBeSaved && !quizQuestionIsOpen && !themeStudioIsOpen
 }
 
-/// The chip after a save that worked, and after one that failed.
+/// What VoiceOver reads after a save that worked, and the words of the failure chip after one that failed. A save that worked
+/// shows as a paper receipt (`PaperPhotoReceipt`), and a failure stays the red Callout.
 nonisolated let roomArtPhotoSavedChip = "Saved to Pictures · Clicky folder"
 nonisolated let roomArtPhotoNotSavedChip = "Couldn't save the photo"
+
+/// A photo Save photo wrote, as the receipt shows it: the file and a small copy of the picture. The thumbnail is a `CGImage`,
+/// which never changes once made, so passing it between actors is safe.
+nonisolated struct RoomArtPhotoReceipt: @unchecked Sendable {
+    /// The saved file.
+    let fileURL: URL
+    /// The picture at thumbnail size, or nil when it could not be made, which shows a plain tile.
+    let thumbnail: CGImage?
+
+    /// "Clicky folder · <file name>", the line under "Saved to Pictures".
+    var locationLine: String {
+        "\(fileURL.deletingLastPathComponent().lastPathComponent) folder · \(fileURL.lastPathComponent)"
+    }
+}
+
+/// The receipt's thumbnail: `image` scaled to fill 34 by 26 points at 4x, with the overflow cut evenly from both sides of the
+/// longer dimension, so a wide camera frame and a tall one both fill the tile. Nil when the drawing context cannot be made.
+nonisolated func roomArtPhotoReceiptThumbnail(of image: CGImage) -> CGImage? {
+    let thumbnailPointSize = PaperPhotoReceipt.thumbnailSize
+    let pixelsPerPoint: CGFloat = 4
+    let pixelWidth = Int(thumbnailPointSize.width * pixelsPerPoint)
+    let pixelHeight = Int(thumbnailPointSize.height * pixelsPerPoint)
+    guard image.width > 0, image.height > 0,
+          let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+          let context = CGContext(
+              data: nil, width: pixelWidth, height: pixelHeight, bitsPerComponent: 8, bytesPerRow: 0,
+              space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+          ) else { return nil }
+    let fillScale = max(CGFloat(pixelWidth) / CGFloat(image.width), CGFloat(pixelHeight) / CGFloat(image.height))
+    let drawnWidth = CGFloat(image.width) * fillScale
+    let drawnHeight = CGFloat(image.height) * fillScale
+    context.interpolationQuality = .high
+    context.draw(image, in: CGRect(x: (CGFloat(pixelWidth) - drawnWidth) / 2, y: (CGFloat(pixelHeight) - drawnHeight) / 2, width: drawnWidth, height: drawnHeight))
+    return context.makeImage()
+}
 
 nonisolated enum RoomArtPhotoSaving {
     /// ~/Pictures/Clicky.

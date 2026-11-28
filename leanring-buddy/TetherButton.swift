@@ -25,6 +25,11 @@ enum TetherButtonRole: Equatable {
     case quiet
     /// The delete itself: `destructive` filled, `destructiveHover` on hover, and the ink that reads on that red.
     case destructive
+    /// The one action on paper (`paperCard()`): filled with `paperInk`, its label in `paperInkButtonLabel`, and a ring in that
+    /// label color on hover, like `primary`. Never the accent, which paper keeps for its one highlight.
+    case paperFilled
+    /// The other action on paper: a `paperHairline` edge on no fill, `paperInk` letters, a `paperWash` and a stronger edge on hover.
+    case paperOutline
 }
 
 enum TetherButtonShape {
@@ -139,15 +144,18 @@ struct TetherButtonLook: View {
                 outline.strokeBorder(edgeColor, lineWidth: 1)
             }
         }
-        .accentFillHoverRing(outline, ink: labelColor, isShowing: isPrimary && isShowingHover)
+        .accentFillHoverRing(outline, ink: labelColor, isShowing: isFilledWithARingOnHover && isShowingHover)
         .opacity(isEnabled ? 1 : 0.4)
         .contentShape(outline)
         .modifier(OptionalCalloutDropShadow(isShowing: isOverVideo))
     }
 
-    private var isPrimary: Bool {
-        if case .primary = role { return true }
-        return false
+    /// A button whose fill stays the same on hover and shows a ring in its label color instead.
+    private var isFilledWithARingOnHover: Bool {
+        switch role {
+        case .primary, .paperFilled: return true
+        case .secondary, .secondaryDestructive, .quiet, .destructive, .paperOutline: return false
+        }
     }
 
     private var labelColor: Color {
@@ -157,6 +165,8 @@ struct TetherButtonLook: View {
         case .secondaryDestructive: return DS.Colors.destructiveText
         case .quiet: return isShowingHover ? DS.Colors.textPrimary : DS.Colors.textSecondary
         case .destructive: return DS.Colors.destructive.inkOnThisFill
+        case .paperFilled: return DS.Colors.paperInkButtonLabel
+        case .paperOutline: return DS.Colors.paperInk
         }
     }
 
@@ -166,13 +176,16 @@ struct TetherButtonLook: View {
         case .secondary, .secondaryDestructive: return isShowingHover ? DS.Colors.surface4 : DS.Colors.surface3
         case .quiet: return isShowingHover ? DS.Colors.edge : .clear
         case .destructive: return isShowingHover ? DS.Colors.destructiveHover : DS.Colors.destructive
+        case .paperFilled: return DS.Colors.paperInk
+        case .paperOutline: return isShowingHover ? DS.Colors.paperWash : .clear
         }
     }
 
     private var edgeColor: Color? {
         switch role {
         case .secondary, .secondaryDestructive: return isShowingHover ? DS.Colors.edgeHover : DS.Colors.edge
-        case .primary, .quiet, .destructive: return nil
+        case .paperOutline: return isShowingHover ? DS.Colors.paperHairlineHover : DS.Colors.paperHairline
+        case .primary, .quiet, .destructive, .paperFilled: return nil
         }
     }
 }

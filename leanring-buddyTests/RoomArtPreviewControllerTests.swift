@@ -493,6 +493,15 @@ private let sideTableReading = RoomArtPageReading.furniture(RoomArtFurnitureRead
     itemCorners: pictureCorners
 ))
 
+/// A wardrobe taller than the camera is high, so dragged close to the camera it keeps part of its outline in the frame while a
+/// corner of its box is behind the camera.
+private let wardrobeReading = RoomArtPageReading.furniture(RoomArtFurnitureReading(
+    title: "PAX wardrobe",
+    chosenSize: RoomArtFurnitureSize(label: "60x180 cm", widthCentimeters: 60, heightCentimeters: 180, depthCentimeters: 50),
+    whyThisSize: "It is the only size.",
+    itemCorners: pictureCorners
+))
+
 /// A mug that stands on a table or shelf, which the learner places with a click on its surface.
 private let mugReading = RoomArtPageReading.furniture(RoomArtFurnitureReading(
     title: "Stoneware mug",
@@ -940,6 +949,8 @@ private final class HarnessRecorder {
     var tabsThePictureWasCapturedFrom: [String] = []
     /// Each chip the controller showed, with whether it was a failure.
     var chips: [(phrase: String, isAFailure: Bool)] = []
+    /// The paper receipts a save that worked showed.
+    var photoReceipts: [RoomArtPhotoReceipt] = []
     /// A folder of this harness's own under the temporary directory, where Save photo writes.
     let photoFolder = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-room-art-photos-\(UUID().uuidString)", isDirectory: true)
 }
@@ -1025,6 +1036,7 @@ private struct RoomArtHarness {
         environment.theLearnerAskedThePanel = { recorder.timesTheLearnerAskedThePanel += 1 }
         environment.playTheShirtCountdownSound = { recorder.countdownSounds.append($0) }
         environment.showTheChip = { phrase, isAFailure in recorder.chips.append((phrase, isAFailure)) }
+        environment.showThePhotoReceipt = { photoReceipt in recorder.photoReceipts.append(photoReceipt) }
         environment.thePanelOpened = { recorder.panelWasOpenWhenItSaidSo.append(recorder.controllerIsOpen()) }
         environment.photoFolder = recorder.photoFolder
         let controller = RoomArtPreviewController(environment: environment, frameProcessor: frameProcessor, panelPresenter: panel)
@@ -1057,6 +1069,25 @@ private struct RoomArtHarness {
         controller.phase.statusLine(
             theSurfaceIsLost: controller.theSurfaceIsLost, shirtCoachingLine: controller.shirtCoachingLine, thePaintedTopIsOutOfReach: controller.thePaintedTopIsOutOfReach
         )
+    }
+
+    /// The status line the panel draws, which adds the hint to move the ghost back to the phase's own line.
+    func panelStatusLine() -> String {
+        let content = controller.panelContent
+        return roomArtPanelStatusText(
+            phase: content.phase, waitingForTheLearnerToStepAside: content.waitingForTheLearnerToStepAside, theSurfaceIsLost: content.theSurfaceIsLost,
+            shirtCoachingLine: content.shirtCoachingLine, thePaintedTopIsOutOfReach: content.thePaintedTopIsOutOfReach, furnitureGhostHint: content.furnitureGhostHint
+        )
+    }
+
+    /// The first pixel of a coarse grid over the camera frame that is on the ghost and has a floor under it.
+    func aPixelOnTheGhost() -> CGPoint? {
+        for row in stride(from: 350.0, through: 10, by: -10) {
+            for column in stride(from: 10.0, to: 640, by: 10) where controller.ghostIsUnder(cameraPixel: CGPoint(x: column, y: row)) {
+                return CGPoint(x: column, y: row)
+            }
+        }
+        return nil
     }
 
     /// The middle of the ghost's box in the current frame, which the stand-in processor's turn leaves where the keyframe has it.
@@ -1158,8 +1189,14 @@ struct RoomArtPreviewControllerTests {
         // The frame as the panel drew it, at its own size.
         let savedImage = try #require(CGImageSourceCreateWithURL(harness.recorder.photoFolder.appendingPathComponent(savedFile) as CFURL, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) })
         #expect(savedImage.width == 64 && savedImage.height == 36)
-        #expect(harness.recorder.chips.map(\.phrase) == [roomArtPhotoSavedChip])
-        #expect(harness.recorder.chips.map(\.isAFailure) == [false])
+        // A save that worked shows the paper receipt and no chip: the receipt names the saved file and holds its thumbnail.
+        #expect(harness.recorder.chips.isEmpty)
+        let photoReceipt = try #require(harness.recorder.photoReceipts.first)
+        #expect(harness.recorder.photoReceipts.count == 1)
+        #expect(photoReceipt.fileURL.lastPathComponent == savedFile)
+        #expect(photoReceipt.locationLine == "\(harness.recorder.photoFolder.lastPathComponent) folder · \(savedFile)")
+        let thumbnail = try #require(photoReceipt.thumbnail)
+        #expect(thumbnail.width == 136 && thumbnail.height == 104)
         #expect(harness.artIsShowing())
         harness.controller.close()
     }
@@ -1177,6 +1214,7 @@ struct RoomArtPreviewControllerTests {
         #expect(!FileManager.default.fileExists(atPath: harness.recorder.photoFolder.path))
         #expect(harness.recorder.chips.map(\.phrase) == [roomArtPhotoNotSavedChip])
         #expect(harness.recorder.chips.map(\.isAFailure) == [true])
+        #expect(harness.recorder.photoReceipts.isEmpty)
         #expect(harness.artIsShowing())
         harness.controller.close()
     }
@@ -1697,7 +1735,7 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.nudgeTheFurniture(.closer, distanceCentimeters: 230, turnDegrees: nil) == nil)
         let cutOffGhost = try #require(harness.controller.furnitureGhost)
         #expect(cutOffGhost.shareOfTheBoxInTheFrame < roomFurnitureShareOfTheBoxThatShowsWhole)
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the second painting") { harness.frameProcessor.furnitureLayersShown.count == 2 }
         await letTheQueuedMainActorWorkRun()
 
@@ -1872,7 +1910,7 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.spokenLines() == ["Click the table or shelf where it should go."])
 
         // Placed, it is painted as standing on the table or shelf, and its lines say the table.
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the mug to show on the table") { harness.artIsShowing() }
         #expect(harness.controller.phase.statusLine == "On the table, 4.5 inches wide and 4 tall")
         #expect(harness.spokenLines().dropFirst().first?.hasPrefix("Here it is, 4.5 inches wide and 4 tall.") == true)
@@ -2111,7 +2149,7 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.frameProcessor.timesTheKeyframeWasForgotten == 0)
         #expect(harness.frameProcessor.backgroundItemCount == 1)
         let paintingsBefore = looks.paintings
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the lamp to show again") { harness.artIsShowing() }
         #expect(looks.paintings > paintingsBefore)
         #expect(looks.keyframeJPEGsSent.last == harness.frameProcessor.bakedKeyframeJPEG)
@@ -2517,7 +2555,7 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
         try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
         try await waitFor("the painting ahead to see the learner") { !harness.frameProcessor.paintingFrameBoxes.isEmpty }
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the ask to step aside") { harness.controller.waitingForTheLearnerToStepAside }
         // Two more looks at the box while the learner covers it: no request is out, so the wait has not started to count.
         let looksAtTheBoxSoFar = harness.frameProcessor.paintingFrameBoxes.count
@@ -2554,7 +2592,7 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
         try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
         try await waitFor("the painting ahead to see the learner") { !harness.frameProcessor.paintingFrameBoxes.isEmpty }
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the ask to step aside") { harness.controller.waitingForTheLearnerToStepAside }
         return harness
     }
@@ -2670,7 +2708,7 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
         try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
         try await waitFor("the painting ahead to see the learner") { !harness.frameProcessor.paintingFrameBoxes.isEmpty }
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the ask to step aside") { harness.controller.waitingForTheLearnerToStepAside }
         harness.frameProcessor.setThePersonsShareOfTheBox(0)
         try await waitFor("the painting request") { paintingGate.timesWaitedOn == 1 }
@@ -2680,7 +2718,7 @@ struct RoomArtPreviewControllerTests {
         harness.controller.pointerPressed(atCameraPixel: ghostCenter)
         harness.controller.pointerReleased()
         #expect(harness.controller.phase.furnitureGhostShows)
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         await letTheQueuedMainActorWorkRun()
 
         paintingGate.open()
@@ -2708,7 +2746,7 @@ struct RoomArtPreviewControllerTests {
         harness.controller.pointerPressed(atCameraPixel: ghostCenter)
         harness.controller.pointerReleased()
         #expect(harness.controller.phase.furnitureGhostShows)
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         await letTheQueuedMainActorWorkRun()
         #expect(harness.statusLine() == "Arranging it in your room…")
 
@@ -2738,7 +2776,7 @@ struct RoomArtPreviewControllerTests {
         harness.controller.pointerPressed(atCameraPixel: ghostCenter)
         harness.controller.pointerDragged(toCameraPixel: CGPoint(x: ghostCenter.x + 40, y: ghostCenter.y))
         harness.controller.pointerReleased()
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         // The moved box needs its own painting, and the old one's request ends cancelled.
         try await waitFor("the second painting request") { paintingGate.timesWaitedOn == 2 }
         paintingGate.open()
@@ -2798,7 +2836,7 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.furnitureGhostDraw != nil)
         harness.controller.pointerDragged(toCameraPixel: CGPoint(x: ghostCenter.x + 40, y: ghostCenter.y))
         harness.controller.pointerReleased()
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the new spot's painting to be asked for") { paintingGate.timesWaitedOn == 1 }
         #expect(harness.statusLine() == "Arranging it in your room…")
         #expect(harness.controller.loopState.isDrawing)
@@ -3189,7 +3227,7 @@ struct RoomArtPreviewControllerTests {
         harness.controller.pointerReleased()
         harness.controller.pointerPressed(atCameraPixel: pressPixel)
         harness.controller.pointerReleased()
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the placement where the learner pressed") { harness.frameProcessor.furnitureLayersShown.count == 2 }
         let pressedFloorPoint = try #require(firstFloor.moved(toAnchorPixel: pressPixel)?.center)
         let ghost = try #require(harness.controller.furnitureGhost)
@@ -3235,7 +3273,7 @@ struct RoomArtPreviewControllerTests {
         // Placed where Clicky put it, the painting asked for ahead shows, and no second one is asked for. The Place button and
         // "right there" both count as the learner's own request, so "Here it is" is not dropped for an earlier press.
         #expect(harness.recorder.timesTheLearnerAskedThePanel == 0)
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         #expect(harness.recorder.timesTheLearnerAskedThePanel == 1)
         try await waitFor("the painting asked for ahead to show") { harness.artIsShowing() }
         #expect(looks.paintings == 1)
@@ -3290,7 +3328,7 @@ struct RoomArtPreviewControllerTests {
         // The panel follows only the frame processor's reports, so placing, painting, and picking up keep the room lost. The
         // stand-in's tracked warp and painting frame stay found on purpose, which the real processor's never do while lost,
         // so each step runs here and any reset the panel makes on its own shows.
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         #expect(harness.statusLine() == lostLine)
         try await waitFor("the painting") { harness.artIsShowing() }
         #expect(harness.controller.theSurfaceIsLost)
@@ -3331,7 +3369,7 @@ struct RoomArtPreviewControllerTests {
         await letTheQueuedMainActorWorkRun()
         #expect(looks.paintingsChecked == 0)
 
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the moved spot's painting") { harness.artIsShowing() }
         #expect(looks.paintingsChecked == 1)
         // The painting ahead was dropped, so the placement asked for its own, for the moved box.
@@ -3351,7 +3389,7 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
         try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
         try await waitFor("the painting ahead to see the learner") { !harness.frameProcessor.paintingFrameBoxes.isEmpty }
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the ask to step aside") { harness.controller.waitingForTheLearnerToStepAside }
         #expect(harness.spokenLines() == [roomFurnitureStepAsideLine])
         #expect(harness.recorder.spokenLineFailureFlags == [false])
@@ -3384,7 +3422,7 @@ struct RoomArtPreviewControllerTests {
         // The first placement's painting waits for its frame, as the real processor's queue hop makes it wait.
         let heldFrame = TestGate()
         harness.frameProcessor.holdTheNextPaintingFrame(at: heldFrame)
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the first placement's frame request") { heldFrame.timesWaitedOn == 1 }
 
         // The learner picks the piece up and puts it down again, and the second placement asks the learner to step aside.
@@ -3394,7 +3432,7 @@ struct RoomArtPreviewControllerTests {
         final class AskValues { var values: [Bool] = [] }
         let askValues = AskValues()
         let askCancellable = harness.controller.$waitingForTheLearnerToStepAside.sink { askValues.values.append($0) }
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the second placement's ask to step aside") { harness.controller.waitingForTheLearnerToStepAside }
 
         // The first placement's painting task ends now, after the second one set the ask. It was cancelled, so it paints nothing,
@@ -3430,7 +3468,7 @@ struct RoomArtPreviewControllerTests {
         // The ghost draws through the turn: a press where it shows now grabs it.
         let ghostCenter = try #require(harness.ghostCenterInTheFrame())
         #expect(harness.controller.ghostIsUnder(cameraPixel: turn.apply(to: ghostCenter)))
-        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
         try await waitFor("the painting") { harness.artIsShowing() }
         #expect(harness.frameProcessor.paintingFrameBoxes.first == box)
         harness.controller.close()
@@ -3441,7 +3479,7 @@ struct RoomArtPreviewControllerTests {
         worker.pageReading = .success(sideTableReading)
         let harness = RoomArtHarness(worker: worker, placesTheGhostAtOnce: false)
         #expect(harness.controller.nudgeTheFurniture(.left, distanceCentimeters: nil, turnDegrees: nil) == .noGhost)
-        #expect(!harness.controller.placeTheFurnitureWhereItsGhostStands())
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == .noGhost)
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
         try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
@@ -3487,6 +3525,94 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.furnitureGhost?.shownPose == beforeThePress)
         harness.controller.close()
         #expect(harness.controller.furnitureGhost == nil)
+    }
+
+    /// Nudges the ghost toward the camera until a corner of its box is behind it, with part of the box still in the frame.
+    private func moveTheGhostUntilACornerIsBehindTheCamera(_ harness: RoomArtHarness) throws {
+        for _ in 0..<60 {
+            if try #require(harness.controller.furnitureGhost).aCornerIsBehindTheCamera { return }
+            #expect(harness.controller.nudgeTheFurniture(.closer, distanceCentimeters: 10, turnDegrees: nil) == nil)
+        }
+    }
+
+    @Test func aGhostWithACornerBehindTheCameraIsGrabbedAndTurnedNotJumpedOrIgnored() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(wardrobeReading)
+        let harness = RoomArtHarness(worker: worker, placesTheGhostAtOnce: false)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this wardrobe look in my room")
+        try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
+        try moveTheGhostUntilACornerIsBehindTheCamera(harness)
+        let ghost = try #require(harness.controller.furnitureGhost)
+        #expect(ghost.aCornerIsBehindTheCamera)
+
+        // The open hand shows over the ghost, and not far from it.
+        let onTheGhost = try #require(harness.aPixelOnTheGhost())
+        #expect(harness.controller.ghostIsUnder(cameraPixel: onTheGhost))
+        #expect(!harness.controller.ghostIsUnder(cameraPixel: CGPoint(x: -50_000, y: 180)))
+        #expect(!harness.controller.ghostIsUnder(cameraPixel: CGPoint(x: 50_000, y: 180)))
+
+        // A press on it grabs it where it is: the piece does not jump to the clicked floor point.
+        let poseBeforeThePress = ghost.shownPose
+        harness.controller.pointerPressed(atCameraPixel: onTheGhost)
+        let grabbedGhost = try #require(harness.controller.furnitureGhost)
+        #expect(grabbedGhost.isBeingDragged)
+        #expect(grabbedGhost.shownPose == poseBeforeThePress)
+        harness.controller.pointerReleased()
+
+        // The scroll wheel over it turns it by one step.
+        func frontAngle() -> Double {
+            let towardTheFront = harness.controller.furnitureGhost?.shownPose.towardTheFront ?? .zero
+            return atan2(towardTheFront.x, -towardTheFront.z) * 180 / .pi
+        }
+        let angleBefore = frontAngle()
+        harness.controller.scrolled(byDeltaY: 3, hasPreciseDeltas: false, isMomentum: false, atCameraPixel: onTheGhost)
+        #expect(abs(abs(frontAngle() - angleBefore) - 15) < 0.5)
+        harness.controller.close()
+    }
+
+    @Test func placingAGhostWithACornerBehindTheCameraKeepsItAndHintsWithoutDrawingOrFailing() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(wardrobeReading)
+        let harness = RoomArtHarness(worker: worker, placesTheGhostAtOnce: false)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this wardrobe look in my room")
+        try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
+        try moveTheGhostUntilACornerIsBehindTheCamera(harness)
+        let phaseBefore = harness.controller.phase
+        let poseBefore = try #require(harness.controller.furnitureGhost?.shownPose)
+        #expect(harness.panelStatusLine() == roomFurnitureGhostStatusLine)
+
+        // The Place button and "right there" both come here, and both refuse without leaving the ghost's phase.
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == .aCornerIsBehindTheCamera)
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == .aCornerIsBehindTheCamera)
+        #expect(harness.controller.phase == phaseBefore)
+        #expect(harness.controller.furnitureGhost?.shownPose == poseBefore)
+        if case .couldNotDraw = harness.controller.phase { Issue.record("The placement went to couldNotDraw") }
+        // The hint is said once, as a hint and not a failure, and the status line shows it.
+        #expect(harness.spokenLines() == [roomFurnitureMoveItFartherBackLine])
+        #expect(harness.recorder.spokenLineFailureFlags == [false])
+        #expect(harness.panelStatusLine() == roomFurnitureMoveItFartherBackLine)
+        // The refusal reads back to the voice router in words.
+        #expect(RoomFurniturePlacementRefusal.aCornerIsBehindTheCamera.toolError.contains("behind the camera"))
+
+        // A lost room wins over the hint, since no painting is made until the room is found.
+        harness.frameProcessor.reportTheSurface(lost: true)
+        try await waitFor("the controller to hear the floor is lost") { harness.controller.theSurfaceIsLost }
+        #expect(harness.panelStatusLine() == RoomArtSurfaceKind.floor.lostLine)
+        harness.frameProcessor.reportTheSurface(lost: false)
+        try await waitFor("the controller to hear the floor is found") { !harness.controller.theSurfaceIsLost }
+        #expect(harness.panelStatusLine() == roomFurnitureMoveItFartherBackLine)
+        // A nudge still works while a corner is behind the camera, since part of the box shows, and it takes the hint down.
+        #expect(harness.controller.nudgeTheFurniture(.closer, distanceCentimeters: 1, turnDegrees: nil) == nil)
+        #expect(harness.panelStatusLine() == roomFurnitureGhostStatusLine)
+        #expect(harness.controller.furnitureGhost?.aCornerIsBehindTheCamera == true)
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == .aCornerIsBehindTheCamera)
+        #expect(harness.spokenLines() == [roomFurnitureMoveItFartherBackLine, roomFurnitureMoveItFartherBackLine])
+        // A ghost that is whole again places.
+        #expect(harness.controller.nudgeTheFurniture(.farther, distanceCentimeters: 300, turnDegrees: nil) == nil)
+        #expect(harness.panelStatusLine() == roomFurnitureGhostStatusLine)
+        #expect(!(harness.controller.furnitureGhost?.aCornerIsBehindTheCamera ?? true))
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands() == nil)
+        harness.controller.close()
     }
 
     @Test func theKeyframeIsTakenAndItsWallMeasuredWhileThePageIsStillRead() async throws {

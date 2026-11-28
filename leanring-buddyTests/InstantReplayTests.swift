@@ -655,11 +655,14 @@ struct InstantReplayTests {
         defer { control.panelController.hide() }
         let panel = try #require(control.panelController.panel)
         #expect(!panel.ignoresMouseEvents)
+        // The pointer is near the window, so its 60 Hz timer reads it. The test fires that timer itself, since under a full
+        // run the main actor can hold a real tick back for seconds.
+        let timer = try #require(control.panelController.clickThroughTimer)
         control.pointer.location = inTheShadowMargin(of: windowFrame)
-        try await waitUntil { panel.ignoresMouseEvents }
+        timer.fire()
         #expect(panel.ignoresMouseEvents)
         control.pointer.location = inTheCard(of: windowFrame)
-        try await waitUntil { !panel.ignoresMouseEvents }
+        timer.fire()
         #expect(!panel.ignoresMouseEvents)
     }
 

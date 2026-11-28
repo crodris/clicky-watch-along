@@ -411,6 +411,7 @@ final class CompanionManager: ObservableObject {
         showTheChip: { phrase, isAFailure in
             VoiceToolCallChip.shared.show(phrase, sender: isAFailure ? .failure : .voiceToolCall)
         },
+        showThePhotoReceipt: { photoReceipt in VoiceToolCallChip.shared.showPhotoReceipt(photoReceipt) },
         thePanelOpened: { [weak self] in self?.cursorLoopController.theRoomArtPanelOpened() }
     ))
     /// The room art line waiting for its turn or playing. A new line replaces it, and every close of the panel ends it.
@@ -1816,8 +1817,11 @@ final class CompanionManager: ObservableObject {
             respondToTranscript(transcript: transcript, requestedSceneKind: nil)
         case .confirmTheRoomArt:
             // "Right there" places the ghost with no model call, so the confirm never depends on the router.
-            print("Room furniture: placed by voice")
-            roomArtPreviewController.placeTheFurnitureWhereItsGhostStands()
+            if let refusal = roomArtPreviewController.placeTheFurnitureWhereItsGhostStands() {
+                print("Room furniture: a voice placement was refused (\(refusal))")
+            } else {
+                print("Room furniture: placed by voice")
+            }
         case .replayTheExplanation:
             // "Show me again" replays the recorded stops with no model call, so it never builds a paid scene.
             print("Instant replay: replaying on request")
@@ -4018,8 +4022,8 @@ final class CompanionManager: ObservableObject {
                 }
             }
         case .placeFurniture:
-            guard roomArtPreviewController.placeTheFurnitureWhereItsGhostStands() else {
-                return .outcome(.failed(error: "No furniture is being placed", state: nil))
+            if let refusal = roomArtPreviewController.placeTheFurnitureWhereItsGhostStands() {
+                return .outcome(.failed(error: refusal.toolError, state: nil))
             }
             return .outcome(.changed(state: nil))
         case .moveFurniture:

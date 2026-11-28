@@ -4,7 +4,7 @@
 //
 //  The end of a video quiz: the score and the questions to look at again, the timestamps they show, where the Card sits
 //  and Glides from, the Card counting as showing while it Glides in, the hint offer after a first wrong answer, the scene
-//  stylesheet's user script, and the Card at 2x.
+//  stylesheet's user script. The Card's paper looks are in PaperMaterialTests.
 //
 
 import AppKit
@@ -125,66 +125,5 @@ struct VideoQuizSummaryTests {
         #expect(controller.isShowing)
         controller.close(animated: false)
         #expect(!controller.isShowing)
-    }
-
-    // MARK: - The Card at 2x
-
-    @Test func theMissedQuestionsShowAboveWhatTheLearnerLearned() throws {
-        let recap = try #require(VideoRecap(quizResults: [
-            quizResult("What does the vent do?", at: 134, .missed),
-            quizResult("What does the crater do?", at: 40, .gotIt),
-        ], studyGuideRecord: nil))
-        #expect(!recap.learnedLines.isEmpty)
-        // Magenta is on nothing else on the Card, so its pixels are the missed question's timestamp and the learned line's dot.
-        let card = VideoQuizSummaryCardView(recap: recap, moment: .quizEnded, accentColor: Color(hex: "#FF00FF"), goBackToTheMissedQuestion: { _ in }, openTheStudyGuide: {}, close: {})
-        // An `NSHostingView` in a window off every screen, since `ImageRenderer` draws the buttons' hover views as a sign.
-        let hostingView = NSHostingView(rootView: card)
-        let cardSize = hostingView.fittingSize
-        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: cardSize), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = hostingView
-        hostingView.frame = NSRect(origin: .zero, size: cardSize)
-        hostingView.layoutSubtreeIfNeeded()
-        let pixels = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
-        hostingView.cacheDisplay(in: hostingView.bounds, to: pixels)
-        if let dumpFolder = ProcessInfo.processInfo.environment["CLICKY_RENDER_DUMP_DIR"],
-           let pngData = pixels.representation(using: .png, properties: [:]) {
-            try pngData.write(to: URL(fileURLWithPath: dumpFolder).appendingPathComponent("quiz-summary-card.png"))
-        }
-        let pixelsPerPoint = CGFloat(pixels.pixelsWide) / cardSize.width
-        func topmostAccentRow(inColumnsFrom firstPoint: CGFloat, to lastPoint: CGFloat) -> Int? {
-            let columns = Int(firstPoint * pixelsPerPoint)..<Int(lastPoint * pixelsPerPoint)
-            return (0..<pixels.pixelsHigh).first { row in
-                columns.contains { column in
-                    guard let color = pixels.colorAt(x: column, y: row) else { return false }
-                    return color.redComponent > 0.6 && color.blueComponent > 0.6 && color.greenComponent < 0.35
-                }
-            }
-        }
-        // The learned line's dot sits at the Card's 14 point padding, and the timestamp at the right end of its row.
-        let learnedDotRow = try #require(topmostAccentRow(inColumnsFrom: 14, to: 19))
-        let timestampRow = try #require(topmostAccentRow(inColumnsFrom: 240, to: 306))
-        #expect(timestampRow < learnedDotRow)
-    }
-
-    @Test func theCardIsDarkAndThreeHundredTwentyPointsWideOnAWhitePage() throws {
-        let recap = try #require(VideoRecap(quizResults: [
-            quizResult("What does the vent do when the pressure under the volcano builds up for a long time?", at: 134, .missed),
-            quizResult("What is this?", at: 40, .gotIt),
-        ], studyGuideRecord: nil))
-        let card = VideoQuizSummaryCardView(recap: recap, moment: .quizEnded, accentColor: Color(hex: "#3380FF"), goBackToTheMissedQuestion: { _ in }, openTheStudyGuide: {}, close: {})
-        let renderer = ImageRenderer(content: card.padding(30).background(Color.white))
-        renderer.scale = 2
-        let pixels = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
-        #expect(pixels.pixelsWide == (30 + 320 + 30) * 2)
-        let pageCorner = try #require(pixels.colorAt(x: 4, y: 4))
-        #expect(pageCorner.redComponent > 0.98 && pageCorner.greenComponent > 0.98 && pageCorner.blueComponent > 0.98)
-        // Just inside the Card's left edge, below its rounded corner, the surface is the Card's near black.
-        let cardSurface = try #require(pixels.colorAt(x: (30 + 4) * 2, y: pixels.pixelsHigh / 2))
-        #expect(cardSurface.redComponent < 0.12 && cardSurface.greenComponent < 0.12 && cardSurface.blueComponent < 0.15)
-        // The Card ends inside the page's 30 point margin, so a long question wraps instead of widening it.
-        let rightMargin = try #require(pixels.colorAt(x: pixels.pixelsWide - 20, y: pixels.pixelsHigh / 2))
-        #expect(rightMargin.redComponent > 0.9)
     }
 }

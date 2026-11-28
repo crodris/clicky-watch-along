@@ -416,12 +416,21 @@ struct VideoRecapTests {
 
     private func render(_ recap: VideoRecap, moment: VideoRecapMoment) throws -> NSBitmapImageRep {
         let card = VideoQuizSummaryCardView(recap: recap, moment: moment, accentColor: Color(hex: "#3380FF"), goBackToTheMissedQuestion: { _ in }, openTheStudyGuide: {}, close: {})
-        let renderer = ImageRenderer(content: card.padding(30).background(Color.white))
-        renderer.scale = 2
-        return NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+        // An `NSHostingView` in a window off every screen, since `ImageRenderer` draws the buttons' hover views as a sign.
+        let hostingView = NSHostingView(rootView: card.padding(30).background(Color.white))
+        let size = hostingView.fittingSize
+        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = hostingView
+        hostingView.frame = NSRect(origin: .zero, size: size)
+        hostingView.layoutSubtreeIfNeeded()
+        let pixels = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: pixels)
+        return pixels
     }
 
-    @Test func theRecapCardGrowsWithItsSectionsAndKeepsItsWidthAndSurface() throws {
+    @Test func theRecapCardGrowsWithItsSectionsAndKeepsItsWidthAndPaperSurface() throws {
         let quizOnly = try #require(VideoRecap(quizResults: [quizResult("What is this?", at: 40, .gotIt)], studyGuideRecord: nil))
         let fullRecap = try #require(VideoRecap(
             quizResults: [
@@ -432,11 +441,13 @@ struct VideoRecapTests {
         ))
         let quizOnlyPixels = try render(quizOnly, moment: .videoEnded)
         let fullPixels = try render(fullRecap, moment: .videoEnded)
-        #expect(fullPixels.pixelsWide == (30 + 320 + 30) * 2)
+        let pixelsPerPoint = CGFloat(fullPixels.pixelsWide) / (30 + VideoQuizSummaryCardView.cardWidth + 30)
+        #expect(pixelsPerPoint >= 1)
         #expect(fullPixels.pixelsHigh > quizOnlyPixels.pixelsHigh)
-        let cardSurface = try #require(fullPixels.colorAt(x: (30 + 4) * 2, y: fullPixels.pixelsHigh / 2))
-        #expect(cardSurface.redComponent < 0.12 && cardSurface.greenComponent < 0.12 && cardSurface.blueComponent < 0.15)
-        let rightMargin = try #require(fullPixels.colorAt(x: fullPixels.pixelsWide - 20, y: fullPixels.pixelsHigh / 2))
+        // Just inside the Card's left edge, clear of its padding's content, the surface is warm paper, never the dark Card.
+        let cardSurface = try #require(fullPixels.colorAt(x: Int((30 + 6) * pixelsPerPoint), y: fullPixels.pixelsHigh / 2))
+        #expect(abs(cardSurface.redComponent - 0xF6 / 255.0) < 0.02 && abs(cardSurface.greenComponent - 0xF5 / 255.0) < 0.02 && abs(cardSurface.blueComponent - 0xF1 / 255.0) < 0.02)
+        let rightMargin = try #require(fullPixels.colorAt(x: fullPixels.pixelsWide - 4, y: fullPixels.pixelsHigh / 2))
         #expect(rightMargin.redComponent > 0.9)
     }
 
