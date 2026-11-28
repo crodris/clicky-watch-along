@@ -357,17 +357,20 @@ struct AccentInkTests {
             x: AgentListWindowMargins.leading + 4 + 11, y: AgentListWindowMargins.top + 4 + 5, width: 40, height: 14
         )
         // The control fades and grows in on the Glide move, and a pixel drawn see-through counts as no ink, so it is drawn
-        // until the ink shows or 10 seconds pass.
-        let deadline = Date().addingTimeInterval(10)
-        while true {
+        // until the ink shows. The bound counts draws and not seconds, since a loaded Mac makes each draw slow, and a clock
+        // ran out before the fade had a frame to draw.
+        var lastCounts: InkPixelCounts?
+        for _ in 1...400 {
             contentView.layoutSubtreeIfNeeded()
             let bitmap = try #require(contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds))
             contentView.cacheDisplay(in: contentView.bounds, to: bitmap)
             let pixels = try DrawingPixels(drawing: try #require(bitmap.cgImage), widthInPoints: contentView.bounds.width)
             let counts = try await pixels.inkPixelCounts(in: replayButtonPart)
-            if counts.white + counts.nearBlack > 20 || Date() >= deadline { return counts }
+            lastCounts = counts
+            if counts.white + counts.nearBlack > 20 { break }
             try await Task.sleep(for: .milliseconds(50))
         }
+        return try #require(lastCounts)
     }
 
     @Test(.showsARealWindow)
