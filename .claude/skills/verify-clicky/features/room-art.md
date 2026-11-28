@@ -84,11 +84,13 @@ Preconditions:
 - **Reopening during the fade.** Run `$V app-quit` first.
   On a wall art page, such as an IKEA framed print, run `$V app-launch --room-camera-file <video of a room> "how would this look on my wall|+40 how would this look on my wall"`.
   While the second request still reads the front tab, before the panel's status line changes, click the wall in the panel, which moves the art, so the request closes the panel and opens it again at once.
-  The window is under a second, so the click often comes too late, and the log then shows the second request kept the room.
+  The window is under a second, so the click often comes too late.
+  The log then shows the second request kept the room.
   When the click lands in time, a recording shows the panel staying at full size and coming back from its fade.
   The unit test `aPanelOpenedAgainDuringItsCloseStaysAndFadesBackInFromWhereItIs` pins the rule.
 - **Reduce Motion.** This changes a setting of the Mac, so turn it off again afterward.
-  Turn on System Settings > Accessibility > Display > Reduce motion, then record the panel opening and closing as above, with `$V app-quit` before each launch.
+  Turn on System Settings > Accessibility > Display > Reduce motion.
+  Run `$V app-quit` before each launch, then record the panel opening and closing as above.
   The panel fades in over about 0.15 s instead of half a second, and a click on Close counts as soon as the panel shows.
 - **The status pill at the smallest size.** The panel's place is a Debug app default, so save it first with `defaults read com.crodris.clicky-watch-along roomArtPanelFrame`.
   Run `$V app-quit` and `defaults write com.crodris.clicky-watch-along roomArtPanelFrame -string '{{200, 200}, {480, 270}}'`, then `$V app-launch --room-camera-file <video that turns> "how would this look on my wall"`.
@@ -121,7 +123,8 @@ Preconditions:
   While the painting comes, the ghost is at half opacity, the loop's line traces its footprint, and the status says "Arranging it in your room…". About 20 s later the log says `the painted item is N% of the measured box's outline` and `showing the painted composite`, and "Here it is, …" plays.
   Standing in the ghost's box at the placement makes Clicky say "Step aside for a second." once, and the painting waits for a clear frame. The 45 s wait for a render counts from the painting request going out, and a second 45 s wait counts from the placement, so a learner who stays in the box still sees a ready render after 45 s, and with no render hears the could-not-draw line once the 45 s placement wait has run out and the model search has ended with no render, whichever is later.
   The brain eval cases for the ghost run with `node bench/brainEvals.ts run --label ghost --runs 3 --only ghost-move-left,ghost-move-a-foot-closer,ghost-turn-around,ghost-push-back,ghost-place-it-here,ghost-question --port <port>`.
-- **"Step aside" only while arranging.** With a camera video where a person stands in the box the ghost takes, open IKEA's LACK side table and run `$V app-launch --room-camera-file <that video> "how would this table look in my room|+40 right there"`.
+- **"Step aside" only while arranging.** Run `$V app-quit` first.
+  With a camera video where a person stands in the box the ghost takes, open IKEA's LACK side table and run `$V app-launch --room-camera-file <that video> "how would this table look in my room|+40 right there"`.
   While the piece is arranged, `$V shot room-art-step-aside` shows "Step aside for a second." in the status line under the half-opacity ghost.
   About 45 s after the placement the store model's render shows, and `$V shot room-art-step-aside-showing` shows the piece's own line, "On your floor, <size>", although the person still stands in the box.
   When the video turns away during the wait, the status line says "Lost the floor. Turn back to where the piece stands." instead.
