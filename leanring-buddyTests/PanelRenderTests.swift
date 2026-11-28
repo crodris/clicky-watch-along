@@ -15,6 +15,9 @@ import Testing
 
 @testable import Clicky
 
+// Serialized, since two cards that hold the keyboard focus in windows at once take it from each other: the name field of a
+// card closes when it loses the focus, so a rename test that ran beside another lost its field.
+@Suite(.serialized)
 @MainActor
 struct PanelRenderTests {
     // MARK: - Rendering
@@ -354,16 +357,23 @@ struct PanelRenderTests {
 
     // MARK: - A saved card's rename field
 
+    /// Collects the names a card's rename closure was asked to save.
+    private final class RenamesRecorder {
+        var namesSaved: [String] = []
+    }
+
     /// A saved card already in its renaming state, as the panel's grid draws it, at the width a card has there.
     private struct RenamingCardHost: View {
         let theme: ClickyTheme
         let cardWidth: CGFloat
         var startsRenaming = true
+        let recorder: RenamesRecorder
         @FocusState private var focus: ThemeGridFocus?
 
         var body: some View {
             ThemeCard(
-                theme: theme, isSelected: false, focus: $focus, pick: {}, rename: { _ in }, delete: { },
+                theme: theme, isSelected: false, focus: $focus, pick: {},
+                rename: { [recorder] newName in recorder.namesSaved.append(newName) }, delete: { },
                 moveTheFocus: { _ in }, startsRenaming: startsRenaming
             )
             .frame(width: cardWidth)
@@ -372,29 +382,66 @@ struct PanelRenderTests {
         }
     }
 
-    /// Draws a renaming card and returns the card's drawn size, the name field's text view, and the card's bitmap.
-    private func renamingCard(of theme: ClickyTheme, named fileName: String, startsRenaming: Bool = true) async throws -> (cardSize: CGSize, textField: NSTextField?, bitmap: NSBitmapImageRep) {
+    private func textFields(in view: NSView) -> [NSTextField] {
+        (view as? NSTextField).map { [$0] + view.subviews.flatMap(textFields) } ?? view.subviews.flatMap(textFields)
+    }
+
+    /// A card drawn in a window off every screen.
+    private struct RenamingCardWindow {
+        let hostingView: NSHostingView<RenamingCardHost>
+        let window: NSWindow
+        let recorder: RenamesRecorder
+        let cardSize: CGSize
+    }
+
+    private func makeRenamingCardWindow(of theme: ClickyTheme, startsRenaming: Bool) -> RenamingCardWindow {
         let cardWidth = (CompanionPanelView.contentWidth - 32 - CGFloat(ThemeCardGrid.columnCount - 1) * ThemeCardGrid.spacing) / CGFloat(ThemeCardGrid.columnCount)
-        let hostingView = NSHostingView(rootView: RenamingCardHost(theme: theme, cardWidth: cardWidth, startsRenaming: startsRenaming))
+        let recorder = RenamesRecorder()
+        let hostingView = NSHostingView(rootView: RenamingCardHost(theme: theme, cardWidth: cardWidth, startsRenaming: startsRenaming, recorder: recorder))
         let fittingSize = hostingView.fittingSize
         let window = NSWindow(contentRect: NSRect(x: -93_000, y: -93_000, width: fittingSize.width, height: fittingSize.height), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.close() }
         window.contentView = hostingView
         hostingView.frame = NSRect(origin: .zero, size: fittingSize)
         hostingView.layoutSubtreeIfNeeded()
-        // The field's text lays out on the pass after the first.
-        try await Task.sleep(for: .milliseconds(300))
-        hostingView.layoutSubtreeIfNeeded()
+        return RenamingCardWindow(hostingView: hostingView, window: window, recorder: recorder, cardSize: fittingSize)
+    }
+
+    /// Lays the card out until its name field exists with `name` in it and keeps one height for two passes in a row. The bound
+    /// counts passes and not seconds, since a loaded Mac makes each pass slow and a clock would run out while the card is
+    /// still on its way, as in `hoveredCardPixels`.
+    private func layOutUntilTheNameFieldSettles(in cardWindow: RenamingCardWindow, showing name: String) async throws -> NSTextField {
+        var previousHeight: CGFloat?
+        for _ in 1...600 {
+            cardWindow.hostingView.layoutSubtreeIfNeeded()
+            if let textField = textFields(in: cardWindow.hostingView).first, textField.stringValue == name {
+                if previousHeight == textField.bounds.height { return textField }
+                previousHeight = textField.bounds.height
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        Issue.record("the name field never showed \(name)")
+        return try #require(textFields(in: cardWindow.hostingView).first)
+    }
+
+    /// Draws a renaming card and returns the card's drawn size, the name field's text view and its frame in the card, and the card's bitmap.
+    private func renamingCard(of theme: ClickyTheme, named fileName: String, startsRenaming: Bool = true) async throws -> (cardSize: CGSize, textField: NSTextField?, fieldFrameInTheCard: CGRect?, bitmap: NSBitmapImageRep) {
+        let cardWindow = makeRenamingCardWindow(of: theme, startsRenaming: startsRenaming)
+        defer { cardWindow.window.close() }
+        let hostingView = cardWindow.hostingView
+        let textField: NSTextField?
+        if startsRenaming {
+            textField = try await layOutUntilTheNameFieldSettles(in: cardWindow, showing: theme.name)
+        } else {
+            hostingView.layoutSubtreeIfNeeded()
+            textField = textFields(in: hostingView).first
+        }
         let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
         hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
         if let renderDirectory = ProcessInfo.processInfo.environment["CLICKY_RENDER_DIR"] {
             try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: renderDirectory).appendingPathComponent("\(fileName).png"))
         }
-        func textFields(in view: NSView) -> [NSTextField] {
-            (view as? NSTextField).map { [$0] + view.subviews.flatMap(textFields) } ?? view.subviews.flatMap(textFields)
-        }
-        return (fittingSize, textFields(in: hostingView).first, bitmap)
+        return (cardWindow.cardSize, textField, textField.map { hostingView.convert($0.bounds, from: $0) }, bitmap)
     }
 
     /// The width a text field's cell keeps for its own padding, 2 points on each side, which its text cannot use.
@@ -418,17 +465,77 @@ struct PanelRenderTests {
         // The longest name a theme can have is 24 characters.
         let longestName = amber.renamed(to: "Midnight Harbor Lanterns")
         #expect(longestName.name.count == ClickyTheme.longestName)
-        // Wide letters, so each line holds fewer of them.
-        let widestName = amber.renamed(to: "Wild Wonder Waves Within")
-        for (theme, fileName) in [(amber, "renaming-card"), (longestName, "renaming-card-longest-name"), (widestName, "renaming-card-wide-letters")] {
+        // Each of these needs more than three lines at the field's old width: wide letters, the widest letter 24 times, and
+        // the widest character an emoji is.
+        let widestWords = amber.renamed(to: "WILD WONDER WAVES WITHIN")
+        let wombats = amber.renamed(to: "Wombat Warrior Mmmmmmmmm")
+        let widestLetters = amber.renamed(to: String(repeating: "W", count: ClickyTheme.longestName))
+        let emoji = amber.renamed(to: String(repeating: "\u{1F600}", count: ClickyTheme.longestName))
+        let namesToCheck: [(theme: ClickyTheme, fileName: String)] = [
+            (amber, "renaming-card"), (longestName, "renaming-card-longest-name"), (widestWords, "renaming-card-wide-words"),
+            (wombats, "renaming-card-wombats"), (widestLetters, "renaming-card-widest-letters"), (emoji, "renaming-card-emoji"),
+        ]
+        for (theme, fileName) in namesToCheck {
+            #expect(theme.name.count <= ClickyTheme.longestName)
             let renaming = try await renamingCard(of: theme, named: fileName)
             let textField = try #require(renaming.textField)
             #expect(textShowsWhole(in: textField), "the field clips \(theme.name)")
             // The field stays inside the card, and the card keeps the size it has while it shows the name.
+            let fieldFrameInTheCard = try #require(renaming.fieldFrameInTheCard)
+            let cardBounds = CGRect(origin: .zero, size: renaming.cardSize)
+            #expect(cardBounds.contains(fieldFrameInTheCard), "the field \(fieldFrameInTheCard) reaches outside the card \(cardBounds) for \(theme.name)")
             let notRenaming = try await renamingCard(of: theme, named: "\(fileName)-not-renaming", startsRenaming: false)
             #expect(notRenaming.textField == nil)
             #expect(renaming.cardSize == notRenaming.cardSize, "the card is \(renaming.cardSize) while renaming and \(notRenaming.cardSize) otherwise")
         }
+    }
+
+    /// Puts the keyboard in the name field and replaces its text with `typedText`, as typing or pasting does through the
+    /// field editor, so the field's binding hears it.
+    private func type(_ typedText: String, into textField: NSTextField, in cardWindow: RenamingCardWindow) throws {
+        #expect(cardWindow.window.makeFirstResponder(textField))
+        let fieldEditor = try #require(textField.currentEditor())
+        fieldEditor.selectAll(nil)
+        fieldEditor.insertText(typedText)
+    }
+
+    /// Lays the card out until `isDone` says so, counted in passes and not seconds.
+    private func layOutUntil(_ whatIsWaitedFor: String, in cardWindow: RenamingCardWindow, _ isDone: () -> Bool) async throws {
+        for _ in 1...600 {
+            cardWindow.hostingView.layoutSubtreeIfNeeded()
+            if isDone() { return }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        Issue.record("never saw \(whatIsWaitedFor)")
+    }
+
+    @Test func aPastedLineBreakBecomesOneSpace() async throws {
+        let amber = try amberPaperPlane(origin: .saved(folderURL: URL(fileURLWithPath: "/nonexistent-saved-theme")))
+        let cardWindow = makeRenamingCardWindow(of: amber, startsRenaming: true)
+        defer { cardWindow.window.close() }
+        let textField = try await layOutUntilTheNameFieldSettles(in: cardWindow, showing: amber.name)
+        try type("Amber\nPaper", into: textField, in: cardWindow)
+        try await layOutUntil("the line break turned into a space", in: cardWindow) { textField.stringValue == "Amber Paper" }
+        #expect(textField.stringValue == "Amber Paper")
+        // A run of line breaks, in any form a paste carries, is one space, and a break at an end goes.
+        #expect(ThemeCard.nameWithEachLineBreakAsOneSpace("Amber\r\n\r\nPaper") == "Amber Paper")
+        #expect(ThemeCard.nameWithEachLineBreakAsOneSpace("\nAmber\n") == "Amber")
+    }
+
+    @Test func returnInTheNameFieldSavesTheNameInsteadOfAddingALine() async throws {
+        let amber = try amberPaperPlane(origin: .saved(folderURL: URL(fileURLWithPath: "/nonexistent-saved-theme")))
+        let cardWindow = makeRenamingCardWindow(of: amber, startsRenaming: true)
+        defer { cardWindow.window.close() }
+        let textField = try await layOutUntilTheNameFieldSettles(in: cardWindow, showing: amber.name)
+        try type("Renamed", into: textField, in: cardWindow)
+        try await layOutUntil("the typed name in the field", in: cardWindow) { textField.stringValue == "Renamed" }
+        let fieldEditor = try #require(textField.currentEditor())
+        fieldEditor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        try await layOutUntil("the rename saved", in: cardWindow) { !cardWindow.recorder.namesSaved.isEmpty }
+        #expect(cardWindow.recorder.namesSaved == ["Renamed"])
+        // A saved name closes the field.
+        try await layOutUntil("the field closed", in: cardWindow) { textFields(in: cardWindow.hostingView).isEmpty }
+        #expect(textFields(in: cardWindow.hostingView).isEmpty)
     }
 
     // MARK: - The pointing hand on entry

@@ -181,6 +181,16 @@ struct ThemeCard: View {
     /// letters wraps to three lines at most.
     private static let renameFieldOutsetBesideTheName: CGFloat = 6
 
+    /// The most lines the rename field wraps to. 24 emoji, the widest valid name, take 5 at the field's width, and the field
+    /// may reach 36 points below the name's slot before it leaves the card, which holds 6 lines of the caption type.
+    static let mostLinesOfTheRenameField = 6
+
+    /// A pasted "Amber" and "Paper" on two lines is "Amber Paper", and a run of line breaks is one space. A break at either end
+    /// goes, since a name is trimmed when it is saved.
+    static func nameWithEachLineBreakAsOneSpace(_ typedName: String) -> String {
+        typedName.split(whereSeparator: \.isNewline).joined(separator: " ")
+    }
+
     private var accentColor: Color { Color(hex: theme.accentHex) }
     private var cardHasTheFocus: Bool { focus.wrappedValue?.themeID == theme.id }
     private var cardItselfHasTheFocus: Bool { focus.wrappedValue == .card(themeID: theme.id) }
@@ -194,8 +204,10 @@ struct ThemeCard: View {
                 ThemeCardCursor(theme: theme, runsItsMotion: cursorRunsItsMotion)
                     .frame(width: 56, height: 56)
                 nameOrField
-                    .frame(height: Self.nameHeight, alignment: .top)
-                    // A field of three lines reaches past the name's slot, so it draws over the swatch row below it.
+                    // The renaming field is centered in the slot, so a field of many lines grows up over the cursor and down over
+                    // the swatch row, both inside the card's own height.
+                    .frame(height: Self.nameHeight, alignment: isRenaming ? .center : .top)
+                    // A field of several lines reaches past the name's slot, so it draws over the cursor and the swatch row.
                     .zIndex(isRenaming ? 1 : 0)
                 HStack(spacing: 3) {
                     ForEach(Array(([accentColor] + theme.agentColorsInOrder.prefix(3).map(\.color)).enumerated()), id: \.offset) { _, swatchColor in
@@ -365,12 +377,14 @@ struct ThemeCard: View {
     // MARK: Renaming
 
     private var renameField: some View {
-        // A card is about 97 points wide, so a 24 character name does not fit on one line of the field. The field wraps to up
-        // to three lines, which holds the longest name, and is as wide as the card's name column plus its outset. Two lines fit `nameHeight`, and a third reaches 9 points below it,
-        // over the card's spacing, so the card keeps its size.
+        // A card is about 97 points wide, so a 24 character name does not fit on one line of the field. The field wraps and
+        // is as wide as the card's name column plus its outset. A name of the widest characters, 24 emoji, needs five or six
+        // lines at that width, so the field may take up to `Self.mostLinesOfTheRenameField`, and the name always shows whole.
+        // Two lines fit `nameHeight`. The field is centered in that slot, and its extra lines reach over the cursor above it
+        // and the swatch row below it, which the card's height holds with room to spare, so the card keeps its size.
         TextField("Theme name", text: $draftName, axis: .vertical)
             .textFieldStyle(.plain)
-            .lineLimit(1...3)
+            .lineLimit(1...Self.mostLinesOfTheRenameField)
             .font(DS.TypeScale.caption.font)
             .fontWeight(.semibold)
             .foregroundColor(DS.Colors.textPrimary)
@@ -381,14 +395,14 @@ struct ThemeCard: View {
                 RoundedRectangle(cornerRadius: DS.CornerRadius.chip)
                     .strokeBorder(problemText == nil ? DS.Colors.border : DS.Colors.destructive, lineWidth: 1)
             )
-            // Takes its own height, up to three lines, instead of the name slot's.
+            // Takes its own height, up to `mostLinesOfTheRenameField` lines, instead of the name slot's.
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, -Self.renameFieldOutsetBesideTheName)
             .focused($nameFieldIsFocused)
             .onSubmit(commitRename)
-            // A name is one line, so a line break typed or pasted into the wrapping field never stays in it.
+            // A name is one line, so a line break typed or pasted into the wrapping field becomes a space and never stays in it.
             .onChange(of: draftName) { _, typedName in
-                if typedName.contains(where: \.isNewline) { draftName = typedName.filter { !$0.isNewline } }
+                if typedName.contains(where: \.isNewline) { draftName = Self.nameWithEachLineBreakAsOneSpace(typedName) }
             }
             // Escape reaches the field as the exit command, since the panel is key and the field holds the keyboard.
             .onExitCommand(perform: cancelRename)
