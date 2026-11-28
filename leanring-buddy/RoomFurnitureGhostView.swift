@@ -65,7 +65,7 @@ private struct RoomFurnitureGhostSizePill: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 13, weight: .semibold))
+            .font(DS.TypeScale.title.font)
             .foregroundStyle(DS.Colors.textPrimary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

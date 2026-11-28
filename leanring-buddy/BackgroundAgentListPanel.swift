@@ -786,7 +786,8 @@ final class HoverAndPointerNSView: NSView {
 /// A row's tracking area misses every move while the agent list's window ignores the mouse. When the window takes the mouse
 /// again, each row adds its area again, so AppKit reads its inside state from where the pointer is now, a later exit still
 /// arrives, and the row reports its hover there. When the window starts passing the mouse through, each row reports again,
-/// so no hover stays behind in the margin.
+/// so no hover stays behind in the margin. The room art panel runs it as it opens, since its window ignored the mouse
+/// while it faded out.
 func refreshTheRowHovers(in contentView: NSView, windowPassesTheMouseThrough: Bool) {
     for hoverView in hoverAndPointerViews(in: contentView) {
         if windowPassesTheMouseThrough {
@@ -1171,7 +1172,7 @@ private struct AgentRowView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .hoverAndPointer { isHovered = $0 }
+            .hoverAndPointer { isNowHovered in isHovered = isNowHovered }
 
             if !agent.isRunning, hasRowButtons {
                 rowButtons
@@ -1368,7 +1369,7 @@ private struct AgentActionButton: View {
         .buttonStyle(.plain)
         .disabled(isDimmed)
         .opacity(isDimmed ? 0.5 : 1)
-        .hoverAndPointer(isEnabled: !isDimmed) { isHovered = $0 }
+        .hoverAndPointer(isEnabled: !isDimmed) { isNowHovered in isHovered = isNowHovered }
         .padding(.top, 2)
     }
 }
@@ -1763,7 +1764,7 @@ private struct ApprovalAnswerButton: View {
         .disabled(!isEnabled)
         // Tab reaches the button, Return or Space answers, and a dimmed Allow button refuses, as a click does.
         .panelKeyboardControl(cornerRadius: DS.CornerRadius.medium, isEnabled: isEnabled, action: action)
-        .hoverAndPointer(isEnabled: isEnabled) { isHovered = $0 }
+        .hoverAndPointer(isEnabled: isEnabled) { isNowHovered in isHovered = isNowHovered }
         .accessibilityLabel(title)
     }
 }

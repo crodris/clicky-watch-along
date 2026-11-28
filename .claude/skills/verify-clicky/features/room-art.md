@@ -71,6 +71,32 @@ Preconditions:
   The log shows `Room art:` lines for the page read and the wall, then `Room art: N fps, track N ms, segment N ms` every 5 s.
   Run `$V shot room-art-measuring` in the first seconds, while the wall is measured: only the status line "Measuring your wall…" shows over the camera, with no loop and no outline of a bare patch of wall.
   Run `$V shot room-art` once the line "Here it is at <size>." plays: the art hangs on the wall in the panel, and a person in the video stays in front of it.
+- **The panel opening.** Run the panel with a recorded camera once, and read its window's rect with a `CGWindowListCopyWindowInfo` read of the Clicky windows.
+  The next open uses the same rect while the mouse stays on that display, since only a move or a resize saves another place.
+  Run `$V app-quit` before the recording, since `app-launch` refuses to start while that Clicky still runs.
+  Run `screencapture -v -V 20 -R<x>,<y>,<width>,<height> "$RUN/room-art-open.mov" & $V app-launch --room-camera-file <video of a room> "how would this look in my room"; wait`, then `ffmpeg -loglevel error -i "$RUN/room-art-open.mov" -vf fps=30 "$RUN/room-art-open-%04d.png"`.
+  In the first frames that show the panel, it is faint and already fills its rect, and within about half a second it is solid.
+- **The panel closing.** With the panel open and a result showing, record 4 s with the same `screencapture` alone (`-V 4`, no `app-launch`) into `room-art-close.mov` and click Close during it (`swift demo/scripts/mouse/mouse.swift click <x of the panel's right edge - 32> <y of its top edge + 32>`).
+  The frames show the panel fading out in about 0.15 s with its status line and buttons fading with it, and no control disappears or changes before the panel does.
+  No frame of the plain camera replaces a painting, a placed item, or a painted shirt during the fade.
+  The loop's outline stays where it was.
+  The loop's cursor glyph may keep moving around the outline, and one frame sent just before the click may still show.
+- **Reopening during the fade.** Run `$V app-quit` first.
+  On a wall art page, such as an IKEA framed print, run `$V app-launch --room-camera-file <video of a room> "how would this look on my wall|+40 how would this look on my wall"`.
+  While the second request still reads the front tab, before the panel's status line changes, click the wall in the panel, which moves the art, so the request closes the panel and opens it again at once.
+  The window is under a second, so the click often comes too late.
+  The log then shows the second request kept the room.
+  When the click lands in time, a recording shows the panel staying at full size and coming back from its fade.
+  The unit test `aPanelOpenedAgainDuringItsCloseStaysAndFadesBackInFromWhereItIs` pins the rule.
+- **Reduce Motion.** This changes a setting of the Mac, so turn it off again afterward.
+  Turn on System Settings > Accessibility > Display > Reduce motion.
+  Run `$V app-quit` before each launch, then record the panel opening and closing as above.
+  The panel fades in over about 0.15 s instead of half a second, and a click on Close counts as soon as the panel shows.
+- **The status pill at the smallest size.** The panel's place is a Debug app default, so save it first with `defaults read com.crodris.clicky-watch-along roomArtPanelFrame`.
+  Run `$V app-quit` and `defaults write com.crodris.clicky-watch-along roomArtPanelFrame -string '{{200, 200}, {480, 270}}'`, then `$V app-launch --room-camera-file <video that turns> "how would this look on my wall"`.
+  Once the video turns away, `$V shot room-art-pill-small` shows "Lost the wall. Turn back, or click the wall to place it again." whole on 2 lines in a solid dark pill, with Save photo and Close whole beside and above it.
+  Write the saved value back with `defaults write com.crodris.clicky-watch-along roomArtPanelFrame -string '<the value read>'`.
+  When the first read said the key does not exist, remove it with `defaults delete com.crodris.clicky-watch-along roomArtPanelFrame` instead.
 - **Picture from the image file.** Leave a cookie banner up over the product photo, such as IKEA's, and run `$V app-launch --room-camera-file <video of a room> "how would this look in my room"`.
   The log says `Room art: used the page's image file (WxH) from <host>` with a long side of at most 1280, and `$V shot room-art` shows the art with no banner on it.
   A picture with no usable file (a page whose image is not https, is under 160 pixels, or is hosted on localhost or a private address) logs `Room art: ... so the picture is a screen capture` and falls back to the capture.
@@ -106,6 +132,11 @@ Preconditions:
   Saved paintings can be judged again with no request: `SAVED_PAINTINGS=<stems> tools/swift-check.sh --filter RoomFurnitureSavedPaintingCheck`.
   A raw reply can be pasted with the client's own paste and fit, then judged: `RAW_REPLY_STEM=<stem> RAW_REPLY_IMAGE=<raw reply> RAW_REPLY_OUT=<png> tools/swift-check.sh --filter RoomFurnitureRawReplyCheck`.
   The gated room check renders a model on a recorded frame with no app at all: `ROOM_FURNITURE_FRAME=<frame> ROOM_FURNITURE_FLOOR_REPLY=<the /floor reply for it> ROOM_FURNITURE_MODEL=<glb> ROOM_FURNITURE_SIZE_CM=55x45x55 ROOM_FURNITURE_OUT=<folder> tools/swift-check.sh --filter RoomFurnitureRoomCheck`, which writes `<model>-composite.png` and `<model>-metrics.json`, and with `ROOM_FURNITURE_WORKER`, `ROOM_FURNITURE_APP_SECRET`, and `ROOM_FURNITURE_PRODUCT_JPEG` (the furniture's cutout over white) also `<model>-render-and-painting.png` (about $0.045).
+- **"Step aside" only while arranging.** Run `$V app-quit` first.
+  With a camera video where a person stands in the box the ghost takes, open IKEA's LACK side table and run `$V app-launch --room-camera-file <that video> "how would this table look in my room|+40 right there"`.
+  While the piece is arranged, `$V shot room-art-step-aside` shows "Step aside for a second." in the status line under the half-opacity ghost.
+  About 45 s after the placement the store model's render shows, and `$V shot room-art-step-aside-showing` shows the piece's own line, "On your floor, <size>", although the person still stands in the box.
+  When the video turns away during the wait, the status line says "Lost the floor. Turn back to where the piece stands." instead.
 - **A floor item that is not furniture.** Open a lamp page (a floor lamp) or a rug page that states its size, and run `$V app-launch --room-camera-file room-floor.mp4 "how would this lamp look in my room|+40 right there"`.
   The `/try-it-item` reply is `standing` with `standsOn` `floor` (a rug has a height near 1 cm), so the log shows the same floor lines as furniture, `Room art: floor N m away, tilted N degrees`, then the ghost.
   The log never says `which cannot be tried`, and "I can show things on your wall, your floor, or a table so far." never plays.

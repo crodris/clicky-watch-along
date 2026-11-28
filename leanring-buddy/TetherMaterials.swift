@@ -33,15 +33,26 @@ struct TetherCardMaterial: ViewModifier {
                 startPoint: .top,
                 endPoint: .bottom
             )))
-            .overlay(cardShape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .overlay(TetherCardEdge())
+            .compositingGroup()
+            .shadow(color: .black.opacity(0.45), radius: 3, x: 0, y: 1)
+            .shadow(color: .black.opacity(0.35), radius: 24, x: 0, y: 14)
+    }
+}
+
+/// The Card's edge: the 1 point white edge at 8% and the inner top highlight. It takes no clicks. A surface that fills the
+/// Card with its own content, such as the room art panel's video, draws it over that content.
+struct TetherCardEdge: View {
+    private let cardShape = RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous)
+
+    var body: some View {
+        cardShape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
             // The inner top highlight: the edge is brighter along the top quarter and fades out going down.
             .overlay(cardShape.strokeBorder(
                 LinearGradient(colors: [Color.white.opacity(0.10), Color.white.opacity(0)], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.25)),
                 lineWidth: 1
             ))
-            .compositingGroup()
-            .shadow(color: .black.opacity(0.45), radius: 3, x: 0, y: 1)
-            .shadow(color: .black.opacity(0.35), radius: 24, x: 0, y: 14)
+            .allowsHitTesting(false)
     }
 }
 

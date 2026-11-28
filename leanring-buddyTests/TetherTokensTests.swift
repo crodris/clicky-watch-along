@@ -2,7 +2,7 @@
 //  TetherTokensTests.swift
 //  leanring-buddyTests
 //
-//  The Tether tokens: the type scale's four sizes, each move's curve and Reduce Motion form as the spec gives them, the
+//  The Tether tokens: the type scale's five sizes (`display` is the largest), each move's curve and Reduce Motion form as the spec gives them, the
 //  curves' math, and the Card and Callout drawn at 2x.
 //
 
@@ -16,8 +16,9 @@ import Testing
 struct TetherTokensTests {
     // MARK: - Type scale
 
-    @Test func theSixTypeStylesUseOnlyTheFourSizes() {
-        #expect(Set(DS.TypeScale.allCases.map(\.pointSize)) == [17, 15, 13, 11])
+    @Test func theTypeStylesUseOnlyTheFiveSizes() {
+        #expect(Set(DS.TypeScale.allCases.map(\.pointSize)) == [120, 17, 15, 13, 11])
+        #expect(DS.TypeScale.display.pointSize == 120 && DS.TypeScale.display.weight == .bold && DS.TypeScale.display.design == .rounded)
         #expect(DS.TypeScale.voice.pointSize == 15 && DS.TypeScale.voice.weight == .bold && DS.TypeScale.voice.design == .rounded)
         #expect(DS.TypeScale.data.design == .monospaced)
     }
