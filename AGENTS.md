@@ -490,7 +490,9 @@ It fades in on the Glide move's time (`RoomArtPanelMotion`), and fades out over 
 The fading panel keeps drawing what it showed as the close began (`RoomArtPreviewController.panelContent`): its last frame, status line, buttons, loop, and furniture ghost, until it is off the screen or opens again.
 The panel view draws the state from that content, never from the live properties that a close clears.
 With Reduce Motion on it fades in over `DS.Move.fadeSeconds`.
-It has no grow: one scaling from 0.97 was tried, and at 3 percent over a third of a second it could not be seen, while the controls took clicks at their full size as they were drawn smaller.
+It has no grow.
+A scale from 0.97 over the Glide move's half second was tried, and it could not be seen.
+It also left the controls taking clicks at their full size while they were drawn smaller.
 The panel is at its full size from its first frame, so its controls take clicks as soon as it shows.
 A close stops the camera at once, and the fading window takes no clicks.
 From the moment the session ends, the frame processor shows no frame and moves no loop until the next session, a frame already on its way included (`RoomArtFrameProcessor.endTheSession`), so the fading panel never changes.

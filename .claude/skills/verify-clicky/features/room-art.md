@@ -75,7 +75,7 @@ Preconditions:
   The next open uses the same rect while the mouse stays on that display, since only a move or a resize saves another place.
   Run `screencapture -v -V 20 -R<x>,<y>,<width>,<height> "$RUN/room-art-open.mov" & $V app-launch --room-camera-file <video of a room> "how would this look in my room"; wait`, then `ffmpeg -loglevel error -i "$RUN/room-art-open.mov" -vf fps=30 "$RUN/room-art-open-%04d.png"`.
   In the first frames that show the panel, it is faint and already fills its rect, and within about half a second it is solid.
-- **The panel closing.** With the panel open and a result showing, record 4 s as above into `room-art-close.mov` and click Close during it (`./mouse click <x of the panel's right edge - 32> <y of its top edge + 32>`).
+- **The panel closing.** With the panel open and a result showing, record 4 s as above into `room-art-close.mov` and click Close during it (`swift demo/scripts/mouse/mouse.swift click <x of the panel's right edge - 32> <y of its top edge + 32>`).
   The frames show the panel fading out in about 0.15 s with its status line and buttons fading with it, and no control disappears or changes before the panel does.
   The picture and any loop hold still during the fade: no frame of the plain camera replaces a painting, a placed item, or a painted shirt.
 - **Reopening during the fade.** On a wall art page with collapsed sections, such as an IKEA framed print, run `$V app-launch --room-camera-file <video of a room> "how would this look on my wall|+40 how would this look on my wall"`.

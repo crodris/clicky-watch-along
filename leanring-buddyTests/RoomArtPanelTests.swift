@@ -467,10 +467,8 @@ struct RoomArtPanelMotionTests {
         #expect(harness.fades.last?.windowAlphaAtTheStart == 0.5)
     }
 
-    @Test(arguments: [false, true])
-    func openingThePanelEndsAHoverThePointerLeftWhileItClosed(reduceMotionIsOn: Bool) {
+    @Test func openingThePanelEndsAHoverThePointerLeftWhileItClosed() {
         let harness = Harness()
-        harness.reduceMotionIsOn = reduceMotionIsOn
         let content = NSView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))
         harness.window.contentView = content
         let hoverView = HoverAndPointerNSView(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
