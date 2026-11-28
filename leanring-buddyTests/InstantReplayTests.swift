@@ -687,8 +687,7 @@ struct InstantReplayTests {
         // A point in the open window's margin, too far outside the narrower window for it to read the mouse, so only the
         // resize itself can check the pointer.
         let pointInTheNewMargin = CGPoint(x: openFrame.minX + 4, y: openFrame.midY)
-        // Mirrors InstantReplayPanelController's private pointerNearDistance.
-        let pointerNearDistance: CGFloat = 8
+        let pointerNearDistance = ShadowMarginMousePassThrough.pointerNearDistance
         #expect(!offeredFrame.insetBy(dx: -pointerNearDistance, dy: -pointerNearDistance).contains(pointInTheNewMargin))
         control.pointer.location = pointInTheNewMargin
         control.show()
@@ -709,11 +708,11 @@ struct InstantReplayTests {
         control.show()
         defer { control.panelController.hide() }
         let panel = try #require(control.panelController.panel)
-        let hostingView = try #require(panel.contentView)
+        let entryView = try #require(control.panelController.pointerEntryView)
         #expect(control.panelController.clickThroughTimer == nil)
         #expect(!panel.ignoresMouseEvents)
         func entryTrackingArea() -> NSTrackingArea? {
-            hostingView.trackingAreas.first { $0.owner === hostingView && $0.options.contains(.activeAlways) }
+            entryView.trackingAreas.first { $0.owner === entryView && $0.options.contains(.activeAlways) }
         }
         // The pointer comes back, which the window's tracking area reports.
         control.pointer.location = inTheShadowMargin(of: panel.frame)
@@ -725,7 +724,7 @@ struct InstantReplayTests {
         let areaBeforeThePass = try #require(entryTrackingArea())
         // A drag that ends over the margin, such as one that turns the model, must report the entry too.
         #expect(areaBeforeThePass.options.contains(.enabledDuringMouseDrag))
-        hostingView.mouseEntered(with: enterEvent)
+        entryView.mouseEntered(with: enterEvent)
         #expect(panel.ignoresMouseEvents)
         #expect(control.panelController.clickThroughTimer != nil)
         control.pointer.location = CGPoint(x: -30_000, y: -30_000)
@@ -736,7 +735,7 @@ struct InstantReplayTests {
         #expect(entryTrackingArea() !== areaBeforeThePass)
         // A pointer on the window's very edge, where the tracking area reports an entry, counts as near.
         control.pointer.location = CGPoint(x: panel.frame.midX, y: panel.frame.maxY)
-        hostingView.mouseEntered(with: enterEvent)
+        entryView.mouseEntered(with: enterEvent)
         #expect(control.panelController.clickThroughTimer != nil)
         control.panelController.hide()
         #expect(control.panelController.clickThroughTimer == nil)

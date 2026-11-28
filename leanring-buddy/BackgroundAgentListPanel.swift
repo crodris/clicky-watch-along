@@ -305,15 +305,22 @@ final class AgentListPanelController {
     private let actions: AgentListActions
     /// The queue of requests the learner answers with the buttons of the approval card.
     private let approvalDesk: HarnessApprovalDesk
-    private var panel: NonKeyFloatingPanel?
+    /// Readable by a test, which checks the window's frame and its mouse state.
+    private(set) var panel: NonKeyFloatingPanel?
     private var clickOutsideMonitor: Any?
-    /// Sees a click that lands on the window's own shadow margin in the moment before `clickThroughTimer` lets it pass,
+    /// Sees a click that lands on the window's own shadow margin in the moment before `shadowMarginMouse` lets it pass,
     /// which the global monitor never gets, since the window server delivers it to this panel.
     private var clickInTheShadowMonitor: Any?
-    /// Reads the mouse 60 times a second while the list is open and lets the mouse pass through the shadow margin
-    /// (`AgentListWindowMargins.windowPassesTheMouseThrough`). A global monitor misses moves over this panel, and the panel
-    /// is never key, so a poll is the one reading that sees the pointer on both sides of the Card's edge.
-    private var clickThroughTimer: Timer?
+    /// Lets the mouse pass through the shadow margin (`AgentListWindowMargins.windowPassesTheMouseThrough`). It reads the
+    /// mouse 60 times a second only while the pointer is near the window, since a global monitor misses moves over this
+    /// panel, which is never key.
+    private var shadowMarginMouse: ShadowMarginMousePassThrough?
+    /// Readable by a test, which checks that the timer runs only while the pointer is near the window.
+    var clickThroughTimer: Timer? { shadowMarginMouse?.clickThroughTimer }
+    /// Where the pointer is on screen. A test sets it, since the real pointer is wherever the learner left it.
+    var mouseLocationOnScreen: () -> CGPoint = { NSEvent.mouseLocation } {
+        didSet { shadowMarginMouse?.mouseLocationOnScreen = mouseLocationOnScreen }
+    }
     /// Where the Card's top-left corner sits, fixed when it opens so a row that expands grows the Card downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
@@ -398,7 +405,8 @@ final class AgentListPanelController {
         discTheListWasOpenedFrom = discID
     }
 
-    private func open(anchorTopLeft: CGPoint, visibleFrame: CGRect, initiallyExpandedAgentID: UUID?, glideOriginPoint: CGPoint, screen: NSScreen?) {
+    /// With no `screen`, the list fades in place instead of Gliding, which lets a test open it in a frame off every screen.
+    func open(anchorTopLeft: CGPoint, visibleFrame: CGRect, initiallyExpandedAgentID: UUID?, glideOriginPoint: CGPoint, screen: NSScreen?) {
         guard panel == nil else { return }
         self.visibleFrame = visibleFrame
         self.anchorTopLeft = anchorTopLeft
@@ -434,27 +442,9 @@ final class AgentListPanelController {
         resizePanel(to: initialSize)
         showThePanel(agentListPanel)
         installClickOutsideMonitor()
-        letTheMousePassThroughTheShadow(of: agentListPanel)
-    }
-
-    private func letTheMousePassThroughTheShadow(of agentListPanel: NonKeyFloatingPanel) {
-        let updateWhetherThePanelTakesTheMouse = { [weak agentListPanel] in
-            guard let agentListPanel else { return }
-            let passesTheMouseThrough = AgentListWindowMargins.windowPassesTheMouseThrough(at: NSEvent.mouseLocation, windowFrame: agentListPanel.frame)
-            if agentListPanel.ignoresMouseEvents != passesTheMouseThrough {
-                agentListPanel.ignoresMouseEvents = passesTheMouseThrough
-                if let contentView = agentListPanel.contentView {
-                    refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: passesTheMouseThrough)
-                }
-            }
-        }
-        updateWhetherThePanelTakesTheMouse()
-        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in
-            MainActor.assumeIsolated { updateWhetherThePanelTakesTheMouse() }
-        }
-        // The common modes keep it running while a menu or a drag tracks the mouse.
-        RunLoop.main.add(timer, forMode: .common)
-        clickThroughTimer = timer
+        let mousePassThrough = ShadowMarginMousePassThrough(panel: agentListPanel, mouseLocationOnScreen: mouseLocationOnScreen)
+        mousePassThrough.start()
+        shadowMarginMouse = mousePassThrough
     }
 
     /// Shows the list: it Glides out of its origin on the carrier and the real panel appears at the landing, or, with Reduce
@@ -645,8 +635,8 @@ final class AgentListPanelController {
             NSEvent.removeMonitor(clickInTheShadowMonitor)
             self.clickInTheShadowMonitor = nil
         }
-        clickThroughTimer?.invalidate()
-        clickThroughTimer = nil
+        shadowMarginMouse?.stop()
+        shadowMarginMouse = nil
         if let resizeObserver {
             NotificationCenter.default.removeObserver(resizeObserver)
             self.resizeObserver = nil

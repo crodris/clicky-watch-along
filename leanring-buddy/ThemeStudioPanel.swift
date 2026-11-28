@@ -35,11 +35,24 @@ final class ThemeStudioPanelController {
     /// Called with what a click on Save did, so the app can say so the way it does for the voice tool.
     private let onSaveClicked: (ThemeStudioController.SaveOutcome) -> Void
 
-    private var panel: NonKeyFloatingPanel?
+    /// Readable by a test, which checks the window's frame and its mouse state.
+    private(set) var panel: NonKeyFloatingPanel?
+    /// Lets the mouse pass through the window's shadow margin to the page under it (`ShadowMarginMousePassThrough`).
+    private var shadowMarginMouse: ShadowMarginMousePassThrough?
+    /// Readable by a test, which checks that the timer runs only while the pointer is near the window.
+    var clickThroughTimer: Timer? { shadowMarginMouse?.clickThroughTimer }
+    /// Where the pointer is on screen. A test sets it, since the real pointer is wherever the learner left it.
+    var mouseLocationOnScreen: () -> CGPoint = { NSEvent.mouseLocation } {
+        didSet { shadowMarginMouse?.mouseLocationOnScreen = mouseLocationOnScreen }
+    }
+    /// A test sets this to put the card in a frame far off every screen, with no screen to Glide on, so no one sees it.
+    var visibleFrameForTests: CGRect?
     /// Where the Card's top-left corner sits, fixed when it opens so a taller card grows downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
     private var resizeObserver: NSObjectProtocol?
+    /// Whether a resize to the card's height waits for the next turn (`followTheCardWithTheWindow`).
+    private var windowResizeIsScheduled = false
     /// The center of the highlighted tile's cursor in the window's coordinates (y grows down), which a save flies from.
     private var highlightedTileCursorCenterInTheWindow: CGPoint?
     /// The card window's level, which a test reads to see when the card rises above the cursor overlay.
@@ -74,8 +87,8 @@ final class ThemeStudioPanelController {
         guard panel == nil else { return }
         self.studio = studio
         let mouseLocation = NSEvent.mouseLocation
-        let screen = screenUnderTheMouseCursor()
-        visibleFrame = screen?.visibleFrame ?? .zero
+        let screen = visibleFrameForTests == nil ? screenUnderTheMouseCursor() : nil
+        visibleFrame = visibleFrameForTests ?? screen?.visibleFrame ?? .zero
         let pictureRect = pictureTheLoopIsAround()
         anchorTopLeft = themeStudioCardAnchorTopLeft(
             pictureRect: pictureRect,
@@ -85,7 +98,8 @@ final class ThemeStudioPanelController {
             gapFromTheMouse: Self.gapFromTheMouse
         )
 
-        let hostingView = FirstMouseHostingView(rootView: makeCardView(studio: studio, landsTilesIn: true, reportsItsSize: true))
+        let hostingView = CardSizeReportingHostingView(rootView: makeCardView(studio: studio, landsTilesIn: true))
+        hostingView.onTheCardSizeMayHaveChanged = { [weak self] in self?.followTheCardWithTheWindow() }
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
         let initialSize = CGSize(
@@ -122,6 +136,9 @@ final class ThemeStudioPanelController {
         }
         resizePanel(to: initialSize)
         showThePanel(cardPanel, studio: studio, screen: screen)
+        let mousePassThrough = ShadowMarginMousePassThrough(panel: cardPanel, mouseLocationOnScreen: mouseLocationOnScreen)
+        mousePassThrough.start()
+        shadowMarginMouse = mousePassThrough
     }
 
     /// Glides the card out of the cursor on the carrier, with the real panel appearing at the landing, or crossfades it in
@@ -139,7 +156,7 @@ final class ThemeStudioPanelController {
         let panelFrame = cardPanel.frame
         openingFlight = TetherCarrier.shared.play(
             .glideFromOrigin(cursorGlyphPoint, into: panelFrame),
-            carrying: makeCardView(studio: studio, landsTilesIn: false, reportsItsSize: false)
+            carrying: makeCardView(studio: studio, landsTilesIn: false)
                 .frame(width: panelFrame.width, height: panelFrame.height, alignment: .top),
             onDisplay: screen.displayID,
             tetherColor: NSColor(studio.themeSettings.shownTheme.cursorColor),
@@ -152,19 +169,29 @@ final class ThemeStudioPanelController {
         )
     }
 
-    private func makeCardView(studio: ThemeStudioController, landsTilesIn: Bool, reportsItsSize: Bool) -> ThemeStudioCardView {
+    private func makeCardView(studio: ThemeStudioController, landsTilesIn: Bool) -> ThemeStudioCardView {
         ThemeStudioCardView(
             studio: studio,
             landsTilesIn: landsTilesIn,
             onSaveClicked: onSaveClicked,
             onHighlightedCursorCenterChange: { [weak self] cursorCenter in
                 self?.highlightedTileCursorCenterInTheWindow = cursorCenter
-            },
-            onContentSizeChange: { [weak self] contentSize in
-                guard reportsItsSize else { return }
-                self?.resizePanel(to: contentSize)
             }
         )
+    }
+
+    /// Sets the window to the card's height each time the card asks for another one, taller or shorter. The card's size is read
+    /// from the hosting view, since the size a SwiftUI preference reported came as 0 and never followed the card. One resize
+    /// per turn covers every change the card makes in it.
+    private func followTheCardWithTheWindow() {
+        guard !windowResizeIsScheduled else { return }
+        windowResizeIsScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            windowResizeIsScheduled = false
+            guard let contentView = panel?.contentView else { return }
+            resizePanel(to: contentView.fittingSize)
+        }
     }
 
     func hide(because reason: ThemeStudioCardClosing) {
@@ -174,6 +201,8 @@ final class ThemeStudioPanelController {
             self.resizeObserver = nil
         }
         levelFollowsTheDesign = nil
+        shadowMarginMouse?.stop()
+        shadowMarginMouse = nil
         let flightToEnd = openingFlight
         openingFlight = nil
         let closingPanel = panel
@@ -261,7 +290,7 @@ final class ThemeStudioPanelController {
         closingPanel.contentView = nil
         TetherCarrier.shared.play(
             .glideClose(from: closingFrame, into: cursorGlyphPoint),
-            carrying: makeCardView(studio: studio, landsTilesIn: false, reportsItsSize: false)
+            carrying: makeCardView(studio: studio, landsTilesIn: false)
                 .frame(width: closingFrame.width, height: closingFrame.height, alignment: .top),
             onDisplay: screen.displayID,
             tetherColor: NSColor(studio.themeSettings.shownTheme.cursorColor),
@@ -304,10 +333,14 @@ func themeStudioCardExit(
 
 // MARK: - Card
 
-private struct ThemeStudioCardSizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
+/// The card's hosting view, which says when the card's size may have changed. NSHostingView invalidates its intrinsic size each
+/// time the card's layout asks for another size.
+private final class CardSizeReportingHostingView<Content: View>: FirstMouseHostingView<Content> {
+    var onTheCardSizeMayHaveChanged: (() -> Void)?
+
+    override func invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        onTheCardSizeMayHaveChanged?()
     }
 }
 
@@ -328,7 +361,6 @@ struct ThemeStudioCardView: View {
     let landsTilesIn: Bool
     let onSaveClicked: (ThemeStudioController.SaveOutcome) -> Void
     let onHighlightedCursorCenterChange: (CGPoint?) -> Void
-    let onContentSizeChange: (CGSize) -> Void
 
     private static let hint = "Say one, two, or three · or what to change · say save it"
 
@@ -381,14 +413,6 @@ struct ThemeStudioCardView: View {
             bottom: AgentListWindowMargins.bottom,
             trailing: AgentListWindowMargins.trailing
         ))
-        .background(
-            GeometryReader { geometryProxy in
-                Color.clear.preference(key: ThemeStudioCardSizePreferenceKey.self, value: geometryProxy.size)
-            }
-        )
-        .onPreferenceChange(ThemeStudioCardSizePreferenceKey.self) { contentSize in
-            onContentSizeChange(contentSize)
-        }
         .onPreferenceChange(HighlightedTileCursorCenterPreferenceKey.self) { cursorCenter in
             onHighlightedCursorCenterChange(cursorCenter)
         }

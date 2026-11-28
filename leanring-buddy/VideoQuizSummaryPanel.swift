@@ -240,7 +240,16 @@ private struct VideoQuizSummaryCloseButton: View {
 /// Owns the summary Card's panel: a nonactivating panel that never becomes key, so the page under it keeps the keyboard.
 @MainActor
 final class VideoQuizSummaryPanelController {
-    private var panel: NonKeyFloatingPanel?
+    /// Readable by a test, which checks the window's frame and its mouse state.
+    private(set) var panel: NonKeyFloatingPanel?
+    /// Lets the mouse pass through the window's shadow margin to the page under it (`ShadowMarginMousePassThrough`).
+    private var shadowMarginMouse: ShadowMarginMousePassThrough?
+    /// Where the pointer is on screen. A test sets it, since the real pointer is wherever the learner left it.
+    var mouseLocationOnScreen: () -> CGPoint = { NSEvent.mouseLocation } {
+        didSet { shadowMarginMouse?.mouseLocationOnScreen = mouseLocationOnScreen }
+    }
+    /// A test sets this to put the Card in a frame far off every screen, with no screen to Glide on, so no one sees it.
+    var visibleFrameForTests: CGRect?
     private var shownCardFrame: CGRect?
     private var glideOrigin: CGPoint = .zero
     private var shownCardView: VideoQuizSummaryCardView?
@@ -293,11 +302,11 @@ final class VideoQuizSummaryPanelController {
             height: windowSize.height - AgentListWindowMargins.vertical
         )
         let mouseLocation = NSEvent.mouseLocation
-        let screen = videoRect.flatMap { rect in NSScreen.screens.first { $0.frame.intersects(rect) } }
+        let screen = visibleFrameForTests != nil ? nil : videoRect.flatMap { rect in NSScreen.screens.first { $0.frame.intersects(rect) } }
             ?? NSScreen.screens.first { $0.frame.contains(mouseLocation) }
             ?? NSScreen.main
-        guard let screen else { return }
-        let cardFrame = videoQuizSummaryCardFrame(cardSize: cardSize, videoRect: videoRect, visibleFrame: screen.visibleFrame)
+        guard let visibleFrame = visibleFrameForTests ?? screen?.visibleFrame else { return }
+        let cardFrame = videoQuizSummaryCardFrame(cardSize: cardSize, videoRect: videoRect, visibleFrame: visibleFrame)
         let windowTopLeft = AgentListWindowMargins.windowTopLeft(forCardTopLeft: CGPoint(x: cardFrame.minX, y: cardFrame.maxY))
         let windowFrame = CGRect(x: windowTopLeft.x, y: windowTopLeft.y - windowSize.height, width: windowSize.width, height: windowSize.height)
         let summaryPanel = NonKeyFloatingPanel(contentRect: windowFrame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -319,11 +328,16 @@ final class VideoQuizSummaryPanelController {
         case .quizEnded:
             glideOrigin = videoQuizSummaryGlideOrigin(videoRect: videoRect, mouseLocation: mouseLocation)
         case .videoEnded:
-            glideOrigin = videoRecapGlideOrigin(cursorPoint: cursorPoint, cardScreenFrame: screen.frame, videoRect: videoRect, mouseLocation: mouseLocation)
+            glideOrigin = videoRecapGlideOrigin(cursorPoint: cursorPoint, cardScreenFrame: screen?.frame ?? visibleFrame, videoRect: videoRect, mouseLocation: mouseLocation)
         }
         print("Video quiz summary: showing the Card at \(cardFrame.integral) after \(moment == .videoEnded ? "the video ended" : "the quiz ended"), \(videoRect == nil ? "with no video in front" : "over the video")")
 
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        let mousePassThrough = ShadowMarginMousePassThrough(panel: summaryPanel, mouseLocationOnScreen: mouseLocationOnScreen)
+        mousePassThrough.start()
+        shadowMarginMouse = mousePassThrough
+
+        // With no screen to Glide on, the Card fades in place.
+        guard let screen, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             summaryPanel.alphaValue = 0
             summaryPanel.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { context in
@@ -349,6 +363,10 @@ final class VideoQuizSummaryPanelController {
     func close(animated: Bool) {
         guard let closingPanel = panel else { return }
         panel = nil
+        shadowMarginMouse?.stop()
+        shadowMarginMouse = nil
+        // The Card fades or Glides for a moment, and a click on it then must not reach its buttons.
+        closingPanel.ignoresMouseEvents = true
         onClosed?(glideOrigin)
         // A Card still Gliding in lands at once and leaves with it, and the guard in its landing keeps the real panel from
         // showing.
