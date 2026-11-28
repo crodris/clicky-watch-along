@@ -237,8 +237,8 @@ struct AccentInkTests {
         try #require(!hoverRules.isEmpty)
         for declaration in hoverRules.flatMap({ $0.output.2.split(separator: ";") }) {
             let declaration = declaration.trimmingCharacters(in: .whitespacesAndNewlines)
-            // A new background, an opacity, or a filter would each draw the fill differently from the one its ink was
-            // chosen for: an opacity lets the panel show through the fill and the label.
+            // A new background, an opacity, a filter, or a blend mode would each draw the fill differently from the one its
+            // ink was chosen for: an opacity lets the panel show through the fill and the label.
             let property = declaration.split(separator: ":").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
             let changesTheFill = property.hasPrefix("background") || ["opacity", "filter", "mix-blend-mode"].contains(property)
             #expect(!changesTheFill, "\(declaration)")

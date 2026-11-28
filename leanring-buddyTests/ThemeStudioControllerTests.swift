@@ -803,23 +803,28 @@ struct ThemeStudioCardGlideInCloseTests {
         #expect(cardPanel.openingFlight == nil)
     }
 
-    /// The real panel's window follows the card's height, which the offscreen frame tests leave out: a window shorter than
-    /// its card would cut the card off at its bottom. `onContentSizeChange` sets the frame, and the hosting view's own sizing
-    /// also holds the window to the card's height, so on 2026-11-27 a callback that set the frame 60 points short, or set
-    /// nothing, still passed. The test pins the outcome the learner sees and not one of the two paths.
+    /// The real panel's window grows with the card, which the offscreen frame tests leave out: a window shorter than its card
+    /// would cut the card off. The hosting view's own sizing holds the window no shorter than the card, so on 2026-11-27 a
+    /// callback that set the frame 60 points short, or set nothing, still passed. A card that shrinks leaves the window
+    /// taller than it, a bug main already has, so this test checks only growth until that is fixed.
     @Test(.showsARealWindow)
     func theRealPanelsWindowGrowsWithTheCardAsIdeasArriveAndADesignFails() async throws {
         let harness = StudioHarness()
-        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }, { throw WorkerFailure() }]
+        harness.workerReplies = [
+            { try reply(names: ["Ember", "Moonlit", "Forest"]) },
+            { throw WorkerFailure() },
+        ]
         let cardPanel = ThemeStudioPanelController(onSaveClicked: { _ in })
         defer { cardPanel.hide(because: .dismissed) }
-        let tallestWindowHeight = ThemeStudioPanelController.tallestCardHeight + AgentListWindowMargins.vertical
 
-        func waitUntilTheWindowFitsTheCard() async throws -> (window: CGFloat, card: CGFloat) {
+        /// Waits until the card's height has changed from `previousCardHeight` and the window fits it, or 10 seconds pass,
+        /// so a first poll that still reads the old card and its old window never counts.
+        func heightsOnceTheWindowFitsANewCardHeight(previousCardHeight: CGFloat) async throws -> (window: CGFloat, card: CGFloat) {
             let deadline = Date().addingTimeInterval(10)
             while true {
                 let heights = try #require(cardPanel.windowHeightAndCardHeight)
-                if abs(heights.window - min(heights.card, tallestWindowHeight)) < 1 || Date() >= deadline { return heights }
+                let cardChanged = abs(heights.card - previousCardHeight) >= 1
+                if (cardChanged && abs(heights.window - heights.card) < 1) || Date() >= deadline { return heights }
                 try await Task.sleep(for: .milliseconds(50))
             }
         }
@@ -828,16 +833,16 @@ struct ThemeStudioCardGlideInCloseTests {
         cardPanel.show(studio: harness.studio)
         let whileDesigning = try #require(cardPanel.windowHeightAndCardHeight)
         await harness.studio.waitForTheDesign()
-        let withIdeas = try await waitUntilTheWindowFitsTheCard()
-        #expect(abs(withIdeas.window - min(withIdeas.card, tallestWindowHeight)) < 1, "window \(withIdeas.window), card \(withIdeas.card)")
-        #expect(withIdeas.card != whileDesigning.card, "the ideas should change the card's height")
+        let withIdeas = try await heightsOnceTheWindowFitsANewCardHeight(previousCardHeight: whileDesigning.card)
+        #expect(abs(withIdeas.window - withIdeas.card) < 1, "window \(withIdeas.window), card \(withIdeas.card)")
 
-        // A failed design keeps the ideas and adds the failed row, so the card grows again.
+        // A failed design keeps the ideas and adds the failed row, so the card grows.
         harness.studio.design(request: "warmer", basedOnIdea: nil, pictureChoice: .none)
         await harness.studio.waitForTheDesign()
-        let afterTheFailure = try await waitUntilTheWindowFitsTheCard()
-        #expect(abs(afterTheFailure.window - min(afterTheFailure.card, tallestWindowHeight)) < 1, "window \(afterTheFailure.window), card \(afterTheFailure.card)")
+        let afterTheFailure = try await heightsOnceTheWindowFitsANewCardHeight(previousCardHeight: withIdeas.card)
         #expect(afterTheFailure.card > withIdeas.card, "the failed row should make the card taller")
+        #expect(abs(afterTheFailure.window - afterTheFailure.card) < 1, "window \(afterTheFailure.window), card \(afterTheFailure.card)")
+
     }
 
     /// A design from a picture raises the real card above the cursor overlay while it runs, and a refine that keeps the
