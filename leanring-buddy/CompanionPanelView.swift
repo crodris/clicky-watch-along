@@ -859,8 +859,8 @@ private struct PanelDebugToolCallLoggingRow: View {
 
 // MARK: - Setup checklist
 
-/// The six setup steps: what Clicky captures and where it goes, a bar that fills as steps finish, one row per step, and
-/// a first question to try once every required step is done.
+/// The six setup steps: what Clicky captures and where it goes, with the full detail behind "What gets sent", a bar that
+/// fills as steps finish, one row per step, and a first question to try once every required step is done.
 struct SetupChecklistView: View {
     let stepStates: [(step: SetupStep, state: SetupStepState)]
     /// A first run shows the "Set up Clicky" heading and the Start button.
@@ -884,10 +884,14 @@ struct SetupChecklistView: View {
                         .foregroundColor(DS.Colors.textPrimary)
                         .accessibilityAddTraits(.isHeader)
                 }
-                Text(setupCaptureDisclosure)
+                Text(setupCaptureSummary)
                     .font(DS.TypeScale.caption.font)
                     .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                SetupWhatGetsSent()
+                Text("Each step below is for one job.")
+                    .font(DS.TypeScale.caption.font)
+                    .foregroundColor(DS.Colors.textSecondary)
             }
 
             SetupProgressBar(fraction: setupProgressFraction(of: stepStates))
@@ -933,6 +937,32 @@ struct SetupChecklistView: View {
             }
         }
         .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: everyRequiredSetupStepIsDone(stepStates))
+    }
+}
+
+/// "What gets sent": a button that opens and closes the full capture disclosure under it.
+struct SetupWhatGetsSent: View {
+    /// Not private, so a test can render the open state.
+    @State var isOpen = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            PanelButton(title: "What gets sent", systemImageName: isOpen ? "chevron.down" : "chevron.right", prominence: .quiet) {
+                withAnimation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)) { isOpen.toggle() }
+            }
+            .accessibilityValue(isOpen ? "Shown" : "Hidden")
+            // The quiet button pads its words, so it moves left to start where the text around it starts.
+            .padding(.leading, -6)
+            if isOpen {
+                Text(setupCaptureDisclosure)
+                    .font(DS.TypeScale.caption.font)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

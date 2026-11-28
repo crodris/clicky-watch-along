@@ -195,7 +195,7 @@ final class NonKeyFloatingPanel: NSPanel {
 }
 
 /// A click on a panel that is not key would otherwise only be swallowed by AppKit.
-final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 

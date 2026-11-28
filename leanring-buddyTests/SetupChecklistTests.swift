@@ -3,16 +3,20 @@
 //  leanring-buddyTests
 //
 //  The six setup steps: the state each one reads from what macOS reports, which step the checklist points at, the bar's
-//  share, when setup counts as done, and which buttons a turned-off step offers.
+//  share, when setup counts as done, which buttons a turned-off step offers, and the capture disclosure: a short summary
+//  that shows, and the full detail that stays closed until asked for.
 //
 
 import AVFoundation
 import Speech
+import SwiftUI
 import Testing
 
 @testable import Clicky
 
+/// Serialized, since the accessibility tests turn an app-wide switch on and off around an await.
 @MainActor
+@Suite(.serialized)
 struct SetupChecklistTests {
     /// Everything granted, the test passed, and Chrome control allowed.
     private let everythingDone = SetupFacts(
@@ -119,12 +123,122 @@ struct SetupChecklistTests {
         #expect(setupTurnedOffCaption(for: .screenRecording).contains("quit and reopen"))
     }
 
+    @Test func theShownSummaryIsShortNamesTheCapturesAndClaimsNoCompleteList() {
+        let sentences = setupCaptureSummary.components(separatedBy: ". ")
+        #expect((2...3).contains(sentences.count))
+        #expect(sentences.allSatisfy { $0.split(separator: " ").count < 25 })
+        for words in ["screen", "voice", "camera", "Clicky's own server", "What gets sent"] {
+            #expect(setupCaptureSummary.contains(words), "\(words)")
+        }
+        // Each exact list of places has missed one, so the summary claims none.
+        for claim in ["only", "every", "all"] {
+            let summaryWords = setupCaptureSummary.lowercased().split { !$0.isLetter }.map(String.init)
+            #expect(!summaryWords.contains(claim), "\(claim)")
+        }
+    }
+
+    @Test func voiceOverReadsTheDisclosureButtonByItsWordsAndItsState() async throws {
+        let closed = try await accessibilityElements(of: SetupWhatGetsSent())
+        #expect(closed.map(\.role) == ["AXButton"])
+        #expect(closed.map(\.label) == ["What gets sent"])
+        #expect(closed.map(\.value) == ["Hidden"])
+        let open = try await accessibilityElements(of: SetupWhatGetsSent(isOpen: true))
+        #expect(open.map(\.role) == ["AXButton", "AXStaticText"])
+        #expect(open.map(\.value) == ["Shown", setupCaptureDisclosure])
+    }
+
+    @Test func theLineAboveTheStepsShowsWhileTheDisclosureIsClosed() async throws {
+        let checklist = SetupChecklistView(
+            stepStates: setupStepStates(for: everythingDone),
+            isAFirstRun: false,
+            isRequestingTheScreenTest: false,
+            shownTheme: try #require(bundledThemesForTests.first),
+            runStep: { _, _ in },
+            start: {}
+        )
+        let elements = try await accessibilityElements(of: checklist)
+        let introduction = "Each step below is for one job."
+        #expect(elements.filter { $0.value == introduction }.count == 1)
+        #expect(!elements.contains { $0.value == setupCaptureDisclosure })
+        #expect(!setupCaptureDisclosure.contains(introduction))
+    }
+
+    @Test func readingTheAccessibilityTreeLeavesTheAppWideSwitchAsItFoundIt() async throws {
+        let switchWasOnBeforeThisTest = enhancedUserInterfaceIsOn()
+        defer { setEnhancedUserInterface(switchWasOnBeforeThisTest) }
+        setEnhancedUserInterface(false)
+        _ = try await accessibilityElements(of: SetupWhatGetsSent())
+        #expect(!enhancedUserInterfaceIsOn())
+    }
+
+    private static let enhancedUserInterface = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+
+    private func enhancedUserInterfaceIsOn() -> Bool {
+        NSApplication.shared.accessibilityAttributeValue(Self.enhancedUserInterface) as? Bool ?? false
+    }
+
+    private func setEnhancedUserInterface(_ isOn: Bool) {
+        NSApplication.shared.accessibilitySetValue(isOn, forAttribute: Self.enhancedUserInterface)
+    }
+
+    private struct AccessibilityElement {
+        let role: String
+        let label: String?
+        let value: String?
+    }
+
+    /// What VoiceOver finds in a view: every element under the hosting view, in order. The window is never shown.
+    private func accessibilityElements(of view: some View) async throws -> [AccessibilityElement] {
+        let hostingView = NSHostingView(rootView: view.frame(width: 300))
+        hostingView.frame = CGRect(origin: .zero, size: hostingView.fittingSize)
+        let window = NSWindow(contentRect: hostingView.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        hostingView.layoutSubtreeIfNeeded()
+        // SwiftUI builds its accessibility tree only for an assistive client, which this stands in for. The switch is the
+        // whole app's, and every test shares the app, so it goes back to what it was.
+        let enhancedUserInterfaceWasOn = enhancedUserInterfaceIsOn()
+        defer { setEnhancedUserInterface(enhancedUserInterfaceWasOn) }
+        setEnhancedUserInterface(true)
+        // SwiftUI's accessibility nodes do not conform to NSAccessibilityProtocol, so each is asked by selector.
+        func read(_ object: NSObject, _ attribute: String) -> Any? {
+            let selector = NSSelectorFromString(attribute)
+            return object.responds(to: selector) ? object.perform(selector)?.takeUnretainedValue() : nil
+        }
+        func elements(under element: Any) -> [AccessibilityElement] {
+            guard let object = element as? NSObject else { return [] }
+            return ((read(object, "accessibilityChildren") as? [Any]) ?? []).flatMap { child -> [AccessibilityElement] in
+                guard let childObject = child as? NSObject else { return [] }
+                let found = AccessibilityElement(
+                    role: read(childObject, "accessibilityRole") as? String ?? "",
+                    label: read(childObject, "accessibilityLabel") as? String,
+                    value: read(childObject, "accessibilityValue") as? String
+                )
+                return [found] + elements(under: childObject)
+            }
+        }
+        let deadline = Date().addingTimeInterval(10)
+        while elements(under: hostingView).isEmpty, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return elements(under: hostingView)
+    }
+
+    @Test func theFullDisclosureStaysClosedUntilTheLearnerOpensIt() {
+        func height(of view: SetupWhatGetsSent) -> CGFloat {
+            NSHostingController(rootView: view).sizeThatFits(in: CGSize(width: 300, height: 10_000)).height
+        }
+        // Closed, only the button shows. Open, the long disclosure wraps under it.
+        #expect(height(of: SetupWhatGetsSent()) < 40)
+        #expect(height(of: SetupWhatGetsSent(isOpen: true)) > 150)
+    }
+
     @Test func theDisclosureNamesEveryCaptureAndEveryPlaceItGoes() {
         for capture in ["every display", "pop-out", "3D build", "experiment", "quiz question", "agent", "Theme Studio"] {
             #expect(setupCaptureDisclosure.contains(capture))
         }
         #expect(setupCaptureDisclosure.contains("Anthropic") && setupCaptureDisclosure.contains("OpenAI"))
-        // The room art's camera frames and the furniture's product photo have their own destinations.
+        // The room art's camera frames and a standing item's product photo have their own destinations.
         for roomArtWords in ["camera", "depth service", "fal.ai"] {
             #expect(setupCaptureDisclosure.contains(roomArtWords))
         }

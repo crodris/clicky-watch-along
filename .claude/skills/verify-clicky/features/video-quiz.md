@@ -14,7 +14,7 @@ Saying "stop the quiz" ends it.
 - `quiz-stop` stops on "stop the quiz", "stop watching", or "can we stop".
   During a question it clears the pop-out first, and the video plays once the pop-out has landed in its frame.
 - `quiz-skip` skips the current question on Escape, which `$V key escape` sends.
-- `video-recap` is the same Card at a video's end: when the front tab's video ends (its own `ended` state) and the learner took a quiz on it or wrote a study guide for it since launch, the discs beside the notch fly to the cursor and the Card unfolds from there with a "What you learned" section (the guide's summary, then the explanations of the answers got right) and a "Study guide" button.
+- `video-recap` is the same Card at a video's end: when the front tab's video ends (its own `ended` state) and the learner took a quiz on it or wrote a study guide for it since launch, the discs beside the notch fly to the cursor and the Card unfolds from there with any missed questions, then a "What you learned" section (the guide's summary, then the explanations of the answers got right), and a "Study guide" button.
   The Card that ended the quiz already showed the same recap, so it shows again only when a guide was written since.
   An ending in a playlist that starts its next video within the 3 second poll can be missed, and an ad on the same video element may report `ended`.
   The log says `Video recap: the video ended, so its recap shows` and `Recap gather: N discs fly to the cursor`, and a closed Card sends the discs back.

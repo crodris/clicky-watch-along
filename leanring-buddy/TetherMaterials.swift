@@ -116,8 +116,9 @@ struct TetherCalloutShape: Shape {
     }
 }
 
-/// The Callout: a solid `#14171e` pill with an accent rim and a soft accent halo, an accent icon disc with near-black ink,
+/// The Callout: a solid `#14171e` pill with an accent rim, an accent icon disc with near-black ink,
 /// a tail toward the cursor, and its words in white at 15/700 rounded (`DS.TypeScale.voice`).
+/// Its one shadow is black. The rim alone carries the accent, so a saturated theme never glows onto the page.
 ///
 ///     TetherCallout(accent: theme.cursorColor, rim: .chip) {
 ///         Image(systemName: "arrow.counterclockwise")
@@ -156,7 +157,6 @@ struct TetherCallout<Icon: View, Content: View>: View {
         .background(TetherCalloutShape().fill(DS.Colors.calloutSurface))
         .overlay(TetherCalloutShape(inset: rim.lineWidth / 2).stroke(accent, style: StrokeStyle(lineWidth: rim.lineWidth, lineJoin: .round)))
         .compositingGroup()
-        .shadow(color: accent.opacity(0.32), radius: 9)
         .shadow(color: .black.opacity(0.4), radius: 5, x: 0, y: 3)
     }
 }

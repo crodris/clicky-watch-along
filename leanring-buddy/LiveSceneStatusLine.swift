@@ -32,7 +32,7 @@ enum LiveSceneStatusLine: CaseIterable {
         }
     }
 
-    /// The line's own hue, on the Callout's rim, halo, and icon disc. The hue says what kind of work runs, so it does not
+    /// The line's own hue, on the Callout's rim and icon disc. The hue says what kind of work runs, so it does not
     /// follow the theme. Each is the 400 step of its color, bright enough for a 3:1 rim on the dark Callout.
     var calloutAccent: Color {
         switch self {

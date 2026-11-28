@@ -129,6 +129,45 @@ struct VideoQuizSummaryTests {
 
     // MARK: - The Card at 2x
 
+    @Test func theMissedQuestionsShowAboveWhatTheLearnerLearned() throws {
+        let recap = try #require(VideoRecap(quizResults: [
+            quizResult("What does the vent do?", at: 134, .missed),
+            quizResult("What does the crater do?", at: 40, .gotIt),
+        ], studyGuideRecord: nil))
+        #expect(!recap.learnedLines.isEmpty)
+        // Magenta is on nothing else on the Card, so its pixels are the missed question's timestamp and the learned line's dot.
+        let card = VideoQuizSummaryCardView(recap: recap, moment: .quizEnded, accentColor: Color(hex: "#FF00FF"), goBackToTheMissedQuestion: { _ in }, openTheStudyGuide: {}, close: {})
+        // An `NSHostingView` in a window off every screen, since `ImageRenderer` draws the buttons' hover views as a sign.
+        let hostingView = NSHostingView(rootView: card)
+        let cardSize = hostingView.fittingSize
+        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: cardSize), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = hostingView
+        hostingView.frame = NSRect(origin: .zero, size: cardSize)
+        hostingView.layoutSubtreeIfNeeded()
+        let pixels = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: pixels)
+        if let dumpFolder = ProcessInfo.processInfo.environment["CLICKY_RENDER_DUMP_DIR"],
+           let pngData = pixels.representation(using: .png, properties: [:]) {
+            try pngData.write(to: URL(fileURLWithPath: dumpFolder).appendingPathComponent("quiz-summary-card.png"))
+        }
+        let pixelsPerPoint = CGFloat(pixels.pixelsWide) / cardSize.width
+        func topmostAccentRow(inColumnsFrom firstPoint: CGFloat, to lastPoint: CGFloat) -> Int? {
+            let columns = Int(firstPoint * pixelsPerPoint)..<Int(lastPoint * pixelsPerPoint)
+            return (0..<pixels.pixelsHigh).first { row in
+                columns.contains { column in
+                    guard let color = pixels.colorAt(x: column, y: row) else { return false }
+                    return color.redComponent > 0.6 && color.blueComponent > 0.6 && color.greenComponent < 0.35
+                }
+            }
+        }
+        // The learned line's dot sits at the Card's 14 point padding, and the timestamp at the right end of its row.
+        let learnedDotRow = try #require(topmostAccentRow(inColumnsFrom: 14, to: 19))
+        let timestampRow = try #require(topmostAccentRow(inColumnsFrom: 240, to: 306))
+        #expect(timestampRow < learnedDotRow)
+    }
+
     @Test func theCardIsDarkAndThreeHundredTwentyPointsWideOnAWhitePage() throws {
         let recap = try #require(VideoRecap(quizResults: [
             quizResult("What does the vent do when the pressure under the volcano builds up for a long time?", at: 134, .missed),
