@@ -4019,8 +4019,8 @@ final class CompanionManager: ObservableObject {
                 }
             }
         case .placeFurniture:
-            guard roomArtPreviewController.placeTheFurnitureWhereItsGhostStands() else {
-                return .outcome(.failed(error: "No furniture is being placed", state: nil))
+            if let refusal = roomArtPreviewController.placeTheFurnitureWhereItsGhostStands() {
+                return .outcome(.failed(error: refusal.toolError, state: nil))
             }
             return .outcome(.changed(state: nil))
         case .moveFurniture:

@@ -195,20 +195,41 @@ struct RoomFurnitureGhostCanvas: View {
     /// once the lines are drawn. It starts on the footprint's first corner and follows each
     /// line the way the loop's tracer follows the loop (`CursorLoopTracerPlacement`).
     static func tracerPlacement(for tracer: RoomFurnitureGhostDrawTimeline.Tracer, lines: RoomFurnitureGhostLines, cursorFacing: CursorFacing) -> CursorLoopTracerPlacement? {
-        // A line with a cut away edge jumps from one piece to the next, as the loop's line joins a later move.
-        func placement(along edges: [RoomFurnitureGhostSegment?], atShare share: Double) -> CursorLoopTracerPlacement? {
-            guard edges.contains(where: { $0 != nil }) else { return nil }
-            return CursorLoopTracerPlacement(on: CursorLoopLine(outline: path(through: edges)), atShare: min(max(share, 0), 1), cursorFacing: cursorFacing)
-        }
         switch tracer {
         case .onTheFootprint(let share):
-            return placement(along: lines.footprintEdges, atShare: share)
+            return tracerPlacement(along: lines.footprintEdges, atShare: share, cursorFacing: cursorFacing)
         case .onAPost(let index, let share):
-            return placement(along: [lines.posts[index]], atShare: share)
+            return tracerPlacement(along: [lines.posts[index]], atShare: share, cursorFacing: cursorFacing)
         case .onTheTop(let share):
-            return placement(along: lines.topEdges, atShare: share)
+            return tracerPlacement(along: lines.topEdges, atShare: share, cursorFacing: cursorFacing)
         case .gone:
             return nil
         }
+    }
+
+    /// The glyph at `share` of the way along the drawn edges. The share is measured over the edges that show, one after the
+    /// other with the gaps between pieces left out, since that is how the ink measures its line (`trimmedPath` skips the
+    /// jump from one piece to the next), so the glyph jumps over a cut away edge as the ink does and never runs ahead of it
+    /// across the gap. An edge cut away, or cut down to a point, has no length, so it takes no share. Nil when none shows.
+    static func tracerPlacement(along edges: [RoomFurnitureGhostSegment?], atShare share: Double, cursorFacing: CursorFacing) -> CursorLoopTracerPlacement? {
+        let drawnSegments = edges.compactMap { $0 }.filter { $0.length > 0 }
+        let totalLength = drawnSegments.reduce(0) { $0 + $1.length }
+        guard totalLength > 0 else { return nil }
+        var lengthLeft = totalLength * min(max(share, 0), 1)
+        for (index, segment) in drawnSegments.enumerated() {
+            guard lengthLeft <= segment.length || index == drawnSegments.count - 1 else {
+                lengthLeft -= segment.length
+                continue
+            }
+            let shareOfTheSegment = min(lengthLeft / segment.length, 1)
+            let inkPoint = CGPoint(
+                x: segment.start.x + (segment.end.x - segment.start.x) * shareOfTheSegment,
+                y: segment.start.y + (segment.end.y - segment.start.y) * shareOfTheSegment
+            )
+            // The heading is in the cursor's rotation convention: 0 is straight up and it turns clockwise.
+            let headingDegrees = atan2(Double(segment.end.y - segment.start.y), Double(segment.end.x - segment.start.x)) * 180 / .pi + 90
+            return CursorLoopTracerPlacement(inkPoint: inkPoint, headingDegrees: headingDegrees, cursorFacing: cursorFacing)
+        }
+        return nil
     }
 }
