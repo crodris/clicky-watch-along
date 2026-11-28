@@ -267,15 +267,15 @@ struct PanelRenderTests {
     }
 
     /// One theme card as the panel's grid draws it, in the hover state, as raw RGB bytes. A hover makes the pencil and trash can
-    /// show on a saved card. The cursor holds still, since the panel counts as closed, so a draw is the same each time once the
-    /// buttons' fade has finished. The window sits off every screen.
+    /// show on a saved card. The cursor holds still, since the panel counts as closed. Animations are off, so the hover lands
+    /// in one draw and no wait depends on how long a fade takes on a loaded Mac. The window sits off every screen.
     private func hoveredCardPixels(of theme: ClickyTheme) async throws -> (width: Int, height: Int, pixelsPerPoint: CGFloat, bytes: [UInt8]) {
         let cardWidth = (CompanionPanelView.contentWidth - 32 - CGFloat(ThemeCardGrid.columnCount - 1) * ThemeCardGrid.spacing) / CGFloat(ThemeCardGrid.columnCount)
         let grid = ThemeCardGrid(
             themes: [theme], selectedTheme: clickyBlueTheme, designATheme: nil,
             pick: { _ in }, rename: { _, _ in }, delete: { _ in }
         )
-        let hostingView = NSHostingView(rootView: grid.frame(width: cardWidth * 3 + 2 * ThemeCardGrid.spacing).background(Color(hex: "#0b0c10")).environment(\.menuPanelIsOpen, false))
+        let hostingView = NSHostingView(rootView: grid.frame(width: cardWidth * 3 + 2 * ThemeCardGrid.spacing).background(Color(hex: "#0b0c10")).environment(\.menuPanelIsOpen, false).transaction { $0.disablesAnimations = true })
         let fittingSize = hostingView.fittingSize
         let window = NSWindow(contentRect: NSRect(x: -90_000, y: -90_000, width: fittingSize.width, height: fittingSize.height), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -302,11 +302,12 @@ struct PanelRenderTests {
         let atRest = try draw()
         cardHoverView.reportTheHover(true)
         var previousDraw = atRest
-        let deadline = ContinuousClock.now + .seconds(10)
-        while ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(60))
+        // The hover is a state change that SwiftUI applies on a later turn of the run loop, so draw until the card differs from
+        // its resting look and then once more to see that it holds. The bound counts draws and not seconds, since a loaded Mac
+        // makes each draw slow and a clock would run out while the card is still on its way.
+        for _ in 1...600 {
+            try await Task.sleep(for: .milliseconds(20))
             let nextDraw = try draw()
-            // The hover has landed once the card differs from its resting look, and the fade has finished once two draws match.
             if nextDraw.bytes == previousDraw.bytes, nextDraw.bytes != atRest.bytes { return nextDraw }
             previousDraw = nextDraw
         }
@@ -349,6 +350,85 @@ struct PanelRenderTests {
         #expect(cursorPixels > 200, "the cursor drew \(cursorPixels) pixels")
         #expect(buttonPixels > 400, "the buttons drew \(buttonPixels) pixels")
         #expect(coveredCursorPixels == 0, "the buttons cover \(coveredCursorPixels) of the cursor's pixels")
+    }
+
+    // MARK: - A saved card's rename field
+
+    /// A saved card already in its renaming state, as the panel's grid draws it, at the width a card has there.
+    private struct RenamingCardHost: View {
+        let theme: ClickyTheme
+        let cardWidth: CGFloat
+        var startsRenaming = true
+        @FocusState private var focus: ThemeGridFocus?
+
+        var body: some View {
+            ThemeCard(
+                theme: theme, isSelected: false, focus: $focus, pick: {}, rename: { _ in }, delete: { },
+                moveTheFocus: { _ in }, startsRenaming: startsRenaming
+            )
+            .frame(width: cardWidth)
+            .background(Color(hex: "#0b0c10"))
+            .environment(\.menuPanelIsOpen, false)
+        }
+    }
+
+    /// Draws a renaming card and returns the card's drawn size, the name field's text view, and the card's bitmap.
+    private func renamingCard(of theme: ClickyTheme, named fileName: String, startsRenaming: Bool = true) async throws -> (cardSize: CGSize, textField: NSTextField?, bitmap: NSBitmapImageRep) {
+        let cardWidth = (CompanionPanelView.contentWidth - 32 - CGFloat(ThemeCardGrid.columnCount - 1) * ThemeCardGrid.spacing) / CGFloat(ThemeCardGrid.columnCount)
+        let hostingView = NSHostingView(rootView: RenamingCardHost(theme: theme, cardWidth: cardWidth, startsRenaming: startsRenaming))
+        let fittingSize = hostingView.fittingSize
+        let window = NSWindow(contentRect: NSRect(x: -93_000, y: -93_000, width: fittingSize.width, height: fittingSize.height), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = hostingView
+        hostingView.frame = NSRect(origin: .zero, size: fittingSize)
+        hostingView.layoutSubtreeIfNeeded()
+        // The field's text lays out on the pass after the first.
+        try await Task.sleep(for: .milliseconds(300))
+        hostingView.layoutSubtreeIfNeeded()
+        let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        if let renderDirectory = ProcessInfo.processInfo.environment["CLICKY_RENDER_DIR"] {
+            try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: renderDirectory).appendingPathComponent("\(fileName).png"))
+        }
+        func textFields(in view: NSView) -> [NSTextField] {
+            (view as? NSTextField).map { [$0] + view.subviews.flatMap(textFields) } ?? view.subviews.flatMap(textFields)
+        }
+        return (fittingSize, textFields(in: hostingView).first, bitmap)
+    }
+
+    /// The width a text field's cell keeps for its own padding, 2 points on each side, which its text cannot use.
+    private static let textFieldCellInsets: CGFloat = 4
+
+    /// Whether a text field shows all of its text: wrapped at the field's own width, the text needs no more lines than the
+    /// field may draw and no more height than the field has, so nothing is cut off at its right edge or its bottom.
+    private func textShowsWhole(in textField: NSTextField) -> Bool {
+        let font = textField.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let wrappedSize = (textField.stringValue as NSString).boundingRect(
+            with: CGSize(width: textField.bounds.width - Self.textFieldCellInsets, height: 10_000), options: .usesLineFragmentOrigin, attributes: [.font: font]
+        )
+        let linesNeeded = Int((wrappedSize.height / font.boundingRectForFont.height).rounded())
+        let linesTheFieldMayDraw = textField.maximumNumberOfLines == 0 ? Int.max : textField.maximumNumberOfLines
+        return linesNeeded <= linesTheFieldMayDraw && wrappedSize.height <= textField.bounds.height + 3 // a line is 13 points, so the slack hides none
+    }
+
+    @Test func aRenamingCardShowsTheWholeNameItHolds() async throws {
+        let savedOrigin = ThemeOrigin.saved(folderURL: URL(fileURLWithPath: "/nonexistent-saved-theme"))
+        let amber = try amberPaperPlane(origin: savedOrigin)
+        // The longest name a theme can have is 24 characters.
+        let longestName = amber.renamed(to: "Midnight Harbor Lanterns")
+        #expect(longestName.name.count == ClickyTheme.longestName)
+        // Wide letters, so each line holds fewer of them.
+        let widestName = amber.renamed(to: "Wild Wonder Waves Within")
+        for (theme, fileName) in [(amber, "renaming-card"), (longestName, "renaming-card-longest-name"), (widestName, "renaming-card-wide-letters")] {
+            let renaming = try await renamingCard(of: theme, named: fileName)
+            let textField = try #require(renaming.textField)
+            #expect(textShowsWhole(in: textField), "the field clips \(theme.name)")
+            // The field stays inside the card, and the card keeps the size it has while it shows the name.
+            let notRenaming = try await renamingCard(of: theme, named: "\(fileName)-not-renaming", startsRenaming: false)
+            #expect(notRenaming.textField == nil)
+            #expect(renaming.cardSize == notRenaming.cardSize, "the card is \(renaming.cardSize) while renaming and \(notRenaming.cardSize) otherwise")
+        }
     }
 
     // MARK: - The pointing hand on entry

@@ -151,10 +151,35 @@ struct ThemeCard: View {
     @State private var problemText: String?
     @FocusState private var nameFieldIsFocused: Bool
 
+    /// `startsRenaming` opens the card with its name field already showing, so a test can draw that state.
+    init(
+        theme: ClickyTheme,
+        isSelected: Bool,
+        focus: FocusState<ThemeGridFocus?>.Binding,
+        pick: @escaping () -> Void,
+        rename: ((String) throws -> Void)?,
+        delete: (() throws -> Void)?,
+        moveTheFocus: @escaping (ThemeGridArrowKey) -> Void,
+        startsRenaming: Bool = false
+    ) {
+        self.theme = theme
+        self.isSelected = isSelected
+        self.focus = focus
+        self.pick = pick
+        self.rename = rename
+        self.delete = delete
+        self.moveTheFocus = moveTheFocus
+        _isRenaming = State(initialValue: startsRenaming)
+        _draftName = State(initialValue: startsRenaming ? theme.name : "")
+    }
+
     static let cornerRadius = DS.CornerRadius.control
     private static let secondsAnArmedDeleteWaits: Double = 3
     /// Two lines of the title type, so a long name keeps the card's height.
     private static let nameHeight: CGFloat = 34
+    /// How far the rename field reaches past the name's column into the card's 10 point padding on each side, so a name of wide
+    /// letters wraps to three lines at most.
+    private static let renameFieldOutsetBesideTheName: CGFloat = 6
 
     private var accentColor: Color { Color(hex: theme.accentHex) }
     private var cardHasTheFocus: Bool { focus.wrappedValue?.themeID == theme.id }
@@ -170,6 +195,8 @@ struct ThemeCard: View {
                     .frame(width: 56, height: 56)
                 nameOrField
                     .frame(height: Self.nameHeight, alignment: .top)
+                    // A field of three lines reaches past the name's slot, so it draws over the swatch row below it.
+                    .zIndex(isRenaming ? 1 : 0)
                 HStack(spacing: 3) {
                     ForEach(Array(([accentColor] + theme.agentColorsInOrder.prefix(3).map(\.color)).enumerated()), id: \.offset) { _, swatchColor in
                         RoundedRectangle(cornerRadius: DS.CornerRadius.swatch)
@@ -338,20 +365,31 @@ struct ThemeCard: View {
     // MARK: Renaming
 
     private var renameField: some View {
-        TextField("Theme name", text: $draftName)
+        // A card is about 97 points wide, so a 24 character name does not fit on one line of the field. The field wraps to up
+        // to three lines, which holds the longest name, and is as wide as the card's name column plus its outset. Two lines fit `nameHeight`, and a third reaches 9 points below it,
+        // over the card's spacing, so the card keeps its size.
+        TextField("Theme name", text: $draftName, axis: .vertical)
             .textFieldStyle(.plain)
+            .lineLimit(1...3)
             .font(DS.TypeScale.caption.font)
             .fontWeight(.semibold)
             .foregroundColor(DS.Colors.textPrimary)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
             .background(RoundedRectangle(cornerRadius: DS.CornerRadius.chip).fill(DS.Colors.ground))
             .overlay(
                 RoundedRectangle(cornerRadius: DS.CornerRadius.chip)
                     .strokeBorder(problemText == nil ? DS.Colors.border : DS.Colors.destructive, lineWidth: 1)
             )
+            // Takes its own height, up to three lines, instead of the name slot's.
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, -Self.renameFieldOutsetBesideTheName)
             .focused($nameFieldIsFocused)
             .onSubmit(commitRename)
+            // A name is one line, so a line break typed or pasted into the wrapping field never stays in it.
+            .onChange(of: draftName) { _, typedName in
+                if typedName.contains(where: \.isNewline) { draftName = typedName.filter { !$0.isNewline } }
+            }
             // Escape reaches the field as the exit command, since the panel is key and the field holds the keyboard.
             .onExitCommand(perform: cancelRename)
             .task { nameFieldIsFocused = true }
