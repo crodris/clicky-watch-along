@@ -3734,7 +3734,7 @@ private struct RoomArtPanelView: View {
     }
 
     private var closeButton: some View {
-        TetherButton(systemImage: "xmark", role: .secondary, shape: .circle, size: .prominent, accessibilityLabel: "Close") { previewController.close() }
+        TetherButton(systemImage: "xmark", role: .secondary, shape: .circle, size: .prominent, isOverVideo: true, accessibilityLabel: "Close") { previewController.close() }
     }
 }
 
@@ -3770,13 +3770,13 @@ struct RoomArtPanelBottomRow: View {
             }
             Spacer(minLength: 0)
             if showsSavePhoto {
-                TetherButton("Save photo", systemImage: "square.and.arrow.down", role: .secondary, shape: .capsule, size: .prominent, action: onSavePhoto)
+                TetherButton("Save photo", systemImage: "square.and.arrow.down", role: .secondary, shape: .capsule, size: .prominent, isOverVideo: true, action: onSavePhoto)
             }
             if showsPlace {
-                TetherButton("Place", systemImage: "checkmark", role: .primary(accent: accentColor), shape: .capsule, size: .prominent, accessibilityLabel: "Place it here", action: onPlace)
+                TetherButton("Place", systemImage: "checkmark", role: .primary(accent: accentColor), shape: .capsule, size: .prominent, isOverVideo: true, accessibilityLabel: "Place it here", action: onPlace)
             }
             if let shirtButtonTitle {
-                TetherButton(shirtButtonTitle, role: .primary(accent: accentColor), shape: .capsule, size: .prominent, action: onShirtButton)
+                TetherButton(shirtButtonTitle, role: .primary(accent: accentColor), shape: .capsule, size: .prominent, isOverVideo: true, action: onShirtButton)
             }
         }
     }

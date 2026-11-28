@@ -224,6 +224,21 @@ struct RoomArtBottomRowRenderTests {
         }
     }
 
+    @Test func everyButtonOverTheVideoCastsTheCalloutsDropShadowOnABrightWall() throws {
+        // The buttons sit over the camera view, so over a white wall each needs the shadow to stay separate. A page with no
+        // shadow stays pure white just under a button.
+        for row in [Row(statusText: "", showsSavePhoto: true), Row(statusText: "", showsPlace: true), Row(statusText: "", shirtButtonTitle: "Paint it")] {
+            let bottomRowOnAWhiteWall = bottomRow(of: row, statusMostLines: nil)
+                .frame(width: rowWidth)
+                .padding(.bottom, 16)
+                .background(Color.white)
+            let pixels = try RenderedPixels(bottomRowOnAWhiteWall)
+            // The buttons are 32 points tall and sit at the row's right end, so a point 3 points under one, 40 points in.
+            let underTheButton = pixels.color(atX: rowWidth - 40, y: 32 + 3)
+            #expect(underTheButton[0] < 235, "no shadow under \(row) \(underTheButton)")
+        }
+    }
+
     @Test func oneLineWouldCutTheLostWallLineSoTheSecondLineIsNeeded() throws {
         #expect(try !showsWhole(Row(statusText: RoomArtSurfaceKind.wall.lostLine, showsSavePhoto: true), mostLines: 1))
     }

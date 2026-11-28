@@ -100,6 +100,9 @@ struct TetherButtonLook: View {
     var shape: TetherButtonShape = .rounded
     var size: TetherButtonSize = .standard
     var fillsTheWidth = false
+    /// The button sits over a camera or a video, where nothing darkens the page behind it, so it takes the Callout's drop
+    /// shadow to stay separate from a bright wall.
+    var isOverVideo = false
     var isHovered = false
     var isEnabled = true
 
@@ -125,8 +128,8 @@ struct TetherButtonLook: View {
         }
         .foregroundStyle(labelColor)
         .fixedSize(horizontal: !fillsTheWidth, vertical: true)
-        // A circle is as wide as it is tall, and a button that fills the width is as wide as its container, which is its
-        // padding, so a label as wide as a third of a card keeps all its room.
+        // A circle is as wide as it is tall. A full-width button gets no side padding, since its container's width is the
+        // padding, so a long label keeps all its room.
         .padding(.horizontal, shape == .circle || fillsTheWidth ? 0 : size.horizontalPadding)
         .frame(minWidth: size.height, maxWidth: shape == .circle ? size.height : (fillsTheWidth ? .infinity : nil))
         .frame(height: size.height)
@@ -139,6 +142,7 @@ struct TetherButtonLook: View {
         .accentFillHoverRing(outline, ink: labelColor, isShowing: isPrimary && isShowingHover)
         .opacity(isEnabled ? 1 : 0.4)
         .contentShape(outline)
+        .modifier(OptionalCalloutDropShadow(isShowing: isOverVideo))
     }
 
     private var isPrimary: Bool {
@@ -173,6 +177,19 @@ struct TetherButtonLook: View {
     }
 }
 
+/// The Callout's drop shadow when `isShowing`, and no change to the view otherwise.
+private struct OptionalCalloutDropShadow: ViewModifier {
+    let isShowing: Bool
+
+    func body(content: Content) -> some View {
+        if isShowing {
+            content.tetherCalloutDropShadow()
+        } else {
+            content
+        }
+    }
+}
+
 struct TetherButton: View {
     let title: String?
     let systemImage: String?
@@ -180,6 +197,7 @@ struct TetherButton: View {
     let shape: TetherButtonShape
     let size: TetherButtonSize
     let fillsTheWidth: Bool
+    let isOverVideo: Bool
     let isEnabled: Bool
     /// False where the caller owns the button's keyboard focus, such as a card in a grid that moves it with the arrow keys.
     let takesItsOwnKeyboardFocus: Bool
@@ -197,6 +215,7 @@ struct TetherButton: View {
         shape: TetherButtonShape = .rounded,
         size: TetherButtonSize = .standard,
         fillsTheWidth: Bool = false,
+        isOverVideo: Bool = false,
         isEnabled: Bool = true,
         takesItsOwnKeyboardFocus: Bool = true,
         accessibilityLabel: String? = nil,
@@ -209,6 +228,7 @@ struct TetherButton: View {
         self.shape = shape
         self.size = size
         self.fillsTheWidth = fillsTheWidth
+        self.isOverVideo = isOverVideo
         self.isEnabled = isEnabled
         self.takesItsOwnKeyboardFocus = takesItsOwnKeyboardFocus
         self.accessibilityLabel = accessibilityLabel
@@ -225,7 +245,7 @@ struct TetherButton: View {
         let button = Button(action: action) {
             TetherButtonLook(
                 title: title, systemImage: systemImage, role: role, shape: shape, size: size,
-                fillsTheWidth: fillsTheWidth, isHovered: isHovered, isEnabled: isEnabled
+                fillsTheWidth: fillsTheWidth, isOverVideo: isOverVideo, isHovered: isHovered, isEnabled: isEnabled
             )
             .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: isHovered)
         }

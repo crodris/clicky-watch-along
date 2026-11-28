@@ -199,6 +199,14 @@ struct TetherCallout<Icon: View, Content: View>: View {
         .background(TetherCalloutShape().fill(DS.Colors.calloutSurface))
         .overlay(TetherCalloutShape(inset: rim.lineWidth / 2).stroke(accent, style: StrokeStyle(lineWidth: rim.lineWidth, lineJoin: .round)))
         .compositingGroup()
-        .shadow(color: .black.opacity(0.4), radius: 5, x: 0, y: 3)
+        .tetherCalloutDropShadow()
+    }
+}
+
+extension View {
+    /// The Callout's one shadow, black at 40%, 5 points of blur and 3 down. A surface drawn over a video or a bright page
+    /// takes it too, so its edge stays separate from what is behind it. The design system allows only this and the Card's pair.
+    func tetherCalloutDropShadow() -> some View {
+        shadow(color: .black.opacity(0.4), radius: 5, x: 0, y: 3)
     }
 }

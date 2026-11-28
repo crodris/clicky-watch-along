@@ -188,6 +188,27 @@ struct TetherButtonTests {
         }
     }
 
+    @Test(arguments: [TetherButtonShape.capsule, .circle])
+    func aButtonOverAVideoTakesTheCalloutsDropShadowAndOtherButtonsDoNot(shape: TetherButtonShape) throws {
+        // The room art panel's buttons sit over a camera view, so over a bright wall they need the shadow to stay separate.
+        // The backdrop is white, the brightest wall, and the margin holds the 5 point blur.
+        let backdropColor = Color(hex: "#FFFFFF")
+        let backdrop = channels(of: backdropColor)
+        func look(isOverVideo: Bool) -> TetherButtonLook {
+            shape == .circle
+                ? TetherButtonLook(systemImage: "xmark", role: .secondary, shape: shape, size: .prominent, isOverVideo: isOverVideo)
+                : TetherButtonLook(title: "Place", role: .secondary, shape: shape, size: .prominent, isOverVideo: isOverVideo)
+        }
+        let withTheShadow = try RenderedButton(look(isOverVideo: true), backdrop: backdropColor, margin: 16)
+        let withoutIt = try RenderedButton(look(isOverVideo: false), backdrop: backdropColor, margin: 16)
+        #expect(withoutIt.marginPixelsThatDiffer(from: backdrop) == 0, "\(shape) draws a shadow with no video behind it")
+        #expect(withTheShadow.marginPixelsThatDiffer(from: backdrop, tolerance: 8) > 40, "\(shape) over a video draws no shadow")
+        // Just under the button's bottom edge, the shadow grays a white page, with no tint.
+        let underTheButton = withTheShadow.color(atX: withTheShadow.widthInPoints / 2, y: withTheShadow.heightInPoints + 2)
+        #expect(underTheButton[0] < 235, "under the button is \(underTheButton)")
+        #expect(abs(underTheButton[0] - underTheButton[2]) <= 2, "the shadow is black, so it tints nothing: \(underTheButton)")
+    }
+
     @Test func aCapsuleAndACircleRoundTheirCorners() throws {
         let backdrop = channels(of: Color(hex: "#808080"))
         let capsule = try RenderedButton(TetherButtonLook(title: "Replay", role: .primary(accent: Color(hex: "#3380FF")), shape: .capsule, size: .standard))
