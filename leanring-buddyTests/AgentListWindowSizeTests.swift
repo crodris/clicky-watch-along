@@ -282,8 +282,11 @@ struct AgentListWindowSizeTests {
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: documentView.frame.height - scrollView.contentView.bounds.height))
         scrollView.reflectScrolledClipView(scrollView.contentView)
         let contentView = try #require(panel.contentView)
+        // A row met on the way to the end can sit in the search's window too, so the drawing counts as settled only once the
+        // last button sits where the scrolled end puts it. A list that never gets there times out and records its issue.
         let bitmap = try await render(contentView, untilSettled: "the list scrolled to its end to be drawn") {
-            lastButtonsEdge(in: $0, contentView: contentView) != nil
+            guard let settledEdge = lastButtonsEdge(in: $0, contentView: contentView) else { return false }
+            return settledEdge.bottomEdgePointsAboveTheCardsEdge >= AgentListScrollFade.height - 0.5
         }
         let edge = try #require(lastButtonsEdge(in: bitmap, contentView: contentView))
         #expect(edge.bottomEdgePointsAboveTheCardsEdge >= AgentListScrollFade.height - 0.5, "the last button ends \(edge.bottomEdgePointsAboveTheCardsEdge) points above the Card's edge, inside the \(AgentListScrollFade.height) point fade")
