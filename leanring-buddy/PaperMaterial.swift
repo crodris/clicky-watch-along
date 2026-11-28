@@ -8,7 +8,7 @@
 //
 //  Paper is an opaque warm off-white with near-black ink, and it stays light in dark mode. It is never tilted and carries no
 //  grid or texture. Its one accent is a flat highlight behind a short phrase, in the theme's accent with the ink that reads
-//  on it (`Color.inkOnThisFill`). The accent is never body text on paper, since Clicky blue on paper is only 3.39 contrast.
+//  on it (`paperInk(onAccent:)`). The accent is never body text on paper, since Clicky blue on paper is only 3.39 contrast.
 //  Its serif is New York, the system serif (`DS.PaperType`), and its colors are `DS.Colors.paper...`.
 //
 
@@ -53,18 +53,37 @@ struct PaperRule: View {
 
 // MARK: - Highlight
 
+/// `color` as a `ThemeRGBColor`, read in sRGB. Nil when AppKit cannot convert it.
+private func paperThemeRGBColor(of color: Color) -> ThemeRGBColor? {
+    guard let channels = NSColor(color).usingColorSpace(.sRGB) else { return nil }
+    return ThemeRGBColor(red: channels.redComponent, green: channels.greenComponent, blue: channels.blueComponent)
+}
+
 /// Whether a highlight in `accent` needs a hairline edge to show on paper: when its contrast with `paperSurface` is under 3,
 /// the least a boundary needs. Clicky blue reads at 3.39 and needs none. A pale accent such as Inarizaki's `#F4F4F5` is 1.0.
 func paperHighlightNeedsAnEdge(accent: Color) -> Bool {
-    guard let accentChannels = NSColor(accent).usingColorSpace(.sRGB),
-          let paperChannels = NSColor(DS.Colors.paperSurface).usingColorSpace(.sRGB) else { return false }
-    let accentColor = ThemeRGBColor(red: accentChannels.redComponent, green: accentChannels.greenComponent, blue: accentChannels.blueComponent)
-    let paperColor = ThemeRGBColor(red: paperChannels.redComponent, green: paperChannels.greenComponent, blue: paperChannels.blueComponent)
+    guard let accentColor = paperThemeRGBColor(of: accent), let paperColor = paperThemeRGBColor(of: DS.Colors.paperSurface) else { return false }
     return accentColor.contrastRatio(against: paperColor) < paperHighlightLeastContrastWithPaper
 }
 
 /// The least contrast a highlight's fill needs against paper to show with no edge.
 let paperHighlightLeastContrastWithPaper = 3.0
+
+/// The least contrast the ink of a printed highlight needs against its fill (WCAG AA for text).
+let paperInkLeastContrastOnAnAccent = 4.5
+
+/// The ink for letters and a check on `accent` where paper prints it. It is the ink that reads on any accent
+/// (`Color.inkOnThisFill`), unless that ink is under 4.5 on this accent. A mid gray such as `#787878` reads at 4.43 with the
+/// near-black ink and 4.42 with white, so there the ink is pure black or pure white, whichever is higher (4.76 for black).
+/// This is paper's own rule, and the other surfaces keep `inkOnThisFill`.
+func paperInk(onAccent accent: Color) -> Color {
+    guard let accentColor = paperThemeRGBColor(of: accent) else { return accent.inkOnThisFill }
+    let black = ThemeRGBColor(red: 0, green: 0, blue: 0)
+    let white = ThemeRGBColor(red: 1, green: 1, blue: 1)
+    let usualInk = ThemeRGBColor(hex: accentColor.inkHexOnThisFill) ?? black
+    guard accentColor.contrastRatio(against: usualInk) < paperInkLeastContrastOnAnAccent else { return accent.inkOnThisFill }
+    return accentColor.contrastRatio(against: black) >= accentColor.contrastRatio(against: white) ? .black : .white
+}
 
 /// A short phrase on a flat highlight in the theme's accent, the one place paper takes the accent. Its letters are the ink
 /// that reads on that accent, and a pale accent gets a hairline edge so the highlight still shows on paper.
@@ -76,7 +95,7 @@ struct PaperHighlight: View {
         let highlightShape = RoundedRectangle(cornerRadius: DS.CornerRadius.swatch, style: .continuous)
         Text(verbatim: text)
             .font(DS.TypeScale.title.font)
-            .foregroundStyle(accent.inkOnThisFill)
+            .foregroundStyle(paperInk(onAccent: accent))
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(highlightShape.fill(accent))
@@ -126,7 +145,10 @@ struct PaperPhotoReceipt: View {
 
     static let maxWidth: CGFloat = 340
     static let thumbnailSize = CGSize(width: 34, height: 26)
-    /// What the receipt stands at with its tail, with room to spare, so the chip's panel is tall enough for it.
+    /// What the receipt stands at with its tail, which the chip stack uses as the space it takes (`voiceToolCallChipRise`). A
+    /// test holds it to the receipt's drawn height.
+    static let height: CGFloat = 58
+    /// The most the receipt may stand at, with room to spare, so the chip's panel is tall enough for it.
     static let greatestHeight: CGFloat = 64
     private static let checkDiscDiameter: CGFloat = 16
 
@@ -139,7 +161,13 @@ struct PaperPhotoReceipt: View {
                         Circle().fill(accent)
                         Image(systemName: "checkmark")
                             .font(DS.glyphFont(pointSize: 9, weight: .heavy))
-                            .foregroundStyle(accent.inkOnThisFill)
+                            .foregroundStyle(paperInk(onAccent: accent))
+                    }
+                    // A pale accent is as light as the paper, so its disc gets the highlight's hairline edge.
+                    .overlay {
+                        if paperHighlightNeedsAnEdge(accent: accent) {
+                            Circle().strokeBorder(DS.Colors.paperHairlineHover, lineWidth: 1)
+                        }
                     }
                     .frame(width: Self.checkDiscDiameter, height: Self.checkDiscDiameter)
                     Text("Saved to Pictures")

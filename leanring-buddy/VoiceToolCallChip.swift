@@ -70,6 +70,9 @@ private final class VoiceToolCallChipModel: ObservableObject {
     let presence = TetherCalloutPresence()
     /// True while this slot holds the chip that was pushed up, which draws one step above the bottom.
     @Published var isInTheUpperSlot = false
+    /// How far this slot's chip sits above the bottom chip while it is in the upper slot, which follows the height of the chip
+    /// below it (`voiceToolCallChipRise`), so a taller chip below never overlaps it.
+    @Published var riseOverTheBottomChip = voiceToolCallChipRise(overTheBottomChipSentBy: .voiceToolCall)
     /// Counts each chip that pops into this slot, so a new chip pops in even when the slot's Callout is still on screen.
     @Published var shownChipCount = 0
     /// The Callout's measured width, which places the panel so the tail stays on the cursor. Not published, since the
@@ -143,7 +146,7 @@ private struct VoiceToolCallChipView: View {
                 .modifier(TetherCalloutShake(startedAt: chipModel.sender.shakesOnAppearing ? chipModel.shownDate : nil))
                 .tetherCalloutPose(presence, reduceMotionIsOn: reduceMotion)
                 .id(chipModel.shownChipCount)
-                .offset(y: chipModel.isInTheUpperSlot ? -VoiceToolCallChip.stackStepHeight : 0)
+                .offset(y: chipModel.isInTheUpperSlot ? -chipModel.riseOverTheBottomChip : 0)
                 // A chip pushed up moves with the Snap, and with Reduce Motion on it appears one step up with no travel. A slot
                 // that takes a new chip goes back to the bottom with no move.
                 .animation(chipModel.isInTheUpperSlot && !reduceMotion ? DS.Move.snap.animation(reduceMotionIsOn: false) : nil, value: chipModel.isInTheUpperSlot)
@@ -200,13 +203,14 @@ final class VoiceToolCallChip {
 
     /// The space between a chip and the chip it pushed up.
     nonisolated static let gapBetweenStackedChips: CGFloat = 4
-    /// How far a chip rises when a new one pushes it up: the Callout's height with its tail (49) and the gap.
-    nonisolated static let stackStepHeight: CGFloat = tetherSingleLineCalloutHeight + gapBetweenStackedChips
-    /// The panel holds a Callout with its tail (49), the margin for its shadow on both sides (28), and one step
-    /// for the upper slot's chip to rise into.
+    /// The most a chip rises when a new one pushes it up: the tallest chip, the Save photo receipt, with its tail, and the gap
+    /// (`voiceToolCallChipRise` gives the rise for the chip that arrives below).
+    nonisolated static let greatestRiseOverTheBottomChip: CGFloat = max(tetherSingleLineCalloutHeight, PaperPhotoReceipt.height) + gapBetweenStackedChips
+    /// The panel holds the tallest chip (a one line Callout is 49 with its tail, the receipt a little more), the margin for its
+    /// shadow on both sides (28), and the greatest rise for the upper slot's chip to rise into.
     nonisolated static let panelSize = CGSize(
         width: 520,
-        height: max(tetherSingleLineCalloutHeight, PaperPhotoReceipt.greatestHeight) + 2 * tetherCalloutPanelMargin + stackStepHeight
+        height: max(tetherSingleLineCalloutHeight, PaperPhotoReceipt.greatestHeight) + 2 * tetherCalloutPanelMargin + greatestRiseOverTheBottomChip
     )
     nonisolated static let defaultSecondsOnScreen: TimeInterval = 1.4
 
@@ -249,6 +253,8 @@ final class VoiceToolCallChip {
             // The new chip says what the chip above says, so that one leaves and the words show once, at the bottom.
             playTheLeave(of: upperSlot, .fadeRise)
         }
+        // The chip above, if any, sits over the chip that is now at the bottom, whatever its height.
+        upperSlot.chipModel.riseOverTheBottomChip = voiceToolCallChipRise(overTheBottomChipSentBy: sender)
         let slot = bottomSlot
         let chipModel = slot.chipModel
         let panel = slot.panel ?? makeChipPanel(for: slot)
