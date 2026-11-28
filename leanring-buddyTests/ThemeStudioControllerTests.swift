@@ -806,7 +806,8 @@ struct ThemeStudioCardGlideInCloseTests {
     /// The real panel's window grows with the card, which the offscreen frame tests leave out: a window shorter than its card
     /// would cut the card off. The hosting view's own sizing holds the window no shorter than the card, so on 2026-11-27 a
     /// callback that set the frame 60 points short, or set nothing, still passed. A card that shrinks leaves the window
-    /// taller than it, a bug main already has, so this test checks only growth until that is fixed.
+    /// taller than it, since the panel's resize does not take the window down, so this test checks only growth until that
+    /// is fixed.
     @Test(.showsARealWindow)
     func theRealPanelsWindowGrowsWithTheCardAsIdeasArriveAndADesignFails() async throws {
         let harness = StudioHarness()
@@ -834,6 +835,7 @@ struct ThemeStudioCardGlideInCloseTests {
         let whileDesigning = try #require(cardPanel.windowHeightAndCardHeight)
         await harness.studio.waitForTheDesign()
         let withIdeas = try await heightsOnceTheWindowFitsANewCardHeight(previousCardHeight: whileDesigning.card)
+        #expect(abs(withIdeas.card - whileDesigning.card) >= 1, "the ideas should change the card's height")
         #expect(abs(withIdeas.window - withIdeas.card) < 1, "window \(withIdeas.window), card \(withIdeas.card)")
 
         // A failed design keeps the ideas and adds the failed row, so the card grows.
@@ -842,7 +844,6 @@ struct ThemeStudioCardGlideInCloseTests {
         let afterTheFailure = try await heightsOnceTheWindowFitsANewCardHeight(previousCardHeight: withIdeas.card)
         #expect(afterTheFailure.card > withIdeas.card, "the failed row should make the card taller")
         #expect(abs(afterTheFailure.window - afterTheFailure.card) < 1, "window \(afterTheFailure.window), card \(afterTheFailure.card)")
-
     }
 
     /// A design from a picture raises the real card above the cursor overlay while it runs, and a refine that keeps the
