@@ -3732,33 +3732,45 @@ struct RoomArtPanelButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                if let systemImageName {
-                    Image(systemName: systemImageName)
-                }
-                if let title {
-                    Text(title)
-                }
-            }
-            .font(DS.TypeScale.title.font)
-            .foregroundStyle(accentColor?.inkOnThisFill ?? DS.Colors.textPrimary)
-            .padding(.horizontal, title == nil ? 0 : 14)
-            .frame(minWidth: Self.height, minHeight: Self.height)
-            .background(RoomArtPanelButtonFill(accentColor: accentColor, isHovered: isHovered))
-            .accentFillHoverRing(Capsule(), ink: accentColor?.inkOnThisFill ?? .clear, isShowing: accentColor != nil && isHovered)
-            .overlay {
-                if accentColor == nil {
-                    Capsule().strokeBorder(Color.white.opacity(isHovered ? 0.18 : 0.1), lineWidth: 1)
-                }
-            }
-            .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
-            .contentShape(Capsule())
-            .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: isHovered)
+            RoomArtPanelButtonLook(title: title, systemImageName: systemImageName, accentColor: accentColor, isHovered: isHovered)
+                .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: isHovered)
         }
         .buttonStyle(PanelPressStyle())
         .fixedSize()
         .hoverAndPointer { isNowHovered in isHovered = isNowHovered }
         .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+/// How a panel button looks, resting or hovered, apart from the hover tracking, so a test can draw it hovered.
+struct RoomArtPanelButtonLook: View {
+    let title: String?
+    let systemImageName: String?
+    let accentColor: Color?
+    let isHovered: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let systemImageName {
+                Image(systemName: systemImageName)
+            }
+            if let title {
+                Text(title)
+            }
+        }
+        .font(DS.TypeScale.title.font)
+        .foregroundStyle(accentColor?.inkOnThisFill ?? DS.Colors.textPrimary)
+        .padding(.horizontal, title == nil ? 0 : 14)
+        .frame(minWidth: RoomArtPanelButton.height, minHeight: RoomArtPanelButton.height)
+        .background(RoomArtPanelButtonFill(accentColor: accentColor, isHovered: isHovered))
+        .accentFillHoverRing(Capsule(), ink: accentColor?.inkOnThisFill ?? .clear, isShowing: accentColor != nil && isHovered)
+        .overlay {
+            if accentColor == nil {
+                Capsule().strokeBorder(Color.white.opacity(isHovered ? 0.18 : 0.1), lineWidth: 1)
+            }
+        }
+        .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+        .contentShape(Capsule())
     }
 }
 

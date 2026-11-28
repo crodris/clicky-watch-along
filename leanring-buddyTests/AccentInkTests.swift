@@ -345,14 +345,23 @@ struct AccentInkTests {
         )
         let panel = try #require(NSApplication.shared.windows.first { $0 is NonKeyFloatingPanel && offScreenFrame.contains($0.frame) })
         let contentView = try #require(panel.contentView)
-        contentView.layoutSubtreeIfNeeded()
-        let bitmap = try #require(contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds))
-        contentView.cacheDisplay(in: contentView.bounds, to: bitmap)
-        let pixels = try DrawingPixels(drawing: try #require(bitmap.cgImage), widthInPoints: contentView.bounds.width)
-        // The middle of the Replay capsule: past the window's 12 point shadow margin, the row's 4 points, and the capsule's
-        // own padding.
-        let replayButtonPart = CGRect(x: 12 + 4 + 11, y: 12 + 4 + 5, width: 40, height: 14)
-        return try await pixels.inkPixelCounts(in: replayButtonPart)
+        // The middle of the Replay capsule: past the window's shadow margin, the row's 4 points, and the capsule's own
+        // padding.
+        let replayButtonPart = CGRect(
+            x: AgentListWindowMargins.leading + 4 + 11, y: AgentListWindowMargins.top + 4 + 5, width: 40, height: 14
+        )
+        // The control fades and grows in on the Glide move, and a pixel drawn see-through counts as no ink, so it is drawn
+        // until the ink shows or 10 seconds pass.
+        let deadline = Date().addingTimeInterval(10)
+        while true {
+            contentView.layoutSubtreeIfNeeded()
+            let bitmap = try #require(contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds))
+            contentView.cacheDisplay(in: contentView.bounds, to: bitmap)
+            let pixels = try DrawingPixels(drawing: try #require(bitmap.cgImage), widthInPoints: contentView.bounds.width)
+            let counts = try await pixels.inkPixelCounts(in: replayButtonPart)
+            if counts.white + counts.nearBlack > 20 || Date() >= deadline { return counts }
+            try await Task.sleep(for: .milliseconds(50))
+        }
     }
 
     @Test(.showsARealWindow)

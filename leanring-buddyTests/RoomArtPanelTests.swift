@@ -275,6 +275,22 @@ struct RoomArtBottomRowRenderTests {
         #expect(channelsAreClose(hoveredOverBlack, resting, within: 2), "hovered \(hoveredOverBlack), resting \(resting)")
     }
 
+    @Test(arguments: ["#F97316", "#1D3A8A"])
+    func aHoveredAccentButtonShowsARingInItsInk(accentHex: String) throws {
+        func pixelJustInsideTheEdge(isHovered: Bool) throws -> [Int] {
+            let look = RoomArtPanelButtonLook(title: "Place", systemImageName: nil, accentColor: Color(hex: accentHex), isHovered: isHovered)
+            // 1 point inside the capsule's top edge, over the middle, where the 2 point ring draws and no letter does.
+            return try RenderedPixels(look.background(Color.black)).color(atX: 30, y: 1)
+        }
+        let resting = try pixelJustInsideTheEdge(isHovered: false)
+        let hovered = try pixelJustInsideTheEdge(isHovered: true)
+        #expect(!channelsAreClose(resting, hovered, within: 10), "resting \(resting), hovered \(hovered)")
+        // The ring is in the ink, so on a dark fill it lightens the edge and on a light fill it darkens it.
+        let ink = Color(hex: accentHex).inkOnThisFill
+        let inkIsWhite = channelsAreClose(try RenderedPixels(Rectangle().fill(ink).frame(width: 4, height: 4)).color(atX: 2, y: 2), [255, 255, 255])
+        #expect(inkIsWhite ? hovered.reduce(0, +) > resting.reduce(0, +) : hovered.reduce(0, +) < resting.reduce(0, +))
+    }
+
     @Test func anAccentButtonOnADarkAccentIsSetInWhite() throws {
         // On a dark blue fill near-black ink would barely read, so the label takes white (`Color.inkOnThisFill`).
         let pixels = try RenderedPixels(
