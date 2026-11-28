@@ -108,17 +108,37 @@ nonisolated struct RoomFurnitureGhost: Equatable, Sendable {
         shownPlacement?.keyframeBoxCorners(focalLengthPixels: floor.focalLengthPixels, principalPoint: floor.principalPoint)
     }
 
-    /// The share of the ghost's projected box inside the keyframe, from 0 (gone from view or behind the camera) to 1 (all
-    /// of it shows). The depth service's principal point is the frame's center.
-    var shareOfTheBoxInTheFrame: Double {
-        guard let boxCorners = keyframeBoxCorners else { return 0 }
-        return shareOfTheBoxInsideTheFrame(projectedCorners: boxCorners, frameSize: CGSize(width: floor.principalPoint.x * 2, height: floor.principalPoint.y * 2))
+    /// Whether a corner of the shown box is behind the camera or closer to it than `roomFurnitureGhostNearPlaneMeters`, so
+    /// the painting cannot stand the piece there. The lines, the pointer, and the scroll wheel still work on such a ghost,
+    /// through the part of the box in front of the camera (`visibleKeyframeBoxPoints`), so the learner can drag it back to
+    /// where it fits.
+    var aCornerIsBehindTheCamera: Bool {
+        guard let boxCornersInCameraSpace = shownPlacement?.boxCorners else { return true }
+        return boxCornersInCameraSpace.contains { $0.z < roomFurnitureGhostNearPlaneMeters }
     }
 
-    /// Whether a keyframe pixel is on the ghost: inside the outline of its projected box.
+    /// The keyframe pixels of the shown box cut to the part at least `roomFurnitureGhostNearPlaneMeters` in front of the
+    /// camera: each box corner in front, and where each of the twelve edges crosses that plane. The hull of these points is
+    /// the box's outline as the camera sees it, the same as the hull of its eight corners while all of them are in front.
+    /// Empty when the whole box is behind the camera.
+    var visibleKeyframeBoxPoints: [CGPoint] {
+        guard let boxCornersInCameraSpace = shownPlacement?.boxCorners else { return [] }
+        return roomFurnitureGhostVisibleBoxPoints(
+            boxCornersInCameraSpace: boxCornersInCameraSpace, focalLengthPixels: floor.focalLengthPixels, principalPoint: floor.principalPoint
+        )
+    }
+
+    /// The share of the ghost's projected box inside the keyframe, from 0 (gone from view or wholly behind the camera) to 1
+    /// (all of it shows). The depth service's principal point is the frame's center.
+    var shareOfTheBoxInTheFrame: Double {
+        shareOfTheBoxInsideTheFrame(projectedCorners: visibleKeyframeBoxPoints, frameSize: CGSize(width: floor.principalPoint.x * 2, height: floor.principalPoint.y * 2))
+    }
+
+    /// Whether a keyframe pixel is on the ghost: inside the outline of the part of its box in front of the camera.
     func contains(keyframePixel: CGPoint) -> Bool {
-        guard let boxCorners = keyframeBoxCorners else { return false }
-        return convexPolygon(convexHull(of: boxCorners), contains: keyframePixel)
+        let visiblePoints = visibleKeyframeBoxPoints
+        guard visiblePoints.count >= 3 else { return false }
+        return convexPolygon(convexHull(of: visiblePoints), contains: keyframePixel)
     }
 
     /// The level direction toward the camera from a floor point, turned `turnDegrees` counterclockwise about up.
@@ -408,6 +428,20 @@ nonisolated enum RoomFurnitureNudgeRefusal: Equatable, Sendable {
     }
 }
 
+/// Why placing the ghost left it where it was, in words the router's model reads back to the learner.
+nonisolated enum RoomFurniturePlacementRefusal: Equatable, Sendable {
+    case noGhost
+    /// The painting cannot stand a piece that is partly behind the camera, so the learner moves it back first.
+    case aCornerIsBehindTheCamera
+
+    var toolError: String {
+        switch self {
+        case .noGhost: return "No furniture is being placed"
+        case .aCornerIsBehindTheCamera: return "Part of the piece is behind the camera, so it stayed where it was. Ask the learner to move it farther back first"
+        }
+    }
+}
+
 /// The farthest one spoken nudge moves the ghost.
 nonisolated let roomFurnitureLongestNudgeMeters = 3.0
 
@@ -680,6 +714,26 @@ nonisolated func roomFurnitureGhostSegmentInFrontOfTheCamera(
     return startIsInFront ? (start, crossing) : (crossing, end)
 }
 
+/// The box's twelve edges as pairs of `RoomFurniturePlacement.boxCorners` indexes: the front face, the back face, and the four
+/// edges between them.
+nonisolated let roomFurnitureBoxEdgeCornerIndexes: [(Int, Int)] = [
+    (0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4), (0, 4), (1, 5), (2, 6), (3, 7),
+]
+
+/// The keyframe pixels of a box cut to the part in front of the camera: the ends of each edge's part in front
+/// (`roomFurnitureGhostSegmentInFrontOfTheCamera`), so the box's corners in front and where its edges cross the near plane.
+/// A box wholly in front of the camera gives its eight corners, and one wholly behind it gives none.
+nonisolated func roomFurnitureGhostVisibleBoxPoints(
+    boxCornersInCameraSpace boxCorners: [SIMD3<Double>], focalLengthPixels: Double, principalPoint: SIMD2<Double>,
+    nearPlaneMeters: Double = roomFurnitureGhostNearPlaneMeters
+) -> [CGPoint] {
+    guard boxCorners.count == 8 else { return [] }
+    return roomFurnitureBoxEdgeCornerIndexes
+        .compactMap { roomFurnitureGhostSegmentInFrontOfTheCamera(from: boxCorners[$0.0], to: boxCorners[$0.1], nearPlaneMeters: nearPlaneMeters) }
+        .flatMap { [$0.start, $0.end] }
+        .compactMap { pinholeProjection(of: $0, focalLengthPixels: focalLengthPixels, principalPoint: principalPoint) }
+}
+
 /// The convex polygon cut to the half space at least `nearPlaneMeters` in front of the camera (Sutherland and Hodgman).
 nonisolated func roomFurnitureGhostPolygonInFrontOfTheCamera(_ polygon: [SIMD3<Double>], nearPlaneMeters: Double = roomFurnitureGhostNearPlaneMeters) -> [SIMD3<Double>] {
     var cutPolygon: [SIMD3<Double>] = []
@@ -763,6 +817,9 @@ nonisolated let roomFurnitureMostOfTheBoxThePersonMayCover = 0.03
 /// status line says the same in fewer words, and nothing was spoken at this point, which left a quiet panel for the seconds
 /// the learner takes to read it.
 nonisolated let roomFurnitureGhostLine = "Here's where it would go. Drag it, or say right there."
+/// What Clicky says, and the status line shows, when the learner places a ghost that has a corner behind the camera. It is a
+/// hint and not a failure, so the cursor does not shake.
+nonisolated let roomFurnitureMoveItFartherBackLine = "Move it farther back first."
 /// What Clicky says once when the learner stands where the piece is about to be painted.
 nonisolated let roomFurnitureStepAsideLine = "Step aside for a second."
 

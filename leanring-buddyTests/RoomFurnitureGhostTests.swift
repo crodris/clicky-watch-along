@@ -636,6 +636,57 @@ struct RoomFurnitureGhostLinesBeyondTheViewTests {
         #expect(bounds.contains(lines.pillCenter))
     }
 
+    /// A pixel just below the middle of the back top edge's line in the panel, which is inside the box's outline, in camera pixels.
+    private func aCameraPixelBelowTheBackTopEdge(of lines: RoomFurnitureGhostLines) throws -> CGPoint {
+        let backTopEdge = try #require(lines.topEdges[3])
+        let fit = ghostPanelFit()
+        let middleInThePanel = CGPoint(x: (backTopEdge.start.x + backTopEdge.end.x) / 2, y: (backTopEdge.start.y + backTopEdge.end.y) / 2)
+        return CGPoint(x: (middleInThePanel.x - fit.origin.x) / fit.scale, y: (middleInThePanel.y - fit.origin.y) / fit.scale + 8)
+    }
+
+    @Test(arguments: [0.05, -0.1])
+    func aGhostWithACornerBehindTheCameraIsOnTheGhostWhereItsVisibleLinesAreAndNotFarOutsideThem(frontMetersFromTheCamera: Double) throws {
+        let ghost = try sofaWithItsFrontAt(frontMetersFromTheCamera)
+        #expect(ghost.aCornerIsBehindTheCamera)
+        let lines = try #require(RoomFurnitureGhostLines(ghost: ghost, keyframeToCurrent: .identity, fit: ghostPanelFit(), cameraSize: ghostCameraFrame))
+        let insideTheLines = try aCameraPixelBelowTheBackTopEdge(of: lines)
+        #expect(ghost.contains(keyframePixel: insideTheLines), "the pointer missed the ghost at \(insideTheLines)")
+        // The box is all below the camera's height, so a pixel above it is off the ghost, however far.
+        #expect(!ghost.contains(keyframePixel: CGPoint(x: insideTheLines.x, y: 100)))
+        #expect(!ghost.contains(keyframePixel: CGPoint(x: insideTheLines.x, y: -3000)))
+        #expect(ghost.shareOfTheBoxInTheFrame > 0)
+    }
+
+    @Test func aGhostWhollyBehindTheCameraIsNotUnderThePointerAndHasNoShare() throws {
+        let ghost = try sofaWithItsFrontAt(-1.5)
+        #expect(ghost.aCornerIsBehindTheCamera)
+        #expect(ghost.visibleKeyframeBoxPoints.isEmpty)
+        #expect(!ghost.contains(keyframePixel: CGPoint(x: 640, y: 600)))
+        #expect(ghost.shareOfTheBoxInTheFrame == 0)
+    }
+
+    @Test func theVisiblePointsOfABoxAreItsCornersInFrontAndWhereEachEdgeCrossesTheNearPlane() throws {
+        let points = roomFurnitureGhostVisibleBoxPoints(boxCornersInCameraSpace: boxWithItsFrontBehindTheCamera(), focalLengthPixels: 1100, principalPoint: SIMD2(640, 360))
+        func hasAPoint(near expected: CGPoint) -> Bool { points.contains { hypot($0.x - expected.x, $0.y - expected.y) < 1e-6 } }
+        // The back face's corners, at 3 m.
+        #expect(hasAPoint(near: CGPoint(x: 640 - 1100 / 3.0, y: 360 - 0.3 * 1100 / 3)))
+        #expect(hasAPoint(near: CGPoint(x: 640 + 1100 / 3.0, y: 360 + 0.5 * 1100 / 3)))
+        // Each connecting edge crosses the plane 0.1 m from the camera, where a point's pixel is ten times its offset in meters.
+        #expect(hasAPoint(near: CGPoint(x: 640 - 1100 / 0.1, y: 360 - 0.3 * 1100 / 0.1)))
+        #expect(hasAPoint(near: CGPoint(x: 640 + 1100 / 0.1, y: 360 + 0.5 * 1100 / 0.1)))
+        // The front face is behind the camera, so none of its corners project.
+        #expect(!points.contains { $0.x.isNaN || $0.y.isNaN })
+        #expect(roomFurnitureGhostVisibleBoxPoints(boxCornersInCameraSpace: box(frontDepth: -2).map { SIMD3($0.x, $0.y, -abs($0.z)) }, focalLengthPixels: 1100, principalPoint: SIMD2(640, 360)).isEmpty)
+        #expect(roomFurnitureGhostVisibleBoxPoints(boxCornersInCameraSpace: [], focalLengthPixels: 1100, principalPoint: SIMD2(640, 360)).isEmpty)
+    }
+
+    @Test func aGhostWhollyInFrontHitsTestLikeTheHullOfItsEightCorners() throws {
+        let ghost = try sofaGhost(wall: nil)
+        #expect(!ghost.aCornerIsBehindTheCamera)
+        let corners = try #require(ghost.keyframeBoxCorners)
+        #expect(Set(ghost.visibleKeyframeBoxPoints.map { "\($0.x),\($0.y)" }) == Set(corners.map { "\($0.x),\($0.y)" }))
+    }
+
     @Test func aBoxWithACornerBehindTheCameraKeepsItsVisibleEdges() throws {
         // The old code gave up on the whole ghost when one corner was behind the camera.
         let lines = try #require(linesOfTheBox(boxWithItsFrontBehindTheCamera()))
@@ -673,17 +724,61 @@ struct RoomFurnitureGhostLinesBeyondTheViewTests {
         #expect(RoomFurnitureGhostCanvas.tracerPlacement(for: .onTheFootprint(share: 0.5), lines: lines, cursorFacing: .pointerAngle) == nil)
     }
 
-    @Test func theGlyphStaysOnTheLinesThatShowWhileTheFootprintDrawsOn() throws {
-        let lines = try #require(RoomFurnitureGhostLines(ghost: try sofaWithItsFrontAt(0.15), keyframeToCurrent: .identity, fit: ghostPanelFit(), cameraSize: ghostCameraFrame))
+    /// How far a point is from the nearest of these segments, in panel points.
+    private func distance(from point: CGPoint, toTheNearestOf segments: [RoomFurnitureGhostSegment]) -> Double {
+        segments.map { segment in
+            let along = CGPoint(x: segment.end.x - segment.start.x, y: segment.end.y - segment.start.y)
+            let lengthSquared = along.x * along.x + along.y * along.y
+            let share = lengthSquared > 0 ? min(1, max(0, ((point.x - segment.start.x) * along.x + (point.y - segment.start.y) * along.y) / lengthSquared)) : 0
+            return hypot(point.x - (segment.start.x + along.x * share), point.y - (segment.start.y + along.y * share))
+        }.min() ?? .infinity
+    }
+
+    /// The glyph is on a line that is drawn, and never in the gap where clipping removed an edge. The fronts include one that
+    /// cuts away the front edges (-0.1), and one that only shortens them (0.05).
+    @Test(arguments: [0.15, 0.05, -0.1])
+    func theGlyphStaysOnTheLinesThatShowWhileTheFootprintDrawsOn(frontMetersFromTheCamera: Double) throws {
+        let lines = try #require(RoomFurnitureGhostLines(ghost: try sofaWithItsFrontAt(frontMetersFromTheCamera), keyframeToCurrent: .identity, fit: ghostPanelFit(), cameraSize: ghostCameraFrame))
         let bounds = rectangleTheLinesStayIn(lines)
-        let tracers: [RoomFurnitureGhostDrawTimeline.Tracer] =
-            (0...10).map { .onTheFootprint(share: Double($0) / 10) } + (0...3).map { .onAPost(index: $0, share: 0.5) } + (0...10).map { .onTheTop(share: Double($0) / 10) }
-        for tracer in tracers {
-            // A line cut away entirely has no glyph, and every other one stays inside the drawing rect.
-            if let placement = RoomFurnitureGhostCanvas.tracerPlacement(for: tracer, lines: lines, cursorFacing: .followsMouseMovement) {
-                #expect(bounds.contains(placement.inkPoint), "the glyph left the panel at \(tracer)")
+        let tracers: [(tracer: RoomFurnitureGhostDrawTimeline.Tracer, edges: [RoomFurnitureGhostSegment?])] =
+            (0...20).map { (.onTheFootprint(share: Double($0) / 20), lines.footprintEdges) }
+            + (0...3).flatMap { post in (0...4).map { (.onAPost(index: post, share: Double($0) / 4), [lines.posts[post]]) } }
+            + (0...20).map { (.onTheTop(share: Double($0) / 20), lines.topEdges) }
+        for (tracer, edges) in tracers {
+            let drawnSegments = edges.compactMap { $0 }
+            guard let placement = RoomFurnitureGhostCanvas.tracerPlacement(for: tracer, lines: lines, cursorFacing: .followsMouseMovement) else {
+                // Only a line cut away entirely has no glyph.
+                #expect(drawnSegments.allSatisfy { $0.length == 0 }, "no glyph on a line that shows, at \(tracer)")
+                continue
             }
+            #expect(bounds.contains(placement.inkPoint), "the glyph left the panel at \(tracer)")
+            #expect(distance(from: placement.inkPoint, toTheNearestOf: drawnSegments) < 0.5, "the glyph is off the drawn lines at \(tracer)")
         }
+        if frontMetersFromTheCamera == -0.1 {
+            #expect(lines.footprintEdges.contains { $0 == nil } && lines.topEdges.contains { $0 == nil }, "this case should have an edge cut away")
+        }
+    }
+
+    @Test func theGlyphMeasuresItsShareOverTheDrawnPiecesAndJumpsTheGapBetweenThem() throws {
+        let firstPiece = RoomFurnitureGhostSegment(start: CGPoint(x: 0, y: 0), end: CGPoint(x: 100, y: 0))
+        let secondPiece = RoomFurnitureGhostSegment(start: CGPoint(x: 500, y: 300), end: CGPoint(x: 500, y: 400))
+        // A point-sized edge comes first, where a share of 0 would divide by its length.
+        let edges: [RoomFurnitureGhostSegment?] = [RoomFurnitureGhostSegment(start: CGPoint(x: 7, y: 7), end: CGPoint(x: 7, y: 7)), firstPiece, nil, secondPiece]
+        func inkPoint(atShare share: Double) throws -> CGPoint {
+            try #require(RoomFurnitureGhostCanvas.tracerPlacement(along: edges, atShare: share, cursorFacing: .upright)).inkPoint
+        }
+        // 200 points are drawn, so the middle is the first piece's end, and a quarter and three quarters are their middles.
+        #expect(try inkPoint(atShare: 0.25) == CGPoint(x: 50, y: 0))
+        #expect(try inkPoint(atShare: 0.5) == CGPoint(x: 100, y: 0))
+        #expect(try inkPoint(atShare: 0.75) == CGPoint(x: 500, y: 350))
+        #expect(try inkPoint(atShare: 1) == CGPoint(x: 500, y: 400))
+        #expect(try inkPoint(atShare: -1) == CGPoint(x: 0, y: 0))
+        #expect(try inkPoint(atShare: 0) == CGPoint(x: 0, y: 0))
+        // Nothing drawn, or only a point, has no glyph.
+        #expect(RoomFurnitureGhostCanvas.tracerPlacement(along: [nil, RoomFurnitureGhostSegment(start: .zero, end: .zero)], atShare: 0.5, cursorFacing: .upright) == nil)
+        // The heading is the drawn piece's own: along +x is 90 degrees, and down the screen is 180.
+        #expect(try #require(RoomFurnitureGhostCanvas.tracerPlacement(along: edges, atShare: 0.25, cursorFacing: .followsMouseMovement)).headingDegrees == 90)
+        #expect(try #require(RoomFurnitureGhostCanvas.tracerPlacement(along: edges, atShare: 0.75, cursorFacing: .followsMouseMovement)).headingDegrees == 180)
     }
 }
 
