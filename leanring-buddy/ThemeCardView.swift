@@ -225,7 +225,8 @@ struct ThemeCard: View {
             showsTheFocusRing = isNowFocused && theKeyboardMovedTheFocus()
         }
         .panelKeyboardFocusRing(isShowing: showsTheFocusRing && cardItselfHasTheFocus, cornerRadius: Self.cornerRadius)
-        .overlay(alignment: .topTrailing) { savedActions }
+        .overlay(alignment: .topLeading) { renameButton }
+        .overlay(alignment: .topTrailing) { deleteButton }
         .overlay(alignment: .bottom) { bottomOfTheTile }
         .overlay(alignment: .bottom) { fullNameOverTheFocusedCard }
         .zIndex(cardHasTheFocus ? 1 : 0)
@@ -274,24 +275,31 @@ struct ThemeCard: View {
 
     // MARK: Saved theme actions
 
-    @ViewBuilder private var savedActions: some View {
+    /// The pencil and the trash can sit in the card's two top corners, not side by side in one, so the middle of the card stays
+    /// the cursor's. A pair at one corner covered the tip of a paper plane. A card is about 97 points wide, and the cursor is
+    /// drawn in the middle 38 points, or 45 for a picture (`ThemeCardCursor.pictureScale`), so each corner has 26 points of
+    /// gutter for a 24 point button and its 2 point inset.
+    static let savedActionInset: CGFloat = 2
+
+    @ViewBuilder private var renameButton: some View {
         if rename != nil {
-            HStack(spacing: 3) {
-                TetherButton(
-                    systemImage: "pencil", role: .secondary, shape: .circle, size: .compact,
-                    takesItsOwnKeyboardFocus: false, accessibilityLabel: "Rename \(theme.name)", action: startRename
-                )
-                .themeCardGridFocus(focus, equals: .renameButton(themeID: theme.id), action: startRename)
-                TetherButton(
-                    systemImage: "trash", role: .secondaryDestructive, shape: .circle, size: .compact,
-                    takesItsOwnKeyboardFocus: false, accessibilityLabel: "Delete \(theme.name)", action: { deleteIsArmed = true }
-                )
-                .themeCardGridFocus(focus, equals: .deleteButton(themeID: theme.id), action: { deleteIsArmed = true })
-            }
-            .padding(4)
-            .opacity(savedActionsShow ? 1 : 0)
-            .allowsHitTesting(savedActionsShow)
-            .animation(.easeOut(duration: DS.Move.fadeSeconds), value: savedActionsShow)
+            TetherButton(
+                systemImage: "pencil", role: .secondary, shape: .circle, size: .compact,
+                takesItsOwnKeyboardFocus: false, accessibilityLabel: "Rename \(theme.name)", action: startRename
+            )
+            .themeCardGridFocus(focus, equals: .renameButton(themeID: theme.id), action: startRename)
+            .savedActionPresence(savedActionsShow)
+        }
+    }
+
+    @ViewBuilder private var deleteButton: some View {
+        if rename != nil {
+            TetherButton(
+                systemImage: "trash", role: .secondaryDestructive, shape: .circle, size: .compact,
+                takesItsOwnKeyboardFocus: false, accessibilityLabel: "Delete \(theme.name)", action: { deleteIsArmed = true }
+            )
+            .themeCardGridFocus(focus, equals: .deleteButton(themeID: theme.id), action: { deleteIsArmed = true })
+            .savedActionPresence(savedActionsShow)
         }
     }
 
@@ -403,6 +411,16 @@ struct ThemeCard: View {
     }
 }
 
+private extension View {
+    /// A saved card's button: in its corner, shown on hover or focus, and taking clicks only while shown.
+    func savedActionPresence(_ isShowing: Bool) -> some View {
+        padding(ThemeCard.savedActionInset)
+            .opacity(isShowing ? 1 : 0)
+            .allowsHitTesting(isShowing)
+            .animation(.easeOut(duration: DS.Move.fadeSeconds), value: isShowing)
+    }
+}
+
 /// The card's cursor, drawn the way the Theme Studio's highlighted tile draws an idea's: its thinking motion and its streaks
 /// pulsing, while `runsItsMotion`. Otherwise it holds still. With Reduce Motion on the motion and the streaks stay off.
 struct ThemeCardCursor: View {
@@ -413,6 +431,16 @@ struct ThemeCardCursor: View {
 
     private var picture: NSImage? {
         theme.usesPicture ? CustomThemePictureCache.image(forThemeID: theme.id) : nil
+    }
+
+    /// A card's cursor is drawn at 1.6 times its size, as on the studio's tiles. A picture cursor is up to 32 points long, so it
+    /// is drawn at 1.4, which keeps it clear of the buttons in the card's two top corners (`ThemeCard.savedActionInset`).
+    static let shapeScale: CGFloat = 1.6
+    static let pictureScale: CGFloat = 1.4
+
+    private var scaleOfTheCursor: CGFloat {
+        if case .picture = theme.cursor { return Self.pictureScale }
+        return Self.shapeScale
     }
 
     var body: some View {
@@ -433,7 +461,7 @@ struct ThemeCardCursor: View {
         }
         // The cursor at about 1.6 times its real size, as on the studio's tiles, and the triangle at its pointer angle, as the
         // header and the settings dial draw it.
-        .scaleEffect(1.6)
+        .scaleEffect(scaleOfTheCursor)
         .rotationEffect(.degrees(theme.cursorFacing == .pointerAngle ? -35 : 0))
         .accessibilityHidden(true)
     }

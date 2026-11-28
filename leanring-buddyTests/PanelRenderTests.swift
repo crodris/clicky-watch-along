@@ -247,6 +247,110 @@ struct PanelRenderTests {
         #expect(!theKeyboardMovedTheFocus(currentEventType: nil))
     }
 
+    // MARK: - A saved card's buttons and its cursor
+
+    /// The Amber Paper Plane theme as the Theme Studio saved it: a shapes cursor whose tip reaches up near the middle of the
+    /// card's top, where a pencil beside the trash can used to cover it.
+    private static let amberPaperPlaneThemeJSON = """
+    {"version": 2, "accent": "#FFA94D", "contrast": "#2B1200", "name": "Amber Paper Plane",
+     "agents": {"ring": "perAgent", "colors": ["#FFB36B", "#FFD27A", "#F08FB0"], "faces": {"kind": "triangle"}},
+     "cursor": {"kind": "shapes", "picture": null, "shapes": [
+       {"d": "M12 2 L21 21 L12 17 L3 21 Z", "fill": "#FFA94D", "stroke": "#FFF1D6", "strokeWidth": 1.5},
+       {"d": "M12 2 L12 17", "fill": null, "stroke": "#B8541A", "strokeWidth": 1.5}]},
+     "motion": {"trailStreaks": 2, "turnsTowardMovement": true, "whileListening": "pulse", "whileThinking": "wobble"},
+     "sounds": {"correct": "Glass", "done": "Hero", "needsYourOK": "Tink"}}
+    """
+
+    private func amberPaperPlane(origin: ThemeOrigin) throws -> ClickyTheme {
+        let themeJSON = try JSONDecoder().decode(JSONValue.self, from: Data(Self.amberPaperPlaneThemeJSON.utf8))
+        return try ClickyTheme.parse(themeJSON: themeJSON, id: "amber-paper-plane-test", origin: origin, pictureIsAvailable: false)
+    }
+
+    /// One theme card as the panel's grid draws it, in the hover state, as raw RGB bytes. A hover makes the pencil and trash can
+    /// show on a saved card. The cursor holds still, since the panel counts as closed, so a draw is the same each time once the
+    /// buttons' fade has finished. The window sits off every screen.
+    private func hoveredCardPixels(of theme: ClickyTheme) async throws -> (width: Int, height: Int, pixelsPerPoint: CGFloat, bytes: [UInt8]) {
+        let cardWidth = (CompanionPanelView.contentWidth - 32 - CGFloat(ThemeCardGrid.columnCount - 1) * ThemeCardGrid.spacing) / CGFloat(ThemeCardGrid.columnCount)
+        let grid = ThemeCardGrid(
+            themes: [theme], selectedTheme: clickyBlueTheme, designATheme: nil,
+            pick: { _ in }, rename: { _, _ in }, delete: { _ in }
+        )
+        let hostingView = NSHostingView(rootView: grid.frame(width: cardWidth * 3 + 2 * ThemeCardGrid.spacing).background(Color(hex: "#0b0c10")).environment(\.menuPanelIsOpen, false))
+        let fittingSize = hostingView.fittingSize
+        let window = NSWindow(contentRect: NSRect(x: -45_000, y: -45_000, width: fittingSize.width, height: fittingSize.height), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = hostingView
+        hostingView.frame = NSRect(origin: .zero, size: fittingSize)
+        hostingView.layoutSubtreeIfNeeded()
+        // The card's own hover view is the largest one, since each button inside it has a smaller one.
+        let cardHoverView = try #require(hoverAndPointerViews(in: hostingView).max { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height })
+
+        func draw() throws -> (width: Int, height: Int, pixelsPerPoint: CGFloat, bytes: [UInt8]) {
+            let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+            hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+            let image = try #require(bitmap.cgImage)
+            let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+            let context = try #require(CGContext(
+                data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            let data = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+            return (image.width, image.height, CGFloat(image.width) / hostingView.bounds.width, Array(UnsafeBufferPointer(start: data, count: image.width * image.height * 4)))
+        }
+        let atRest = try draw()
+        cardHoverView.reportTheHover(true)
+        var previousDraw = atRest
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(60))
+            let nextDraw = try draw()
+            // The hover has landed once the card differs from its resting look, and the fade has finished once two draws match.
+            if nextDraw.bytes == previousDraw.bytes, nextDraw.bytes != atRest.bytes { return nextDraw }
+            previousDraw = nextDraw
+        }
+        Issue.record("the hovered card never settled")
+        return previousDraw
+    }
+
+    @Test func aSavedCardsPencilAndTrashCanNeverCoverItsCursor() async throws {
+        let savedTheme = try amberPaperPlane(origin: .saved(folderURL: URL(fileURLWithPath: "/nonexistent-saved-theme")))
+        // The same theme as a bundled one has no buttons, so its hovered card shows the cursor alone.
+        let cursorOnly = try amberPaperPlane(origin: .bundled(imagesFolderURL: URL(fileURLWithPath: "/nonexistent-images")))
+        let withButtons = try await hoveredCardPixels(of: savedTheme)
+        let withoutButtons = try await hoveredCardPixels(of: cursorOnly)
+        #expect(withButtons.width == withoutButtons.width && withButtons.height == withoutButtons.height)
+
+        func channels(of draw: (width: Int, height: Int, pixelsPerPoint: CGFloat, bytes: [UInt8]), column: Int, row: Int) -> [Int] {
+            let firstByte = (row * draw.width + column) * 4
+            return (0..<3).map { Int(draw.bytes[firstByte + $0]) }
+        }
+        func differ(_ first: [Int], _ second: [Int], by tolerance: Int) -> Bool {
+            zip(first, second).contains { abs($0 - $1) > tolerance }
+        }
+        let scale = withButtons.pixelsPerPoint
+        // The cursor's frame: the card's top 66 points, between its 20 point margins. The card's own color sits at 20 points in.
+        let cardBackground = channels(of: withoutButtons, column: Int(20 * scale), row: Int(40 * scale))
+        var cursorPixels = 0
+        var buttonPixels = 0
+        var coveredCursorPixels = 0
+        for row in 0..<Int(66 * scale) {
+            for column in Int(2 * scale)..<(withButtons.width - Int(2 * scale)) {
+                let cursorOnlyColor = channels(of: withoutButtons, column: column, row: row)
+                let withButtonsColor = channels(of: withButtons, column: column, row: row)
+                let isTheCursor = differ(cursorOnlyColor, cardBackground, by: 24) && column > Int(20 * scale) && column < Int(77 * scale)
+                let isAButton = differ(withButtonsColor, cursorOnlyColor, by: 6)
+                if isTheCursor { cursorPixels += 1 }
+                if isAButton { buttonPixels += 1 }
+                if isTheCursor && isAButton { coveredCursorPixels += 1 }
+            }
+        }
+        #expect(cursorPixels > 200, "the cursor drew \(cursorPixels) pixels")
+        #expect(buttonPixels > 400, "the buttons drew \(buttonPixels) pixels")
+        #expect(coveredCursorPixels == 0, "the buttons cover \(coveredCursorPixels) of the cursor's pixels")
+    }
+
     // MARK: - The pointing hand on entry
 
     @Test func enteringAControlSetsThePointingHandAndLeavingSetsTheArrow() {
