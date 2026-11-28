@@ -758,13 +758,29 @@ final class HoverAndPointerNSView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        reportTheHover(true)
+        thePointerEntered()
     }
 
     override func mouseExited(with event: NSEvent) {
-        NSCursor.arrow.set()
+        thePointerLeft()
+    }
+
+    /// AppKit sends no cursorUpdate for a tracking area that is `.activeAlways`, which every area here is, since the panels
+    /// never become key. Moving from one control to the next in an open panel would then keep the arrow the first control's
+    /// exit set, so the hand is set on entry. A disabled control has no hover view, so it never sets the hand.
+    func thePointerEntered() {
+        setTheCursor(.pointingHand)
+        reportTheHover(true)
+    }
+
+    func thePointerLeft() {
+        setTheCursor(.arrow)
         reportTheHover(false)
     }
+
+    /// Sets the cursor the pointer shows. A test replaces it to record the cursor, since reading the system's current cursor
+    /// in a test process is not reliable.
+    var setTheCursor: (NSCursor) -> Void = { $0.set() }
 
     override func cursorUpdate(with event: NSEvent) {
         NSCursor.pointingHand.set()

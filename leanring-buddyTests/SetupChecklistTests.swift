@@ -239,10 +239,10 @@ struct SetupChecklistTests {
         #expect(setupCaptureDisclosure.contains("Anthropic") && setupCaptureDisclosure.contains("OpenAI"))
         // Voice goes to speech and AI services too: transcription (Apple Speech by default), the voice command brain, and the
         // spoken reply. Task agents can also reach the MCP servers the learner lists in mcp.json.
-        for voiceWords in ["Apple's speech recognition", "AssemblyAI", "ElevenLabs", "your audio", "Your words go through Clicky's own server to Anthropic"] {
+        for voiceWords in ["Apple's speech recognition", "runs on this Mac when it supports on-device recognition and otherwise sends your audio to Apple", "AssemblyAI", "ElevenLabs", "your audio", "Your words go through Clicky's own server to Anthropic"] {
             #expect(setupCaptureDisclosure.contains(voiceWords))
         }
-        for mcpWords in ["MCP servers you list in mcp.json", "waits for your OK", "the server receives what the agent passes it"] {
+        for mcpWords in ["MCP servers you list in mcp.json", "A call to one waits for your OK.", "Choosing For this task lets that tool run again without asking until the task ends.", "The server receives what the agent passes it."] {
             #expect(setupCaptureDisclosure.contains(mcpWords))
         }
         // The room art's camera frames and a standing item's product photo have their own destinations.

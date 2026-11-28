@@ -247,6 +247,22 @@ struct PanelRenderTests {
         #expect(!theKeyboardMovedTheFocus(currentEventType: nil))
     }
 
+    // MARK: - The pointing hand on entry
+
+    @Test func enteringAControlSetsThePointingHandAndLeavingSetsTheArrow() {
+        // A tracking area that is `.activeAlways` gets no cursorUpdate, so moving from one control to the next in an open
+        // panel must set the hand on entry, or the arrow the first control's exit set stays. The overrides only call these.
+        let hoverView = HoverAndPointerNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
+        var cursorsSet: [NSCursor] = []
+        hoverView.setTheCursor = { cursorsSet.append($0) }
+        hoverView.thePointerEntered()
+        #expect(cursorsSet.count == 1 && cursorsSet[0] === NSCursor.pointingHand)
+        #expect(hoverView.reportedHover)
+        hoverView.thePointerLeft()
+        #expect(cursorsSet.count == 2 && cursorsSet[1] !== NSCursor.pointingHand)
+        #expect(!hoverView.reportedHover)
+    }
+
     // MARK: - Hover under a still pointer
 
     @Test func aViewThatAppearsUnderAStillPointerReportsItsHoverAtOnce() {
