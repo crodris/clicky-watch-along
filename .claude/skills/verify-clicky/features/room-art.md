@@ -76,7 +76,7 @@ Preconditions:
   Run `$V app-quit` before the recording, since `app-launch` refuses to start while that Clicky still runs.
   Run `screencapture -v -V 20 -R<x>,<y>,<width>,<height> "$RUN/room-art-open.mov" & $V app-launch --room-camera-file <video of a room> "how would this look in my room"; wait`, then `ffmpeg -loglevel error -i "$RUN/room-art-open.mov" -vf fps=30 "$RUN/room-art-open-%04d.png"`.
   In the first frames that show the panel, it is faint and already fills its rect, and within about half a second it is solid.
-- **The panel closing.** With the panel open and a result showing, record 4 s as above into `room-art-close.mov` and click Close during it (`swift demo/scripts/mouse/mouse.swift click <x of the panel's right edge - 32> <y of its top edge + 32>`).
+- **The panel closing.** With the panel open and a result showing, record 4 s with the same `screencapture` alone (`-V 4`, no `app-launch`) into `room-art-close.mov` and click Close during it (`swift demo/scripts/mouse/mouse.swift click <x of the panel's right edge - 32> <y of its top edge + 32>`).
   The frames show the panel fading out in about 0.15 s with its status line and buttons fading with it, and no control disappears or changes before the panel does.
   No frame of the plain camera replaces a painting, a placed item, or a painted shirt during the fade.
   The loop's outline stays where it was.
@@ -123,11 +123,6 @@ Preconditions:
   While the painting comes, the ghost is at half opacity, the loop's line traces its footprint, and the status says "Arranging it in your room…". About 20 s later the log says `the painted item is N% of the measured box's outline` and `showing the painted composite`, and "Here it is, …" plays.
   Standing in the ghost's box at the placement makes Clicky say "Step aside for a second." once, and the painting waits for a clear frame. The 45 s wait for a render counts from the painting request going out, and a second 45 s wait counts from the placement, so a learner who stays in the box still sees a ready render after 45 s, and with no render hears the could-not-draw line once the 45 s placement wait has run out and the model search has ended with no render, whichever is later.
   The brain eval cases for the ghost run with `node bench/brainEvals.ts run --label ghost --runs 3 --only ghost-move-left,ghost-move-a-foot-closer,ghost-turn-around,ghost-push-back,ghost-place-it-here,ghost-question --port <port>`.
-- **"Step aside" only while arranging.** Run `$V app-quit` first.
-  With a camera video where a person stands in the box the ghost takes, open IKEA's LACK side table and run `$V app-launch --room-camera-file <that video> "how would this table look in my room|+40 right there"`.
-  While the piece is arranged, `$V shot room-art-step-aside` shows "Step aside for a second." in the status line under the half-opacity ghost.
-  About 45 s after the placement the store model's render shows, and `$V shot room-art-step-aside-showing` shows the piece's own line, "On your floor, <size>", although the person still stands in the box.
-  When the video turns away during the wait, the status line says "Lost the floor. Turn back to where the piece stands." instead.
 - **The store's model and the composite.** With the same video, open IKEA's LACK side table (https://www.ikea.com/us/en/p/lack-side-table-white-30449908/), Target's Threshold chair (https://www.target.com/p/-/A-87737798), or Article's Sven sofa, and run the same `app-launch`.
   The log shows `Room art: opened N collapsed sections of the page before reading it` on IKEA, `Room furniture: the page names N model files, ...`, `found the store's own model at <host>`, `rendered in N ms`, and `rendered the storeModel from <host>, held back while the painting comes`, and the render never shows before the painting unless 45 s pass.
   About 20 s after the painting request goes out the log says `showing the painted composite`, and "Here it is" plays then, and `$V shot room-art-furniture-composite` shows the painting.
@@ -137,6 +132,11 @@ Preconditions:
   Saved paintings can be judged again with no request: `SAVED_PAINTINGS=<stems> tools/swift-check.sh --filter RoomFurnitureSavedPaintingCheck`.
   A raw reply can be pasted with the client's own paste and fit, then judged: `RAW_REPLY_STEM=<stem> RAW_REPLY_IMAGE=<raw reply> RAW_REPLY_OUT=<png> tools/swift-check.sh --filter RoomFurnitureRawReplyCheck`.
   The gated room check renders a model on a recorded frame with no app at all: `ROOM_FURNITURE_FRAME=<frame> ROOM_FURNITURE_FLOOR_REPLY=<the /floor reply for it> ROOM_FURNITURE_MODEL=<glb> ROOM_FURNITURE_SIZE_CM=55x45x55 ROOM_FURNITURE_OUT=<folder> tools/swift-check.sh --filter RoomFurnitureRoomCheck`, which writes `<model>-composite.png` and `<model>-metrics.json`, and with `ROOM_FURNITURE_WORKER`, `ROOM_FURNITURE_APP_SECRET`, and `ROOM_FURNITURE_PRODUCT_JPEG` (the furniture's cutout over white) also `<model>-render-and-painting.png` (about $0.045).
+- **"Step aside" only while arranging.** Run `$V app-quit` first.
+  With a camera video where a person stands in the box the ghost takes, open IKEA's LACK side table and run `$V app-launch --room-camera-file <that video> "how would this table look in my room|+40 right there"`.
+  While the piece is arranged, `$V shot room-art-step-aside` shows "Step aside for a second." in the status line under the half-opacity ghost.
+  About 45 s after the placement the store model's render shows, and `$V shot room-art-step-aside-showing` shows the piece's own line, "On your floor, <size>", although the person still stands in the box.
+  When the video turns away during the wait, the status line says "Lost the floor. Turn back to where the piece stands." instead.
 - **A floor item that is not furniture.** Open a lamp page (a floor lamp) or a rug page that states its size, and run `$V app-launch --room-camera-file room-floor.mp4 "how would this lamp look in my room|+40 right there"`.
   The `/try-it-item` reply is `standing` with `standsOn` `floor` (a rug has a height near 1 cm), so the log shows the same floor lines as furniture, `Room art: floor N m away, tilted N degrees`, then the ghost.
   The log never says `which cannot be tried`, and "I can show things on your wall, your floor, or a table so far." never plays.
