@@ -225,6 +225,22 @@ struct AccentInkTests {
         #expect(secondDrawing.nearBlack > 20 && secondDrawing.white == 0)
     }
 
+    /// The experiment panel's Run button is the stylesheet's one accent-filled button. A page draws it, so this reads the rules.
+    @Test func hoveringTheExperimentPanelsRunButtonKeepsItsFill() throws {
+        let styleSheetURL = repositoryRootURL.appending(path: "leanring-buddy/LiveSceneAssets/scene-style.css")
+        let styleSheet = try String(contentsOf: styleSheetURL, encoding: .utf8).replacing(#/\/\*[\s\S]*?\*\//#, with: "")
+        // Each match is one rule's selectors and its declarations, an `@media` block's rules included.
+        let hoverRules = styleSheet.matches(of: #/([^{}]+)\{([^{}]*)\}/#).filter {
+            $0.output.1.contains(".clicky-run-button") && $0.output.1.contains(":hover")
+        }
+        // A renamed button must fail here and not pass with no rule to check.
+        try #require(!hoverRules.isEmpty)
+        for declaration in hoverRules.flatMap({ $0.output.2.split(separator: ";") }) {
+            let declaration = declaration.trimmingCharacters(in: .whitespacesAndNewlines)
+            #expect(!declaration.hasPrefix("background") && !declaration.contains("brightness("), "\(declaration)")
+        }
+    }
+
     @Test func aCalloutWorksOutAnAccentsInkOnceAndThenDrawsTheKeptOne() async throws {
         // No theme, agent color, or status line uses this color.
         let accentHex = "#A1437D"
