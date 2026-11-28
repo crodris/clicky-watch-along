@@ -238,7 +238,7 @@ nonisolated func polygonArea(_ polygon: [CGPoint]) -> Double {
 }
 
 /// The convex polygon clipped to the rectangle, one edge at a time (Sutherland and Hodgman).
-nonisolated private func clipped(_ polygon: [CGPoint], toRectangle rectangle: CGRect) -> [CGPoint] {
+nonisolated func clipped(_ polygon: [CGPoint], toRectangle rectangle: CGRect) -> [CGPoint] {
     // Each edge keeps the side where its test is true, and the crossing point is found along the other coordinate.
     let edges: [(keeps: (CGPoint) -> Bool, crossing: (CGPoint, CGPoint) -> CGPoint)] = [
         ({ $0.x >= rectangle.minX }, { crossingAtX(rectangle.minX, $0, $1) }),
