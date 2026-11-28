@@ -37,3 +37,47 @@ describe("frame-popout.html part labels", () => {
     expect(framePopoutSource).toMatch(/entry\.dot\.setAttribute\("cx", anchorX\); entry\.dot\.setAttribute\("cy", anchorY\);/);
   });
 });
+
+describe("frame-popout.html leader lines under a dimmed label", () => {
+  /** The page's leader line math, cut out of frame-popout.html between its markers and run as written. */
+  const loadTheLeaderLineMath = () => {
+    const blockStart = framePopoutSource.indexOf("// BEGIN leader line math");
+    const blockEnd = framePopoutSource.indexOf("// END leader line math");
+    expect(blockStart).toBeGreaterThan(0);
+    expect(blockEnd).toBeGreaterThan(blockStart);
+    return new Function(`${framePopoutSource.slice(blockStart, blockEnd)}; return { leaderEndOnTheLabelEdge };`)() as {
+      leaderEndOnTheLabelEdge: (anchorX: number, anchorY: number, labelX: number, labelY: number, halfWidth: number, halfHeight: number) => { x: number; y: number } | null;
+    };
+  };
+
+  // A label 80 by 24 points at (300, 200), with the 4 and 3 points of padding the layout adds around it.
+  const halfWidth = 40 + 4;
+  const halfHeight = 12 + 3;
+
+  it("ends the line on the label's edge, so it never runs under the label's words", () => {
+    // A dimmed label is mostly see through, and a line that ended at the label's center showed through it like a strike
+    // through its text.
+    const { leaderEndOnTheLabelEdge } = loadTheLeaderLineMath();
+    expect(leaderEndOnTheLabelEdge(100, 200, 300, 200, halfWidth, halfHeight)).toEqual({ x: 260, y: 200 });
+    expect(leaderEndOnTheLabelEdge(300, 50, 300, 200, halfWidth, halfHeight)).toEqual({ x: 300, y: 188 });
+    // Up and to the left, the end is on the box's boundary and on the line toward the part.
+    const diagonalEnd = leaderEndOnTheLabelEdge(100, 100, 300, 200, halfWidth, halfHeight);
+    expect(diagonalEnd).not.toBeNull();
+    expect(diagonalEnd?.x).toBeCloseTo(300 - 12 * 2, 9);
+    expect(diagonalEnd?.y).toBeCloseTo(200 - 12, 9);
+  });
+
+  it("draws no line for a part that sits under its label", () => {
+    const { leaderEndOnTheLabelEdge } = loadTheLeaderLineMath();
+    expect(leaderEndOnTheLabelEdge(310, 205, 300, 200, halfWidth, halfHeight)).toBeNull();
+  });
+
+  it("draws the line and the dot at the label's own opacity, and ends the line at the label's edge", () => {
+    // The line and the dot stayed at full strength while a part's label dimmed to 0.35.
+    expect(framePopoutSource).toMatch(/const drawnOpacity = returnFrom \? shownOpacity : Number\(entry\.element\.style\.opacity\);/);
+    expect(framePopoutSource).toMatch(/entry\.line\.setAttribute\("opacity", leaderEnd \? drawnOpacity : 0\);/);
+    expect(framePopoutSource).toMatch(/entry\.dot\.setAttribute\("opacity", drawnOpacity\);/);
+    expect(framePopoutSource).not.toMatch(/entry\.line\.setAttribute\("x2", labelX\)/);
+    expect(framePopoutSource).not.toMatch(/entry\.line\.setAttribute\("y2", labelY\)/);
+  });
+});

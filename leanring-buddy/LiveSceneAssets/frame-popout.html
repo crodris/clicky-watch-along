@@ -882,6 +882,22 @@ function slideKeptInsideTheWindow(slide, box, windowWidth, windowHeight, margin)
 }
 // END pan clamp math
 
+// BEGIN leader line math (worker/src/framePopoutLabels.test.ts runs this block)
+// Where a label's leader line ends: on the edge of the label's own box, on the way to the part, so the line never runs under
+// the label's words. A line that ended at the label's center showed through a dimmed label, which looked like a strike
+// through its text. halfWidth and halfHeight are the label's half size with the 4 and 3 points that the layout adds around it
+// to keep labels apart, and the line ignores that padding. Returns null for a part under the label, which has no line to draw.
+const leaderEndOnTheLabelEdge = (anchorX, anchorY, labelX, labelY, halfWidth, halfHeight) => {
+  const boxHalfWidth = Math.max(0, halfWidth - 4), boxHalfHeight = Math.max(0, halfHeight - 3);
+  const offsetX = anchorX - labelX, offsetY = anchorY - labelY;
+  if (Math.abs(offsetX) <= boxHalfWidth && Math.abs(offsetY) <= boxHalfHeight) return null;
+  const shareToTheEdgeAcross = offsetX === 0 ? Infinity : boxHalfWidth / Math.abs(offsetX);
+  const shareToTheEdgeDown = offsetY === 0 ? Infinity : boxHalfHeight / Math.abs(offsetY);
+  const shareToTheEdge = Math.min(shareToTheEdgeAcross, shareToTheEdgeDown);
+  return { x: labelX + offsetX * shareToTheEdge, y: labelY + offsetY * shareToTheEdge };
+};
+// END leader line math
+
 // While a part is focused the lifted subject stays inside the paused video with this margin, so the replay control under the
 // video and the page beside it, such as a video site's sidebar, never sit under the model.
 const subjectMarginInsideTheMedia = 10;
@@ -1093,12 +1109,15 @@ const render = (now) => {
     const shownOpacity = returnFrom ? entry.opacityAtReturn * labelFade : labelOpacity;
     if (returnFrom) entry.element.style.opacity = String(shownOpacity);
     else if (!entry.element.classList.contains("focused") && entry.element.style.opacity !== "0.35") entry.element.style.opacity = String(labelOpacity);
+    // The line and the dot are drawn at the label's own opacity, so a dimmed label does not keep a full strength leader.
+    const drawnOpacity = returnFrom ? shownOpacity : Number(entry.element.style.opacity);
+    const leaderEnd = leaderEndOnTheLabelEdge(anchorX, anchorY, labelX, labelY, halfWidth, halfHeight);
     entry.line.setAttribute("x1", anchorX); entry.line.setAttribute("y1", anchorY);
-    entry.line.setAttribute("x2", labelX); entry.line.setAttribute("y2", labelY);
-    entry.line.setAttribute("opacity", shownOpacity);
+    entry.line.setAttribute("x2", leaderEnd ? leaderEnd.x : anchorX); entry.line.setAttribute("y2", leaderEnd ? leaderEnd.y : anchorY);
+    entry.line.setAttribute("opacity", leaderEnd ? drawnOpacity : 0);
     entry.labelCornerX = labelX - halfWidth + 4; entry.labelCornerY = labelY - halfHeight + 3; entry.shownOpacity = shownOpacity;
     entry.dot.setAttribute("cx", anchorX); entry.dot.setAttribute("cy", anchorY);
-    entry.dot.setAttribute("opacity", shownOpacity);
+    entry.dot.setAttribute("opacity", drawnOpacity);
   }
   // Each replay stop's number sits on its label's top left corner, and the dotted path links the parts of the stops reached.
   for (const { entry, element, stopIndex } of replayStopNumbers) {
