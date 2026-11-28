@@ -364,7 +364,7 @@ struct SettingsDialView: View {
         .overlay(alignment: .topTrailing) {
             if slice == .agents, viewModel.snapshot.runningAgentCount > 0 {
                 Text("\(viewModel.snapshot.runningAgentCount)")
-                    .font(.system(size: 9, weight: .heavy))
+                    .font(DS.glyphFont(pointSize: 9, weight: .heavy))
                     .foregroundColor(DS.Colors.inkOnAccent)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
@@ -398,7 +398,7 @@ struct SettingsDialView: View {
             }
         case .model:
             Image(systemName: "sparkle")
-                .font(.system(size: 17, weight: .semibold))
+                .font(DS.TypeScale.headline.font.weight(.semibold))
                 .foregroundColor(lineColor)
         case .agents:
             // Two rings, the look of two agents' progress rings. A theme whose agents wear its accent shows the accent.
@@ -411,11 +411,11 @@ struct SettingsDialView: View {
             }
         case .show:
             Image(systemName: viewModel.snapshot.isClickyCursorEnabled ? "eye" : "eye.slash")
-                .font(.system(size: 17, weight: .semibold))
+                .font(DS.TypeScale.headline.font.weight(.semibold))
                 .foregroundColor(lineColor)
         case .more:
             Image(systemName: "ellipsis")
-                .font(.system(size: 17, weight: .bold))
+                .font(DS.TypeScale.headline.font)
                 .foregroundColor(lineColor)
         }
     }
@@ -519,7 +519,7 @@ struct SettingsDialView: View {
             ForEach(Array(modelChoices.enumerated()), id: \.offset) { itemIndex, modelChoice in
                 let isEmphasized = emphasizedIndex == itemIndex
                 Text(modelChoice.displayName)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(DS.TypeScale.caption.font.weight(.semibold))
                     .foregroundColor(isEmphasized ? inkColor : Color.white.opacity(0.9))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -543,7 +543,7 @@ struct SettingsDialView: View {
     /// `accentTheme` makes the pill that theme's own accent, with the letters in that accent's ink.
     private func labelPill(_ text: String, accentTheme: ClickyTheme? = nil) -> some View {
         Text(text)
-            .font(.system(size: SettingsDialLabel.fontSize, weight: .semibold))
+            .font(DS.TypeScale.caption.font.weight(.semibold))
             .foregroundColor(accentTheme?.accentInk ?? Color.white.opacity(0.92))
             .lineLimit(1)
             .fixedSize()
@@ -559,7 +559,7 @@ struct SettingsDialView: View {
 
     private var hint: some View {
         Text(Self.firstRunHintText)
-            .font(.system(size: 11, weight: .semibold))
+            .font(DS.TypeScale.caption.font.weight(.semibold))
             .foregroundColor(Color.white.opacity(0.82))
             .padding(.horizontal, 10)
             .padding(.vertical, 5)

@@ -538,7 +538,7 @@ struct TetherCalloutCursorIcon: View {
 struct TetherCalloutCrossIcon: View {
     var body: some View {
         Image(systemName: "xmark")
-            .font(.system(size: 11, weight: .heavy))
+            .font(DS.TypeScale.caption.font.weight(.heavy))
     }
 }
 

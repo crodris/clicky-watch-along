@@ -527,7 +527,7 @@ private struct DesignOneThemeCard: View {
                     .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
                     .foregroundColor(isHovered || hasTheFocus ? DS.Colors.textPrimary : DS.Colors.textTertiary)
                     .frame(width: 30, height: 30)
-                    .overlay(Image(systemName: "plus").font(.system(size: 13, weight: .semibold)).foregroundColor(DS.Colors.textSecondary))
+                    .overlay(Image(systemName: "plus").font(DS.TypeScale.title.font).foregroundColor(DS.Colors.textSecondary))
                     .frame(width: 56, height: 56)
                 Text("Design one")
                     .font(DS.TypeScale.title.font)

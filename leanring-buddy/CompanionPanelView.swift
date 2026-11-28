@@ -725,7 +725,7 @@ private struct PanelAgentsOpenListButton: View {
                 }
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(DS.TypeScale.caption.font.weight(.semibold))
                     .foregroundColor(isHovered ? DS.Colors.textPrimary : DS.Colors.textSecondary)
             }
             .lineLimit(1)
@@ -1154,7 +1154,7 @@ private struct SetupStepMark: View {
                     .frame(width: 11, height: 11)
             } else if state == .turnedOff {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(DS.glyphFont(pointSize: 9, weight: .bold))
                     .foregroundColor(DS.Colors.destructiveText)
             } else {
                 Text("\(stepNumber)")

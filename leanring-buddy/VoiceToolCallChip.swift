@@ -91,7 +91,7 @@ struct VoiceToolCallChipCallout: View {
         } content: {
             HStack(spacing: 6) {
                 Text(verbatim: chipText)
-                    .font(chipTextIsCode ? .system(size: DS.TypeScale.title.pointSize, weight: .bold, design: .monospaced) : DS.TypeScale.voice.font)
+                    .font(chipTextIsCode ? DS.TypeScale.title.font.monospaced().weight(.bold) : DS.TypeScale.voice.font)
                 if let secondaryChipText {
                     // 60% white reads at 7.0 contrast on the Callout's surface.
                     Text(verbatim: secondaryChipText)

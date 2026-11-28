@@ -115,7 +115,7 @@ struct AgentPausedDiscView: View {
             if pausedAgentCount > 1 {
                 // A capsule, so two digits fit. Its right edge stays on the panel's edge, and it grows to the left.
                 Text("\(min(pausedAgentCount, 99))")
-                    .font(.system(size: 7.5, weight: .bold, design: .rounded))
+                    .font(DS.glyphFont(pointSize: 7.5, weight: .bold, design: .rounded))
                     .foregroundColor(DS.Colors.surface1)
                     .padding(.horizontal, 2.5)
                     .frame(minWidth: Self.badgeDiameter, minHeight: Self.badgeDiameter, maxHeight: Self.badgeDiameter)

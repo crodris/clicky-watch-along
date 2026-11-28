@@ -241,6 +241,13 @@ enum DS {
         var font: Font { .system(size: pointSize, weight: weight, design: design) }
     }
 
+    /// A symbol or number whose size follows the disc or badge it sits in, such as a check on a 22 point agent disc.
+    /// Text never uses it: text takes a `TypeScale` style. This is the one other place a font size is written, so
+    /// `tools/design-token-check.py` accepts a size here and nowhere else.
+    static func glyphFont(pointSize: CGFloat, weight: Font.Weight, design: Font.Design = .default) -> Font {
+        .system(size: pointSize, weight: weight, design: design)
+    }
+
     // MARK: - Tether moves
 
     /// The ten named moves of the Tether redesign. Every animated change on a Tether surface is one of them, so a surface

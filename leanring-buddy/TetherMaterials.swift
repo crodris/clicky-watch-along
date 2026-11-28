@@ -184,7 +184,7 @@ struct TetherCallout<Icon: View, Content: View>: View {
             ZStack {
                 Circle().fill(accent)
                 icon
-                    .font(.system(size: 12, weight: .bold))
+                    .font(DS.glyphFont(pointSize: 12, weight: .bold))
                     .foregroundStyle(accent.inkOnThisFill)
             }
             .frame(width: Self.iconDiscDiameter, height: Self.iconDiscDiameter)

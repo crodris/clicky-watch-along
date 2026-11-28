@@ -1252,13 +1252,13 @@ private struct AgentRowView: View {
                             .frame(width: 12)
                     } else {
                         Text(stepStatus.symbol)
-                            .font(.system(size: 11, weight: stepStatus == .current ? .bold : .regular))
+                            .font(DS.TypeScale.caption.font.weight(stepStatus == .current ? .bold : .regular))
                             .foregroundColor(stepStatus == .current ? DS.Colors.textPrimary : DS.Colors.textSecondary)
                             .frame(width: 12)
                     }
                     // A task agent writes its own step lines, so a long one is cut instead of growing the row.
                     Text(agent.stepNames[stepIndex])
-                        .font(.system(size: 11, weight: stepStatus == .current ? .bold : .regular))
+                        .font(DS.TypeScale.caption.font.weight(stepStatus == .current ? .bold : .regular))
                         .foregroundColor(stepStatus == .pending ? DS.Colors.textSecondary : DS.Colors.textPrimary)
                         .lineLimit(2)
                         .truncationMode(.tail)

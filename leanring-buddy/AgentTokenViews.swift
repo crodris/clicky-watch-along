@@ -61,7 +61,7 @@ struct AgentTokenDiscView: View {
                 .frame(width: faceDiameter, height: faceDiameter)
                 .overlay(
                     Text("!")
-                        .font(.system(size: 12, weight: .heavy, design: .rounded))
+                        .font(DS.glyphFont(pointSize: 12, weight: .heavy, design: .rounded))
                         .foregroundColor(DS.Colors.warning)
                 )
         } else if let approvalSettledMark {
@@ -184,7 +184,7 @@ struct AgentOverflowDiscView: View {
 
     var body: some View {
         Text("+\(overflowCount)")
-            .font(.system(size: AgentOverflowDiscText.fontSize(overflowCount: overflowCount), weight: .bold, design: .rounded))
+            .font(DS.glyphFont(pointSize: AgentOverflowDiscText.fontSize(overflowCount: overflowCount), weight: .bold, design: .rounded))
             .foregroundColor(.white)
             .lineLimit(1)
             // A three digit count is cut down to fit instead of touching the edge.
@@ -459,13 +459,13 @@ struct AgentTokenBadgeView: View {
             FinishedCheckMark(size: size)
         case .failed:
             Image(systemName: "xmark")
-                .font(.system(size: size * 0.5, weight: .heavy))
+                .font(DS.glyphFont(pointSize: size * 0.5, weight: .heavy))
                 .foregroundColor(.white)
                 .frame(width: size, height: size)
                 .background(Circle().fill(DS.Colors.destructive))
         case .needsYourOK:
             Text("!")
-                .font(.system(size: size * 0.72, weight: .heavy, design: .rounded))
+                .font(DS.glyphFont(pointSize: size * 0.72, weight: .heavy, design: .rounded))
                 .foregroundColor(.black)
                 .frame(width: size, height: size)
                 .background(Circle().fill(DS.Colors.warning))
@@ -486,7 +486,7 @@ struct AgentTokenApprovalSettledFace: View {
                 switch mark {
                 case .allowed:
                     Image(systemName: "checkmark")
-                        .font(.system(size: diameter * 0.5, weight: .heavy))
+                        .font(DS.glyphFont(pointSize: diameter * 0.5, weight: .heavy))
                         .foregroundColor(.white)
                 case .notAllowed:
                     Capsule()
@@ -503,7 +503,7 @@ struct FinishedCheckMark: View {
 
     var body: some View {
         Image(systemName: "checkmark")
-            .font(.system(size: size * 0.55, weight: .heavy))
+            .font(DS.glyphFont(pointSize: size * 0.55, weight: .heavy))
             .foregroundColor(.white)
             .frame(width: size, height: size)
             .background(Circle().fill(DS.Colors.success))

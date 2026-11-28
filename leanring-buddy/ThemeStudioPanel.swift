@@ -639,7 +639,7 @@ private struct ThemeStudioTileView: View {
         .overlay(alignment: .topLeading) {
             if isStamped {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(DS.TypeScale.headline.font)
                     .foregroundStyle(accentColor.inkOnThisFill, accentColor)
                     .padding(6)
                     .transition(reduceMotion ? .opacity : .scale(scale: DS.Move.popStartScale).combined(with: .opacity))
@@ -669,7 +669,7 @@ private struct ThemeStudioDesignFailedRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: "xmark")
-                .font(.system(size: 11, weight: .heavy))
+                .font(DS.TypeScale.caption.font.weight(.heavy))
                 .foregroundColor(DS.Colors.destructiveText)
             Text("Couldn't design that. Your ideas are still here.")
                 .font(DS.TypeScale.body.font)
@@ -773,7 +773,7 @@ private struct ThemeStudioTagsView: View {
         WrappingTagsLayout(spacing: 4) {
             ForEach(tags, id: \.self) { tag in
                 Text(tag)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(DS.TypeScale.data.font)
                     .foregroundColor(DS.Colors.textSecondary)
                     .lineLimit(1)
                     .padding(.horizontal, 6)

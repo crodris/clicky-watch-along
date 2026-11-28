@@ -396,7 +396,7 @@ struct RosterFaceView: View {
                 ZStack {
                     Circle().fill(Color(hex: rosterFace.accentHex))
                     Text(rosterFace.player.initials)
-                        .font(.system(size: size * 0.38, weight: .bold, design: .rounded))
+                        .font(DS.glyphFont(pointSize: size * 0.38, weight: .bold, design: .rounded))
                         .foregroundColor(Color(hex: ThemeRGBColor.inkHex(onFillHex: rosterFace.accentHex)))
                 }
                 .grayscale(isGrayscale ? 1 : 0)
