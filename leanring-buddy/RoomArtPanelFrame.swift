@@ -4,8 +4,7 @@
 //
 //  Where the room art panel sits and how large it is. The learner drags it by its handle and resizes it by its corner grip,
 //  always at the camera's 16:9, so the video fills it and every point on it maps to one camera pixel the same way at any
-//  size (`RoomArtVideoFit`). Its last frame is kept in UserDefaults, so it opens where the learner left it. It also holds
-//  how the panel grows as it opens.
+//  size (`RoomArtVideoFit`). Its last frame is kept in UserDefaults, so it opens where the learner left it.
 //
 
 import CoreGraphics

@@ -1,10 +1,9 @@
 // Moves, clicks, and drags the real mouse with CGEvents, in global screen points (top-left origin).
-// Usage: mouse where | move x y [seconds] | click x y [seconds] | rightclick x y | drag fromX fromY toX toY seconds
-// A click's seconds are its glide to the point, 0.6 by default. With 0 it presses about 0.2 seconds after it starts.
+// Usage: mouse where | move x y | click x y | rightclick x y | drag fromX fromY toX toY seconds
 import CoreGraphics
 import Foundation
 
-let usage = "usage: mouse where | move x y [seconds] | click x y [seconds] | rightclick x y | drag fromX fromY toX toY seconds"
+let usage = "usage: mouse where | move x y [seconds] | click x y | rightclick x y | drag fromX fromY toX toY seconds"
 let arguments = CommandLine.arguments.dropFirst().map { $0 }
 
 /// The argument at that position as a number, or the usage and exit 2, so a driver that passes an empty or bad value
@@ -38,7 +37,7 @@ case "move":
     glide(from: currentLocation(), to: point(at: 1), seconds: arguments.count > 3 ? number(at: 3) : 0.6, type: .mouseMoved)
 case "click":
     let target = point(at: 1)
-    glide(from: currentLocation(), to: target, seconds: arguments.count > 3 ? number(at: 3) : 0.6, type: .mouseMoved)
+    glide(from: currentLocation(), to: target, seconds: 0.6, type: .mouseMoved)
     usleep(150_000); post(.leftMouseDown, target); usleep(90_000); post(.leftMouseUp, target)
 case "rightclick":
     let target = point(at: 1)

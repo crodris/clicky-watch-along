@@ -74,25 +74,17 @@ Preconditions:
 - **The panel opening.** Run the panel with a recorded camera once, and read its window's rect with a `CGWindowListCopyWindowInfo` read of the Clicky windows.
   The next open uses the same rect while the mouse stays on that display, since only a move or a resize saves another place.
   Run `screencapture -v -V 20 -R<x>,<y>,<width>,<height> "$RUN/room-art-open.mov" & $V app-launch --room-camera-file <video of a room> "how would this look in my room"; wait`, then `ffmpeg -loglevel error -i "$RUN/room-art-open.mov" -vf fps=30 "$RUN/room-art-open-%04d.png"`.
-  In the first frames that show the panel, it is faint and slightly smaller than its rect, with its top edge in place, and within about half a second it is solid and fills the rect.
-- **A click while the panel grows.** Use a page whose picture comes from its image file, and the rect read in **The panel opening**.
-  Close's place is x = the rect's right edge - 32, y = its top edge + 32.
-  Build the mouse tool with `swiftc -O demo/scripts/mouse/mouse.swift -o "$RUN/mouse"`.
-  Run `$V app-launch --room-camera-file <video of a room> "how would this look in my room" && until grep -q "Room art: used the page's image file" "$RUN/app.log"; do sleep 0.05; done; "$RUN/mouse" click <x> <y> 0`.
-  The panel opens as that log line prints, and the `0` makes the press land about 0.2 s later.
-  The press must land within about 0.3 s of the open, so a `click` with no `0`, which presses 0.75 s after it starts, is too late.
-  Nothing happens: the panel stays open, and the store page behind it does not get the click.
-  Then run `"$RUN/mouse" click <x> <y>`, which closes the panel.
+  In the first frames that show the panel, it is faint and already fills its rect, and within about half a second it is solid.
 - **The panel closing.** With the panel open and a result showing, record 4 s as above into `room-art-close.mov` and click Close during it (`./mouse click <x of the panel's right edge - 32> <y of its top edge + 32>`).
   The frames show the panel fading out in about 0.15 s with its status line and buttons fading with it, and no control disappears or changes before the panel does.
   The picture and any loop hold still during the fade: no frame of the plain camera replaces a painting, a placed item, or a painted shirt.
 - **Reopening during the fade.** On a wall art page with collapsed sections, such as an IKEA framed print, run `$V app-launch --room-camera-file <video of a room> "how would this look on my wall|+40 how would this look on my wall"`.
   While the second request still reads the front tab, before the panel's status line changes, click the wall in the panel, which moves the art, so the request closes the panel and opens it again at once.
-  A recording shows the panel staying at full size and coming back from its fade, with no second grow.
-  The window of time is under a second, and the unit test `aPanelOpenedAgainDuringItsCloseFadesBackInWithNoSecondGrow` pins the rule.
+  A recording shows the panel staying at full size and coming back from its fade.
+  The window of time is under a second, and the unit test `aPanelOpenedAgainDuringItsCloseStaysAndFadesBackInFromWhereItIs` pins the rule.
 - **Reduce Motion.** This changes a setting of the Mac, so turn it off again afterward.
   Turn on System Settings > Accessibility > Display > Reduce motion, then record the panel opening and closing as above.
-  The panel only fades, at its full size from its first frame, and a click on Close counts as soon as the panel shows.
+  The panel fades in over about 0.15 s instead of half a second, and a click on Close counts as soon as the panel shows.
 - **The status pill at the smallest size.** The panel's place is a Debug app default, so save it first with `defaults read com.crodris.clicky-watch-along roomArtPanelFrame`.
   Run `defaults write com.crodris.clicky-watch-along roomArtPanelFrame -string '{{200, 200}, {480, 270}}'`, then `$V app-launch --room-camera-file <video that turns> "how would this look on my wall"`.
   Once the video turns away, `$V shot room-art-pill-small` shows "Lost the wall. Turn back, or click the wall to place it again." whole on 2 lines in a solid dark pill, with Save photo and Close whole beside and above it.

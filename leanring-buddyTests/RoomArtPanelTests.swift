@@ -434,7 +434,7 @@ struct RoomArtPanelMotionTests {
         let harness = Harness()
         harness.reduceMotionIsOn = true
         harness.motion.open(harness.window)
-        #expect(harness.fades.map(\.seconds) == [DS.Move.fadeSeconds])
+        #expect(harness.fades.map(\.seconds) == [DS.Move.glide.reduceMotionForm.fadeSeconds])
     }
 
     @Test func aClosingPanelTakesNoClicksAndLeavesWhenItsFadeEnds() {

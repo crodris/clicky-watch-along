@@ -491,12 +491,11 @@ The fading panel keeps drawing what it showed as the close began (`RoomArtPrevie
 The panel view draws the state from that content, never from the live properties that a close clears.
 With Reduce Motion on it fades in over `DS.Move.fadeSeconds`.
 It has no grow: one scaling from 0.97 was tried, and at 3 percent over a third of a second it could not be seen, while the controls took clicks at their full size as they were drawn smaller.
-The thin edge the growing content has not reached yet is transparent, so macOS gives a click there to the window behind.
-With Reduce Motion on, or with no grow, the controls take clicks at once.
+The panel is at its full size from its first frame, so its controls take clicks as soon as it shows.
 A close stops the camera at once, and the fading window takes no clicks.
 From the moment the session ends, the frame processor shows no frame and moves no loop until the next session, a frame already on its way included (`RoomArtFrameProcessor.endTheSession`), so the fading panel never changes.
 A panel opened again during that fade stays, since only the newest move may order the window out.
-It fades back in with no second grow.
+It fades back in from where its fade had reached.
 As the panel takes clicks, each open also checks every control's hover against the pointer again (`refreshTheRowHovers`), since a control hovered as the close began never heard the pointer leave.
 The video fills the panel at any size, so the camera pixel under a point (`RoomArtVideoFit`, `RoomArtVideoNSView.cameraPixel`), the loop, and the ghost map the same way, and a drag on the video still moves the ghost.
 The handle and the grip show the pointing hand and a hover state.
