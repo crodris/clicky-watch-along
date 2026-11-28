@@ -94,15 +94,17 @@ struct RoomFurnitureGhostCanvas: View {
     var body: some View {
         Canvas { context, _ in
             guard let lines else { return }
-            let footprintPath = Self.closedPath(through: lines.footprint)
+            let footprintPath = Self.path(through: lines.footprintEdges)
 
-            // The contact shadow and the glowing fill come in last, under the lines.
+            // The contact shadow and the glowing fill come in last, under the lines. They take the footprint's visible part,
+            // since the path of its edges has gaps wherever the camera or the panel cuts an edge away.
             if frame.fillShare > 0 {
+                let footprintFillPath = Self.closedPath(through: lines.footprintFill)
                 context.drawLayer { shadowLayer in
                     shadowLayer.addFilter(.blur(radius: 12))
-                    shadowLayer.fill(footprintPath, with: .color(.black.opacity(0.4 * frame.fillShare)))
+                    shadowLayer.fill(footprintFillPath, with: .color(.black.opacity(0.4 * frame.fillShare)))
                 }
-                context.fill(footprintPath, with: .color(color.opacity(fillOpacity * frame.fillShare)))
+                context.fill(footprintFillPath, with: .color(color.opacity(fillOpacity * frame.fillShare)))
             }
 
             // The footprint: a soft glow, a dark under-stroke so it reads on a bright floor, the accent line, and its front
@@ -117,40 +119,45 @@ struct RoomFurnitureGhostCanvas: View {
                 context.stroke(drawnFootprint, with: .color(color), style: StrokeStyle(lineWidth: Self.footprintLineWidth, lineCap: .round, lineJoin: .round))
                 // The footprint starts with its front edge, a quarter of the way around for a square, so its share of the
                 // drawn line is the front edge's own share of the whole outline.
-                let frontEdgeShare = Self.lengthShareOfTheFirstEdge(of: lines.footprint)
-                let frontDrawnShare = min(1, frame.footprintShare / max(frontEdgeShare, 0.0001))
-                var frontEdge = Path()
-                frontEdge.move(to: lines.footprint[0])
-                frontEdge.addLine(to: lines.footprint[1])
-                context.stroke(
-                    frontEdge.trimmedPath(from: 0, to: frontDrawnShare),
-                    with: .color(Color.white.opacity(0.85)),
-                    style: StrokeStyle(lineWidth: Self.frontEdgeLineWidth, lineCap: .round)
-                )
-                context.stroke(
-                    frontEdge.trimmedPath(from: 0, to: frontDrawnShare),
-                    with: .color(color),
-                    style: StrokeStyle(lineWidth: Self.frontEdgeLineWidth - 2, lineCap: .round)
-                )
+                // The front edge is the footprint's first edge when any of it shows.
+                if let frontSegment = lines.footprintEdges.first ?? nil {
+                    let frontEdgeShare = Self.lengthShareOfTheFirstEdge(of: lines.footprintEdges)
+                    let frontDrawnShare = min(1, frame.footprintShare / max(frontEdgeShare, 0.0001))
+                    var frontEdge = Path()
+                    frontEdge.move(to: frontSegment.start)
+                    frontEdge.addLine(to: frontSegment.end)
+                    context.stroke(
+                        frontEdge.trimmedPath(from: 0, to: frontDrawnShare),
+                        with: .color(Color.white.opacity(0.85)),
+                        style: StrokeStyle(lineWidth: Self.frontEdgeLineWidth, lineCap: .round)
+                    )
+                    context.stroke(
+                        frontEdge.trimmedPath(from: 0, to: frontDrawnShare),
+                        with: .color(color),
+                        style: StrokeStyle(lineWidth: Self.frontEdgeLineWidth - 2, lineCap: .round)
+                    )
+                }
             }
 
             // The posts rise from the floor, dashed.
             for (post, share) in zip(lines.posts, frame.postShares) where share > 0 {
+                guard let post else { continue }
                 var postPath = Path()
-                postPath.move(to: post.bottom)
-                postPath.addLine(to: CGPoint(x: post.bottom.x + (post.top.x - post.bottom.x) * share, y: post.bottom.y + (post.top.y - post.bottom.y) * share))
+                postPath.move(to: post.start)
+                postPath.addLine(to: CGPoint(x: post.start.x + (post.end.x - post.start.x) * share, y: post.start.y + (post.end.y - post.start.y) * share))
                 context.stroke(postPath, with: .color(color.opacity(0.88)), style: StrokeStyle(lineWidth: Self.postLineWidth, lineCap: .butt, dash: Self.postDash))
             }
 
             // The top: a faint outline at the piece's height.
             if frame.topShare > 0 {
-                let topPath = Self.closedPath(through: lines.top).trimmedPath(from: 0, to: frame.topShare)
+                let topPath = Self.path(through: lines.topEdges).trimmedPath(from: 0, to: frame.topShare)
                 context.stroke(topPath, with: .color(color.opacity(0.45)), style: StrokeStyle(lineWidth: Self.topLineWidth, lineCap: .round, lineJoin: .round))
             }
         }
         .allowsHitTesting(false)
     }
 
+    /// The closed outline through these corners.
     private static func closedPath(through points: [CGPoint]) -> Path {
         var path = Path()
         guard let firstPoint = points.first else { return path }
@@ -160,35 +167,46 @@ struct RoomFurnitureGhostCanvas: View {
         return path
     }
 
-    /// The first edge's length as a share of the closed outline's, from 0 to 1.
-    static func lengthShareOfTheFirstEdge(of points: [CGPoint]) -> Double {
-        guard points.count >= 2 else { return 1 }
-        let edgeLengths = points.indices.map { index in
-            let start = points[index], end = points[(index + 1) % points.count]
-            return hypot(end.x - start.x, end.y - start.y)
+    /// The outline made of these edges in order. An edge that starts where the one before ended continues its line, and an
+    /// edge that starts elsewhere, after one that was cut away, starts a new piece. An outline whose edges all show and meet
+    /// is closed, so its corners join.
+    static func path(through edges: [RoomFurnitureGhostSegment?]) -> Path {
+        var path = Path()
+        var currentPoint: CGPoint?
+        for case let edge? in edges {
+            if currentPoint != edge.start { path.move(to: edge.start) }
+            path.addLine(to: edge.end)
+            currentPoint = edge.end
         }
-        let totalLength = edgeLengths.reduce(0, +)
-        return totalLength > 0 ? edgeLengths[0] / totalLength : 1
+        if let firstEdge = edges.first ?? nil, currentPoint == firstEdge.start, edges.allSatisfy({ $0 != nil }) {
+            path.closeSubpath()
+        }
+        return path
+    }
+
+    /// The first edge's length as a share of all the edges', from 0 to 1, and 0 when it is cut away.
+    static func lengthShareOfTheFirstEdge(of edges: [RoomFurnitureGhostSegment?]) -> Double {
+        let totalLength = edges.compactMap { $0?.length }.reduce(0, +)
+        guard totalLength > 0, let firstEdge = edges.first ?? nil else { return 0 }
+        return firstEdge.length / totalLength
     }
 
     /// Where the theme's cursor glyph sits on the ghost's lines for this moment of the draw, and which way it faces, or nil
     /// once the lines are drawn. It starts on the footprint's first corner and follows each
     /// line the way the loop's tracer follows the loop (`CursorLoopTracerPlacement`).
     static func tracerPlacement(for tracer: RoomFurnitureGhostDrawTimeline.Tracer, lines: RoomFurnitureGhostLines, cursorFacing: CursorFacing) -> CursorLoopTracerPlacement? {
-        func placement(along points: [CGPoint], closed: Bool, atShare share: Double) -> CursorLoopTracerPlacement {
-            var path = Path()
-            path.move(to: points[0])
-            for point in points.dropFirst() { path.addLine(to: point) }
-            let line = closed ? CursorLoopLine(closedThrough: points) : CursorLoopLine(outline: path)
-            return CursorLoopTracerPlacement(on: line, atShare: min(max(share, 0), 1), cursorFacing: cursorFacing)
+        // A line with a cut away edge jumps from one piece to the next, as the loop's line joins a later move.
+        func placement(along edges: [RoomFurnitureGhostSegment?], atShare share: Double) -> CursorLoopTracerPlacement? {
+            guard edges.contains(where: { $0 != nil }) else { return nil }
+            return CursorLoopTracerPlacement(on: CursorLoopLine(outline: path(through: edges)), atShare: min(max(share, 0), 1), cursorFacing: cursorFacing)
         }
         switch tracer {
         case .onTheFootprint(let share):
-            return placement(along: lines.footprint, closed: true, atShare: share)
+            return placement(along: lines.footprintEdges, atShare: share)
         case .onAPost(let index, let share):
-            return placement(along: [lines.posts[index].bottom, lines.posts[index].top], closed: false, atShare: share)
+            return placement(along: [lines.posts[index]], atShare: share)
         case .onTheTop(let share):
-            return placement(along: lines.top, closed: true, atShare: share)
+            return placement(along: lines.topEdges, atShare: share)
         case .gone:
             return nil
         }

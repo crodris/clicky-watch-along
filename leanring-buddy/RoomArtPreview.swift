@@ -2297,8 +2297,8 @@ final class RoomArtPreviewController: ObservableObject {
     /// A closing panel keeps the lines it had.
     func currentGhostLines(cameraSize: CGSize, panelSize: CGSize) -> RoomFurnitureGhostLines? {
         let trackedWarp = if let closingPanel { closingPanel.ghostTrackedWarp } else { trackedWarpForTheGhost() }
-        guard let boxCorners = panelContent.furnitureGhost?.keyframeBoxCorners, let trackedWarp else { return nil }
-        return RoomFurnitureGhostLines(keyframeBoxCorners: boxCorners, keyframeToCurrent: trackedWarp.keyframeToCurrent, fit: RoomArtVideoFit(cameraSize: cameraSize, viewSize: panelSize), cameraSize: cameraSize)
+        guard let ghost = panelContent.furnitureGhost, let trackedWarp else { return nil }
+        return RoomFurnitureGhostLines(ghost: ghost, keyframeToCurrent: trackedWarp.keyframeToCurrent, fit: RoomArtVideoFit(cameraSize: cameraSize, viewSize: panelSize), cameraSize: cameraSize)
     }
 
     /// Forgets the ghost and everything asked for it, for a close or a new measurement.
