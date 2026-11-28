@@ -3,9 +3,10 @@
 //  leanring-buddy
 //
 //  The Card at the end of a video quiz or a video, printed on paper since the learner keeps it (`paperCard()`): the score,
-//  each question to look at again (a button that goes back to it), what the learner learned, and the study guide link. At the end of a quiz it Glides out of the video; at the end of
-//  a video it Glides out of the cursor, after the agent discs gather there. It closes back into where it came from on the
-//  shared carrier, and shows in a full-screen space too.
+//  each question to look at again (a button that goes back to it), what the learner learned, and the study guide link.
+//  The questions and the learned lines scroll inside the room the display leaves, and the footer always shows.
+//  At the end of a quiz it Glides out of the video; at the end of a video it Glides out of the cursor, after the agent
+//  discs gather there. It closes back into where it came from on the shared carrier, and shows in a full-screen space too.
 //
 
 import AppKit
@@ -40,22 +41,126 @@ func appKitRect(of screenRect: ScreenRectInChromeCoordinates, mainDisplayHeight:
     CGRect(x: screenRect.rectX, y: mainDisplayHeight - (screenRect.rectY + screenRect.rectHeight), width: screenRect.rectWidth, height: screenRect.rectHeight)
 }
 
+/// Where the summary Card may reach in height on a display: the display's visible frame less the window's shadow margins and a
+/// gap of 12 points on each side (the space `videoQuizSummaryCardFrame` keeps from the edge). The Card scrolls its body inside
+/// this and keeps its footer on screen. It never goes under `VideoQuizSummaryCardLayout.leastCardHeight`.
+func videoQuizSummaryCardHeightBudget(visibleFrame: CGRect) -> CGFloat {
+    max(visibleFrame.height - AgentListWindowMargins.vertical - 2 * videoQuizSummaryCardGapFromTheScreenEdge, VideoQuizSummaryCardLayout.leastCardHeight)
+}
+
+/// The space between the Card and the edge of the display's visible frame.
+let videoQuizSummaryCardGapFromTheScreenEdge: CGFloat = 12
+
+/// Lays the Card out as three parts, each given the width: a header and a footer, which always show whole, and a body that takes
+/// the room left under `maxHeight`, and is as tall as its content when that fits, so a short list leaves no blank paper. The
+/// body is a scroll view, so its content scrolls once it is taller than the room. The first subview is the header, the last is
+/// the footer, and a subview between them, when there is one, is the body.
+struct VideoQuizSummaryCardLayout: Layout {
+    /// The tallest the three parts may be together, in points.
+    let maxHeight: CGFloat
+
+    /// The least height the body keeps, so a header and footer taller than the budget still leave a visible list.
+    static let leastBodyHeight: CGFloat = 96
+    /// The least a Card is given, with its padding, whatever the display's height.
+    static let leastCardHeight: CGFloat = 320
+
+    private struct PartHeights {
+        let header: CGFloat
+        let body: CGFloat
+        let footer: CGFloat
+        var total: CGFloat { header + body + footer }
+    }
+
+    private func partHeights(width: CGFloat, subviews: Subviews) -> PartHeights {
+        let widthOnly = ProposedViewSize(width: width, height: nil)
+        guard subviews.count >= 2, let header = subviews.first, let footer = subviews.last else {
+            return PartHeights(header: subviews.first?.sizeThatFits(widthOnly).height ?? 0, body: 0, footer: 0)
+        }
+        let headerHeight = header.sizeThatFits(widthOnly).height
+        let footerHeight = footer.sizeThatFits(widthOnly).height
+        guard subviews.count == 3 else { return PartHeights(header: headerHeight, body: 0, footer: footerHeight) }
+        let bodyContentHeight = subviews[1].sizeThatFits(widthOnly).height
+        let roomForTheBody = max(maxHeight - headerHeight - footerHeight, Self.leastBodyHeight)
+        return PartHeights(header: headerHeight, body: min(bodyContentHeight, roomForTheBody), footer: footerHeight)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 320
+        return CGSize(width: width, height: partHeights(width: width, subviews: subviews).total)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let heights = partHeights(width: bounds.width, subviews: subviews)
+        var partTop = bounds.minY
+        func place(_ subview: LayoutSubview, height: CGFloat) {
+            subview.place(at: CGPoint(x: bounds.minX, y: partTop), anchor: .topLeading, proposal: ProposedViewSize(width: bounds.width, height: height))
+            partTop += height
+        }
+        guard subviews.count >= 2, let header = subviews.first, let footer = subviews.last else {
+            if let onlyPart = subviews.first { place(onlyPart, height: heights.header) }
+            return
+        }
+        place(header, height: heights.header)
+        if subviews.count == 3 { place(subviews[1], height: heights.body) }
+        place(footer, height: heights.footer)
+    }
+}
+
 /// The recap printed on paper (`paperCard()`), since it is what the learner keeps: a kicker, a serif title, the score on a flat
 /// highlight in the theme's accent, the questions to go back to, what the learner learned, and a colophon with the time the
-/// Card was made beside the buttons.
+/// Card was made beside the buttons. The questions and the learned lines scroll when the Card would pass `heightBudget`, and
+/// the header and the footer never do, so Close and Study guide stay on the display.
 struct VideoQuizSummaryCardView: View {
     static let cardWidth: CGFloat = 360
+    private static let padding = EdgeInsets(top: 18, leading: 20, bottom: 16, trailing: 20)
+    /// How far a missed question's hover wash reaches past the text on each side. The scroll view keeps room for it.
+    private static let rowHoverOutset: CGFloat = 6
 
     let recap: VideoRecap
     let moment: VideoRecapMoment
     let accentColor: Color
     /// When the Card was made, for its colophon. The panel makes the Card once and carries the same value on and off the screen.
     var madeAt = Date()
+    /// The tallest the Card may be, padding included. The panel passes what fits the display it shows on.
+    var heightBudget: CGFloat = .infinity
     let goBackToTheMissedQuestion: (VideoQuizMissedQuestion) -> Void
     let openTheStudyGuide: () -> Void
     let close: () -> Void
 
+    private var bodyHasContent: Bool { !(recap.summary?.missedQuestions.isEmpty ?? true) || !recap.learnedLines.isEmpty }
+
     var body: some View {
+        VideoQuizSummaryCardLayout(maxHeight: heightBudget - Self.padding.top - Self.padding.bottom) {
+            header
+            if bodyHasContent {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        // The missed questions come first, since they are what the learner can act on.
+                        if let summary = recap.summary, !summary.missedQuestions.isEmpty {
+                            section("Review these first") {
+                                missedQuestionButtons(of: summary)
+                            }
+                        }
+                        if !recap.learnedLines.isEmpty {
+                            section("What you learned") {
+                                learnedLines
+                            }
+                        }
+                    }
+                    // Room inside the scroll view for a row's hover wash, which reaches past the text, so the scroll view's
+                    // edge never cuts it.
+                    .padding(.horizontal, Self.rowHoverOutset)
+                }
+                .padding(.horizontal, -Self.rowHoverOutset)
+            }
+            footer
+        }
+        .padding(Self.padding)
+        .frame(width: Self.cardWidth, alignment: .leading)
+        .paperCard()
+    }
+
+    private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(recap.kicker(when: moment))
                 .font(DS.TypeScale.caption.font.weight(.semibold))
@@ -75,35 +180,9 @@ struct VideoQuizSummaryCardView: View {
                 }
                 .padding(.top, 8)
             }
-            // The missed questions come first, since they are what the learner can act on.
-            // A long list scrolls inside the Card, so its Close button always stays on screen.
-            if let summary = recap.summary, !summary.missedQuestions.isEmpty {
-                section("Review these first") {
-                    if summary.missedQuestions.count > Self.missedQuestionsShownWithoutScrolling {
-                        ScrollView {
-                            missedQuestionButtons(of: summary)
-                        }
-                        .frame(height: Self.scrollingListHeight)
-                    } else {
-                        missedQuestionButtons(of: summary)
-                    }
-                }
-            }
-            if !recap.learnedLines.isEmpty {
-                section("What you learned") {
-                    learnedLines
-                }
-            }
-            footer
         }
-        .padding(EdgeInsets(top: 18, leading: 20, bottom: 16, trailing: 20))
-        .frame(width: Self.cardWidth, alignment: .leading)
-        .paperCard()
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
-
-    static let missedQuestionsShownWithoutScrolling = 5
-    /// About five rows of two lines each.
-    static let scrollingListHeight: CGFloat = 300
 
     /// A section: a hairline rule, its italic serif label, and its content.
     private func section<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
@@ -271,11 +350,18 @@ final class VideoQuizSummaryPanelController {
         openTheStudyGuide: @escaping () -> Void
     ) {
         close(animated: false)
+        let mouseLocation = NSEvent.mouseLocation
+        let screen = visibleFrameForTests != nil ? nil : videoRect.flatMap { rect in NSScreen.screens.first { $0.frame.intersects(rect) } }
+            ?? NSScreen.screens.first { $0.frame.contains(mouseLocation) }
+            ?? NSScreen.main
+        guard let visibleFrame = visibleFrameForTests ?? screen?.visibleFrame else { return }
         let cardView = VideoQuizSummaryCardView(
             recap: recap,
             moment: moment,
             accentColor: accentColor,
-            goBackToTheMissedQuestion: { [weak self] missedQuestion in
+            // A recap taller than the display scrolls its body, so Close and Study guide stay inside the visible frame.
+            heightBudget: videoQuizSummaryCardHeightBudget(visibleFrame: visibleFrame),
+            goBackToTheMissedQuestion:{ [weak self] missedQuestion in
                 self?.close(animated: true)
                 goBackToTheMissedQuestion(missedQuestion)
             },
@@ -296,11 +382,6 @@ final class VideoQuizSummaryPanelController {
             width: windowSize.width - AgentListWindowMargins.horizontal,
             height: windowSize.height - AgentListWindowMargins.vertical
         )
-        let mouseLocation = NSEvent.mouseLocation
-        let screen = visibleFrameForTests != nil ? nil : videoRect.flatMap { rect in NSScreen.screens.first { $0.frame.intersects(rect) } }
-            ?? NSScreen.screens.first { $0.frame.contains(mouseLocation) }
-            ?? NSScreen.main
-        guard let visibleFrame = visibleFrameForTests ?? screen?.visibleFrame else { return }
         let cardFrame = videoQuizSummaryCardFrame(cardSize: cardSize, videoRect: videoRect, visibleFrame: visibleFrame)
         let windowTopLeft = AgentListWindowMargins.windowTopLeft(forCardTopLeft: CGPoint(x: cardFrame.minX, y: cardFrame.maxY))
         let windowFrame = CGRect(x: windowTopLeft.x, y: windowTopLeft.y - windowSize.height, width: windowSize.width, height: windowSize.height)
