@@ -989,7 +989,7 @@ private struct AgentListView: View {
             .frame(height: Self.headerHeight)
 
             Rectangle()
-                .fill(DS.Colors.borderSubtle)
+                .fill(DS.Colors.border)
                 .frame(height: 1)
 
             // The oldest request sits above the rows, so no scroll position can hide it. For a moment after it ends, the
@@ -1018,7 +1018,7 @@ private struct AgentListView: View {
                 .onDisappear { onApprovalCardFrameChange(nil) }
 
                 Rectangle()
-                    .fill(DS.Colors.borderSubtle)
+                    .fill(DS.Colors.border)
                     .frame(height: 1)
             }
 
@@ -1747,7 +1747,7 @@ private struct ApprovalAnswerButton: View {
                     RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
                         .fill(isHovered && isEnabled ? DS.Colors.surface4 : DS.Colors.surface3)
                 )
-                .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.borderSubtle, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.border, lineWidth: 1))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

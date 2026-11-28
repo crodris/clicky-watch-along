@@ -447,7 +447,7 @@ struct ThemeStudioCardView: View {
                 .scaledToFill()
                 .frame(width: 22, height: 22)
                 .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
             Text("From your picture")
                 .font(DS.TypeScale.caption.font)
                 .foregroundColor(DS.Colors.textSecondary)
@@ -618,7 +618,7 @@ private struct ThemeStudioTileView: View {
             .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(isHovered && !isDimmedWhileDesigning ? DS.Colors.surface4 : DS.Colors.surface3))
             .overlay(
                 RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
-                    .stroke(isHighlighted ? accentColor : DS.Colors.borderSubtle, lineWidth: isHighlighted ? 1.5 : 1)
+                    .stroke(isHighlighted ? accentColor : DS.Colors.border, lineWidth: isHighlighted ? 1.5 : 1)
             )
             .opacity(isDimmedWhileDesigning ? 0.4 : (isHighlighted ? 1 : 0.75))
             .contentShape(Rectangle())
@@ -715,7 +715,7 @@ private struct ThemeStudioAgentTokenView: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(DS.Colors.agentTokenTrack)
+            Circle().fill(DS.Colors.surface4)
             Circle()
                 .stroke(firstAgentColor, lineWidth: Self.ringWidth)
                 .padding(Self.ringWidth / 2)
@@ -749,7 +749,7 @@ private struct ThemeStudioPlaceholderTileView: View {
         .padding(10)
         .frame(width: Self.tileWidth)
         .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(DS.Colors.surface3))
-        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.borderSubtle, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.border, lineWidth: 1))
         .accessibilityHidden(true)
     }
 }
@@ -770,7 +770,7 @@ private struct ShimmerBar: View {
                         LinearGradient(
                             stops: [
                                 .init(color: DS.Colors.surface4, location: max(0, sweep - 0.3)),
-                                .init(color: DS.Colors.borderSubtle, location: sweep),
+                                .init(color: DS.Colors.border, location: sweep),
                                 .init(color: DS.Colors.surface4, location: min(1, sweep + 0.3)),
                             ],
                             startPoint: .leading,

@@ -91,7 +91,7 @@ struct ThemeFilePreviewView: View {
                 RoundedRectangle(cornerRadius: 3)
                     .fill(colors[colorIndex])
                     .frame(width: 16, height: 16)
-                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(DS.Colors.edge, lineWidth: 1))
             }
             if let note {
                 Text(note)

@@ -87,7 +87,7 @@ struct TetherCardEdge: View {
     private let cardShape = RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous)
 
     var body: some View {
-        cardShape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        cardShape.strokeBorder(DS.Colors.edge, lineWidth: 1)
             // The inner top highlight: the edge is brighter along the top quarter and fades out going down.
             .overlay(cardShape.strokeBorder(
                 LinearGradient(colors: [Color.white.opacity(0.10), Color.white.opacity(0)], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.25)),

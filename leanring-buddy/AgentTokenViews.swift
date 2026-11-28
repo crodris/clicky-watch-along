@@ -57,7 +57,7 @@ struct AgentTokenDiscView: View {
         if isWaitingForApproval {
             // The "!" is the state's shape, so amber is never the only signal.
             Circle()
-                .fill(DS.Colors.agentTokenFace)
+                .fill(DS.Colors.surface1)
                 .frame(width: faceDiameter, height: faceDiameter)
                 .overlay(
                     Text("!")
@@ -73,7 +73,7 @@ struct AgentTokenDiscView: View {
             ThemePictureFaceView(picture: themePicture, size: faceDiameter, isGrayscale: agent.phase.isFailed)
         } else {
             Circle()
-                .fill(DS.Colors.agentTokenFace)
+                .fill(DS.Colors.surface1)
                 .frame(width: faceDiameter, height: faceDiameter)
                 .overlay(
                     Triangle()
@@ -87,7 +87,7 @@ struct AgentTokenDiscView: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(DS.Colors.agentTokenTrack)
+            Circle().fill(DS.Colors.surface4)
             AgentProgressView(agent: agent) { shownProgress in
                 Circle()
                     .trim(from: 0, to: ringProgress(shownProgress: shownProgress))
@@ -99,7 +99,7 @@ struct AgentTokenDiscView: View {
                 // The notch: the track's color drawn over the ring, centered on 12 o'clock.
                 Circle()
                     .trim(from: 0, to: Self.approvalNotchShareOfTheRing)
-                    .stroke(DS.Colors.agentTokenTrack, style: StrokeStyle(lineWidth: Self.ringWidth + 0.5, lineCap: .butt))
+                    .stroke(DS.Colors.surface4, style: StrokeStyle(lineWidth: Self.ringWidth + 0.5, lineCap: .butt))
                     .rotationEffect(.degrees(-90 - 180 * Self.approvalNotchShareOfTheRing))
                     .padding(Self.ringWidth / 2)
             }
@@ -191,7 +191,7 @@ struct AgentOverflowDiscView: View {
             .minimumScaleFactor(0.7)
             .padding(.horizontal, AgentOverflowDiscText.horizontalPadding)
             .frame(width: AgentTokenMetrics.discDiameter, height: AgentTokenMetrics.discDiameter)
-            .background(Circle().fill(DS.Colors.agentTokenFace))
+            .background(Circle().fill(DS.Colors.surface1))
             .agentTokenEdgeAndShadow(isHovered: isHovered, edgeWidth: 1.5)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(overflowCount) more agents")
@@ -480,7 +480,7 @@ struct AgentTokenApprovalSettledFace: View {
 
     var body: some View {
         Circle()
-            .fill(mark == .allowed ? DS.Colors.success : DS.Colors.agentTokenFace)
+            .fill(mark == .allowed ? DS.Colors.success : DS.Colors.surface1)
             .frame(width: diameter, height: diameter)
             .overlay {
                 switch mark {

@@ -198,7 +198,7 @@ struct PanelKeyCap: View {
             .padding(.horizontal, 4)
             .frame(minWidth: 16, minHeight: 16)
             .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(DS.Colors.surface3))
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
     }
 }
 

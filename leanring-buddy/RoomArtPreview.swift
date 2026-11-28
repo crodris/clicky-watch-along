@@ -3698,7 +3698,7 @@ private struct RoomArtPanelView: View {
             .fill(DS.Colors.textPrimary.opacity(moveHandleIsHovered ? 0.85 : 0.45))
             .frame(width: moveHandleIsHovered ? 52 : 44, height: 5)
             .frame(width: 96, height: 22)
-            .background(Capsule().fill(DS.Colors.background.opacity(moveHandleIsHovered ? 0.7 : 0.45)))
+            .background(Capsule().fill(DS.Colors.ground.opacity(moveHandleIsHovered ? 0.7 : 0.45)))
             .overlay(RoomArtPanelWindowControl(kind: .moveHandle))
             .hoverAndPointer { isHovered in moveHandleIsHovered = isHovered }
             .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: moveHandleIsHovered)
@@ -3718,7 +3718,7 @@ private struct RoomArtPanelView: View {
         }
         .frame(width: roomArtPanelResizeGripSide - 8, height: roomArtPanelResizeGripSide - 8)
         .padding(4)
-        .background(RoundedRectangle(cornerRadius: 6).fill(DS.Colors.background.opacity(resizeGripIsHovered ? 0.7 : 0)))
+        .background(RoundedRectangle(cornerRadius: 6).fill(DS.Colors.ground.opacity(resizeGripIsHovered ? 0.7 : 0)))
         .overlay(RoomArtPanelWindowControl(kind: .resizeGrip))
         .hoverAndPointer { isHovered in resizeGripIsHovered = isHovered }
         .padding(roomArtPanelResizeGripEdgeInset)
@@ -3888,7 +3888,7 @@ struct RoomArtStatusPill: View {
             .padding(.horizontal, Self.horizontalPadding)
             .padding(.vertical, 8)
             .background(pillShape.fill(DS.Colors.calloutSurface))
-            .overlay(pillShape.strokeBorder(DS.Colors.borderSubtle, lineWidth: 1))
+            .overlay(pillShape.strokeBorder(DS.Colors.border, lineWidth: 1))
             .allowsHitTesting(false)
     }
 }

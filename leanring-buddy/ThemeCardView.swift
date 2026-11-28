@@ -185,7 +185,7 @@ struct ThemeCard: View {
             .background(RoundedRectangle(cornerRadius: Self.cornerRadius).fill(isHovered ? DS.Colors.surface4 : DS.Colors.surface3))
             .overlay(
                 RoundedRectangle(cornerRadius: Self.cornerRadius)
-                    .stroke(isSelected ? accentColor : DS.Colors.borderSubtle, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? accentColor : DS.Colors.border, lineWidth: isSelected ? 1.5 : 1)
             )
             // As on the studio's tiles, the chosen card is the bright one. The pointer and the keyboard focus brighten any card.
             .opacity(isSelected || isHovered || cardHasTheFocus ? 1 : 0.75)
@@ -343,10 +343,10 @@ struct ThemeCard: View {
             .foregroundColor(DS.Colors.textPrimary)
             .padding(.horizontal, 5)
             .padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 5).fill(DS.Colors.background))
+            .background(RoundedRectangle(cornerRadius: 5).fill(DS.Colors.ground))
             .overlay(
                 RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(problemText == nil ? DS.Colors.borderSubtle : DS.Colors.destructive, lineWidth: 1)
+                    .strokeBorder(problemText == nil ? DS.Colors.border : DS.Colors.destructive, lineWidth: 1)
             )
             .focused($nameFieldIsFocused)
             .onSubmit(commitRename)
@@ -457,7 +457,7 @@ private struct ThemeCardAgentTokenView: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(DS.Colors.agentTokenTrack)
+            Circle().fill(DS.Colors.surface4)
             Circle()
                 .stroke(firstAgentColor, lineWidth: Self.ringWidth)
                 .padding(Self.ringWidth / 2)
@@ -553,7 +553,7 @@ private struct DesignOneThemeCard: View {
             .overlay(
                 RoundedRectangle(cornerRadius: ThemeCard.cornerRadius)
                     .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    .foregroundColor(DS.Colors.borderSubtle)
+                    .foregroundColor(DS.Colors.border)
             )
             .contentShape(Rectangle())
         }

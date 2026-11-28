@@ -13,47 +13,55 @@ import AppKit
 // MARK: - Design System Namespace
 
 /// The top-level namespace for all design system tokens.
-/// Usage: `DS.Colors.background`, `DS.Colors.accent`, etc.
+/// Usage: `DS.Colors.surface2`, `DS.CornerRadius.row`, `DS.TypeScale.caption.font`, etc.
 enum DS {
 
     // MARK: - Color Tokens
 
     enum Colors {
 
-        // ── Backgrounds ──────────────────────────────────────────────
-        // Layered surfaces from deepest to most elevated.
-        // Higher surfaces are lighter, creating a sense of depth.
+        // ── Grays ────────────────────────────────────────────────────
+        // One family: the Card's blue-gray (hue about 222, saturation 16 to 22 percent), so every panel, card, button, and
+        // track reads as one set of surfaces. Layered surfaces from deepest to most elevated. Higher surfaces are lighter,
+        // creating a sense of depth. `GrayFamilyTests` pins each one's hue to the Card's, and their order by lightness.
 
-        /// The deepest background - used for the main app window fill.
-        static let background = Color(hex: "#101211")
+        /// The deepest background, for an input field or a well set into a surface.
+        static let ground = Color(hex: "#101216")
 
-        /// First elevation layer - used for cards, sidebar, top bar backgrounds.
-        static let surface1 = Color(hex: "#171918")
+        /// First elevation layer: the Card's own bottom color (`cardSurfaceBottom`), for a box inside a Card and the face of a
+        /// dark disc or token.
+        static let surface1 = Color(hex: "#171A21")
 
-        /// Second elevation layer - used for input fields, elevated cards, chat bubbles.
-        static let surface2 = Color(hex: "#202221")
+        /// Second elevation layer: a control at rest on the Card, the lit row of the next setup step.
+        static let surface2 = Color(hex: "#1C2029")
 
-        /// Third elevation layer - used for hover backgrounds on interactive elements.
-        static let surface3 = Color(hex: "#272A29")
+        /// Third elevation layer: a secondary button at rest, a track, a key cap, a hovered row.
+        static let surface3 = Color(hex: "#232833")
 
-        /// Fourth elevation layer - used for active/pressed states on interactive elements.
-        static let surface4 = Color(hex: "#2E3130")
+        /// Fourth elevation layer: a hovered secondary button, the dark track of an agent token's ring.
+        static let surface4 = Color(hex: "#2B303B")
 
         // ── Borders ──────────────────────────────────────────────────
 
-        /// Subtle border - used for card outlines, dividers, input field borders.
-        static let borderSubtle = Color(hex: "#373B39")
+        /// A card's outline, a divider, an input field's border.
+        static let border = Color(hex: "#343A49")
+
+        /// The Card's own edge: a 1 point white line at 8 percent.
+        static let edge = Color.white.opacity(0.08)
+
+        /// The edge of a control the pointer is over.
+        static let edgeHover = Color.white.opacity(0.18)
 
         // ── Text ─────────────────────────────────────────────────────
 
         /// Primary text - main body text, titles, headings.
-        static let textPrimary = Color(hex: "#ECEEED")
+        static let textPrimary = Color(hex: "#EDEEF0")
 
         /// Secondary text - descriptions, hints, muted labels.
-        static let textSecondary = Color(hex: "#ADB5B2")
+        static let textSecondary = Color(hex: "#AEB3C0")
 
         /// Tertiary text - very muted, used for section labels, timestamps, disabled text.
-        static let textTertiary = Color(hex: "#6B736F")
+        static let textTertiary = Color(hex: "#687187")
 
         // ── Status Line Accents ─────────────────────────────────────
         // One Tailwind CSS v4 400 step for each status line (`LiveSceneStatusLine.calloutAccent`), which a Callout takes as
@@ -87,11 +95,9 @@ enum DS {
         /// The dark tile under the header's cursor, lighter at its upper left.
         static let panelCursorTileTop = Color(hex: "#24324f")
         static let panelCursorTileBottom = Color(hex: "#111620")
-        /// The setup checklist: the bar's empty track and an undone step's circle, the lit row of the next step, a done
-        /// step's circle, a turned-off step's circle, and the green box that suggests a first question.
-        static let setupTrack = Color(hex: "#232833")
-        static let setupNextStepSurface = Color(hex: "#1c2029")
-        static let setupNextStepEdge = Color(hex: "#2f3646")
+        /// The setup checklist's states that are a hue and not a gray: a done step's circle, a turned-off step's circle, and
+        /// the green box that suggests a first question. Its grays are `surface2` (the lit row of the next step), `surface3`
+        /// (the bar's empty track and an undone step's circle), and `border` (the lit row's edge).
         static let setupDoneCircle = Color(hex: "#173d2f")
         static let setupTurnedOffCircle = Color(hex: "#3a1416")
         static let setupAllSetSurface = Color(hex: "#16261f")
@@ -124,8 +130,8 @@ enum DS {
         /// The top of the Card's surface gradient.
         static let cardSurfaceTop = Color(hex: "#121419")
 
-        /// The bottom of the Card's surface gradient.
-        static let cardSurfaceBottom = Color(hex: "#171a21")
+        /// The bottom of the Card's surface gradient, the same color as `surface1`.
+        static let cardSurfaceBottom = surface1
 
         /// The Callout's solid surface. Solid, not blurred: a blur turned it mid gray on a white page, where white words
         /// fell from 17.9 to 5.4 contrast in the phase-zero prototype.
@@ -145,9 +151,6 @@ enum DS {
         /// The dial's plate and the first-run hint's background, a near-black blue.
         static let settingsDialPlate = Color(hex: "#0a0c12")
 
-        /// An unselected token's fill, and the fill of a Model pill.
-        static let settingsDialToken = Color(hex: "#171b24")
-
         // ── Background Agents ────────────────────────────────────────
 
         /// The color of a study guide agent. Each new agent kind gets its own color here.
@@ -158,12 +161,6 @@ enum DS {
 
         /// The color of a general task agent. Tailwind Teal 400, apart from the cursor's blue, the guide's amber, and the model's violet.
         static let backgroundAgentTaskTeal = Color(hex: "#2dd4bf")
-
-        /// The opaque dark track of an agent token's progress ring, so the ring reads on a light menu bar and a bright wallpaper.
-        static let agentTokenTrack = Color(hex: "#2b303b")
-
-        /// The dark face of a token that shows a kind's triangle, and of the "+N" disc.
-        static let agentTokenFace = Color(hex: "#171b24")
 
         /// The color of an experiment agent. Tailwind Lime 500, a lab green that reads apart from the model's violet, the
         /// task's teal, and the done check's green.

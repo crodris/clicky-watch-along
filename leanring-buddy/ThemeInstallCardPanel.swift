@@ -97,7 +97,7 @@ struct ThemeInstallCardView: View {
     var body: some View {
         VStack(spacing: 14) {
             ZStack {
-                Circle().fill(DS.Colors.settingsDialToken)
+                Circle().fill(DS.Colors.surface1)
                 Circle().stroke(Color(hex: theme.accentHex), lineWidth: 1.5)
                 SettingsDialCustomCursor(
                     customTheme: theme,

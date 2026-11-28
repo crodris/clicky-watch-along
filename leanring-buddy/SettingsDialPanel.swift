@@ -239,7 +239,7 @@ struct SettingsDialView: View {
     private var accentColor: Color { theme.cursorColor }
     /// For line icons and letters drawn on the accent color.
     private var inkColor: Color { theme.accentInk }
-    private let tokenFillColor = DS.Colors.settingsDialToken
+    private let tokenFillColor = DS.Colors.surface1
     private var centerInView: CGPoint {
         CGPoint(x: SettingsDialPlacement.reachLeft, y: SettingsDialPlacement.reachAbove)
     }
@@ -602,7 +602,7 @@ private struct SettingsDialThemeBall: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(DS.Colors.settingsDialToken)
+            Circle().fill(DS.Colors.surface1)
             Circle().stroke(Color.white.opacity(0.14), lineWidth: 1)
             SettingsDialCustomCursor(
                 customTheme: theme,

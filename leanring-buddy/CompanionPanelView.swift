@@ -437,7 +437,7 @@ struct PanelHeaderView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(RadialGradient(colors: [DS.Colors.panelCursorTileTop, DS.Colors.panelCursorTileBottom], center: UnitPoint(x: 0.4, y: 0.35), startRadius: 0, endRadius: 34))
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                    .strokeBorder(DS.Colors.edge, lineWidth: 1)
                 // A new theme's cursor Pops in: each theme is its own view, so the change is a removal and an insertion.
                 SettingsDialCustomCursor(
                     customTheme: shownTheme,
@@ -644,7 +644,7 @@ private struct PanelAgentsSection: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DS.Colors.surface2))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
 
             if let selectedAgentID, let pickedAgent = agents.first(where: { $0.id == selectedAgentID }) {
                 pickedAgentActions(pickedAgent)
@@ -779,7 +779,7 @@ private struct PanelModelPicker: View {
         }
         .padding(2)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(DS.Colors.surface2))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(DS.Colors.edge, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Model")
     }
@@ -1033,7 +1033,7 @@ private struct SetupProgressBar: View {
     var body: some View {
         GeometryReader { barProxy in
             ZStack(alignment: .leading) {
-                Capsule().fill(DS.Colors.setupTrack)
+                Capsule().fill(DS.Colors.surface3)
                 Capsule()
                     .fill(DS.Colors.success)
                     .frame(width: barProxy.size.width * fraction)
@@ -1097,12 +1097,12 @@ private struct SetupStepRow: View {
 
     private var rowFill: Color {
         if isTurnedOff { return DS.Colors.destructiveSurface }
-        return isNext ? DS.Colors.setupNextStepSurface : .clear
+        return isNext ? DS.Colors.surface2 : .clear
     }
 
     private var rowEdge: Color {
         if isTurnedOff { return DS.Colors.destructiveEdge }
-        return isNext ? DS.Colors.setupNextStepEdge : .clear
+        return isNext ? DS.Colors.border : .clear
     }
 
     @ViewBuilder private var trailing: some View {
@@ -1203,7 +1203,7 @@ private struct SetupStepMark: View {
     private var circleFill: Color {
         if state.countsAsDone { return DS.Colors.setupDoneCircle }
         if state == .turnedOff { return DS.Colors.setupTurnedOffCircle }
-        return DS.Colors.setupTrack
+        return DS.Colors.surface3
     }
 }
 
