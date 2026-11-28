@@ -261,7 +261,7 @@ struct RoomArtBottomRowRenderTests {
     }
 
     @Test(arguments: ["#F97316", "#F4F4F5"])
-    func aHoveredAccentFillStaysSolidAndChangesItsBrightness(accentHex: String) throws {
+    func aHoveredAccentFillStaysSolidAndUnchanged(accentHex: String) throws {
         func middle(isHovered: Bool, over page: Color) throws -> [Int] {
             let fill = RoomArtPanelButtonFill(accentColor: Color(hex: accentHex), isHovered: isHovered).frame(width: 80, height: 32)
             return try RenderedPixels(fill.background(page)).color(atX: 40, y: 16)
@@ -270,8 +270,20 @@ struct RoomArtBottomRowRenderTests {
         let hoveredOverWhite = try middle(isHovered: true, over: .white)
         // A see-through fill would take on what is behind it.
         #expect(channelsAreClose(hoveredOverBlack, hoveredOverWhite), "over black \(hoveredOverBlack), over white \(hoveredOverWhite)")
+        // The ink was chosen for the fill as it rests, so the hover must not change the fill.
         let resting = try middle(isHovered: false, over: .black)
-        #expect(!channelsAreClose(hoveredOverBlack, resting, within: 6), "hovered \(hoveredOverBlack), resting \(resting)")
+        #expect(channelsAreClose(hoveredOverBlack, resting, within: 2), "hovered \(hoveredOverBlack), resting \(resting)")
+    }
+
+    @Test func anAccentButtonOnADarkAccentIsSetInWhite() throws {
+        // On a dark blue fill near-black ink would barely read, so the label takes white (`Color.inkOnThisFill`).
+        let pixels = try RenderedPixels(
+            RoomArtPanelButton(title: "Place", accentColor: Color(hex: "#1D3A8A"), accessibilityLabel: "Place") {}.background(Color.black)
+        )
+        let whitePixelCount = stride(from: 0, to: pixels.bytes.count, by: 4).filter { offset in
+            (0..<3).allSatisfy { channel in pixels.bytes[offset + channel] > 220 }
+        }.count
+        #expect(whitePixelCount > 20, "the label has \(whitePixelCount) white pixels")
     }
 }
 
