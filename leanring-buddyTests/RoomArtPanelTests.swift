@@ -408,96 +408,38 @@ private final class RecordingPanel: NSPanel {
 
 @MainActor
 struct RoomArtPanelMotionTests {
-    /// The motion with fades and grows the test ends by hand.
+    /// The motion with fades the test ends by hand.
     @MainActor
     private final class Harness {
         var fades: [(alpha: CGFloat, seconds: Double, windowAlphaAtTheStart: CGFloat, end: @MainActor () -> Void)] = []
         let window = RecordingPanel(contentRect: CGRect(x: 0, y: 0, width: 960, height: 540), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        let content = NSView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))
-        /// A control in the content's top right corner, where the panel's Close button is.
-        let control = NSButton(frame: CGRect(x: 900, y: 494, width: 40, height: 28))
-        lazy var containerView = RoomArtPanelContainerView(content: content)
         var reduceMotionIsOn = false
-        /// The end of each grow, in the order they started.
-        var growEnds: [@MainActor () -> Void] = []
         lazy var motion = RoomArtPanelMotion(
             reduceMotionIsOn: { [unowned self] in reduceMotionIsOn },
-            fadeTheWindow: { [unowned self] window, alpha, seconds, end in fades.append((alpha, seconds, window.alphaValue, end)) },
-            growTheLayer: { [unowned self] layer, grow, end in
-                layer.add(grow, forKey: RoomArtPanelMotion.growAnimationKey)
-                growEnds.append(end)
-            }
+            fadeTheWindow: { [unowned self] window, alpha, seconds, end in fades.append((alpha, seconds, window.alphaValue, end)) }
         )
-
-        init() {
-            content.wantsLayer = true
-            content.addSubview(control)
-        }
-
-        var grow: CAKeyframeAnimation? { content.layer?.animation(forKey: RoomArtPanelMotion.growAnimationKey) as? CAKeyframeAnimation }
-
-        /// The view that gets a click on the control's place.
-        var viewAClickOnTheControlReaches: NSView? { containerView.hitTest(CGPoint(x: control.frame.midX, y: control.frame.midY)) }
-
-        /// Ends the newest grow. The animation stays on its layer, as a finished one can.
-        func endTheGrow() { growEnds.last?() }
     }
 
-    @Test func thePanelGrowsOnTheGlideCurveAsItFadesIn() throws {
+    @Test func thePanelFadesInFromNothingOnTheGlideMovesTime() {
         let harness = Harness()
-        harness.motion.open(harness.window, growing: harness.containerView)
-        #expect(harness.window.isShown)
+        harness.window.alphaValue = 1
+        harness.motion.open(harness.window)
+        #expect(harness.window.isShown && !harness.window.ignoresMouseEvents)
         #expect(harness.fades.map(\.alpha) == [1])
         #expect(harness.fades.map(\.seconds) == [DS.Move.glide.curve.seconds()])
-        let grow = try #require(harness.grow)
-        #expect(grow.duration == DS.Move.glide.curve.seconds())
-        let scales = try #require(grow.values as? [NSValue]).map(\.caTransform3DValue.m11)
-        #expect(abs((scales.first ?? 0) - roomArtPanelOpeningStartScale) < 0.0001 && abs((scales.last ?? 0) - 1) < 0.0001)
+        #expect(harness.fades.first?.windowAlphaAtTheStart == 0)
     }
 
-    @Test func aClickOnAGrowingPanelReachesNoControlAndNotTheWindowBehind() {
-        let harness = Harness()
-        harness.motion.open(harness.window, growing: harness.containerView)
-        // The controls are drawn smaller than where they take clicks until the grow ends. The panel takes the click, and the
-        // container view, which does nothing with it, gets it.
-        #expect(!harness.window.ignoresMouseEvents)
-        #expect(harness.viewAClickOnTheControlReaches === harness.containerView)
-        harness.endTheGrow()
-        harness.fades.last?.end()
-        #expect(!harness.window.ignoresMouseEvents)
-        #expect(harness.viewAClickOnTheControlReaches === harness.control)
-    }
-
-    @Test func aPanelClosedWhileItGrowsNeverTakesTheMouseAndShowsNoNewHover() {
-        let harness = Harness()
-        let hoverView = HoverAndPointerNSView(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
-        hoverView.mouseLocationInTheWindow = { _ in CGPoint(x: 500, y: 300) }
-        var reportedHovers: [Bool] = []
-        hoverView.onHoverChange = { isNowHovered in reportedHovers.append(isNowHovered) }
-        harness.content.addSubview(hoverView)
-        harness.window.contentView?.addSubview(harness.containerView)
-        harness.motion.open(harness.window, growing: harness.containerView)
-        hoverView.reportTheHover(true)
-        harness.motion.close(harness.window)
-        harness.fades[0].end()
-        harness.endTheGrow()
-        #expect(harness.window.ignoresMouseEvents)
-        #expect(reportedHovers == [true])
-    }
-
-    @Test func withReduceMotionThePanelOnlyFades() {
+    @Test func withReduceMotionThePanelFadesInOverTheReduceMotionFade() {
         let harness = Harness()
         harness.reduceMotionIsOn = true
-        harness.motion.open(harness.window, growing: harness.containerView)
-        #expect(harness.grow == nil)
-        #expect(!harness.window.ignoresMouseEvents)
-        #expect(harness.viewAClickOnTheControlReaches === harness.control)
+        harness.motion.open(harness.window)
         #expect(harness.fades.map(\.seconds) == [DS.Move.fadeSeconds])
     }
 
     @Test func aClosingPanelTakesNoClicksAndLeavesWhenItsFadeEnds() {
         let harness = Harness()
-        harness.motion.open(harness.window, growing: harness.containerView)
+        harness.motion.open(harness.window)
         var timesReportedHidden = 0
         harness.motion.close(harness.window) { timesReportedHidden += 1 }
         #expect(harness.window.isShown && harness.window.ignoresMouseEvents)
@@ -510,110 +452,35 @@ struct RoomArtPanelMotionTests {
         #expect(timesReportedHidden == 2)
     }
 
-    @Test(arguments: [false, true])
-    func aPanelOpenedAgainDuringItsCloseStaysAndPassesClicksOnOnceTheFirstGrowEnds(reduceMotionIsOnAtTheSecondOpen: Bool) {
+    @Test func aPanelOpenedAgainDuringItsCloseStaysAndFadesBackInFromWhereItIs() {
         let harness = Harness()
-        harness.motion.open(harness.window, growing: harness.containerView)
+        harness.motion.open(harness.window)
         var theCloseReportedHidden = false
         harness.motion.close(harness.window) { theCloseReportedHidden = true }
-        harness.reduceMotionIsOn = reduceMotionIsOnAtTheSecondOpen
-        harness.motion.open(harness.window, growing: harness.containerView)
+        harness.window.alphaValue = 0.5
+        harness.motion.open(harness.window)
         // The close's fade ends after the second open.
         harness.fades[1].end()
         #expect(harness.window.isShown && !theCloseReportedHidden)
         #expect(!harness.window.ignoresMouseEvents)
-        // The first open's grow still runs, also after the second open's fade, which is the shorter one with Reduce Motion on.
-        harness.fades[2].end()
-        #expect(harness.viewAClickOnTheControlReaches === harness.containerView)
-        harness.endTheGrow()
-        #expect(harness.viewAClickOnTheControlReaches === harness.control)
-    }
-
-    @Test func aPanelOpenedAgainDuringItsCloseFadesBackInWithNoSecondGrow() {
-        let harness = Harness()
-        harness.motion.open(harness.window, growing: harness.containerView)
-        harness.motion.close(harness.window)
-        // The first open's grow has ended by now.
-        harness.endTheGrow()
-        harness.motion.open(harness.window, growing: harness.containerView)
-        #expect(harness.growEnds.count == 1)
-        #expect(!harness.window.ignoresMouseEvents)
-        #expect(harness.viewAClickOnTheControlReaches === harness.control)
         #expect(harness.fades.map(\.alpha) == [1, 0, 1])
-    }
-
-    @Test func aPanelOpenedAfterItsCloseHidItGrowsAndFadesInFromNothingAgain() throws {
-        let harness = Harness()
-        harness.motion.open(harness.window, growing: harness.containerView)
-        harness.motion.close(harness.window)
-        harness.fades.last?.end()
-        #expect(!harness.window.isShown)
-        // The window is left opaque and with no grow on its layer, so the second open has to start both itself.
-        harness.content.layer?.removeAllAnimations()
-        harness.window.alphaValue = 1
-        harness.motion.open(harness.window, growing: harness.containerView)
-        let scales = try #require(harness.grow?.values as? [NSValue]).map(\.caTransform3DValue.m11)
-        #expect(abs((scales.first ?? 0) - roomArtPanelOpeningStartScale) < 0.0001)
-        #expect(harness.fades.last?.alpha == 1 && harness.fades.last?.windowAlphaAtTheStart == 0)
-        // The first grow's end, arriving late, does not end the second one.
-        harness.growEnds.first?()
-        #expect(harness.viewAClickOnTheControlReaches === harness.containerView)
-        harness.endTheGrow()
-        #expect(harness.viewAClickOnTheControlReaches === harness.control)
-    }
-
-    @Test func aReduceMotionOpenAfterAPanelHidMidGrowTakesClicksAtOnce() {
-        let harness = Harness()
-        harness.motion.open(harness.window, growing: harness.containerView)
-        harness.motion.close(harness.window)
-        harness.fades.last?.end()
-        // The first grow never reported its end.
-        harness.reduceMotionIsOn = true
-        harness.motion.open(harness.window, growing: harness.containerView)
-        #expect(harness.viewAClickOnTheControlReaches === harness.control)
+        #expect(harness.fades.last?.windowAlphaAtTheStart == 0.5)
     }
 
     @Test(arguments: [false, true])
     func openingThePanelEndsAHoverThePointerLeftWhileItClosed(reduceMotionIsOn: Bool) {
         let harness = Harness()
         harness.reduceMotionIsOn = reduceMotionIsOn
+        let content = NSView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))
+        harness.window.contentView = content
         let hoverView = HoverAndPointerNSView(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
         hoverView.mouseLocationInTheWindow = { _ in CGPoint(x: 500, y: 300) }
         var reportedHovers: [Bool] = []
         hoverView.onHoverChange = { isNowHovered in reportedHovers.append(isNowHovered) }
-        harness.content.addSubview(hoverView)
-        harness.window.contentView?.addSubview(harness.containerView)
+        content.addSubview(hoverView)
         // Hovered as the panel closed, and the closing window passed on no exit.
         hoverView.reportTheHover(true)
-        harness.motion.open(harness.window, growing: harness.containerView)
-        // A growing panel checks its hovers as the grow ends. With no grow it does it at once.
-        #expect(reportedHovers == (reduceMotionIsOn ? [true, false] : [true]))
-        harness.endTheGrow()
+        harness.motion.open(harness.window)
         #expect(reportedHovers == [true, false])
-    }
-
-    /// Core Animation itself, in a window far off every screen. Without the end it reports, the panel would swallow every click.
-    @Test(.showsARealWindow) func coreAnimationReportsTheEndOfTheGrow() async throws {
-        let window = NSPanel(contentRect: CGRect(x: -30000, y: -30000, width: 960, height: 540), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        let containerView = RoomArtPanelContainerView(content: NSView(frame: CGRect(x: 0, y: 0, width: 960, height: 540)))
-        containerView.content.wantsLayer = true
-        window.contentView = containerView
-        let motion = RoomArtPanelMotion(reduceMotionIsOn: { false })
-        motion.open(window, growing: containerView)
-        defer { window.orderOut(nil) }
-        #expect(containerView.theContentIsGrowing)
-        let deadline = ContinuousClock.now + .seconds(30)
-        while containerView.theContentIsGrowing, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(!containerView.theContentIsGrowing, "Core Animation reported no end of the grow within 30 seconds")
-    }
-
-    @Test func thePanelGrowsAboutTheMiddleOfItsTopEdge() {
-        let size = CGSize(width: 960, height: 540)
-        let transform = CATransform3DGetAffineTransform(RoomArtPanelMotion.transform(scalingBy: 0.5, aboutTheTopMiddleOf: size, anchorPoint: .zero))
-        // With the anchor at the bottom left, the top middle stays put and the bottom left corner moves halfway to it.
-        #expect(CGPoint(x: 480, y: 540).applying(transform) == CGPoint(x: 480, y: 540))
-        #expect(CGPoint.zero.applying(transform) == CGPoint(x: 240, y: 270))
     }
 }

@@ -3349,8 +3349,6 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
     private weak var previewController: RoomArtPreviewController?
     private let metalLayer: CAMetalLayer
     private var panel: NonKeyFloatingPanel?
-    /// The panel's content view, which holds what grows as the panel opens.
-    private var containerView: RoomArtPanelContainerView?
     private let motion = RoomArtPanelMotion()
     private var frameObservers: [NSObjectProtocol] = []
 
@@ -3373,8 +3371,7 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
                 savedFrame: savedFrame, visibleFrames: NSScreen.screens.map(\.visibleFrame), visibleFrameUnderTheMouse: visibleFrameUnderTheMouse
             ), display: false)
         }
-        guard let containerView else { return }
-        motion.open(panel, growing: containerView)
+        motion.open(panel)
     }
 
     func hide(onceHidden: @escaping @MainActor () -> Void) {
@@ -3408,10 +3405,7 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
         hostingView.layer?.cornerRadius = DS.CornerRadius.card
         hostingView.layer?.cornerCurve = .continuous
         hostingView.layer?.masksToBounds = true
-        // A view of its own holds the content, so the content can grow inside the window as the panel opens.
-        let containerView = RoomArtPanelContainerView(content: hostingView)
-        panel.contentView = containerView
-        self.containerView = containerView
+        panel.contentView = hostingView
         // A drag or a resize keeps the panel's new frame, so the next panel opens there.
         for notificationName in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
             frameObservers.append(NotificationCenter.default.addObserver(forName: notificationName, object: panel, queue: .main) { [weak panel] _ in
@@ -3423,107 +3417,36 @@ final class RoomArtPanelController: RoomArtPanelPresenting {
     }
 }
 
-/// The panel's content view, which holds what grows as the panel opens. The grow moves only what is drawn, and the controls
-/// take clicks where they are at full size. So while the content grows, this view takes each click itself and does nothing
-/// with it, and the click reaches no control.
-final class RoomArtPanelContainerView: NSView {
-    let content: NSView
-
-    init(content: NSView) {
-        self.content = content
-        super.init(frame: content.frame)
-        wantsLayer = true
-        addSubview(content)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("RoomArtPanelContainerView is made in code")
-    }
-
-    /// True from the start of a grow to its end. `RoomArtPanelMotion` sets it. It is stored, since a finished animation can
-    /// stay on its layer.
-    var theContentIsGrowing = false
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let viewUnderThePoint = super.hitTest(point)
-        return viewUnderThePoint != nil && theContentIsGrowing ? self : viewUnderThePoint
-    }
-}
-
-/// The panel's moves. It grows in place with the Glide spring as it fades in, and fades out over `DS.Move.fadeSeconds`. With
-/// Reduce Motion on it only fades. The next panel uses the same window, so only the newest move may order it out, and a panel
-/// opened again before it left only fades back in.
+/// The panel's moves. It fades in on the Glide move's time, or its Reduce Motion fade, and fades out over
+/// `DS.Move.fadeSeconds`. The next panel uses the same window, so only the newest move may order it out, and a panel opened
+/// again before it left fades back in from where it is.
 @MainActor
 final class RoomArtPanelMotion {
     typealias WindowFade = (_ window: NSWindow, _ alpha: CGFloat, _ seconds: Double, _ completion: @escaping @MainActor () -> Void) -> Void
-    typealias LayerGrow = (_ layer: CALayer, _ grow: CAAnimation, _ completion: @escaping @MainActor () -> Void) -> Void
-
-    static let growAnimationKey = "roomArtPanelGrow"
 
     private let reduceMotionIsOn: () -> Bool
     private let fadeTheWindow: WindowFade
-    private let growTheLayer: LayerGrow
     /// Counts the opens and closes, so a fade that ends after a newer move changes nothing.
     private var moveNumber = 0
-    /// Counts the opens that start the content over, so the end of an earlier grow changes nothing.
-    private var growNumber = 0
 
-    /// A test passes its own fade and grow and ends them by hand.
+    /// A test passes its own fade and ends it by hand.
     init(
         reduceMotionIsOn: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion },
-        fadeTheWindow: @escaping WindowFade = RoomArtPanelMotion.fadeWithAppKit,
-        growTheLayer: @escaping LayerGrow = RoomArtPanelMotion.growWithCoreAnimation
+        fadeTheWindow: @escaping WindowFade = RoomArtPanelMotion.fadeWithAppKit
     ) {
         self.reduceMotionIsOn = reduceMotionIsOn
         self.fadeTheWindow = fadeTheWindow
-        self.growTheLayer = growTheLayer
     }
 
-    func open(_ window: NSWindow, growing containerView: RoomArtPanelContainerView) {
-        let contentView = containerView.content
+    func open(_ window: NSWindow) {
         moveNumber += 1
-        let thisMove = moveNumber
-        let opening = roomArtPanelOpening(
-            glide: DS.Move.glide.curve,
-            reduceMotionIsOn: reduceMotionIsOn(),
-            reducedMotionFadeSeconds: DS.Move.glide.reduceMotionForm.fadeSeconds
-        )
-        // A window still fading out fades back in from where it is, with no second grow.
-        let theWindowWasOffTheScreen = !window.isVisible
-        if theWindowWasOffTheScreen { window.alphaValue = 0 }
+        if !window.isVisible { window.alphaValue = 0 }
         window.orderFrontRegardless()
-        if theWindowWasOffTheScreen {
-            growNumber += 1
-            let thisGrow = growNumber
-            containerView.theContentIsGrowing = false
-            contentView.layer?.removeAnimation(forKey: Self.growAnimationKey)
-            if !opening.scales.isEmpty, let contentLayer = contentView.layer {
-                let grow = CAKeyframeAnimation(keyPath: "transform")
-                grow.values = opening.scales.map { scale in
-                    NSValue(caTransform3D: Self.transform(scalingBy: scale, aboutTheTopMiddleOf: contentView.bounds.size, anchorPoint: contentLayer.anchorPoint))
-                }
-                grow.duration = opening.seconds
-                containerView.theContentIsGrowing = true
-                growTheLayer(contentLayer, grow) { [weak self, weak window, weak containerView] in
-                    guard let self, thisGrow == self.growNumber, let window, let containerView else { return }
-                    containerView.theContentIsGrowing = false
-                    // A panel that closed during its grow ignores the mouse, and shows no new hover as it fades.
-                    guard !window.ignoresMouseEvents else { return }
-                    refreshTheRowHovers(in: containerView.content, windowPassesTheMouseThrough: false)
-                }
-            }
-        }
-        // The window takes the mouse through every open, so a click during the grow never passes to the window behind, such as
-        // the store page. The container view swallows it instead.
         window.ignoresMouseEvents = false
-        // The closing window ignored the mouse, so a control hovered then never heard the pointer leave. A growing panel
-        // checks its hovers as its grow ends.
-        if !containerView.theContentIsGrowing { refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: false) }
-        fadeTheWindow(window, 1, opening.seconds) { [weak self, weak window] in
-            guard let self, thisMove == self.moveNumber else { return }
-            // The shadow was cut for the smaller content, so it is cut again at full size.
-            window?.invalidateShadow()
-        }
+        // The closing window ignored the mouse, so a control hovered then never heard the pointer leave.
+        if let contentView = window.contentView { refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: false) }
+        let seconds = reduceMotionIsOn() ? DS.Move.glide.reduceMotionForm.fadeSeconds : DS.Move.glide.curve.seconds()
+        fadeTheWindow(window, 1, seconds) {}
     }
 
     func close(_ window: NSWindow, onceHidden: @escaping @MainActor () -> Void = {}) {
@@ -3537,25 +3460,6 @@ final class RoomArtPanelMotion {
             window?.orderOut(nil)
             onceHidden()
         }
-    }
-
-    /// The layer transform that scales a view's content about the middle of its top edge, for a layer whose superlayer's y
-    /// grows up. A layer transform applies about the anchor point, so the pivot is measured from it.
-    static func transform(scalingBy scale: CGFloat, aboutTheTopMiddleOf size: CGSize, anchorPoint: CGPoint) -> CATransform3D {
-        let pivotX = (0.5 - anchorPoint.x) * size.width
-        let pivotY = (1 - anchorPoint.y) * size.height
-        let movedToThePivot = CATransform3DMakeTranslation(pivotX, pivotY, 0)
-        return CATransform3DTranslate(CATransform3DScale(movedToThePivot, scale, scale, 1), -pivotX, -pivotY, 0)
-    }
-
-    static func growWithCoreAnimation(_ layer: CALayer, with grow: CAAnimation, completion: @escaping @MainActor () -> Void) {
-        CATransaction.begin()
-        // Set before the animation is added, so the block waits for it.
-        CATransaction.setCompletionBlock {
-            MainActor.assumeIsolated { completion() }
-        }
-        layer.add(grow, forKey: growAnimationKey)
-        CATransaction.commit()
     }
 
     static func fadeWithAppKit(_ window: NSWindow, toAlpha alpha: CGFloat, overSeconds seconds: Double, completion: @escaping @MainActor () -> Void) {
