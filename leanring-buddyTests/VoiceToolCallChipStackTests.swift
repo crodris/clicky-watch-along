@@ -164,7 +164,8 @@ struct VoiceToolCallChipStackTests {
 
     @Test func theStepIsOneCalloutPlusAGapAndThePanelHasRoomForTheChipRisenOneStep() {
         #expect(VoiceToolCallChip.stackStepHeight == tetherSingleLineCalloutHeight + 4)
-        #expect(VoiceToolCallChip.panelSize.height == tetherSingleLineCalloutHeight + 2 * tetherCalloutPanelMargin + VoiceToolCallChip.stackStepHeight)
+        // The panel is also tall enough for the Save photo receipt, which is taller than a one line Callout.
+        #expect(VoiceToolCallChip.panelSize.height == max(tetherSingleLineCalloutHeight, PaperPhotoReceipt.greatestHeight) + 2 * tetherCalloutPanelMargin + VoiceToolCallChip.stackStepHeight)
     }
 
     @Test func bothChipPanelsStayInsideTheScreenWhateverTheirWidthsAndTheMouseSits() {

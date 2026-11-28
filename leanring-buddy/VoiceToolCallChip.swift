@@ -24,6 +24,9 @@ enum VoiceToolCallChipSender: Equatable {
     case backgroundAgent(color: AgentPaletteColor, face: AgentFace)
     /// Something did not work: a red Callout with a cross, paired with the shake and the spoken line.
     case failure
+    /// Save photo worked: a small paper receipt with the saved photo's thumbnail (`PaperPhotoReceipt`), since the photo is
+    /// something the learner keeps. It takes the theme's accent for its check.
+    case photoReceipt
 }
 
 /// What fills the chip's icon disc. A round portrait covers the whole disc, and anything else is a symbol in ink on it.
@@ -36,14 +39,14 @@ extension VoiceToolCallChipSender {
     var iconContent: VoiceToolCallChipIconContent {
         switch self {
         case .backgroundAgent(_, face: .rosterFace), .backgroundAgent(_, face: .themePicture): return .circularPortrait
-        case .voiceToolCall, .backgroundAgent(_, face: .triangle), .failure: return .symbolOnDisc
+        case .voiceToolCall, .backgroundAgent(_, face: .triangle), .failure, .photoReceipt: return .symbolOnDisc
         }
     }
 
     /// The Callout's accent: the theme's for a voice tool call, the agent's own for an agent, and red for a failure.
     func accent(themeAccent: Color) -> Color {
         switch self {
-        case .voiceToolCall: return themeAccent
+        case .voiceToolCall, .photoReceipt: return themeAccent
         case .backgroundAgent(let agentColor, _): return agentColor.color
         case .failure: return DS.Colors.destructiveText
         }
@@ -61,6 +64,8 @@ private final class VoiceToolCallChipModel: ObservableObject {
     @Published var secondaryChipText: String?
     /// The call as code, set in a monospaced face, instead of a plain phrase.
     @Published var chipTextIsCode = false
+    /// What Save photo saved, drawn as a paper receipt in place of the Callout when the sender is `.photoReceipt`.
+    @Published var photoReceipt: RoomArtPhotoReceipt?
     /// Whether the Callout is on screen and how it is leaving.
     let presence = TetherCalloutPresence()
     /// True while this slot holds the chip that was pushed up, which draws one step above the bottom.
@@ -110,16 +115,26 @@ private struct VoiceToolCallChipView: View {
     @ObservedObject var presence: TetherCalloutPresence
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The Callout, or the paper receipt for a saved photo.
+    @ViewBuilder
+    private var chipContent: some View {
+        if chipModel.sender == .photoReceipt, let photoReceipt = chipModel.photoReceipt {
+            PaperPhotoReceipt(thumbnail: photoReceipt.thumbnail, locationLine: photoReceipt.locationLine, accent: chipModel.themeAccent)
+        } else {
+            VoiceToolCallChipCallout(
+                chipText: chipModel.chipText,
+                secondaryChipText: chipModel.secondaryChipText,
+                chipTextIsCode: chipModel.chipTextIsCode,
+                sender: chipModel.sender,
+                themeAccent: chipModel.themeAccent
+            )
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             if presence.isInTheViewTree {
-                VoiceToolCallChipCallout(
-                    chipText: chipModel.chipText,
-                    secondaryChipText: chipModel.secondaryChipText,
-                    chipTextIsCode: chipModel.chipTextIsCode,
-                    sender: chipModel.sender,
-                    themeAccent: chipModel.themeAccent
-                )
+                chipContent
                 .onGeometryChange(for: CGFloat.self) { calloutGeometry in
                     calloutGeometry.size.width
                 } action: { measuredCalloutWidth in
@@ -153,6 +168,9 @@ struct VoiceToolCallChipIcon: View {
             Image(systemName: "hand.point.up.left.fill")
         case .failure:
             TetherCalloutCrossIcon()
+        case .photoReceipt:
+            // A receipt is drawn by `PaperPhotoReceipt`, so its icon is never asked for. This keeps the switch whole.
+            Image(systemName: "checkmark")
         case .backgroundAgent(_, face: .triangle):
             TetherCalloutCursorIcon()
         case .backgroundAgent(_, face: .rosterFace(let rosterFace)):
@@ -186,7 +204,10 @@ final class VoiceToolCallChip {
     nonisolated static let stackStepHeight: CGFloat = tetherSingleLineCalloutHeight + gapBetweenStackedChips
     /// The panel holds a Callout with its tail (49), the margin for its shadow on both sides (28), and one step
     /// for the upper slot's chip to rise into.
-    nonisolated static let panelSize = CGSize(width: 520, height: tetherSingleLineCalloutHeight + 2 * tetherCalloutPanelMargin + stackStepHeight)
+    nonisolated static let panelSize = CGSize(
+        width: 520,
+        height: max(tetherSingleLineCalloutHeight, PaperPhotoReceipt.greatestHeight) + 2 * tetherCalloutPanelMargin + stackStepHeight
+    )
     nonisolated static let defaultSecondsOnScreen: TimeInterval = 1.4
 
     /// The theme's accent for a voice tool call's chip. `CompanionManager` sets it to follow the shown theme.
@@ -211,6 +232,7 @@ final class VoiceToolCallChip {
         sender: VoiceToolCallChipSender = .voiceToolCall,
         secondaryChipText: String? = nil,
         chipTextIsCode: Bool = false,
+        photoReceipt: RoomArtPhotoReceipt? = nil,
         survivesARecall: Bool = false,
         secondsOnScreen: TimeInterval = VoiceToolCallChip.defaultSecondsOnScreen
     ) {
@@ -236,6 +258,7 @@ final class VoiceToolCallChip {
         chipModel.sender = sender
         chipModel.secondaryChipText = secondaryChipText
         chipModel.chipTextIsCode = chipTextIsCode
+        chipModel.photoReceipt = photoReceipt
         if stackingStep.bottomChipStep == .popTheNewChip {
             chipModel.shownDate = Date()
             chipModel.shownChipCount += 1
@@ -263,6 +286,12 @@ final class VoiceToolCallChip {
         }
         slot.hideWorkItem = hideWorkItem
         DispatchQueue.main.asyncAfter(deadline: .now() + secondsOnScreen, execute: hideWorkItem)
+    }
+
+    /// Shows the paper receipt for a photo Save photo wrote, where a chip shows and for as long. VoiceOver reads it as the saved
+    /// chip, since the receipt's panel never takes the keyboard.
+    func showPhotoReceipt(_ photoReceipt: RoomArtPhotoReceipt) {
+        show(roomArtPhotoSavedChip, sender: .photoReceipt, photoReceipt: photoReceipt)
     }
 
     /// A push-to-talk press: each chip shrinks into the cursor in 180 ms (a Recall), and the press starts the next request.
