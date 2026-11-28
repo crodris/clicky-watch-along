@@ -485,14 +485,15 @@ struct ThemeStudioCardView: View {
 
     private var buttons: some View {
         HStack(spacing: 8) {
-            ThemeStudioButton(
-                title: "Save",
-                style: .primary(accentHex: highlightedIdea?.accentHex),
+            // With no idea yet, Save is a neutral secondary button.
+            TetherButton(
+                "Save",
+                role: highlightedIdea.map { .primary(accent: Color(hex: $0.accentHex)) } ?? .secondary,
                 isEnabled: shownState.isShowingIdeas
             ) {
                 onSaveClicked(studio.saveTheHighlightedIdea())
             }
-            ThemeStudioButton(title: "Close", style: .plain, isEnabled: true) {
+            TetherButton("Close", role: .secondary) {
                 studio.close()
             }
             Spacer(minLength: 0)
@@ -615,9 +616,9 @@ private struct ThemeStudioTileView: View {
             }
             .padding(10)
             .frame(width: Self.tileWidth)
-            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(isHovered && !isDimmedWhileDesigning ? DS.Colors.surface4 : DS.Colors.surface3))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.control).fill(isHovered && !isDimmedWhileDesigning ? DS.Colors.surface4 : DS.Colors.surface3))
             .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.control)
                     .stroke(isHighlighted ? accentColor : DS.Colors.border, lineWidth: isHighlighted ? 1.5 : 1)
             )
             .opacity(isDimmedWhileDesigning ? 0.4 : (isHighlighted ? 1 : 0.75))
@@ -628,8 +629,11 @@ private struct ThemeStudioTileView: View {
         .hoverAndPointer(isEnabled: !isDimmedWhileDesigning) { isHovered = $0 }
         .overlay(alignment: .topTrailing) {
             if isHighlighted && !isDimmedWhileDesigning {
-                SoundPreviewButton(accentColor: accentColor, playSounds: playSounds)
-                    .padding(6)
+                TetherButton(
+                    systemImage: "speaker.wave.2.fill", role: .secondary, shape: .circle, size: .compact,
+                    accessibilityLabel: "Hear this theme's sounds", action: playSounds
+                )
+                .padding(6)
             }
         }
         .overlay(alignment: .topLeading) {
@@ -675,30 +679,8 @@ private struct ThemeStudioDesignFailedRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous).fill(DS.Colors.destructiveSurface))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.control, style: .continuous).fill(DS.Colors.destructiveSurface))
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// The highlighted tile's speaker button, which plays the idea's three sounds in a row.
-private struct SoundPreviewButton: View {
-    let accentColor: Color
-    let playSounds: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: playSounds) {
-            Image(systemName: "speaker.wave.2.fill")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isHovered ? accentColor : DS.Colors.textSecondary)
-                .frame(width: 22, height: 22)
-                .background(Circle().fill(isHovered ? DS.Colors.surface4 : DS.Colors.surface2))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .hoverAndPointer { isHovered = $0 }
-        .accessibilityLabel("Hear this theme's sounds")
     }
 }
 
@@ -748,8 +730,8 @@ private struct ThemeStudioPlaceholderTileView: View {
         }
         .padding(10)
         .frame(width: Self.tileWidth)
-        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(DS.Colors.surface3))
-        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.border, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.control).fill(DS.Colors.surface3))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.control).stroke(DS.Colors.border, lineWidth: 1))
         .accessibilityHidden(true)
     }
 }
@@ -835,65 +817,6 @@ private struct WrappingTagsLayout: Layout {
             widestRow = max(widestRow, rowOrigin.x - spacing)
         }
         return (CGSize(width: widestRow, height: rowOrigin.y + rowHeight), origins)
-    }
-}
-
-// MARK: - Buttons
-
-enum ThemeStudioButtonStyle {
-    /// Filled with the highlighted idea's accent, with letters that read on it. With no idea yet, a neutral fill.
-    case primary(accentHex: String?)
-    case plain
-}
-
-struct ThemeStudioButton: View {
-    let title: String
-    let style: ThemeStudioButtonStyle
-    let isEnabled: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    private var fillColor: Color {
-        switch style {
-        case .primary(let accentHex?): return Color(hex: accentHex)
-        case .primary(nil), .plain: return isHovered && isEnabled ? DS.Colors.surface4 : DS.Colors.surface3
-        }
-    }
-
-    private var isFilledWithAnAccent: Bool {
-        if case .primary(.some) = style { return true }
-        return false
-    }
-
-    private var letterColor: Color {
-        switch style {
-        case .primary(let accentHex?):
-            return Color(hex: ThemeRGBColor.inkHex(onFillHex: accentHex))
-        case .primary(nil), .plain:
-            return DS.Colors.textPrimary
-        }
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(letterColor)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(fillColor))
-                .accentFillHoverRing(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium),
-                    ink: letterColor,
-                    isShowing: isFilledWithAnAccent && isHovered && isEnabled
-                )
-                .opacity(isEnabled ? 1 : 0.4)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .hoverAndPointer(isEnabled: isEnabled) { isHovered = $0 }
     }
 }
 

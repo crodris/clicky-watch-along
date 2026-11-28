@@ -563,7 +563,7 @@ struct SettingsDialView: View {
             .foregroundColor(Color.white.opacity(0.82))
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous).fill(DS.Colors.settingsDialPlate.opacity(0.84)))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.control, style: .continuous).fill(DS.Colors.settingsDialPlate.opacity(0.84)))
             .fixedSize()
             // The mock puts the hint's top edge 16 points under the plate.
             .position(x: centerInView.x, y: centerInView.y + SettingsDialGeometry.plateRadius + 16 + 12)

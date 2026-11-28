@@ -151,7 +151,7 @@ struct ThemeCard: View {
     @State private var problemText: String?
     @FocusState private var nameFieldIsFocused: Bool
 
-    static let cornerRadius = DS.CornerRadius.medium
+    static let cornerRadius = DS.CornerRadius.control
     private static let secondsAnArmedDeleteWaits: Double = 3
     /// Two lines of the title type, so a long name keeps the card's height.
     private static let nameHeight: CGFloat = 34
@@ -277,22 +277,16 @@ struct ThemeCard: View {
     @ViewBuilder private var savedActions: some View {
         if rename != nil {
             HStack(spacing: 3) {
-                ThemeCardIconButton(
-                    systemImageName: "pencil",
-                    accessibilityLabel: "Rename \(theme.name)",
-                    hoverColor: DS.Colors.textPrimary,
-                    focus: focus,
-                    focusValue: .renameButton(themeID: theme.id),
-                    action: startRename
+                TetherButton(
+                    systemImage: "pencil", role: .secondary, shape: .circle, size: .compact,
+                    takesItsOwnKeyboardFocus: false, accessibilityLabel: "Rename \(theme.name)", action: startRename
                 )
-                ThemeCardIconButton(
-                    systemImageName: "trash",
-                    accessibilityLabel: "Delete \(theme.name)",
-                    hoverColor: DS.Colors.destructiveText,
-                    focus: focus,
-                    focusValue: .deleteButton(themeID: theme.id),
-                    action: { deleteIsArmed = true }
+                .themeCardGridFocus(focus, equals: .renameButton(themeID: theme.id), action: startRename)
+                TetherButton(
+                    systemImage: "trash", role: .secondaryDestructive, shape: .circle, size: .compact,
+                    takesItsOwnKeyboardFocus: false, accessibilityLabel: "Delete \(theme.name)", action: { deleteIsArmed = true }
                 )
+                .themeCardGridFocus(focus, equals: .deleteButton(themeID: theme.id), action: { deleteIsArmed = true })
             }
             .padding(4)
             .opacity(savedActionsShow ? 1 : 0)
@@ -315,7 +309,7 @@ struct ThemeCard: View {
                 .padding(6)
                 .accessibilityAddTraits(.updatesFrequently)
         } else if deleteIsArmed {
-            PanelButton(title: "Delete", prominence: .destructive, fillsTheWidth: true, action: confirmDelete)
+            TetherButton("Delete", role: .destructive, size: .compact, fillsTheWidth: true, action: confirmDelete)
             .padding(6)
             .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
             .accessibilityLabel("Confirm delete \(theme.name)")
@@ -477,44 +471,41 @@ private struct ThemeCardAgentTokenView: View {
     }
 }
 
-/// The pencil and the trash can on a saved card: a 20 point square tile on a dark backing, so it reads over any cursor.
-private struct ThemeCardIconButton: View {
-    let systemImageName: String
-    let accessibilityLabel: String
-    /// The icon's color under the pointer.
-    let hoverColor: Color
+extension View {
+    /// Puts a control of a theme card in the grid's keyboard focus: the arrow keys move it, Return or Space runs `action`,
+    /// and the ring shows only when the keyboard moved the focus. The control draws and hovers itself, as a `TetherButton`
+    /// with `takesItsOwnKeyboardFocus: false` does, so this only adds the focus.
+    fileprivate func themeCardGridFocus(
+        _ focus: FocusState<ThemeGridFocus?>.Binding,
+        equals focusValue: ThemeGridFocus,
+        action: @escaping () -> Void
+    ) -> some View {
+        modifier(ThemeCardGridFocusModifier(focus: focus, focusValue: focusValue, action: action))
+    }
+}
+
+private struct ThemeCardGridFocusModifier: ViewModifier {
     var focus: FocusState<ThemeGridFocus?>.Binding
     let focusValue: ThemeGridFocus
     let action: () -> Void
 
-    @State private var isHovered = false
     @State private var showsTheFocusRing = false
 
     private var hasTheFocus: Bool { focus.wrappedValue == focusValue }
 
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImageName)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isHovered ? hoverColor : DS.Colors.textSecondary)
-                .frame(width: 20, height: 20)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(DS.Colors.calloutSurface.opacity(isHovered ? 1 : 0.85)))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(PanelPressStyle())
-        .hoverAndPointer { isHovered = $0 }
-        .focusable()
-        .focusEffectDisabled()
-        .focused(focus, equals: focusValue)
-        .onKeyPress(keys: [.return, .space]) { _ in
-            action()
-            return .handled
-        }
-        .onChange(of: hasTheFocus) { _, isNowFocused in
-            showsTheFocusRing = isNowFocused && theKeyboardMovedTheFocus()
-        }
-        .panelKeyboardFocusRing(isShowing: showsTheFocusRing && hasTheFocus, cornerRadius: 6)
-        .accessibilityLabel(accessibilityLabel)
+    func body(content: Content) -> some View {
+        content
+            .focusable()
+            .focusEffectDisabled()
+            .focused(focus, equals: focusValue)
+            .onKeyPress(keys: [.return, .space]) { _ in
+                action()
+                return .handled
+            }
+            .onChange(of: hasTheFocus) { _, isNowFocused in
+                showsTheFocusRing = isNowFocused && theKeyboardMovedTheFocus()
+            }
+            .panelKeyboardFocusRing(isShowing: showsTheFocusRing && hasTheFocus, cornerRadius: TetherButtonSize.compact.height / 2)
     }
 }
 

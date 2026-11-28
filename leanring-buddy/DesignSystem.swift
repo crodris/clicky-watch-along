@@ -170,16 +170,21 @@ enum DS {
 
     // MARK: - Corner Radii
 
+    /// Every corner radius a surface draws is one of these steps, by what it is. `tools/design-token-check.py` fails the
+    /// build on a radius written as a number anywhere else. A shape drawn to its own geometry, such as a cursor or the
+    /// Callout's outline, ends its line with `// design-token-exempt: <why>`.
     enum CornerRadius {
-        /// Small elements like tags, badges.
-        static let small: CGFloat = 6
-        /// Buttons, input fields, small cards.
-        static let medium: CGFloat = 8
-        /// Cards, dialogs, chat bubbles.
-        static let large: CGFloat = 10
+        /// A mark of 16 points or less: a color swatch, a shimmer bar.
+        static let swatch: CGFloat = 3
+        /// A chip, a tag, a key cap, a text field, a small thumbnail.
+        static let chip: CGFloat = 6
+        /// A button or a segment of a control (`TetherButton`'s rounded shape).
+        static let control: CGFloat = 8
+        /// A row, a banner, or a box inside a Card, and a control group that holds `control` segments 2 points in.
+        static let row: CGFloat = 10
         /// The Tether Card (`tetherCard()`).
         static let card: CGFloat = 14
-        /// Pill-shaped buttons (the continue button).
+        /// A capsule or a circle. SwiftUI clamps a radius to half the shorter side.
         static let pill: CGFloat = .infinity
     }
 

@@ -1265,7 +1265,8 @@ private struct AgentRowView: View {
                 }
             }
             if agent.isRunning {
-                AgentActionButton(title: "Cancel", titleColor: DS.Colors.destructiveText) { actions.cancelAgent(agent.id) }
+                TetherButton("Cancel", role: .secondaryDestructive, size: .compact) { actions.cancelAgent(agent.id) }
+                    .padding(.top, 2)
             }
         }
         // Lines up under the title, which starts after the disc.
@@ -1315,51 +1316,25 @@ extension AgentRowView {
     @ViewBuilder fileprivate var rowButtons: some View {
         HStack(spacing: 6) {
             if agent.phase.isFailed, agent.canBeTriedAgain {
-                AgentActionButton(title: "Try again", titleColor: DS.Colors.textPrimary) { actions.tryAgain(agent.id) }
+                TetherButton("Try again", role: .secondary, size: .compact) { actions.tryAgain(agent.id) }
             }
             if agent.resultIsWaitingToBeDelivered && resultsMayBeDeliveredNow {
                 switch agent.finishedResult {
                 case .readyScene:
-                    AgentActionButton(title: agent.kind == .experiment ? "Show experiment" : "Show model", titleColor: DS.Colors.textPrimary, action: actions.showReadyScene)
+                    TetherButton(agent.kind == .experiment ? "Show experiment" : "Show model", role: .secondary, size: .compact, action: actions.showReadyScene)
                 case .answer:
-                    AgentActionButton(title: "Hear answer", titleColor: DS.Colors.textPrimary, action: actions.hearTaskAnswer)
+                    TetherButton("Hear answer", role: .secondary, size: .compact, action: actions.hearTaskAnswer)
                 case .notionPage, nil:
                     EmptyView()
                 }
             }
             if let pageURL = agent.finishedResult?.pageURL {
                 // Brings the page forward, unlike the background tab the finished agent opened it in.
-                AgentActionButton(title: "Open page", titleColor: DS.Colors.textPrimary) {
+                TetherButton("Open page", role: .secondary, size: .compact) {
                     NSWorkspace.shared.open(pageURL)
                 }
             }
         }
-    }
-}
-
-private struct AgentActionButton: View {
-    let title: String
-    let titleColor: Color
-    /// A dimmed button is one whose click would not count yet, so it keeps the arrow, shows no hover, and does nothing.
-    var isDimmed = false
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(titleColor)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: DS.CornerRadius.small).fill(isHovered && !isDimmed ? DS.Colors.surface4 : DS.Colors.surface3))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isDimmed)
-        .opacity(isDimmed ? 0.5 : 1)
-        .hoverAndPointer(isEnabled: !isDimmed) { isNowHovered in isHovered = isNowHovered }
         .padding(.top, 2)
     }
 }
@@ -1528,18 +1503,24 @@ struct ApprovalCardView: View {
             // what happened.
             if isWaiting {
                 HStack(spacing: 6) {
-                    ApprovalAnswerButton(title: "Don't allow", isEnabled: true) {
+                    // The three share one look, with no red or green, so no color picks a side. A disabled one keeps the
+                    // arrow, shows no hover, and does nothing, and Tab reaches an enabled one on a surface that takes the
+                    // keyboard.
+                    TetherButton("Don't allow", role: .secondary, fillsTheWidth: true, accessibilityHint: "Counts at once") {
                         answerApproval(approvalRequest.approvalID, false, .once)
                     }
-                    .accessibilityHint("Counts at once")
-                    ApprovalAnswerButton(title: "Allow once", isEnabled: allowButtonsAreEnabled) {
+                    TetherButton(
+                        "Allow once", role: .secondary, fillsTheWidth: true, isEnabled: allowButtonsAreEnabled,
+                        accessibilityHint: "Available once the whole request has been read"
+                    ) {
                         answerApproval(approvalRequest.approvalID, true, .once)
                     }
-                    .accessibilityHint("Available once the whole request has been read")
-                    ApprovalAnswerButton(title: "For this task", isEnabled: allowButtonsAreEnabled) {
+                    TetherButton(
+                        "For this task", role: .secondary, fillsTheWidth: true, isEnabled: allowButtonsAreEnabled,
+                        accessibilityHint: "Allows this tool and kind of access until the agent finishes"
+                    ) {
                         answerApproval(approvalRequest.approvalID, true, .always)
                     }
-                    .accessibilityHint("Allows this tool and kind of access until the agent finishes")
                 }
                 // The panel is never key, so a tooltip would not show. This line says how to answer by voice and what
                 // the third button covers.
@@ -1642,7 +1623,7 @@ struct ApprovalCardView: View {
                 scrollAreaHeight = newScrollAreaHeight
                 recordWhatTheScrollAreaShows()
             }
-            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(DS.Colors.surface2))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.control).fill(DS.Colors.surface2))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Request details, \(percentRead) percent read")
         }
@@ -1723,38 +1704,5 @@ struct ApprovalCardView: View {
               ) else { return }
         seenRanges.record(rangeInView, forApprovalID: approvalRequest.approvalID)
         summaryWasShownWhole(approvalSummaryWasShownWhole(seenRanges: seenRanges.ranges, summaryHeight: summaryFrame.height))
-    }
-}
-
-/// One of the card's three equal buttons. They share one look, with no red or green, so no color picks a side. A
-/// disabled button keeps the arrow, shows no hover, and does nothing. `panelKeyboardControl` lets Tab reach an enabled one
-/// with Full Keyboard Access off, on a surface that takes the keyboard, and Return or Space answers with it.
-private struct ApprovalAnswerButton: View {
-    let title: String
-    let isEnabled: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(verbatim: title)
-                .font(DS.TypeScale.caption.font)
-                .foregroundColor(isEnabled ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, minHeight: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
-                        .fill(isHovered && isEnabled ? DS.Colors.surface4 : DS.Colors.surface3)
-                )
-                .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.border, lineWidth: 1))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        // Tab reaches the button, Return or Space answers, and a dimmed Allow button refuses, as a click does.
-        .panelKeyboardControl(cornerRadius: DS.CornerRadius.medium, isEnabled: isEnabled, action: action)
-        .hoverAndPointer(isEnabled: isEnabled) { isNowHovered in isHovered = isNowHovered }
-        .accessibilityLabel(title)
     }
 }

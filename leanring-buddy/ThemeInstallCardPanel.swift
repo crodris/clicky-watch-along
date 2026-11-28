@@ -121,8 +121,8 @@ struct ThemeInstallCardView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
-                ThemeStudioButton(title: "Cancel", style: .plain, isEnabled: buttonsAcceptClicks) { decide(false) }
-                ThemeStudioButton(title: "Add theme", style: .primary(accentHex: theme.accentHex), isEnabled: buttonsAcceptClicks) { decide(true) }
+                TetherButton("Cancel", role: .secondary, isEnabled: buttonsAcceptClicks) { decide(false) }
+                TetherButton("Add theme", role: .primary(accent: Color(hex: theme.accentHex)), isEnabled: buttonsAcceptClicks) { decide(true) }
             }
             // The buttons dim while they wait, and come up to full strength with the same fade as every crossfade.
             .animation(.easeOut(duration: DS.Move.fadeSeconds), value: buttonsAcceptClicks)

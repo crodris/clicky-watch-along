@@ -87,10 +87,10 @@ struct VideoQuizSummaryCardView: View {
             }
             HStack(spacing: 8) {
                 if recap.studyGuideURL != nil {
-                    VideoRecapStudyGuideButton(accentColor: accentColor, action: openTheStudyGuide)
+                    TetherButton("Study guide", systemImage: "arrow.up.right", role: .primary(accent: accentColor), action: openTheStudyGuide)
                 }
                 Spacer()
-                VideoQuizSummaryCloseButton(close: close)
+                TetherButton("Close", role: .quiet, action: close)
             }
         }
         .padding(14)
@@ -135,42 +135,6 @@ struct VideoQuizSummaryCardView: View {
     }
 }
 
-/// Opens the video's study guide, in the accent, at the Card's foot beside Close.
-private struct VideoRecapStudyGuideButton: View {
-    let accentColor: Color
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Text("Study guide")
-                    .font(DS.TypeScale.title.font)
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .foregroundStyle(accentColor)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .fill(Color.white.opacity(isHovered ? 0.1 : 0.05))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .strokeBorder(isHovered ? accentColor : Color.white.opacity(0.1), lineWidth: 1)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverAndPointer { hovering in
-            withAnimation(DS.Move.snap.animation(reduceMotionIsOn: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
-                isHovered = hovering
-            }
-        }
-    }
-}
-
 private struct VideoQuizMissedQuestionButton: View {
     let missedQuestion: VideoQuizMissedQuestion
     let accentColor: Color
@@ -193,40 +157,14 @@ private struct VideoQuizMissedQuestionButton: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 9)
             .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.control, style: .continuous)
                     .fill(Color.white.opacity(isHovered ? 0.1 : 0.05))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .strokeBorder(isHovered ? accentColor : Color.white.opacity(0.1), lineWidth: 1)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.control, style: .continuous)
+                    .strokeBorder(isHovered ? accentColor : DS.Colors.edge, lineWidth: 1)
             )
             .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverAndPointer { hovering in
-            withAnimation(DS.Move.snap.animation(reduceMotionIsOn: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
-                isHovered = hovering
-            }
-        }
-    }
-}
-
-private struct VideoQuizSummaryCloseButton: View {
-    let close: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: close) {
-            Text("Close")
-                .font(DS.TypeScale.title.font)
-                .foregroundStyle(isHovered ? Color.white : DS.Colors.textSecondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                        .fill(Color.white.opacity(isHovered ? 0.1 : 0))
-                )
-                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .hoverAndPointer { hovering in

@@ -168,16 +168,16 @@ struct AccentInkTests {
         #expect(cursorIconOnClickyBlue.nearBlack > 20 && cursorIconOnClickyBlue.white == 0)
     }
 
-    @Test func thePrimaryButtonsLettersReadOnTheirAccent() async throws {
-        // Nekoma's red is the closest call: white reads at 4.49 and near-black at 4.35.
-        let studioButtonOnNekoma = try await inkPixels(ofButton: ThemeStudioButton(title: "Save", style: .primary(accentHex: "#E0313B"), isEnabled: true) {})
-        #expect(studioButtonOnNekoma.white > 20 && studioButtonOnNekoma.nearBlack == 0)
-        let studioButtonOnClickyBlue = try await inkPixels(ofButton: ThemeStudioButton(title: "Save", style: .primary(accentHex: "#3380FF"), isEnabled: true) {})
-        #expect(studioButtonOnClickyBlue.nearBlack > 20 && studioButtonOnClickyBlue.white == 0)
-        let panelButtonOnShiratorizawa = try await inkPixels(ofButton: PanelButton(title: "Start Clicky", prominence: .primary, accentColor: Color(hex: "#A0457F")) {})
-        #expect(panelButtonOnShiratorizawa.white > 20 && panelButtonOnShiratorizawa.nearBlack == 0)
-        let panelButtonOnClickyBlue = try await inkPixels(ofButton: PanelButton(title: "Start Clicky", prominence: .primary, accentColor: Color(hex: "#3380FF")) {})
-        #expect(panelButtonOnClickyBlue.nearBlack > 20 && panelButtonOnClickyBlue.white == 0)
+    /// Nekoma's red is the closest call: white reads at 4.49 and near-black at 4.35. The label's ink must be the one that
+    /// reads on the fill, in every size the button comes in.
+    @Test(arguments: [TetherButtonSize.compact, .standard, .prominent])
+    func thePrimaryButtonsLettersReadOnTheirAccent(size: TetherButtonSize) async throws {
+        let onNekoma = try await inkPixels(ofButton: TetherButton("Save", role: .primary(accent: Color(hex: "#E0313B")), size: size) {})
+        #expect(onNekoma.white > 20 && onNekoma.nearBlack == 0)
+        let onShiratorizawa = try await inkPixels(ofButton: TetherButton("Start Clicky", role: .primary(accent: Color(hex: "#A0457F")), size: size) {})
+        #expect(onShiratorizawa.white > 20 && onShiratorizawa.nearBlack == 0)
+        let onClickyBlue = try await inkPixels(ofButton: TetherButton("Start Clicky", role: .primary(accent: Color(hex: "#3380FF")), size: size) {})
+        #expect(onClickyBlue.nearBlack > 20 && onClickyBlue.white == 0)
     }
 
     /// Hovers a button as the mouse does, through its hover view, and compares it with the button at rest: nothing inside
@@ -199,14 +199,9 @@ struct AccentInkTests {
         #expect(try await hovered.channelsThatDiffer(from: atRest) > 0)
     }
 
-    @Test(arguments: ["#E0313B", "#3380FF"])
-    func aHoveredThemeStudioSaveButtonKeepsItsFill(accentHex: String) async throws {
-        try await expectHoverToRingTheButtonAndKeepItsFill(ThemeStudioButton(title: "Save", style: .primary(accentHex: accentHex), isEnabled: true) {})
-    }
-
-    @Test(arguments: ["#E0313B", "#3380FF"])
-    func aHoveredPrimaryPanelButtonKeepsItsFill(accentHex: String) async throws {
-        try await expectHoverToRingTheButtonAndKeepItsFill(PanelButton(title: "Start Clicky", prominence: .primary, accentColor: Color(hex: accentHex)) {})
+    @Test(arguments: ["#E0313B", "#3380FF", "#A0457F"], [TetherButtonSize.compact, .standard, .prominent])
+    func aHoveredPrimaryButtonKeepsItsFill(accentHex: String, size: TetherButtonSize) async throws {
+        try await expectHoverToRingTheButtonAndKeepItsFill(TetherButton("Save", role: .primary(accent: Color(hex: accentHex)), size: size) {})
     }
 
     /// A status line's Callout reads its ink 30 times a second. A different ink put in the cache shows in the drawing only

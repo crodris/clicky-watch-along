@@ -250,9 +250,10 @@ struct CompanionPanelView: View {
             .panelRowRise(order: 3, hasGlidedIn: hasGlidedIn, reduceMotion: reduceMotion)
 
             PanelSectionLabel(title: "Theme") {
-                PanelButton(
-                    title: "All \(themeSettings.bundledThemes.count + themeSettings.savedCustomThemes.count) themes ›",
-                    prominence: .quiet,
+                TetherButton(
+                    "All \(themeSettings.bundledThemes.count + themeSettings.savedCustomThemes.count) themes ›",
+                    role: .quiet,
+                    size: .compact,
                     action: { presentation.page = .allThemes }
                 )
             }
@@ -304,17 +305,17 @@ struct CompanionPanelView: View {
             #endif
             Divider().overlay(Color.white.opacity(0.07))
             HStack(spacing: 0) {
-                PanelButton(title: "Send feedback", prominence: .quiet, accessibilityHint: "Opens a new issue on GitHub") {
+                TetherButton("Send feedback", role: .quiet, size: .compact, accessibilityHint: "Opens a new issue on GitHub") {
                     if let newIssueURL = URL(string: Self.newIssueURLString) { NSWorkspace.shared.open(newIssueURL) }
                 }
                 Spacer(minLength: 4)
-                PanelButton(title: "Setup", prominence: .quiet, accessibilityHint: "The six setup steps, Chrome control included") {
+                TetherButton("Setup", role: .quiet, size: .compact, accessibilityHint: "The six setup steps, Chrome control included") {
                     presentation.page = .setup
                 }
                 Spacer(minLength: 4)
-                PanelButton(title: "Replay intro", prominence: .quiet) { companionManager.replayOnboarding() }
+                TetherButton("Replay intro", role: .quiet, size: .compact) { companionManager.replayOnboarding() }
                 Spacer(minLength: 4)
-                PanelButton(title: "Quit", prominence: .quiet) { NSApp.terminate(nil) }
+                TetherButton("Quit", role: .quiet, size: .compact) { NSApp.terminate(nil) }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -462,7 +463,7 @@ struct PanelHeaderView: View {
                     .accessibilityLabel(status.spokenText)
             }
             Spacer(minLength: 0)
-            PanelCloseButton(close: close)
+            TetherButton(systemImage: "xmark", role: .secondary, shape: .circle, size: .compact, accessibilityLabel: "Close", action: close)
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
@@ -486,34 +487,13 @@ struct PanelHeaderView: View {
                     .font(DS.TypeScale.caption.font)
                     .foregroundColor(DS.Colors.textSecondary)
                     .accessibilityHidden(true)
-                PanelButton(title: "Stop quiz", prominence: .quiet, action: stopTheQuiz)
+                TetherButton("Stop quiz", role: .quiet, size: .compact, action: stopTheQuiz)
             }
         default:
             Text(status.spokenText)
                 .font(DS.TypeScale.caption.font)
                 .foregroundColor(status.isAProblem ? DS.Colors.warningText : DS.Colors.textSecondary)
         }
-    }
-}
-
-private struct PanelCloseButton: View {
-    let close: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: close) {
-            Image(systemName: "xmark")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isHovered ? DS.Colors.textPrimary : DS.Colors.textSecondary)
-                .frame(width: 26, height: 26)
-                .background(Circle().fill(isHovered ? DS.Colors.surface4 : DS.Colors.surface2))
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
-                .contentShape(Circle())
-        }
-        .buttonStyle(PanelPressStyle())
-        .hoverAndPointer { isHovered = $0 }
-        .panelKeyboardControl(cornerRadius: 13, action: close)
-        .accessibilityLabel("Close")
     }
 }
 
@@ -524,7 +504,7 @@ private struct PanelPageTitleBar: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            PanelButton(title: "Home", systemImageName: "chevron.left", prominence: .quiet, action: back)
+            TetherButton("Home", systemImage: "chevron.left", role: .quiet, size: .compact, action: back)
             Text(title)
                 .font(DS.TypeScale.title.font)
                 .foregroundColor(DS.Colors.textPrimary)
@@ -578,7 +558,7 @@ struct PanelBannerView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            PanelButton(title: words.buttonTitle, prominence: .secondary, action: run)
+            TetherButton(words.buttonTitle, role: .secondary, size: .compact, action: run)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -670,7 +650,7 @@ private struct PanelAgentsSection: View {
                 .lineLimit(2)
             HStack(spacing: 6) {
                 ForEach(Array(companionManager.agentDiscMenuItemsForThePanel(agentID: pickedAgent.id).enumerated()), id: \.offset) { _, menuItem in
-                    PanelButton(title: menuItem.title, prominence: menuItem == .cancelAgent ? .quiet : .secondary) {
+                    TetherButton(menuItem.title, role: menuItem == .cancelAgent ? .quiet : .secondary, size: .compact) {
                         companionManager.runTheAgentDiscMenuItemFromThePanel(menuItem, agentID: pickedAgent.id)
                     }
                 }
@@ -900,7 +880,7 @@ struct PanelSetupPage: View {
                 Divider().overlay(Color.white.opacity(0.07))
                 HStack {
                     Spacer()
-                    PanelButton(title: "Quit", prominence: .quiet, action: quit)
+                    TetherButton("Quit", role: .quiet, size: .compact, action: quit)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
@@ -989,7 +969,7 @@ struct SetupAllSetCard: View {
                 .accessibilityElement(children: .ignore)
             .accessibilityLabel("Open a YouTube video, hold Control and Option, and ask what is this?")
             if isAFirstRun {
-                PanelButton(title: "Start Clicky", prominence: .primary, accentColor: shownTheme.cursorColor, action: start)
+                TetherButton("Start Clicky", role: .primary(accent: shownTheme.cursorColor), size: .compact, action: start)
             }
         }
         .padding(10)
@@ -1007,12 +987,12 @@ struct SetupWhatGetsSent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            PanelButton(title: "What gets sent", systemImageName: isOpen ? "chevron.down" : "chevron.right", prominence: .quiet) {
+            TetherButton("What gets sent", systemImage: isOpen ? "chevron.down" : "chevron.right", role: .quiet, size: .compact) {
                 withAnimation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)) { isOpen.toggle() }
             }
             .accessibilityValue(isOpen ? "Shown" : "Hidden")
             // The quiet button pads its words, so it moves left to start where the text around it starts.
-            .padding(.leading, -6)
+            .padding(.leading, -TetherButtonSize.compact.horizontalPadding)
             if isOpen {
                 Text(setupCaptureDisclosure)
                     .font(DS.TypeScale.caption.font)
@@ -1132,13 +1112,13 @@ private struct SetupStepRow: View {
                 }
                 VStack(alignment: .trailing, spacing: 4) {
                     ForEach(Array(buttons.enumerated()), id: \.offset) { buttonIndex, button in
-                        PanelButton(
-                            title: isRunning ? "Testing…" : button.title,
-                            prominence: buttonIndex == 0 && (isNext || isTurnedOff) ? (isNext ? .primary : .secondary) : (buttonIndex == 0 ? .secondary : .quiet),
-                            accentColor: shownTheme.cursorColor,
+                        TetherButton(
+                            isRunning ? "Testing…" : button.title,
+                            role: buttonIndex == 0 && (isNext || isTurnedOff) ? (isNext ? .primary(accent: shownTheme.cursorColor) : .secondary) : (buttonIndex == 0 ? .secondary : .quiet),
+                            size: .compact,
+                            isEnabled: !isRunning,
                             action: { run(button.action) }
                         )
-                        .disabled(isRunning)
                     }
                 }
             }

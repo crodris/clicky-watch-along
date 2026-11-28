@@ -207,16 +207,39 @@ struct PanelRenderTests {
             )
             let bitmap = try render(setupPage.frame(width: CompanionPanelView.contentWidth).tetherCard(), named: "setup-page-done-cap-\(Int(cap))")
             // The page keeps to its cap, and the primary Start Clicky button (Clicky blue's #3380FF fill) is drawn in full: a
-            // button cut off at the scroll area's bottom edge draws too few of those pixels. The button is about 85 by 28 points.
+            // button cut off at the scroll area's bottom edge draws too few of those pixels, so the count must reach 95
+            // percent of the same button drawn alone.
             let renderPadding: CGFloat = 48
             #expect(bitmap.size.height <= cap + renderPadding + 1, "cap \(cap)")
             let startButtonPixels = try pixelCount(in: bitmap, near: (red: 0x33, green: 0x80, blue: 0xFF))
-            let pixelsInAFullButton = Int(75 * 24 * scale(of: bitmap) * scale(of: bitmap))
-            #expect(startButtonPixels > pixelsInAFullButton, "cap \(cap)")
+            let fullButton = TetherButton("Start Clicky", role: .primary(accent: clickyBlueTheme.cursorColor), size: .compact) {}
+            let fullButtonBitmap = try render(fullButton, named: "start-button-alone")
+            let pixelsInAFullButton = try pixelCount(in: fullButtonBitmap, near: (red: 0x33, green: 0x80, blue: 0xFF))
+            try #require(pixelsInAFullButton > 500, "the button alone drew \(pixelsInAFullButton) blue pixels")
+            #expect(startButtonPixels >= pixelsInAFullButton * 95 / 100, "cap \(cap): \(startButtonPixels) blue pixels, a full button has \(pixelsInAFullButton)")
         }
     }
 
     // MARK: - Keyboard focus
+
+    /// `DS.CornerRadius.pill` is infinite, which SwiftUI clamps to half the shorter side. The switch's ring takes it, so it
+    /// must still draw a ring that follows the pill and not a blank or a square one.
+    @Test func aPillFocusRingFollowsTheShapeOfTheControlItRings() throws {
+        let control = Color.clear.frame(width: 30, height: 16)
+            .panelKeyboardFocusRing(isShowing: true, cornerRadius: DS.CornerRadius.pill)
+        let bitmap = try render(control, named: "pill-focus-ring", background: .black)
+        let pixelsPerPoint = scale(of: bitmap)
+        func color(atX x: CGFloat, y: CGFloat) -> NSColor {
+            bitmap.colorAt(x: Int(x * pixelsPerPoint), y: Int(y * pixelsPerPoint)) ?? .clear
+        }
+        // The render pads the control by 24 points. The ring sits 3 points outside the control and is 2 points wide.
+        let ringTopMiddle = color(atX: 24 + 15, y: 24 - 3 + 1)
+        let ringColor = NSColor(DS.Colors.keyboardFocusRing).usingColorSpace(.sRGB) ?? .white
+        #expect(abs(ringTopMiddle.redComponent - ringColor.redComponent) < 0.05, "the ring's top middle is \(ringTopMiddle)")
+        // A square ring would fill this corner. A pill leaves it as the page.
+        let outerCorner = color(atX: 24 - 3 + 0.5, y: 24 - 3 + 0.5)
+        #expect(luminance(outerCorner) < 0.05, "the ring's outer corner is \(outerCorner)")
+    }
 
     @Test func onlyTheKeyboardShowsTheFocusRing() {
         #expect(theKeyboardMovedTheFocus(currentEventType: .keyDown))

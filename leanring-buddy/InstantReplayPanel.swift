@@ -176,11 +176,11 @@ struct InstantReplayControlView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 4) {
                 if phase.isOpen {
-                    InstantReplayButton(label: .words("Back"), style: .plain) { step(.back) }
-                    InstantReplayButton(label: .words("Replay"), style: .accent(accentHex: accentHex), action: playFromTheStart)
-                    InstantReplayButton(label: .words("Next"), style: .plain) { step(.next) }
+                    TetherButton("Back", role: .secondary, shape: .capsule) { step(.back) }
+                    TetherButton("Replay", role: .primary(accent: Color(hex: accentHex)), shape: .capsule, action: playFromTheStart)
+                    TetherButton("Next", role: .secondary, shape: .capsule) { step(.next) }
                 } else {
-                    InstantReplayButton(label: .words("Replay"), style: .accent(accentHex: accentHex), action: playFromTheStart)
+                    TetherButton("Replay", role: .primary(accent: Color(hex: accentHex)), shape: .capsule, action: playFromTheStart)
                 }
                 Text(verbatim: instantReplayCountText(phase: phase, stopCount: stops.count))
                     .font(DS.TypeScale.caption.font)
@@ -189,7 +189,7 @@ struct InstantReplayControlView: View {
                     .padding(.horizontal, 6)
                     .fixedSize()
                 if phase.isOpen {
-                    InstantReplayButton(label: .symbol(systemName: "xmark", accessibilityLabel: "End replay"), style: .plain) { step(.end) }
+                    TetherButton(systemImage: "xmark", role: .secondary, shape: .circle, accessibilityLabel: "End replay") { step(.end) }
                 }
             }
             .padding(4)
@@ -242,79 +242,3 @@ private struct InstantReplayStopList: View {
     }
 }
 
-private enum InstantReplayButtonStyle {
-    case accent(accentHex: String)
-    case plain
-}
-
-private enum InstantReplayButtonLabel {
-    case words(String)
-    /// A symbol alone, which VoiceOver reads by the label.
-    case symbol(systemName: String, accessibilityLabel: String)
-}
-
-private struct InstantReplayButton: View {
-    let label: InstantReplayButtonLabel
-    let style: InstantReplayButtonStyle
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    private var fillColor: Color {
-        switch style {
-        case .accent(let accentHex): return Color(hex: accentHex)
-        case .plain: return isHovered ? DS.Colors.surface4 : DS.Colors.surface3
-        }
-    }
-
-    private var isFilledWithAnAccent: Bool {
-        if case .accent = style { return true }
-        return false
-    }
-
-    private var letterColor: Color {
-        switch style {
-        case .accent(let accentHex): return Color(hex: ThemeRGBColor.inkHex(onFillHex: accentHex))
-        case .plain: return DS.Colors.textPrimary
-        }
-    }
-
-    var body: some View {
-        Button(action: action) {
-            labelContent
-                .foregroundColor(letterColor)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 5)
-                .background(Capsule().fill(fillColor))
-                .accentFillHoverRing(Capsule(), ink: letterColor, isShowing: isFilledWithAnAccent && isHovered)
-                .contentShape(Capsule())
-                .fixedSize()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(spokenLabel)
-        .hoverAndPointer { isHovered = $0 }
-    }
-
-    @ViewBuilder private var labelContent: some View {
-        switch label {
-        case .words(let words):
-            Text(verbatim: words)
-                .font(DS.TypeScale.title.font)
-        case .symbol(let systemName, _):
-            // The blank line of title type keeps this capsule as tall as the buttons with words.
-            ZStack {
-                Text(verbatim: " ")
-                    .font(DS.TypeScale.title.font)
-                Image(systemName: systemName)
-                    .font(DS.TypeScale.caption.font)
-            }
-        }
-    }
-
-    private var spokenLabel: String {
-        switch label {
-        case .words(let words): return words
-        case .symbol(_, let accessibilityLabel): return accessibilityLabel
-        }
-    }
-}

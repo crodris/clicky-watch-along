@@ -3726,7 +3726,7 @@ private struct RoomArtPanelView: View {
     }
 
     private var closeButton: some View {
-        RoomArtPanelButton(systemImageName: "xmark", accessibilityLabel: "Close") { previewController.close() }
+        TetherButton(systemImage: "xmark", role: .secondary, shape: .circle, size: .prominent, accessibilityLabel: "Close") { previewController.close() }
     }
 }
 
@@ -3734,78 +3734,6 @@ private struct RoomArtPanelView: View {
 private struct RoomArtPanelSurface: View {
     var body: some View {
         LinearGradient(colors: [DS.Colors.cardSurfaceTop, DS.Colors.cardSurfaceBottom], startPoint: .top, endPoint: .bottom)
-    }
-}
-
-/// One look for every button on the panel: a solid capsule that dips on the Snap move as it is pressed, shows its hover,
-/// and shows the pointing hand. With an accent it is filled with it and set in the ink that reads on that fill, with a ring
-/// in that ink on hover, and without one it is a dark surface with an edge that lightens on hover. With no title it is a
-/// circle around its icon.
-struct RoomArtPanelButton: View {
-    var title: String? = nil
-    var systemImageName: String? = nil
-    var accentColor: Color? = nil
-    let accessibilityLabel: String
-    let action: () -> Void
-
-    @State private var isHovered = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    static let height: CGFloat = 32
-
-    var body: some View {
-        Button(action: action) {
-            RoomArtPanelButtonLook(title: title, systemImageName: systemImageName, accentColor: accentColor, isHovered: isHovered)
-                .animation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion), value: isHovered)
-        }
-        .buttonStyle(PanelPressStyle())
-        .fixedSize()
-        .hoverAndPointer { isNowHovered in isHovered = isNowHovered }
-        .accessibilityLabel(accessibilityLabel)
-    }
-}
-
-/// How a panel button looks, resting or hovered, apart from the hover tracking, so a test can draw it hovered.
-struct RoomArtPanelButtonLook: View {
-    let title: String?
-    let systemImageName: String?
-    let accentColor: Color?
-    let isHovered: Bool
-
-    var body: some View {
-        HStack(spacing: 6) {
-            if let systemImageName {
-                Image(systemName: systemImageName)
-            }
-            if let title {
-                Text(title)
-            }
-        }
-        .font(DS.TypeScale.title.font)
-        .foregroundStyle(accentColor?.inkOnThisFill ?? DS.Colors.textPrimary)
-        .padding(.horizontal, title == nil ? 0 : 14)
-        .frame(minWidth: RoomArtPanelButton.height, minHeight: RoomArtPanelButton.height)
-        .background(RoomArtPanelButtonFill(accentColor: accentColor, isHovered: isHovered))
-        .accentFillHoverRing(Capsule(), ink: accentColor?.inkOnThisFill ?? .clear, isShowing: accentColor != nil && isHovered)
-        .overlay {
-            if accentColor == nil {
-                Capsule().strokeBorder(Color.white.opacity(isHovered ? 0.18 : 0.1), lineWidth: 1)
-            }
-        }
-        .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
-        .contentShape(Capsule())
-    }
-}
-
-/// A panel button's solid capsule. An accent fill stays the same on hover, since its ink was chosen for the fill as it
-/// rests, and the button's ring shows the hover instead. The dark surface changes to a lighter one on hover.
-struct RoomArtPanelButtonFill: View {
-    let accentColor: Color?
-    let isHovered: Bool
-
-    var body: some View {
-        Capsule()
-            .fill(accentColor ?? (isHovered ? DS.Colors.surface4 : DS.Colors.surface2))
     }
 }
 
@@ -3834,13 +3762,13 @@ struct RoomArtPanelBottomRow: View {
             }
             Spacer(minLength: 0)
             if showsSavePhoto {
-                RoomArtPanelButton(title: "Save photo", systemImageName: "square.and.arrow.down", accessibilityLabel: "Save photo", action: onSavePhoto)
+                TetherButton("Save photo", systemImage: "square.and.arrow.down", role: .secondary, shape: .capsule, size: .prominent, action: onSavePhoto)
             }
             if showsPlace {
-                RoomArtPanelButton(title: "Place", systemImageName: "checkmark", accentColor: accentColor, accessibilityLabel: "Place it here", action: onPlace)
+                TetherButton("Place", systemImage: "checkmark", role: .primary(accent: accentColor), shape: .capsule, size: .prominent, accessibilityLabel: "Place it here", action: onPlace)
             }
             if let shirtButtonTitle {
-                RoomArtPanelButton(title: shirtButtonTitle, accentColor: accentColor, accessibilityLabel: shirtButtonTitle, action: onShirtButton)
+                TetherButton(shirtButtonTitle, role: .primary(accent: accentColor), shape: .capsule, size: .prominent, action: onShirtButton)
             }
         }
     }
