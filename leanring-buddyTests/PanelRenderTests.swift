@@ -101,8 +101,7 @@ struct PanelRenderTests {
                 isAFirstRun: true,
                 isRequestingTheScreenTest: false,
                 shownTheme: theme,
-                runStep: { _, _ in },
-                start: {}
+                runStep: { _, _ in }
             )
             let bitmap = try render(checklist.padding(16).frame(width: CompanionPanelView.contentWidth).tetherCard(), named: fileName)
             #expect(bitmap.size.height > 400)
@@ -168,6 +167,53 @@ struct PanelRenderTests {
         let margin = CompanionPanelView.shadowMargin
         let cappedHeight = panelHeaderHeight + 250 + margin.top + margin.bottom + 48
         #expect(abs(bitmap.size.height - cappedHeight) <= 2)
+    }
+
+    /// How many pixels of a render are this sRGB color, give or take a few levels per channel.
+    private func pixelCount(in bitmap: NSBitmapImageRep, near color: (red: Int, green: Int, blue: Int)) throws -> Int {
+        let pixels = try DrawingPixels(drawing: try #require(bitmap.cgImage), widthInPoints: bitmap.size.width)
+        let tolerance = 8
+        return stride(from: 0, to: pixels.bytes.count, by: 4).count { byteOffset in
+            abs(Int(pixels.bytes[byteOffset]) - color.red) <= tolerance
+                && abs(Int(pixels.bytes[byteOffset + 1]) - color.green) <= tolerance
+                && abs(Int(pixels.bytes[byteOffset + 2]) - color.blue) <= tolerance
+        }
+    }
+
+    @Test func theStartButtonStaysInViewWhenTheSetupPageIsTallerThanItsCap() throws {
+        let everyStepDone = SetupFacts(
+            microphoneStatus: .authorized,
+            speechRecognitionStatus: .authorized,
+            hasScreenRecording: true,
+            screenTestPassed: true,
+            screenTestFailed: false,
+            hasAccessibility: true,
+            chromeControlStatus: .granted,
+            stepsAskedForThisLaunch: []
+        )
+        // A cap well under the page's natural height, as on a short screen or with "What gets sent" open, and one that fits it.
+        for cap in [CGFloat(420), 520, 2_000] {
+            let setupPage = PanelSetupPage(
+                stepStates: setupStepStates(for: everyStepDone),
+                setupIsFinished: false,
+                isRequestingTheScreenTest: false,
+                shownTheme: clickyBlueTheme,
+                tallestPageHeight: cap,
+                hasGlidedIn: true,
+                back: {},
+                runStep: { _, _ in },
+                start: {},
+                quit: {}
+            )
+            let bitmap = try render(setupPage.frame(width: CompanionPanelView.contentWidth).tetherCard(), named: "setup-page-done-cap-\(Int(cap))")
+            // The page keeps to its cap, and the primary Start Clicky button (Clicky blue's #3380FF fill) is drawn in full: a
+            // button cut off at the scroll area's bottom edge draws too few of those pixels. The button is about 85 by 28 points.
+            let renderPadding: CGFloat = 48
+            #expect(bitmap.size.height <= cap + renderPadding + 1, "cap \(cap)")
+            let startButtonPixels = try pixelCount(in: bitmap, near: (red: 0x33, green: 0x80, blue: 0xFF))
+            let pixelsInAFullButton = Int(75 * 24 * scale(of: bitmap) * scale(of: bitmap))
+            #expect(startButtonPixels > pixelsInAFullButton, "cap \(cap)")
+        }
     }
 
     // MARK: - Keyboard focus

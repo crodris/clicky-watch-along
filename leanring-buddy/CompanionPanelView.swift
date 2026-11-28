@@ -96,13 +96,13 @@ struct CompanionPanelView: View {
             case .allThemes:
                 // All themes scrolls its own grid, so it sits outside the page scroll and never nests two of them.
                 allThemesPage
-            case .home, .setup:
+            case .home:
                 // A tall page scrolls under the header instead of running off the bottom of the screen.
-                ScrollView(.vertical) {
-                    if presentation.page == .home { homePage } else { setupPage }
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: max(PanelMetrics.shortestScrollingPageHeight, presentation.tallestPageHeight - bannerSlotHeight))
+                ScrollView(.vertical) { homePage }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(maxHeight: max(PanelMetrics.shortestScrollingPageHeight, presentation.tallestPageHeight - bannerSlotHeight))
+            case .setup:
+                setupPage
             }
         }
         .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: banner)
@@ -371,40 +371,23 @@ struct CompanionPanelView: View {
     // MARK: - Setup
 
     private var setupPage: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if companionManager.setupIsFinished {
-                PanelPageTitleBar(title: "Setup", back: { presentation.page = .home })
-            }
-            SetupChecklistView(
-                stepStates: setupStepStateList,
-                isAFirstRun: !companionManager.setupIsFinished,
-                isRequestingTheScreenTest: companionManager.isRequestingScreenContent,
-                shownTheme: themeSettings.shownTheme,
-                runStep: { step, action in companionManager.runSetupStep(step, action: action) },
-                start: {
-                    companionManager.finishSetup()
-                    // A first run's Start closes the panel for the intro, so the next open finds the home. A Debug
-                    // `--show-setup` run stays open, and goes to the home here.
-                    presentation.page = .home
-                }
-            )
-            .padding(.horizontal, 16)
-            .padding(.top, companionManager.setupIsFinished ? 4 : 0)
-            .padding(.bottom, 14)
-            .panelRowRise(order: 1, hasGlidedIn: hasGlidedIn, reduceMotion: reduceMotion)
-
-            if !companionManager.setupIsFinished {
-                // Quit stays reachable on a first run, since the home's footer is not there yet.
-                Divider().overlay(Color.white.opacity(0.07))
-                HStack {
-                    Spacer()
-                    PanelButton(title: "Quit", prominence: .quiet) { NSApp.terminate(nil) }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-            }
-        }
-        .transition(.opacity)
+        PanelSetupPage(
+            stepStates: setupStepStateList,
+            setupIsFinished: companionManager.setupIsFinished,
+            isRequestingTheScreenTest: companionManager.isRequestingScreenContent,
+            shownTheme: themeSettings.shownTheme,
+            tallestPageHeight: presentation.tallestPageHeight,
+            hasGlidedIn: hasGlidedIn,
+            back: { presentation.page = .home },
+            runStep: { step, action in companionManager.runSetupStep(step, action: action) },
+            start: {
+                companionManager.finishSetup()
+                // A first run's Start closes the panel for the intro, so the next open finds the home. A Debug
+                // `--show-setup` run stays open, and goes to the home here.
+                presentation.page = .home
+            },
+            quit: { NSApp.terminate(nil) }
+        )
     }
 }
 
@@ -859,6 +842,76 @@ private struct PanelDebugToolCallLoggingRow: View {
 
 // MARK: - Setup checklist
 
+/// The setup page under the panel's header. The checklist scrolls when the page is taller than `tallestPageHeight`, and
+/// the footer under it does not: the all-set box with the Start button, and Quit. A first run must always reach Start, and
+/// as the last thing in the scroll area it was cut off below the card's bottom edge until the learner scrolled to it.
+struct PanelSetupPage: View {
+    let stepStates: [(step: SetupStep, state: SetupStepState)]
+    let setupIsFinished: Bool
+    let isRequestingTheScreenTest: Bool
+    let shownTheme: ClickyTheme
+    /// The tallest the page may be, footer included, before the checklist scrolls, so the card ends above the screen's bottom.
+    let tallestPageHeight: CGFloat
+    let hasGlidedIn: Bool
+    let back: () -> Void
+    let runStep: (SetupStep, SetupStepAction) -> Void
+    let start: () -> Void
+    let quit: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var everyRequiredStepIsDone: Bool { everyRequiredSetupStepIsDone(stepStates) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if setupIsFinished {
+                        PanelPageTitleBar(title: "Setup", back: back)
+                    }
+                    SetupChecklistView(
+                        stepStates: stepStates,
+                        isAFirstRun: !setupIsFinished,
+                        isRequestingTheScreenTest: isRequestingTheScreenTest,
+                        shownTheme: shownTheme,
+                        runStep: runStep
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.top, setupIsFinished ? 4 : 0)
+                    .padding(.bottom, 14)
+                    .panelRowRise(order: 1, hasGlidedIn: hasGlidedIn, reduceMotion: reduceMotion)
+                }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+
+            if everyRequiredStepIsDone {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Where the scrolling checklist ends, so a row cut at the scroll area's edge reads as scrolled and not clipped.
+                    Divider().overlay(Color.white.opacity(0.07))
+                    SetupAllSetCard(isAFirstRun: !setupIsFinished, shownTheme: shownTheme, start: start)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                }
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
+
+            if !setupIsFinished {
+                // Quit stays reachable on a first run, since the home's footer is not there yet.
+                Divider().overlay(Color.white.opacity(0.07))
+                HStack {
+                    Spacer()
+                    PanelButton(title: "Quit", prominence: .quiet, action: quit)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            }
+        }
+        .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: everyRequiredStepIsDone)
+        .frame(maxHeight: max(PanelMetrics.shortestScrollingPageHeight, tallestPageHeight))
+        .transition(.opacity)
+    }
+}
+
 /// The six setup steps: what Clicky captures and where it goes, with the full detail behind "What gets sent", a bar that
 /// fills as steps finish, one row per step, and a first question to try once every required step is done.
 struct SetupChecklistView: View {
@@ -868,7 +921,6 @@ struct SetupChecklistView: View {
     let isRequestingTheScreenTest: Bool
     let shownTheme: ClickyTheme
     let runStep: (SetupStep, SetupStepAction) -> Void
-    let start: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var pointingCursorNamespace
@@ -913,30 +965,37 @@ struct SetupChecklistView: View {
             }
             .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: nextStep)
 
-            if everyRequiredSetupStepIsDone(stepStates) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("All set. Try a first question:")
-                        .font(DS.TypeScale.title.font)
-                        .foregroundColor(DS.Colors.textPrimary)
-                    // One run of text, with no-break spaces inside the quoted question, so it never wraps inside the quote.
-                    (Text("Open a YouTube video, hold ") + Text("⌃ ⌥").fontWeight(.bold).foregroundColor(DS.Colors.textPrimary) + Text(", and ask \u{201C}what\u{00A0}is\u{00A0}this?\u{201D}"))
-                        .font(DS.TypeScale.caption.font)
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Open a YouTube video, hold Control and Option, and ask what is this?")
-                    if isAFirstRun {
-                        PanelButton(title: "Start Clicky", prominence: .primary, accentColor: shownTheme.cursorColor, action: start)
-                    }
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DS.Colors.setupAllSetSurface))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DS.Colors.setupAllSetEdge, lineWidth: 1))
-                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+}
+
+/// The green box that says every required step is done, with a first question to try and, on a first run, the Start
+/// button. The setup page pins it under its scroll area, so a tall checklist never cuts the button off.
+struct SetupAllSetCard: View {
+    let isAFirstRun: Bool
+    let shownTheme: ClickyTheme
+    let start: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("All set. Try a first question:")
+                .font(DS.TypeScale.title.font)
+                .foregroundColor(DS.Colors.textPrimary)
+            // One run of text, with no-break spaces inside the quoted question, so it never wraps inside the quote.
+            (Text("Open a YouTube video, hold ") + Text("⌃ ⌥").fontWeight(.bold).foregroundColor(DS.Colors.textPrimary) + Text(", and ask \u{201C}what\u{00A0}is\u{00A0}this?\u{201D}"))
+                .font(DS.TypeScale.caption.font)
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Open a YouTube video, hold Control and Option, and ask what is this?")
+            if isAFirstRun {
+                PanelButton(title: "Start Clicky", prominence: .primary, accentColor: shownTheme.cursorColor, action: start)
             }
         }
-        .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: everyRequiredSetupStepIsDone(stepStates))
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DS.Colors.setupAllSetSurface))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DS.Colors.setupAllSetEdge, lineWidth: 1))
     }
 }
 
