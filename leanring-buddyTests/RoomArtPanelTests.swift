@@ -233,9 +233,10 @@ struct RoomArtBottomRowRenderTests {
                 .padding(.bottom, 16)
                 .background(Color.white)
             let pixels = try RenderedPixels(bottomRowOnAWhiteWall)
-            // The buttons are 32 points tall and sit at the row's right end, so a point 3 points under one, 40 points in.
-            let underTheButton = pixels.color(atX: rowWidth - 40, y: 32 + 3)
-            #expect(underTheButton[0] < 235, "no shadow under \(row) \(underTheButton)")
+            // The buttons are 32 points tall and sit at the row's right end, so a point 1 point under one, 40 points in. A page
+            // with no shadow stays 255 there, and the shadow's strength varies with the screen's scale, so the bar is low.
+            let underTheButton = pixels.color(atX: rowWidth - 40, y: 32 + 1)
+            #expect(underTheButton[0] < 240, "no shadow under \(row) \(underTheButton)")
         }
     }
 
