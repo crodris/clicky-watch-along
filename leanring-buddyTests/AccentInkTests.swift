@@ -77,7 +77,7 @@ extension DrawingPixels {
 @MainActor
 private struct OffscreenButton {
     private let window: NSWindow
-    let hostingView: NSView
+    private let hostingView: NSView
     let size: CGSize
 
     init(_ button: some View) {
@@ -181,9 +181,9 @@ struct AccentInkTests {
     }
 
     /// Draws a button's look at rest and hovered, and compares them: nothing inside the ring's 4 point edge may change, and
-    /// the edge must, or the button shows no hover at all. It draws the look itself, since `TetherButton` animates its hover
-    /// on the Snap move, and an animation in a window that was never shown advances only while a display ticks it, which a
-    /// CI runner's background session has none of.
+    /// the edge must, or the button shows no hover at all. It draws the look itself, with no hover view or animation: hovering
+    /// a real `TetherButton` this way passed locally and failed every case in CI's test host on 2026-11-28, and the log held
+    /// no expectation text to say why.
     private func expectHoverToRingTheButtonAndKeepItsFill(atRest restingLook: TetherButtonLook, hovered hoveredLook: TetherButtonLook) async throws {
         let restingButton = OffscreenButton(restingLook)
         defer { restingButton.close() }
