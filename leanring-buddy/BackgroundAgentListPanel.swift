@@ -199,6 +199,17 @@ class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+/// A Card panel's hosting view, which says when the Card's size may have changed. NSHostingView invalidates its intrinsic size
+/// each time the Card's layout asks for another size. The Theme Studio's window and the agent list's follow their Card with it.
+final class CardSizeReportingHostingView<Content: View>: FirstMouseHostingView<Content> {
+    var onTheCardSizeMayHaveChanged: (() -> Void)?
+
+    override func invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        onTheCardSizeMayHaveChanged?()
+    }
+}
+
 /// Whether the agent list may show a waiting 3D model or experiment, or speak a waiting task answer. A question's scene and
 /// speech belong to the question, so, like the voice tools for the same actions (`AppVoiceTool.showReadyModel` and
 /// `.hearTaskAnswer`), the list waits until the learner answers or skips an open video quiz question.
@@ -327,7 +338,9 @@ final class AgentListPanelController {
     private var resizeObserver: NSObjectProtocol?
     /// The disc the list was opened from, nil when the settings dial opened it, so a second click on the same disc closes it.
     private var discTheListWasOpenedFrom: AgentTokenDiscID?
-    private var uiState = AgentListUIState(expandedAgentID: nil)
+    private(set) var uiState = AgentListUIState(expandedAgentID: nil)
+    /// Whether a resize to the Card's height waits for the next turn (`followTheCardWithTheWindow`).
+    private var windowResizeIsScheduled = false
     /// Where the Card Glides out of and closes back into: the disc it was opened from, or the cursor. Nil when no display
     /// holds it, and the list then crossfades.
     private var glideOrigin: GlideOrigin?
@@ -478,7 +491,8 @@ final class AgentListPanelController {
     }
 
     private func makeHostingView(entrance: AgentListEntrance) -> FirstMouseHostingView<AgentListView> {
-        let hostingView = FirstMouseHostingView(rootView: makeListView(entrance: entrance, reportsItsSize: true))
+        let hostingView = CardSizeReportingHostingView(rootView: makeListView(entrance: entrance, reportsItsSize: true))
+        hostingView.onTheCardSizeMayHaveChanged = { [weak self] in self?.followTheCardWithTheWindow() }
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
         return hostingView
@@ -492,10 +506,6 @@ final class AgentListPanelController {
             actions: actions,
             uiState: uiState,
             entrance: entrance,
-            onContentSizeChange: { [weak self] contentSize in
-                guard reportsItsSize else { return }
-                self?.resizePanel(to: contentSize)
-            },
             onApprovalCardFrameChange: { [weak self] approvalCardFrameInTheWindow in
                 guard reportsItsSize else { return }
                 self?.approvalCardFrameInTheWindow = approvalCardFrameInTheWindow
@@ -611,8 +621,7 @@ final class AgentListPanelController {
                 approvalDesk: approvalDesk,
                 actions: actions,
                 uiState: closingUIState,
-                entrance: .none,
-                onContentSizeChange: { _ in }
+                entrance: .none
             )
             .frame(width: closingFrame.width, height: closingFrame.height, alignment: .top),
             onDisplay: origin.displayID,
@@ -657,6 +666,21 @@ final class AgentListPanelController {
             AgentListWindowMargins.windowTopLeft(forCardTopLeft: anchorTopLeft),
             AgentListWindowMargins.frameToKeepTheWindowIn(forCardVisibleFrame: visibleFrame)
         )
+    }
+
+    /// Sets the window to the Card's height each time the Card asks for another one, taller or shorter. A SwiftUI size preference
+    /// only ever grew the window, so a row that collapsed or an approval card that left kept the window tall, and its Card's
+    /// frame for the clicks outside it was wrong. The size is read from the hosting view, as the Theme Studio's window does.
+    /// One resize per turn covers every change the Card makes in it.
+    private func followTheCardWithTheWindow() {
+        guard !windowResizeIsScheduled else { return }
+        windowResizeIsScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            windowResizeIsScheduled = false
+            guard let contentView = panel?.contentView else { return }
+            resizePanel(to: contentView.fittingSize)
+        }
     }
 
     private func resizePanel(to contentSize: CGSize) {
@@ -913,20 +937,12 @@ nonisolated func agentListHost(ofLink link: String) -> String? {
 
 // MARK: - List
 
-private struct AgentListSizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
 private struct AgentListView: View {
     @ObservedObject var store: BackgroundAgentStore
     @ObservedObject var themeSettings: CompanionThemeSettings
     let actions: AgentListActions
     @ObservedObject var approvalDesk: HarnessApprovalDesk
     @ObservedObject var uiState: AgentListUIState
-    let onContentSizeChange: (CGSize) -> Void
     /// Where the approval card sits in the window, top-left origin, which only the real list reports, so an ended card can
     /// Glide from there into its agent's disc. Nil while no card shows.
     let onApprovalCardFrameChange: (CGRect?) -> Void
@@ -936,6 +952,8 @@ private struct AgentListView: View {
     @State private var rowsHaveRisen: Bool
 
     private static let headerHeight: CGFloat = 40
+    /// The fade at the bottom of the rows' scroll area.
+    static let scrollBottomFadeHeight: CGFloat = 12
     /// Each row rises this long after the one above it.
     private static let secondsBetweenRowRises = 0.04
 
@@ -946,7 +964,6 @@ private struct AgentListView: View {
         actions: AgentListActions,
         uiState: AgentListUIState,
         entrance: AgentListEntrance,
-        onContentSizeChange: @escaping (CGSize) -> Void,
         onApprovalCardFrameChange: @escaping (CGRect?) -> Void = { _ in }
     ) {
         self.store = store
@@ -954,7 +971,6 @@ private struct AgentListView: View {
         self.approvalDesk = approvalDesk
         self.actions = actions
         self.uiState = uiState
-        self.onContentSizeChange = onContentSizeChange
         self.onApprovalCardFrameChange = onApprovalCardFrameChange
         _rowsHaveRisen = State(initialValue: entrance == .none)
     }
@@ -1071,6 +1087,16 @@ private struct AgentListView: View {
                 }
                 // The scroll view takes its content's height up to the panel's maximum, so a short list has no empty space.
                 .frame(maxHeight: AgentListPanelController.maximumPanelHeight - Self.headerHeight - 1)
+                // A list taller than the maximum scrolls, and its last visible row would end in a hard cut at the Card's bottom
+                // edge. The bottom 12 points fade out instead, so the cut reads as the edge of a scroll area. Scrolled to the end,
+                // the last row's own 10 to 12 points of bottom padding sit in the fade, so nothing visible is faded.
+                .mask {
+                    VStack(spacing: 0) {
+                        Rectangle()
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: Self.scrollBottomFadeHeight)
+                    }
+                }
             }
         }
         .frame(width: AgentListPanelController.panelWidth)
@@ -1090,14 +1116,6 @@ private struct AgentListView: View {
             bottom: AgentListWindowMargins.bottom,
             trailing: AgentListWindowMargins.trailing
         ))
-        .background(
-            GeometryReader { geometryProxy in
-                Color.clear.preference(key: AgentListSizePreferenceKey.self, value: geometryProxy.size)
-            }
-        )
-        .onPreferenceChange(AgentListSizePreferenceKey.self) { contentSize in
-            onContentSizeChange(contentSize)
-        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
             rowsHaveRisen = true

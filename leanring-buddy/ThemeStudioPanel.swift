@@ -333,17 +333,6 @@ func themeStudioCardExit(
 
 // MARK: - Card
 
-/// The card's hosting view, which says when the card's size may have changed. NSHostingView invalidates its intrinsic size each
-/// time the card's layout asks for another size.
-private final class CardSizeReportingHostingView<Content: View>: FirstMouseHostingView<Content> {
-    var onTheCardSizeMayHaveChanged: (() -> Void)?
-
-    override func invalidateIntrinsicContentSize() {
-        super.invalidateIntrinsicContentSize()
-        onTheCardSizeMayHaveChanged?()
-    }
-}
-
 /// The highlighted tile's cursor center in the window's coordinates, which a save flies from.
 private struct HighlightedTileCursorCenterPreferenceKey: PreferenceKey {
     static var defaultValue: CGPoint?
