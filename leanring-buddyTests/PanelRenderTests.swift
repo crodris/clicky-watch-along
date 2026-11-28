@@ -267,15 +267,15 @@ struct PanelRenderTests {
     }
 
     /// One theme card as the panel's grid draws it, in the hover state, as raw RGB bytes. A hover makes the pencil and trash can
-    /// show on a saved card. The cursor holds still, since the panel counts as closed, so a draw is the same each time once the
-    /// buttons' fade has finished. The window sits off every screen.
+    /// show on a saved card. The cursor holds still, since the panel counts as closed. Animations are off, so the hover lands
+    /// in one draw and no wait depends on how long a fade takes on a loaded Mac. The window sits off every screen.
     private func hoveredCardPixels(of theme: ClickyTheme) async throws -> (width: Int, height: Int, pixelsPerPoint: CGFloat, bytes: [UInt8]) {
         let cardWidth = (CompanionPanelView.contentWidth - 32 - CGFloat(ThemeCardGrid.columnCount - 1) * ThemeCardGrid.spacing) / CGFloat(ThemeCardGrid.columnCount)
         let grid = ThemeCardGrid(
             themes: [theme], selectedTheme: clickyBlueTheme, designATheme: nil,
             pick: { _ in }, rename: { _, _ in }, delete: { _ in }
         )
-        let hostingView = NSHostingView(rootView: grid.frame(width: cardWidth * 3 + 2 * ThemeCardGrid.spacing).background(Color(hex: "#0b0c10")).environment(\.menuPanelIsOpen, false))
+        let hostingView = NSHostingView(rootView: grid.frame(width: cardWidth * 3 + 2 * ThemeCardGrid.spacing).background(Color(hex: "#0b0c10")).environment(\.menuPanelIsOpen, false).transaction { $0.disablesAnimations = true })
         let fittingSize = hostingView.fittingSize
         let window = NSWindow(contentRect: NSRect(x: -90_000, y: -90_000, width: fittingSize.width, height: fittingSize.height), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -302,11 +302,12 @@ struct PanelRenderTests {
         let atRest = try draw()
         cardHoverView.reportTheHover(true)
         var previousDraw = atRest
-        let deadline = ContinuousClock.now + .seconds(10)
-        while ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(60))
+        // The hover is a state change that SwiftUI applies on a later turn of the run loop, so draw until the card differs from
+        // its resting look and then once more to see that it holds. The bound counts draws and not seconds, since a loaded Mac
+        // makes each draw slow and a clock would run out while the card is still on its way.
+        for _ in 1...600 {
+            try await Task.sleep(for: .milliseconds(20))
             let nextDraw = try draw()
-            // The hover has landed once the card differs from its resting look, and the fade has finished once two draws match.
             if nextDraw.bytes == previousDraw.bytes, nextDraw.bytes != atRest.bytes { return nextDraw }
             previousDraw = nextDraw
         }
