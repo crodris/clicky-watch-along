@@ -108,7 +108,7 @@ private final class OffscreenCard {
     init(studio: ThemeStudioController, size givenSize: CGSize? = nil) {
         hostingView = NSHostingView(rootView: ThemeStudioCardView(
             studio: studio, landsTilesIn: false, onSaveClicked: { _ in },
-            onHighlightedCursorCenterChange: { _ in }, onContentSizeChange: { _ in }
+            onHighlightedCursorCenterChange: { _ in }
         ))
         let size = givenSize ?? hostingView.fittingSize
         window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -10_000, y: -10_000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -804,18 +804,18 @@ struct ThemeStudioCardGlideInCloseTests {
     }
 
     /// The real panel's window grows with the card, which the offscreen frame tests leave out: a window shorter than its card
-    /// would cut the card off. The hosting view's own sizing holds the window no shorter than the card, so on 2026-11-27 a
-    /// callback that set the frame 60 points short, or set nothing, still passed. A card that shrinks leaves the window
-    /// taller than it, since the panel's resize does not take the window down, so this test checks only growth until that
-    /// is fixed.
+    /// would cut the card off. It also follows the card down: the failed row leaves when the next design starts, and a window
+    /// that kept its old height would show a gap under the card. The window sits in a frame far off every screen.
     @Test(.showsARealWindow)
     func theRealPanelsWindowGrowsWithTheCardAsIdeasArriveAndADesignFails() async throws {
         let harness = StudioHarness()
         harness.workerReplies = [
             { try reply(names: ["Ember", "Moonlit", "Forest"]) },
             { throw WorkerFailure() },
+            { try reply(names: ["Ember", "Dusk", "Fern"]) },
         ]
         let cardPanel = ThemeStudioPanelController(onSaveClicked: { _ in })
+        cardPanel.visibleFrameForTests = CGRect(x: -45_000, y: -45_000, width: 1440, height: 900)
         defer { cardPanel.hide(because: .dismissed) }
 
         /// Waits until the card's height has changed from `previousCardHeight` and the window fits it, or 10 seconds pass,
@@ -844,6 +844,48 @@ struct ThemeStudioCardGlideInCloseTests {
         let afterTheFailure = try await heightsOnceTheWindowFitsANewCardHeight(previousCardHeight: withIdeas.card)
         #expect(afterTheFailure.card > withIdeas.card, "the failed row should make the card taller")
         #expect(abs(afterTheFailure.window - afterTheFailure.card) < 1, "window \(afterTheFailure.window), card \(afterTheFailure.card)")
+
+        // The next design clears the failed row, so the card gets shorter and the window must follow it down.
+        harness.studio.design(request: "cooler", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        let afterTheFailedRowLeft = try await heightsOnceTheWindowFitsANewCardHeight(previousCardHeight: afterTheFailure.card)
+        #expect(afterTheFailedRowLeft.card < afterTheFailure.card, "the failed row should leave the card")
+        #expect(abs(afterTheFailedRowLeft.window - afterTheFailedRowLeft.card) < 1, "window \(afterTheFailedRowLeft.window), card \(afterTheFailedRowLeft.card)")
+    }
+
+    /// The card's window is larger than the card by the shadow margin, which must pass a click to the page under it. The
+    /// window sits in a frame far off every screen, with the pointer where each step of the test says.
+    @Test(.showsARealWindow)
+    func theRealPanelPassesTheMouseThroughItsShadowMarginAndReadsThePointerOnlyWhileItIsNear() throws {
+        enum PointerSpot { case inTheMargin, inTheCard, farAway }
+        let harness = StudioHarness()
+        let cardPanel = ThemeStudioPanelController(onSaveClicked: { _ in })
+        cardPanel.visibleFrameForTests = CGRect(x: -45_000, y: -45_000, width: 1440, height: 900)
+        var pointerSpot = PointerSpot.inTheMargin
+        let farAwayPoint = CGPoint(x: -60_000, y: -60_000)
+        cardPanel.mouseLocationOnScreen = {
+            guard let frame = cardPanel.panel?.frame else { return farAwayPoint }
+            let cardFrame = AgentListWindowMargins.cardFrame(inWindowFrame: frame)
+            switch pointerSpot {
+            case .inTheMargin: return CGPoint(x: cardFrame.midX, y: cardFrame.minY - 20)
+            case .inTheCard: return CGPoint(x: cardFrame.midX, y: cardFrame.midY)
+            case .farAway: return farAwayPoint
+            }
+        }
+        cardPanel.show(studio: harness.studio)
+        defer { cardPanel.hide(because: .dismissed) }
+        let panel = try #require(cardPanel.panel)
+        #expect(!NSScreen.screens.contains { $0.frame.intersects(panel.frame) }, "the card at \(panel.frame) must sit off every screen")
+        #expect(panel.ignoresMouseEvents, "a click in the shadow margin must reach the page under it")
+        pointerSpot = .inTheCard
+        panel.setFrame(panel.frame.offsetBy(dx: 0, dy: 1), display: true)
+        #expect(!panel.ignoresMouseEvents, "a click on the card is the card's")
+        #expect(cardPanel.clickThroughTimer != nil)
+        pointerSpot = .farAway
+        panel.setFrame(panel.frame.offsetBy(dx: 0, dy: 1), display: true)
+        #expect(cardPanel.clickThroughTimer == nil, "the timer stops once the pointer is away")
+        cardPanel.hide(because: .dismissed)
+        #expect(cardPanel.clickThroughTimer == nil)
     }
 
     /// A design from a picture raises the real card above the cursor overlay while it runs, and a refine that keeps the

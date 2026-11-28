@@ -19,11 +19,20 @@ final class ThemeInstallCardPanelController: ThemeInstallCardPresenting {
     /// How far down the screen the card's top edge sits, as a share of the visible height.
     private static let shareOfTheScreenAboveTheCard: CGFloat = 0.2
 
-    private var panel: NonKeyFloatingPanel?
+    /// Readable by a test, which checks the window's frame and its mouse state.
+    private(set) var panel: NonKeyFloatingPanel?
+    /// Lets the mouse pass through the window's shadow margin to the app under it (`ShadowMarginMousePassThrough`).
+    private var shadowMarginMouse: ShadowMarginMousePassThrough?
+    /// Where the pointer is on screen. A test sets it, since the real pointer is wherever the learner left it.
+    var mouseLocationOnScreen: () -> CGPoint = { NSEvent.mouseLocation } {
+        didSet { shadowMarginMouse?.mouseLocationOnScreen = mouseLocationOnScreen }
+    }
+    /// A test sets this to put the card in a frame far off every screen, so no one sees it.
+    var visibleFrameForTests: CGRect?
 
     func show(_ pendingInstall: PendingThemeInstall, decide: @escaping (Bool) -> Void) {
         hide()
-        let visibleFrame = screenUnderTheMouseCursor()?.visibleFrame ?? .zero
+        let visibleFrame = visibleFrameForTests ?? screenUnderTheMouseCursor()?.visibleFrame ?? .zero
         let hostingView = FirstMouseHostingView(rootView: ThemeInstallCardView(pendingInstall: pendingInstall, decide: decide))
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
@@ -47,9 +56,14 @@ final class ThemeInstallCardPanelController: ThemeInstallCardPresenting {
         panel = cardPanel
         // Not makeKeyAndOrderFront, which would take the keyboard from the app the learner was in.
         cardPanel.orderFrontRegardless()
+        let mousePassThrough = ShadowMarginMousePassThrough(panel: cardPanel, mouseLocationOnScreen: mouseLocationOnScreen)
+        mousePassThrough.start()
+        shadowMarginMouse = mousePassThrough
     }
 
     func hide() {
+        shadowMarginMouse?.stop()
+        shadowMarginMouse = nil
         guard let closingPanel = panel else { return }
         panel = nil
         // The card fades for a moment, and a click on it then must not reach its buttons.

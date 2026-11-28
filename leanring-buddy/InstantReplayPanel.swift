@@ -18,23 +18,26 @@ final class InstantReplayPanelController {
     /// Above the pop-out's scene window and with the cursor overlay windows, so the control draws over the lifted model.
     private static let panelLevel = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
 
-    /// How far outside the window's frame the pointer still counts as near it, so a pointer on the frame's edge does.
-    private static let pointerNearDistance: CGFloat = 8
-
     /// Readable by a test, which checks the window's frame and that a hidden panel leaves the screen.
     private(set) var panel: NonKeyFloatingPanel?
-    private var hostingView: PointerWatchingHostingView?
+    private var hostingView: FirstMouseHostingView<InstantReplayControlView>?
     private var mediaRectOnScreen: CGRect?
     private var visibleFrame: CGRect = .zero
     private var replayChangeSubscription: AnyCancellable?
     /// Bumped by every show and hide. An update queued for an earlier one, which may be another replay controller's,
     /// draws nothing.
     private var showGeneration = 0
-    /// Reads the mouse 60 times a second, only while the pointer is near the window, to let it pass through the shadow
-    /// margin to the page (`updateWhetherTheWindowTakesTheMouse`). Readable by a test, which checks that it stops.
-    private(set) var clickThroughTimer: Timer?
+    /// Lets the window pass the mouse to the page through its shadow margin (`ShadowMarginMousePassThrough`). The control can
+    /// stay up for minutes, and the helper reads the mouse only while the pointer is near the window.
+    private var shadowMarginMouse: ShadowMarginMousePassThrough?
+    /// Readable by a test, which checks that the timer runs only while the pointer is near the window and that it stops.
+    var clickThroughTimer: Timer? { shadowMarginMouse?.clickThroughTimer }
+    /// The view that reports the pointer entering the window, which a test reads.
+    var pointerEntryView: PointerEntryNSView? { shadowMarginMouse?.pointerEntryView }
     /// Where the pointer is on screen. A test sets it, since the real pointer is wherever the learner left it.
-    var mouseLocationOnScreen: () -> CGPoint = { NSEvent.mouseLocation }
+    var mouseLocationOnScreen: () -> CGPoint = { NSEvent.mouseLocation } {
+        didSet { shadowMarginMouse?.mouseLocationOnScreen = mouseLocationOnScreen }
+    }
     private var stopWhatClickyIsSaying: () -> Void = {}
     private var accentHex = ""
 
@@ -73,8 +76,7 @@ final class InstantReplayPanelController {
     }
 
     private func makeThePanel(showing controlView: InstantReplayControlView) {
-        let controlHostingView = PointerWatchingHostingView(rootView: controlView)
-        controlHostingView.pointerEntered = { [weak self] in self?.updateWhetherTheWindowTakesTheMouse() }
+        let controlHostingView = FirstMouseHostingView(rootView: controlView)
         controlHostingView.wantsLayer = true
         controlHostingView.layer?.backgroundColor = .clear
         let controlPanel = NonKeyFloatingPanel(
@@ -92,10 +94,11 @@ final class InstantReplayPanelController {
         controlPanel.isExcludedFromWindowsMenu = true
         controlPanel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         controlPanel.contentView = controlHostingView
-        // Watching before the window first shows, not from AppKit's first pass over it.
-        controlHostingView.updateTrackingAreas()
         panel = controlPanel
         hostingView = controlHostingView
+        let mousePassThrough = ShadowMarginMousePassThrough(panel: controlPanel, mouseLocationOnScreen: mouseLocationOnScreen)
+        mousePassThrough.start()
+        shadowMarginMouse = mousePassThrough
     }
 
     /// The control fades out showing what it showed last: it stops following the replay first, since the hide comes with the
@@ -103,7 +106,8 @@ final class InstantReplayPanelController {
     func hide() {
         showGeneration += 1
         replayChangeSubscription = nil
-        stopReadingTheMouse()
+        shadowMarginMouse?.stop()
+        shadowMarginMouse = nil
         mediaRectOnScreen = nil
         hostingView = nil
         guard let closingPanel = panel else { return }
@@ -147,73 +151,9 @@ final class InstantReplayPanelController {
         )
         let windowOrigin = CGPoint(x: cardOrigin.x - AgentListWindowMargins.leading, y: cardOrigin.y - AgentListWindowMargins.bottom)
         panel.setFrame(CGRect(origin: windowOrigin, size: windowSize), display: true)
-        // At once, so the margin of a window that appeared or grew under the pointer never takes a click.
-        updateWhetherTheWindowTakesTheMouse()
-    }
-
-    /// Lets the window pass the mouse to the page while the pointer is in its shadow margin
-    /// (`AgentListWindowMargins.windowPassesTheMouseThrough`), and take it otherwise. The control can stay up for minutes,
-    /// so this starts the timer that reads the mouse while the pointer is near the window, and stops it once the pointer
-    /// leaves. Away from the window it takes the mouse, which lets its tracking area report the pointer's return. A window
-    /// that ignores the mouse reports nothing.
-    private func updateWhetherTheWindowTakesTheMouse() {
-        guard let panel, let hostingView else { return }
-        let mouseLocation = mouseLocationOnScreen()
-        let pointerIsNear = panel.frame.insetBy(dx: -Self.pointerNearDistance, dy: -Self.pointerNearDistance).contains(mouseLocation)
-        let passesTheMouseThrough = pointerIsNear
-            && AgentListWindowMargins.windowPassesTheMouseThrough(at: mouseLocation, windowFrame: panel.frame)
-        if panel.ignoresMouseEvents != passesTheMouseThrough {
-            panel.ignoresMouseEvents = passesTheMouseThrough
-            // The tracking area missed the moves made while the window ignored the mouse, so it starts over.
-            if !passesTheMouseThrough { hostingView.updateTrackingAreas() }
-            refreshTheRowHovers(in: hostingView, windowPassesTheMouseThrough: passesTheMouseThrough)
-        }
-        if pointerIsNear {
-            startReadingTheMouse()
-        } else {
-            stopReadingTheMouse()
-        }
-    }
-
-    private func startReadingTheMouse() {
-        guard clickThroughTimer == nil else { return }
-        // The run loop keeps the timer, so a timer that outlives this controller ends itself.
-        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
-            guard let self else {
-                timer.invalidate()
-                return
-            }
-            MainActor.assumeIsolated { self.updateWhetherTheWindowTakesTheMouse() }
-        }
-        // The common modes keep it running while a menu or a drag tracks the mouse.
-        RunLoop.main.add(timer, forMode: .common)
-        clickThroughTimer = timer
-    }
-
-    private func stopReadingTheMouse() {
-        clickThroughTimer?.invalidate()
-        clickThroughTimer = nil
-    }
-}
-
-/// The control's hosting view, which reports the pointer entering the window.
-private final class PointerWatchingHostingView: FirstMouseHostingView<InstantReplayControlView> {
-    var pointerEntered: () -> Void = {}
-    private var entryTrackingArea: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let entryTrackingArea { removeTrackingArea(entryTrackingArea) }
-        // Always active, since the panel is never key. During a drag too, so a drag that ends over the shadow margin,
-        // such as one that turns the pop-out's model, still reports the entry.
-        let trackingArea = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .enabledDuringMouseDrag], owner: self, userInfo: nil)
-        addTrackingArea(trackingArea)
-        entryTrackingArea = trackingArea
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        super.mouseEntered(with: event)
-        pointerEntered()
+        // At once, so the margin of a window that appeared or grew under the pointer never takes a click. A resize reports it
+        // too, and a window that kept its frame still gets this check on each show.
+        shadowMarginMouse?.update()
     }
 }
 
