@@ -714,12 +714,15 @@ struct ThemeStudioTetherTests {
         let settledCard = OffscreenCard(studio: harness.studio)
         defer { settledCard.close() }
         let settledDrawing = try settledCard.draw()
-        // A cut off reference would match a first frame that is cut off the same way.
-        try #require(CGFloat(settledDrawing.height) == settledCard.fittingHeight * settledDrawing.pixelsPerPoint, "the settled card is cut off")
-        let settledFrame = settledDrawing.withClearRowsBelow(upTo: firstFrame.height)
+        // A cut off reference would match a first frame that is cut off the same way. It is measured before the held design
+        // fails, which changes the card's height.
+        let settledCardIsWhole = CGFloat(settledDrawing.height) == settledCard.fittingHeight * settledDrawing.pixelsPerPoint
+        // The held design is let go before the check can throw, so it never runs against a released harness.
         if change == .aNewDesignStartsAfterAFailure {
             await letTheHeldDesignFail()
         }
+        try #require(settledCardIsWhole, "the settled card is cut off")
+        let settledFrame = settledDrawing.withClearRowsBelow(upTo: firstFrame.height)
         return (firstFrame, settledFrame)
     }
 
