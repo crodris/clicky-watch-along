@@ -2,6 +2,8 @@
 # Pins what tools/design-token-check.py flags, what it passes, and that each message names the token to use.
 # Each case writes one Swift file into a fixture repository and runs the check on it.
 set -euo pipefail
+# No Python started by this test writes bytecode into the checkout.
+export PYTHONDONTWRITEBYTECODE=1
 script="$(cd "$(dirname "$0")" && pwd)/design-token-check.py"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
@@ -17,7 +19,7 @@ run_check() {
   mkdir -p "$root/$folder"
   printf '%s\n' "$source" > "$root/$folder/$file_name"
   check_status=0
-  check_output="$(python3 -I "$script" "$root" 2>&1)" || check_status=$?
+  check_output="$(python3 -B -I "$script" "$root" 2>&1)" || check_status=$?
 }
 
 # expect_findings <description> <folder> <file name> <source> <text the output must hold>...
@@ -99,11 +101,37 @@ expect_findings "NSFont monospaced digit literal size" leanring-buddy Label.swif
 expect_findings "bold system font literal size" leanring-buddy Label.swift \
   '    let font = NSFont.boldSystemFont(ofSize: 11)' 'raw font "boldSystemFont(ofSize: 11"'
 expect_findings "a SwiftUI text style" leanring-buddy Label.swift \
-  '    Text("x").font(.headline)' 'raw font ".font(.headline)"' "$font_fix"
+  '    Text("x").font(.headline)' 'raw font ".font(.headline"' "$font_fix"
 expect_findings "a SwiftUI caption text style" leanring-buddy Label.swift \
-  '    Text("x").font(.caption2)' 'raw font ".font(.caption2)"'
+  '    Text("x").font(.caption2)' 'raw font ".font(.caption2"'
 expect_findings "a custom font" leanring-buddy Label.swift \
   '    Text("x").font(Font.custom("Menlo", size: 11))' 'raw font "Font.custom("'
+
+# Calls broken across lines, wrapped numbers, and custom or text-style fonts the first version missed.
+expect_findings "Font.system split across lines" leanring-buddy Label.swift \
+  $'    .font(Font.system(\n        size: 21, weight: .bold))' 'raw font ".system(size:"' 'leanring-buddy/Label.swift:1:'
+expect_findings "a radius wrapped in CGFloat" leanring-buddy Card.swift \
+  '    RoundedRectangle(cornerRadius: CGFloat(15))' 'raw corner radius "cornerRadius: CGFloat(15"' "$radius_fix"
+expect_findings "a radius constant wrapped in CGFloat" leanring-buddy Card.swift \
+  '    static let cornerRadius: CGFloat = CGFloat(15)' 'raw corner radius'
+expect_findings "a custom font on .font(.custom(...))" leanring-buddy Label.swift \
+  '    Text("x").font(.custom("Arial", size: 21))' 'raw font ".font(.custom("' "$font_fix"
+expect_findings "a text style with a weight" leanring-buddy Label.swift \
+  '    Text("x").font(.caption.weight(.bold))' 'raw font ".font(.caption"'
+expect_findings "a text style with bold()" leanring-buddy Label.swift \
+  '    Text("x").font(.headline.bold())' 'raw font ".font(.headline"'
+expect_findings "a Font text style" leanring-buddy Label.swift \
+  '    Text("x").font(Font.title)' 'raw font ".font(Font.title"'
+expect_findings "an NSFont size wrapped in CGFloat" leanring-buddy Label.swift \
+  '    let font = NSFont.systemFont(ofSize: CGFloat(12))' 'raw font "systemFont(ofSize: CGFloat(12"'
+expect_findings "a finding on a later line keeps its line number" leanring-buddy Label.swift \
+  $'    let a = 1\n    Text("x").font(\n        .system(\n            size: 9))' 'leanring-buddy/Label.swift:3:'
+expect_findings "a split call with no marker" leanring-buddy Label.swift \
+  $'    .font(.system(\n        size: 9))' 'leanring-buddy/Label.swift:1:'
+expect_clean "an exemption on the last line of a split call" leanring-buddy Label.swift \
+  $'    .font(.system(\n        size: 9)) // design-token-exempt: drawn to a 9 point badge'
+expect_clean "a rounded rect path inside a Canvas" leanring-buddy Icon.swift \
+  $'    let path = Path(roundedRect: rect, cornerRadius: 3)'
 
 # Forms that pass.
 expect_clean "a DS corner radius token" leanring-buddy Card.swift \
@@ -151,6 +179,19 @@ expect_findings "one finding is singular" leanring-buddy Card.swift \
 repository="$(cd "$(dirname "$script")/.." && pwd)"
 if ! grep -q 'design-token-check.py' "$repository/tools/swift-check.sh"; then
   echo "FAIL: tools/swift-check.sh does not run design-token-check.py"
+  failures=$((failures + 1))
+fi
+# -B keeps the check from leaving a __pycache__ folder in the checkout, wherever a Python import would write one.
+if ! grep -q 'python3 -B -I "$checkout_root/tools/design-token-check.py"' "$repository/tools/swift-check.sh"; then
+  echo "FAIL: tools/swift-check.sh does not run design-token-check.py with python3 -B"
+  failures=$((failures + 1))
+fi
+if ! grep -q 'python3 -B -I ../tools/design-token-check.py' "$repository/.github/workflows/ci.yml"; then
+  echo "FAIL: .github/workflows/ci.yml does not run design-token-check.py with python3 -B"
+  failures=$((failures + 1))
+fi
+if [ -e "$repository/tools/__pycache__" ]; then
+  echo "FAIL: running the check left tools/__pycache__ in the checkout"
   failures=$((failures + 1))
 fi
 if ! grep -q 'design-token-check.py' "$repository/.github/workflows/ci.yml" || ! grep -q 'design-token-check.test.sh' "$repository/.github/workflows/ci.yml"; then

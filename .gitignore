@@ -20,3 +20,4 @@ demo/node_modules/
 demo/public/
 demo/out/
 leanring-buddy/HaikyuPortraits/
+__pycache__/

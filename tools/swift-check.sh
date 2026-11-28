@@ -15,7 +15,7 @@ renice -n 10 -p $$ >/dev/null
 checkout_root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 
 # Raw font sizes and corner radii fail here first, in a second, instead of after a compile. CI's bench job runs the same check.
-python3 -I "$checkout_root/tools/design-token-check.py" "$checkout_root"
+python3 -B -I "$checkout_root/tools/design-token-check.py" "$checkout_root"
 
 check_files="$checkout_root/tools/swift-check"
 package_dir="${TMPDIR:-/tmp}/clicky-swift-check-$(printf '%s' "$checkout_root" | shasum | cut -c1-12)"
