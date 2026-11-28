@@ -1767,9 +1767,14 @@ final class RoomArtPreviewController: ObservableObject {
     /// The picture's download or capture, which a close cancels, so Escape stops a slow download at once.
     private var pictureTask: Task<RoomArtPicture?, Never>?
     private var lastMeasurementNumber = 0
-    /// Each request and each close counts up, so an await that resumes after the panel closed, reopened, or moved on to a
-    /// new item changes nothing.
+    /// Each opening counts up when a request commits to a new item (its checks passed and its picture is in hand) and on each
+    /// close, so an await that resumes after the panel closed, reopened, or moved on to a new item changes nothing. A request
+    /// that fails a check never moves it, so the item that still shows keeps its pending painting and the painting still lands.
     private var openingNumber = 0
+    /// Each request and each close counts up, so a request that a newer request, Escape, or a close overtook stops where it is.
+    /// It is apart from `openingNumber` so a request that fails a check, before it commits to anything, leaves the shown
+    /// item's work alone.
+    private var requestNumber = 0
     /// Each camera session counts up: a request that opens the panel starts one and a close ends it. A request that keeps the
     /// room (`RoomArtPhase.keepsTheRoomForANewItem`) keeps the session, so the frame processor's reports for it still reach
     /// the panel while `openingNumber` moves on to the new item.
@@ -1894,6 +1899,10 @@ final class RoomArtPreviewController: ObservableObject {
     /// who places the piece where Clicky put it waits less. A move drops it.
     private var paintingAhead: (boxInTheKeyframe: [CGPoint], task: Task<RoomFurniturePaintingAheadOutcome, Never>)?
     private var stepAsideWasSaid = false
+    /// The placement whose painting asked the learner to step aside (`waitingForTheLearnerToStepAside`). A painting task that
+    /// a pick-up cancelled ends a moment after the next placement's task started, so it clears the flag only while the flag
+    /// is still its own, and never one the newer placement set.
+    private var placementTheLearnerIsAskedToStepAsideFor: RoomArtMeasurementID?
     /// The keyframe taken while the page is still read, and the wall measured on it, so the depth service's run overlaps the
     /// page read. The first measurement uses it, and the depth service answers the floor on it from its cache.
     private var earlyMeasurement: RoomArtEarlyMeasurement?
@@ -1921,12 +1930,12 @@ final class RoomArtPreviewController: ObservableObject {
     /// page that shows nothing keeps it (`RoomArtPhase.roomKeptAfterAFailedItem`). Any other open panel closes and opens again.
     func showTheArtInTheRoom(learnerRequest: String) async {
         if isOpen, !phase.keepsTheRoomForANewItem { close() }
-        openingNumber += 1
-        var thisOpening = openingNumber
+        requestNumber += 1
+        var thisRequest = requestNumber
         // An earlier request still fetching its picture is stale now, so its download stops instead of running to its deadline.
         pictureTask?.cancel()
         anOpeningIsUnderway = true
-        defer { if thisOpening == openingNumber { anOpeningIsUnderway = false } }
+        defer { if thisRequest == requestNumber { anOpeningIsUnderway = false } }
 
         guard environment.appSecretIsSet() else {
             environment.speak(RoomArtFailure.appSecretMissing.spokenLine, true)
@@ -1937,7 +1946,7 @@ final class RoomArtPreviewController: ObservableObject {
             return
         }
         // The read waits while the page's sections open, so a newer request or Escape may have moved on meanwhile.
-        guard thisOpening == openingNumber, !Task.isCancelled else { return }
+        guard thisRequest == requestNumber, !Task.isCancelled else { return }
         guard frontTab.url.lowercased().hasPrefix("https://") else {
             environment.speak(RoomArtFailure.pageNotHTTPS.spokenLine, true)
             return
@@ -1953,7 +1962,7 @@ final class RoomArtPreviewController: ObservableObject {
         let picture = await withTaskCancellationHandler { await pictureTask.value } onCancel: { pictureTask.cancel() }
         // Escape or a new request moved the opening number on, and a push-to-talk press cancelled this task, so the
         // learner moved on and nothing opens or speaks.
-        guard thisOpening == openingNumber, !Task.isCancelled else { return }
+        guard thisRequest == requestNumber, !Task.isCancelled else { return }
         guard let picture,
               let pictureSource = CGImageSourceCreateWithData(picture.jpegData as CFData, nil),
               let pictureImage = CGImageSourceCreateImageAtIndex(pictureSource, 0, nil) else {
@@ -1965,9 +1974,12 @@ final class RoomArtPreviewController: ObservableObject {
         let keepsTheRoom = phase.keepsTheRoomForANewItem
         if isOpen, !keepsTheRoom {
             close()
-            thisOpening = openingNumber
+            thisRequest = requestNumber
             anOpeningIsUnderway = true
         }
+        // Every check passed, so this request now owns an item. Work asked for the item before it stops being current.
+        openingNumber += 1
+        let thisOpening = openingNumber
         if keepsTheRoom {
             // The item that showed stops being the newest: its own work ends, and it stays in the room for the new one.
             stopTheItemsWork()
@@ -2057,6 +2069,7 @@ final class RoomArtPreviewController: ObservableObject {
             closingPanel = RoomArtClosingPanel(content: livePanelContent, ghostTrackedWarp: trackedWarpForTheGhost())
         }
         openingNumber += 1
+        requestNumber += 1
         cameraSessionNumber += 1
         anOpeningIsUnderway = false
         stopTheItemsWork()
@@ -2287,6 +2300,7 @@ final class RoomArtPreviewController: ObservableObject {
         furnitureGhost = nil
         furnitureGhostDraw = nil
         waitingForTheLearnerToStepAside = false
+        placementTheLearnerIsAskedToStepAsideFor = nil
         stepAsideWasSaid = false
         wallOfTheLatestMeasurement = nil
         ghostScrollTurn = RoomFurnitureScrollTurn()
@@ -2841,6 +2855,7 @@ final class RoomArtPreviewController: ObservableObject {
         furnitureRenderIsRunning = false
         furnitureRenderHeldBack = nil
         waitingForTheLearnerToStepAside = false
+        placementTheLearnerIsAskedToStepAsideFor = nil
         stepAsideWasSaid = false
     }
 
@@ -3008,7 +3023,7 @@ extension RoomArtPreviewController {
                 }
             }
             if finishedPainting == nil, !paintingsWereAskedFor, !compositeServiceIsUnavailable,
-               let paintingFrame = await aClearFrameForThePainting(boxInTheKeyframe: boxInTheKeyframe, thisOpening: thisOpening) {
+               let paintingFrame = await aClearFrameForThePainting(boxInTheKeyframe: boxInTheKeyframe, measurementID: measurementID, thisOpening: thisOpening) {
                 let request = Task { () -> RoomFurniturePaintingAheadOutcome in
                     let painting = await paintTheComposite(
                         furniture: placement.furniture, paintingFrame: paintingFrame, boxInTheKeyframe: boxInTheKeyframe,
@@ -3104,13 +3119,21 @@ extension RoomArtPreviewController {
 
     /// The newest frame once the learner is out of the box, which the painting is made on. While they cover it, Clicky
     /// says "Step aside for a second." once and the status line asks too. Nil when the task is cancelled or the panel closed.
-    private func aClearFrameForThePainting(boxInTheKeyframe: [CGPoint], thisOpening: Int) async -> RoomArtPaintingFrame? {
-        defer { if thisOpening == openingNumber { waitingForTheLearnerToStepAside = false } }
+    private func aClearFrameForThePainting(boxInTheKeyframe: [CGPoint], measurementID: RoomArtMeasurementID, thisOpening: Int) async -> RoomArtPaintingFrame? {
+        // Only this placement's own ask is taken back. A task that a pick-up cancelled ends after the next placement's task
+        // set its ask, and must not clear it until that task's next look, 300 ms later, sets it again.
+        defer {
+            if placementTheLearnerIsAskedToStepAsideFor == measurementID {
+                waitingForTheLearnerToStepAside = false
+                placementTheLearnerIsAskedToStepAsideFor = nil
+            }
+        }
         while !Task.isCancelled, thisOpening == openingNumber {
             if let paintingFrame = await frameProcessor.aFrameForThePainting(boxInTheKeyframe: boxInTheKeyframe) {
                 guard !Task.isCancelled, thisOpening == openingNumber else { return nil }
                 if paintingFrame.shareOfTheBoxThePersonCovers <= roomFurnitureMostOfTheBoxThePersonMayCover { return paintingFrame }
                 waitingForTheLearnerToStepAside = true
+                placementTheLearnerIsAskedToStepAsideFor = measurementID
                 if !stepAsideWasSaid {
                     stepAsideWasSaid = true
                     print(String(format: "Room furniture: the learner covers %.0f%% of the box, so the painting waits for them to step aside", paintingFrame.shareOfTheBoxThePersonCovers * 100))

@@ -196,6 +196,44 @@ private func controllerWithATurnWaitingForALoop(
     #expect(!controller.isShowingTheLoop)
 }
 
+@Test(.timeLimit(.minutes(1))) @MainActor func aRequestThatLooksAtTheMediaDrawsNoLoopWhileTheRoomArtPanelIsOpen() async {
+    // The cursor overlay's windows sit above the room art panel's, so a loop around Chrome's media would draw over the
+    // panel's camera view.
+    let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
+    controller.theRoomArtPanelIsOpen = { true }
+    controller.requestBecameALookAtTheMedia()
+    #expect(!controller.isShowingTheLoop)
+    #expect(!controller.state.loopIsShowing)
+}
+
+@Test(.timeLimit(.minutes(1))) @MainActor func aRequestThatLooksAtACircledRegionDrawsNoLoopWhileTheRoomArtPanelIsOpen() async throws {
+    let circlePoints = (0...72).map { index -> CGPoint in
+        let angle = Double(index) / 72 * 2 * Double.pi
+        return CGPoint(x: 500 + 100 * CGFloat(sin(angle)), y: 300 - 100 * CGFloat(cos(angle)))
+    }
+    let circledRegion = try #require(CircledRegion.closedLoop(fromMousePath: circlePoints))
+    let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
+    controller.theRoomArtPanelIsOpen = { true }
+    controller.requestBecameALookAtTheCircledRegion(circledRegion)
+    #expect(!controller.state.loopIsShowing)
+
+    // With the panel closed the same request draws its loop.
+    controller.theRoomArtPanelIsOpen = { false }
+    controller.requestBecameALookAtTheCircledRegion(circledRegion)
+    #expect(controller.state.loopIsShowing)
+}
+
+@Test(.timeLimit(.minutes(1))) @MainActor func aRequestThatLooksAtTheMediaDrawsItsLoopOnceTheRoomArtPanelIsClosed() async {
+    let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
+    controller.theRoomArtPanelIsOpen = { true }
+    controller.requestBecameALookAtTheMedia()
+    #expect(!controller.isShowingTheLoop)
+    // The panel closed before the hand-off of the same turn, which the guard did not consume.
+    controller.theRoomArtPanelIsOpen = { false }
+    controller.requestBecameALookAtTheMedia()
+    #expect(controller.isShowingTheLoop)
+}
+
 @Test(.timeLimit(.minutes(1))) @MainActor func aLoopDrawnAfterATabSwitchClearsAtOnceInsteadOfAfterASecond() async {
     // The learner switched tabs between the release and the hand-off, so the rect the loop would frame is stale.
     // The poll's waits are counted instead of timed, since a busy CI runner can hold the main actor past a whole poll

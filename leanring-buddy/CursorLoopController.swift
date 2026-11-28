@@ -45,6 +45,10 @@ final class CursorLoopController: ObservableObject {
     /// media, and each time the line is drawn, so a line that is already showing hides at the next redraw of the overlay after
     /// it turns false, and an agent held back joins at the first release that allows it. Until it is set, no spark draws.
     var agentSparksMayDraw: () -> Bool = { false }
+    /// Whether the room art panel is open. The cursor overlay's windows sit above the panel's, so a loop around Chrome's media
+    /// would draw over the panel's camera view, and a request that becomes a look at the media or at a circled region while the
+    /// panel is open draws none. `CompanionManager` sets it. Until it is set, no panel counts as open.
+    var theRoomArtPanelIsOpen: () -> Bool = { false }
     /// Where the front app changing is heard. A test passes its own center, since a real app switch on a busy machine would
     /// otherwise end the loop a test is checking.
     private let appActivationNotificationCenter: NotificationCenter
@@ -161,6 +165,10 @@ final class CursorLoopController: ObservableObject {
 
     /// The request became a look at the media on screen. The caller skips this while a scene already covers it.
     func requestBecameALookAtTheMedia() {
+        guard !theRoomArtPanelIsOpen() else {
+            print("Cursor loop: the room art panel is open, so the request's loop around the media is not drawn")
+            return
+        }
         print("Cursor loop: the request became a look at the media, turn is \(state.turn == .notWaitingForALoop ? "not waiting for a loop" : "waiting")")
         change { $0.requestBecameALookAtTheMedia(at: Self.now) }
     }
@@ -169,6 +177,10 @@ final class CursorLoopController: ObservableObject {
     /// as its picture. The loop goes around the learner's own line, at once, since the region was in hand at the release.
     func requestBecameALookAtTheCircledRegion(_ circledRegion: CircledRegion) {
         mediaRectReadTask?.cancel()
+        guard !theRoomArtPanelIsOpen() else {
+            print("Cursor loop: the room art panel is open, so the request's loop around the circled region is not drawn")
+            return
+        }
         print("Cursor loop: the request became a look at the region the learner circled")
         change { $0.requestBecameALookAtTheCircledRegion(circledRegion, at: Self.now) }
     }
