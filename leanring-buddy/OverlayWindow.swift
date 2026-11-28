@@ -88,6 +88,14 @@ func buddyIsVisible(
     }
 }
 
+/// The buddy's fade as the settings dial's presence changes. It goes at once as the dial opens, since the dial's own cursor
+/// glyph fades in then, and a buddy that faded out over the same 150 ms would show beside it as a second cursor. It fades back
+/// in once the dial's window is gone, instead of cutting. SwiftUI reads the animation after the change, so the one for "on
+/// screen" is the animation of the buddy leaving.
+func buddyFadeAsTheSettingsDialChanges(settingsDialIsOnScreen: Bool) -> Animation? {
+    settingsDialIsOnScreen ? nil : .easeInOut(duration: DS.Move.fadeSeconds)
+}
+
 /// How the buddy gets from where it is to a target, or back to the mouse.
 enum CursorFlightMotion: Equatable {
     /// Travels along the bezier arc, swooping and turning toward its direction of travel.
@@ -596,9 +604,8 @@ struct BlueCursorView: View {
         )
     }
 
-    /// The buddy fades out as the settings dial opens and back in once its window is gone, instead of cutting.
-    private var buddyFadeForTheSettingsDial: Animation {
-        .easeInOut(duration: DS.Move.fadeSeconds)
+    private var buddyFadeForTheSettingsDial: Animation? {
+        buddyFadeAsTheSettingsDialChanges(settingsDialIsOnScreen: settingsDialPresence.isOnScreen)
     }
 
     // MARK: - Cursor Tracking

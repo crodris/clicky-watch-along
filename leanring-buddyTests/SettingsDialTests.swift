@@ -580,6 +580,12 @@ struct SettingsDialBuddyTests {
         }
     }
 
+    @Test func theBuddyGoesAtOnceAsTheDialOpensAndFadesBackInOnceTheDialIsGone() {
+        // The dial's own cursor fades in as it opens, so a buddy that also faded out would show beside it as a second cursor.
+        #expect(buddyFadeAsTheSettingsDialChanges(settingsDialIsOnScreen: true) == nil)
+        #expect(buddyFadeAsTheSettingsDialChanges(settingsDialIsOnScreen: false) == .easeInOut(duration: DS.Move.fadeSeconds))
+    }
+
     @Test func theBuddyDrawsAsBeforeWhenNoDialIsOnScreen() {
         func isVisible(_ navigationMode: BuddyNavigationMode, anotherScreensBuddyIsBusy: Bool = false, isCursorOnThisScreen: Bool = true) -> Bool {
             buddyIsVisible(
