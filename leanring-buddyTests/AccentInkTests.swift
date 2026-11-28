@@ -329,7 +329,9 @@ struct AccentInkTests {
     }
 
     /// The replay control is private, so this shows its real panel on a frame far off every screen and draws it from there.
-    /// A hidden panel can stay in the app's window list, so each call takes a frame of its own.
+    /// A hidden panel can stay in the app's window list, so each call takes a frame of its own and reads only the panel its
+    /// own show made. `InstantReplayTests` shows Clicky blue replay panels around (-20,000, -20,000) at the same time, and
+    /// on 2026-11-28 a search by frame alone picked one of them and read near-black ink on Shiratorizawa.
     private func replayButtonInkPixels(accentHex: String, offScreenX: CGFloat) async throws -> InkPixelCounts {
         let stage = InstantReplayStage(
             focusStop: { _ in }, endFocus: {}, showStopNumbers: { _, _ in }, hideStopNumbers: {},
@@ -337,9 +339,10 @@ struct AccentInkTests {
             releaseTheCursor: {}, clearTheFocus: {}, reduceMotionIsOn: { true }, sleep: { _ in }, showControl: { _ in },
             hideControl: {}
         )
-        let offScreenFrame = CGRect(x: offScreenX, y: -20_000, width: 1_000, height: 1_000)
+        let offScreenFrame = CGRect(x: offScreenX, y: -60_000, width: 1_000, height: 1_000)
         let panelController = InstantReplayPanelController()
         defer { panelController.hide() }
+        let windowsBeforeTheShow = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
         panelController.show(
             for: InstantReplayController(stage: stage),
             stopWhatClickyIsSaying: {},
@@ -347,7 +350,9 @@ struct AccentInkTests {
             mediaRectOnScreen: offScreenFrame.insetBy(dx: 300, dy: 300),
             visibleFrame: offScreenFrame
         )
-        let panel = try #require(NSApplication.shared.windows.first { $0 is NonKeyFloatingPanel && offScreenFrame.contains($0.frame) })
+        let panel = try #require(NSApplication.shared.windows.first {
+            $0 is NonKeyFloatingPanel && offScreenFrame.contains($0.frame) && !windowsBeforeTheShow.contains(ObjectIdentifier($0))
+        })
         let contentView = try #require(panel.contentView)
         // The middle of the Replay capsule: past the window's shadow margin, the row's 4 points, and the capsule's own
         // padding.
@@ -370,9 +375,9 @@ struct AccentInkTests {
 
     @Test(.showsARealWindow)
     func theReplayControlsAccentButtonReadsOnItsAccent() async throws {
-        let onShiratorizawa = try await replayButtonInkPixels(accentHex: "#A0457F", offScreenX: -20_000)
+        let onShiratorizawa = try await replayButtonInkPixels(accentHex: "#A0457F", offScreenX: -60_000)
         #expect(onShiratorizawa.white > 20 && onShiratorizawa.nearBlack == 0)
-        let onClickyBlue = try await replayButtonInkPixels(accentHex: "#3380FF", offScreenX: -30_000)
+        let onClickyBlue = try await replayButtonInkPixels(accentHex: "#3380FF", offScreenX: -70_000)
         #expect(onClickyBlue.nearBlack > 20 && onClickyBlue.white == 0)
     }
 
