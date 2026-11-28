@@ -133,7 +133,33 @@ expect_clean "an exemption on the last line of a split call" leanring-buddy Labe
 expect_clean "a rounded rect path inside a Canvas" leanring-buddy Icon.swift \
   $'    let path = Path(roundedRect: rect, cornerRadius: 3)'
 
+# One call is one finding, and a finding after a comment or a string still reports its own line.
+expect_findings "a Font text style is one finding" leanring-buddy Label.swift \
+  '    Text("x").font(Font.title)' 'design-token-check: 1 finding.'
+expect_findings "a finding after a multi-line string keeps its line number" leanring-buddy Label.swift \
+  $'    let text = """\n    .font(.system(size: 9))\n    """\n    Text("x").font(.system(size: 12))' 'leanring-buddy/Label.swift:4:' 'design-token-check: 1 finding.'
+expect_findings "a finding after a block comment keeps its line number" leanring-buddy Label.swift \
+  $'    /* one\n       two */ RoundedRectangle(cornerRadius: 7)' 'leanring-buddy/Label.swift:2:'
+expect_findings "code after a closed block comment on its own line" leanring-buddy Label.swift \
+  '    /* note */ RoundedRectangle(cornerRadius: 7)' 'leanring-buddy/Label.swift:1:'
+expect_findings "code after an interpolation with a quote" leanring-buddy Label.swift \
+  '    Text("a \(name("b")) c").font(.system(size: 9))' 'raw font ".system(size:"'
+
 # Forms that pass.
+expect_clean "a rounded rect path whose radius is on the next line" leanring-buddy Icon.swift \
+  $'    let path = Path(roundedRect: rect,\n                    cornerRadius: 3)'
+expect_clean "a formatted example inside a multi-line string" leanring-buddy Doc.swift \
+  $'    let example = """\n    Text("x").font(.system(\n        size: 21))\n    RoundedRectangle(cornerRadius: 7)\n    """'
+expect_clean "a formatted example inside a raw string" leanring-buddy Doc.swift \
+  $'    let example = #"Text("x").font(.system(size: 21)) and cornerRadius: 7"#\n    let multiLine = #"""\n    .font(.system(\n        size: 21))\n    """#'
+expect_clean "a formatted example inside a block comment" leanring-buddy Doc.swift \
+  $'    /* .font(.system(\n        size: 21)) */'
+expect_clean "a formatted example inside a nested block comment" leanring-buddy Doc.swift \
+  $'    /* outer /* inner */ .font(.system(\n        size: 21)) RoundedRectangle(cornerRadius: 7) */'
+expect_clean "a // inside a multi-line string" leanring-buddy Doc.swift \
+  $'    let url = """\n    https://example.com // cornerRadius: 3\n    """'
+expect_clean "an interpolation holding a string with a quote" leanring-buddy Doc.swift \
+  '    let text = "a \(name("cornerRadius: 3")) b"'
 expect_clean "a DS corner radius token" leanring-buddy Card.swift \
   '    RoundedRectangle(cornerRadius: DS.CornerRadius.row, style: .continuous)'
 expect_clean "a computed radius" leanring-buddy Card.swift \
@@ -152,6 +178,8 @@ expect_clean "a trailing comment that names a raw form" leanring-buddy Card.swif
   '    let shape = RoundedRectangle(cornerRadius: DS.CornerRadius.card) // was cornerRadius: 12'
 expect_clean "a // inside a string" leanring-buddy Card.swift \
   '    let url = "https://example.com/cornerRadius: 3"'
+expect_clean "a comment on its own line that names the marker" leanring-buddy Cursor.swift \
+  $'    // Write // design-token-exempt: <why> at the end of a shape\'s line.\n    /// design-token-exempt: is documented here.'
 expect_clean "an exemption with a reason" leanring-buddy Cursor.swift \
   '    static let pictureCornerRadiusInPoints: CGFloat = 4 // design-token-exempt: cursor glyph geometry'
 expect_clean "an exemption on a font" leanring-buddy Cursor.swift \

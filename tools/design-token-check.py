@@ -9,9 +9,10 @@ It scans leanring-buddy/*.swift and the two Quick Look extensions' folders, minu
 Tests are not scanned, since they render fixtures at chosen sizes.
 -B keeps Python from writing a __pycache__ folder into the checkout.
 
-The scan runs over the whole file with comments and string contents removed, so a call broken across lines, such as
-`Font.system(` then `size: 21`, is a finding at the line where it starts. A radius on a line that also holds
-`Path(roundedRect:` is skipped, since that call draws a shape inside a Canvas, where no DS.CornerRadius step applies.
+The scan runs over the whole file with comments (line, and block with nesting) and string contents (single-line,
+multi-line, and raw) removed, so a call broken across lines, such as `Font.system(` then `size: 21`, is a finding at the
+line where it starts, and a formatted example inside a comment or a string is not. A radius anywhere inside a
+`Path(roundedRect:` call is skipped, since that call draws a shape inside a Canvas, where no DS.CornerRadius step applies.
 
 A shape drawn to its own geometry, such as a cursor or the Callout's outline, ends its line with
 `// design-token-exempt: <why>`. A marker with no reason is a finding, and so is a marker on a line with no finding.
@@ -79,40 +80,151 @@ STALE_MARKER_MESSAGE = (
 )
 
 
-def split_code_and_comment(line: str) -> tuple[str, str]:
-    """Splits a line at its first `//` that is outside a string literal."""
-    in_string = False
-    index = 0
-    while index < len(line):
-        character = line[index]
-        if in_string:
-            if character == "\\":
-                index += 2
-                continue
-            if character == '"':
-                in_string = False
-        elif character == '"':
-            in_string = True
-        elif line.startswith("//", index):
-            return line[:index], line[index:]
+def end_of_string_literal(text: str, quote_index: int, hash_count: int) -> int:
+    """Returns the index after the string literal whose opening quote is at `quote_index`.
+
+    `hash_count` is the number of `#` before the opening quote, so a raw string and a raw multi-line string close
+    only on a quote followed by that many `#`. An escape is a backslash followed by the same number of `#`, and `\\(` opens an
+    interpolation, which is code and may hold quotes and parentheses of its own.
+    """
+    is_multi_line = text.startswith('"""', quote_index)
+    opening_quotes = '"""' if is_multi_line else '"'
+    closing = opening_quotes + "#" * hash_count
+    escape = "\\" + "#" * hash_count
+    index = quote_index + len(opening_quotes)
+    while index < len(text):
+        if text.startswith(escape, index):
+            index += len(escape)
+            if index < len(text) and text[index] == "(":
+                index = end_of_interpolation(text, index)
+            else:
+                index += 1
+            continue
+        if text.startswith(closing, index):
+            return index + len(closing)
+        if not is_multi_line and text[index] == "\n":
+            return index  # An unterminated single-line string ends at its line.
         index += 1
-    return line, ""
+    return len(text)
 
 
-def without_string_contents(code: str) -> str:
-    """Empties each string literal, so a URL or a message that names `cornerRadius: 3` is not a finding."""
-    return re.sub(r'"(?:\\.|[^"\\])*"', '""', code)
+def end_of_interpolation(text: str, open_parenthesis_index: int) -> int:
+    """Returns the index after the `)` that closes the interpolation opened at `open_parenthesis_index`."""
+    depth = 0
+    index = open_parenthesis_index
+    while index < len(text):
+        character = text[index]
+        if character == '"':
+            index = end_of_string_literal(text, index, 0)
+            continue
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+    return len(text)
+
+
+def strip_comments_and_strings(source: str) -> tuple[str, dict[int, str]]:
+    """Removes comments and string contents from a whole Swift file, keeping every line break.
+
+    Returns the code and the trailing `//` comment of each line that also holds code, by line number counted from 0, since
+    that is where an exemption marker lives. A string becomes two quote marks, so a URL, a message, or a formatted example
+    inside a multi-line or raw string names no raw value. A block comment, which may nest, becomes a space.
+    A comment on a line of its own is dropped with no record.
+    """
+    code_parts: list[str] = []
+    comments_by_line: dict[int, str] = {}
+    line_index = 0
+    line_has_code = False
+    index = 0
+    while index < len(source):
+        character = source[index]
+        if source.startswith("//", index):
+            end_of_comment = source.find("\n", index)
+            if end_of_comment == -1:
+                end_of_comment = len(source)
+            if line_has_code:
+                comments_by_line[line_index] = source[index:end_of_comment]
+            index = end_of_comment
+        elif source.startswith("/*", index):
+            depth = 0
+            while index < len(source):
+                if source.startswith("/*", index):
+                    depth += 1
+                    index += 2
+                elif source.startswith("*/", index):
+                    depth -= 1
+                    index += 2
+                    if depth == 0:
+                        break
+                else:
+                    if source[index] == "\n":
+                        code_parts.append("\n")
+                        line_index += 1
+                        line_has_code = False
+                    index += 1
+            code_parts.append(" ")
+        elif character == "#" or character == '"':
+            hash_count = 0
+            while source.startswith("#", index + hash_count):
+                hash_count += 1
+            quote_index = index + hash_count
+            if source.startswith('"', quote_index):
+                end_index = end_of_string_literal(source, quote_index, hash_count)
+                literal = source[index:end_index]
+                code_parts.append('""' + "\n" * literal.count("\n"))
+                line_index += literal.count("\n")
+                line_has_code = True
+                index = end_index
+            else:
+                # A `#` that opens no string, such as `#if` or `#selector`.
+                code_parts.append(source[index:quote_index])
+                line_has_code = True
+                index = quote_index
+        else:
+            code_parts.append(character)
+            if character == "\n":
+                line_index += 1
+                line_has_code = False
+            elif not character.isspace():
+                line_has_code = True
+            index += 1
+    return "".join(code_parts), comments_by_line
+
+
+def ranges_of_calls_starting_with(code: str, call_start: str) -> list[tuple[int, int]]:
+    """Returns the span of each `call_start(...)` call in `code`, from its start to its closing parenthesis."""
+    spans: list[tuple[int, int]] = []
+    search_from = 0
+    while True:
+        start = code.find(call_start, search_from)
+        if start == -1:
+            return spans
+        depth = 0
+        end = len(code)
+        for index in range(start, len(code)):
+            if code[index] == "(":
+                depth += 1
+            elif code[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    end = index + 1
+                    break
+        spans.append((start, end))
+        search_from = start + len(call_start)
 
 
 def findings_in_code(code: str) -> list[tuple[int, int, str]]:
     """Returns each finding in a whole file's code as (first line, last line, message), counting lines from 0.
 
     `code` has one entry per source line, joined with newlines, with comments and string contents already removed, so a
-    pattern can match across a line break and the match still maps back to its lines.
+    pattern can match across a line break and the match still maps back to its lines. A match that falls inside a
+    `Path(roundedRect:` call is skipped, wherever the call breaks its lines. Two matches of one kind that overlap are one
+    finding, so `.font(Font.title)` is reported once.
     """
-    found: list[tuple[int, int, str]] = []
-    code_lines = code.split("\n")
-
     def lines_of(match: re.Match[str]) -> tuple[int, int]:
         first_line = code.count("\n", 0, match.start())
         last_line = code.count("\n", 0, match.end() - 1 if match.end() > match.start() else match.end())
@@ -121,37 +233,35 @@ def findings_in_code(code: str) -> list[tuple[int, int, str]]:
     def excerpt_of(match: re.Match[str]) -> str:
         return " ".join(code[match.start():match.end()].split()).replace("( ", "(")
 
-    for pattern in RADIUS_PATTERNS:
-        for match in pattern.finditer(code):
-            first_line, last_line = lines_of(match)
-            if "Path(roundedRect:" in code_lines[first_line]:
+    canvas_path_spans = ranges_of_calls_starting_with(code, "Path(roundedRect:")
+    pattern_groups = [
+        (RADIUS_PATTERNS, RADIUS_MESSAGE),
+        (SWIFTUI_FONT_PATTERNS, SWIFTUI_FONT_MESSAGE),
+        (APPKIT_FONT_PATTERNS, APPKIT_FONT_MESSAGE),
+    ]
+    found: list[tuple[int, int, str]] = []
+    for patterns, message in pattern_groups:
+        matches = sorted(
+            (match for pattern in patterns for match in pattern.finditer(code)),
+            key=lambda match: (match.start(), -match.end()),
+        )
+        furthest_end_of_a_kept_match = -1
+        for match in matches:
+            if message is RADIUS_MESSAGE and any(start <= match.start() < end for start, end in canvas_path_spans):
                 continue
-            found.append((first_line, last_line, RADIUS_MESSAGE.format(found=excerpt_of(match))))
-    for pattern in SWIFTUI_FONT_PATTERNS:
-        for match in pattern.finditer(code):
+            if match.start() < furthest_end_of_a_kept_match:
+                continue
+            furthest_end_of_a_kept_match = match.end()
             first_line, last_line = lines_of(match)
-            found.append((first_line, last_line, SWIFTUI_FONT_MESSAGE.format(found=excerpt_of(match))))
-    for pattern in APPKIT_FONT_PATTERNS:
-        for match in pattern.finditer(code):
-            first_line, last_line = lines_of(match)
-            found.append((first_line, last_line, APPKIT_FONT_MESSAGE.format(found=excerpt_of(match))))
+            found.append((first_line, last_line, message.format(found=excerpt_of(match))))
     return found
 
 
 def scan_file(repository_root: Path, swift_file: Path) -> list[str]:
     relative_path = swift_file.relative_to(repository_root)
     messages: list[str] = []
-    code_lines: list[str] = []
-    comments_by_line: dict[int, str] = {}
-    for line_index, line in enumerate(swift_file.read_text(encoding="utf-8").splitlines()):
-        if line.lstrip().startswith("//"):
-            code_lines.append("")
-            continue
-        code, comment = split_code_and_comment(line)
-        code_lines.append(without_string_contents(code))
-        if comment:
-            comments_by_line[line_index] = comment
-    findings = findings_in_code("\n".join(code_lines))
+    code, comments_by_line = strip_comments_and_strings(swift_file.read_text(encoding="utf-8"))
+    findings = findings_in_code(code)
 
     lines_a_finding_spans = {line_index for first_line, last_line, _ in findings for line_index in range(first_line, last_line + 1)}
     lines_with_a_valid_marker: set[int] = set()
