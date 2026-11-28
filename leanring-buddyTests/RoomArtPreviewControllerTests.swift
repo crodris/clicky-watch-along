@@ -247,8 +247,19 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
         }
     }
 
+    /// Holds the next call of `aFrameForThePainting`, and only that one, at this gate until the test opens it, as the real
+    /// processor's queue hop holds a request for a moment.
+    func holdTheNextPaintingFrame(at gate: TestGate) { lock.withLock { gateForTheNextPaintingFrame = gate } }
+    private var gateForTheNextPaintingFrame: TestGate?
+
     func aFrameForThePainting(boxInTheKeyframe: [CGPoint]) async -> RoomArtPaintingFrame? {
-        lock.withLock {
+        if let gate = lock.withLock({ () -> TestGate? in
+            defer { gateForTheNextPaintingFrame = nil }
+            return gateForTheNextPaintingFrame
+        }) {
+            await gate.wait()
+        }
+        return lock.withLock {
             recordedPaintingFrameBoxes.append(boxInTheKeyframe)
             if let bakedKeyframe {
                 return RoomArtPaintingFrame(jpegData: bakedKeyframe.jpegData, image: bakedKeyframe.image, keyframeToFrame: .identity, shareOfTheBoxThePersonCovers: 0)
@@ -917,6 +928,10 @@ private final class HarnessRecorder {
     var frontTabReadGate: TestGate?
     /// While set, a picture capture waits here until the test opens it or the capture is cancelled.
     var pictureCaptureGate: TestGate?
+    /// Whether the app secret is set, which a test may turn off between requests.
+    var appSecretIsSet = true
+    /// While set, a picture capture finds no picture, as a capture that failed.
+    var pictureIsMissing = false
     /// The address of the front tab each picture capture was given, in order.
     var tabsThePictureWasCapturedFrom: [String] = []
     /// Each chip the controller showed, with whether it was a failure.
@@ -955,10 +970,11 @@ private struct RoomArtHarness {
         let panel = RecordingPanel()
         let recorder = HarnessRecorder()
         recorder.frontTab = frontTab
+        recorder.appSecretIsSet = appSecretIsSet
         recorder.pictureCaptureGate = pictureCaptureGate
         let frameProcessor = StandInFrameProcessor()
         var environment = RoomArtPreviewController.Environment(
-                appSecretIsSet: { appSecretIsSet },
+                appSecretIsSet: { recorder.appSecretIsSet },
                 readTheFrontTab: {
                     let frontTabWhenTheReadStarted = recorder.frontTab
                     if let frontTabReadGate = recorder.frontTabReadGate { await frontTabReadGate.wait() }
@@ -970,7 +986,7 @@ private struct RoomArtHarness {
                     // A cancelled capture still returns its picture, so a controller that stopped checking for the cancel would
                     // open the panel. The real capture returns nil when cancelled.
                     try? await recorder.pictureCaptureGate?.waitUnlessCancelled()
-                    return picture
+                    return recorder.pictureIsMissing ? nil : picture
                 },
                 readThePage: { pageRequest in try await worker.readThePage(pageRequest) },
                 measureTheWall: { wallRequest in try await worker.measureTheWall(wallRequest) },
@@ -2165,6 +2181,47 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
+    @Test func aStackedRequestThatFailsACheckLeavesTheShownItemsPendingPaintingToLand() async throws {
+        // Each check that can fail before a request commits to a new item.
+        enum FailedCheck: CaseIterable { case noAppSecret, noPicture, pageNotHTTPS, noPageText, noFrontTab }
+        for failedCheck in FailedCheck.allCases {
+            let worker = WorkerStub()
+            worker.pageReading = .success(sideTableReading)
+            let looks = FurnitureLookStub()
+            looks.storeModel = FurnitureLookStub.model(.storeModel)
+            looks.paintedImage = furnitureCutoutImage()
+            let paintingGate = TestGate()
+            looks.paintingGate = paintingGate
+            let deadline = TestGate()
+            let harness = RoomArtHarness(worker: worker, furnitureLooks: looks, furnitureLookDeadline: deadline)
+
+            // The table shows as its store model while its painting is still out.
+            await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+            try await waitFor("the render and the wait") { looks.renders == [.storeModel] && deadline.timesWaitedOn == 1 }
+            deadline.open()
+            try await waitFor("the render once the wait ran out") { harness.artIsShowing() }
+            #expect(paintingGate.timesWaitedOn == 1)
+
+            // A second request fails one of its checks before it commits to anything.
+            switch failedCheck {
+            case .noAppSecret: harness.recorder.appSecretIsSet = false
+            case .noPicture: harness.recorder.pictureIsMissing = true
+            case .pageNotHTTPS: harness.recorder.frontTab = RoomArtFrontTab(url: "http://shop.example/lamp", title: "Table lamp", text: "16 in tall")
+            case .noPageText: harness.recorder.frontTab = RoomArtFrontTab(url: "https://shop.example/lamp", title: "Table lamp", text: "  ")
+            case .noFrontTab: harness.recorder.frontTab = nil
+            }
+            await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this lamp look on the table")
+            #expect(harness.spokenLines().count == 2, "\(failedCheck) should say its failure line")
+
+            // The painting the table was still waiting for lands over the render instead of being dropped.
+            paintingGate.open()
+            try await waitFor("the late painting over the render after \(failedCheck)") { harness.frameProcessor.furnitureLayersShown.count == 2 }
+            #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.storeModel, .paintedComposite])
+            #expect(harness.panel.timesHidden == 0)
+            harness.controller.close()
+        }
+    }
+
     @Test func aStackedRequestWhosePageShowsNothingKeepsTheCameraAndTheRoomForTheNextRequest() async throws {
         let pagesThatShowNothing: [(reading: RoomArtPageReading, failure: RoomArtFailure)] = [
             (.cannotBeShown(title: "Gift card", reason: .notAPhysicalItem), RoomArtCannotBeShownReason.notAPhysicalItem.failure),
@@ -3272,6 +3329,51 @@ struct RoomArtPreviewControllerTests {
         try await waitFor("the painting once the box is clear") { harness.artIsShowing() }
         #expect(!harness.controller.waitingForTheLearnerToStepAside)
         #expect(looks.paintings == 1)
+        harness.controller.close()
+    }
+
+    @Test func aPaintingThatAPickUpCancelledNeverTakesBackTheNextPlacementsAskToStepAside() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.paintedImage = furnitureCutoutImage()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks, placesTheGhostAtOnce: false)
+        harness.frameProcessor.setThePersonsShareOfTheBox(0.4)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the ghost") { harness.controller.phase.furnitureGhostShows }
+        try await waitFor("the painting ahead to see the learner") { !harness.frameProcessor.paintingFrameBoxes.isEmpty }
+
+        // The first placement's painting waits for its frame, as the real processor's queue hop makes it wait.
+        let heldFrame = TestGate()
+        harness.frameProcessor.holdTheNextPaintingFrame(at: heldFrame)
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        try await waitFor("the first placement's frame request") { heldFrame.timesWaitedOn == 1 }
+
+        // The learner picks the piece up and puts it down again, and the second placement asks the learner to step aside.
+        let ghostCenter = try #require(harness.ghostCenterInTheFrame())
+        harness.controller.pointerPressed(atCameraPixel: ghostCenter)
+        #expect(harness.controller.phase.furnitureGhostShows)
+        final class AskValues { var values: [Bool] = [] }
+        let askValues = AskValues()
+        let askCancellable = harness.controller.$waitingForTheLearnerToStepAside.sink { askValues.values.append($0) }
+        #expect(harness.controller.placeTheFurnitureWhereItsGhostStands())
+        try await waitFor("the second placement's ask to step aside") { harness.controller.waitingForTheLearnerToStepAside }
+
+        // The first placement's painting task ends now, after the second one set the ask. It was cancelled, so it paints nothing,
+        // and the ask is not its to take back.
+        let valuesBeforeTheFirstTaskEnded = askValues.values.count
+        heldFrame.open()
+        try await waitFor("the first placement's frame request to end") { heldFrame.timesPassed == 1 }
+        await letTheQueuedMainActorWorkRun()
+        #expect(askValues.values.dropFirst(valuesBeforeTheFirstTaskEnded).allSatisfy { $0 })
+        #expect(harness.controller.waitingForTheLearnerToStepAside)
+        #expect(looks.paintings == 0)
+
+        harness.frameProcessor.setThePersonsShareOfTheBox(0)
+        try await waitFor("the second placement's painting once the box is clear") { harness.artIsShowing() }
+        #expect(!harness.controller.waitingForTheLearnerToStepAside)
+        askCancellable.cancel()
         harness.controller.close()
     }
 
