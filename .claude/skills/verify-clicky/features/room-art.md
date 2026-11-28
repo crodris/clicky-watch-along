@@ -78,19 +78,20 @@ Preconditions:
   In the first frames that show the panel, it is faint and already fills its rect, and within about half a second it is solid.
 - **The panel closing.** With the panel open and a result showing, record 4 s as above into `room-art-close.mov` and click Close during it (`swift demo/scripts/mouse/mouse.swift click <x of the panel's right edge - 32> <y of its top edge + 32>`).
   The frames show the panel fading out in about 0.15 s with its status line and buttons fading with it, and no control disappears or changes before the panel does.
-  No frame of the plain camera replaces a painting, a placed item, or a painted shirt during the fade, and the loop's outline stays where it was.
+  No frame of the plain camera replaces a painting, a placed item, or a painted shirt during the fade.
+  The loop's outline stays where it was.
   The loop's cursor glyph may keep moving around the outline, and one frame sent just before the click may still show.
-- **Reopening during the fade.** On a wall art page with collapsed sections, such as an IKEA framed print, reload the page first so its sections are collapsed again, then run `$V app-launch --room-camera-file <video of a room> "how would this look on my wall|+40 how would this look on my wall"`.
+- **Reopening during the fade.** Run `$V app-quit` first.
+  On a wall art page, such as an IKEA framed print, run `$V app-launch --room-camera-file <video of a room> "how would this look on my wall|+40 how would this look on my wall"`.
   While the second request still reads the front tab, before the panel's status line changes, click the wall in the panel, which moves the art, so the request closes the panel and opens it again at once.
-  The first request leaves the sections open, so the second read takes no 600 ms wait, and the click may come too late.
-  When the log shows the second request kept the room instead, reload the page and run the step again.
-  A recording shows the panel staying at full size and coming back from its fade.
-  The window of time is under a second, and the unit test `aPanelOpenedAgainDuringItsCloseStaysAndFadesBackInFromWhereItIs` pins the rule.
+  The window is under a second, so the click often comes too late, and the log then shows the second request kept the room.
+  When the click lands in time, a recording shows the panel staying at full size and coming back from its fade.
+  The unit test `aPanelOpenedAgainDuringItsCloseStaysAndFadesBackInFromWhereItIs` pins the rule.
 - **Reduce Motion.** This changes a setting of the Mac, so turn it off again afterward.
-  Turn on System Settings > Accessibility > Display > Reduce motion, then record the panel opening and closing as above.
+  Turn on System Settings > Accessibility > Display > Reduce motion, then record the panel opening and closing as above, with `$V app-quit` before each launch.
   The panel fades in over about 0.15 s instead of half a second, and a click on Close counts as soon as the panel shows.
 - **The status pill at the smallest size.** The panel's place is a Debug app default, so save it first with `defaults read com.crodris.clicky-watch-along roomArtPanelFrame`.
-  Run `defaults write com.crodris.clicky-watch-along roomArtPanelFrame -string '{{200, 200}, {480, 270}}'`, then `$V app-launch --room-camera-file <video that turns> "how would this look on my wall"`.
+  Run `$V app-quit` and `defaults write com.crodris.clicky-watch-along roomArtPanelFrame -string '{{200, 200}, {480, 270}}'`, then `$V app-launch --room-camera-file <video that turns> "how would this look on my wall"`.
   Once the video turns away, `$V shot room-art-pill-small` shows "Lost the wall. Turn back, or click the wall to place it again." whole on 2 lines in a solid dark pill, with Save photo and Close whole beside and above it.
   Write the saved value back with `defaults write com.crodris.clicky-watch-along roomArtPanelFrame -string '<the value read>'`.
   When the first read said the key does not exist, remove it with `defaults delete com.crodris.clicky-watch-along roomArtPanelFrame` instead.

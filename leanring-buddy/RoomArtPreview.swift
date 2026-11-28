@@ -87,8 +87,8 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     /// The layer the panel shows the frames in.
     var metalLayer: CAMetalLayer { get }
     func startASession(onFirstSegmentedFrame: @escaping @Sendable () -> Void, onTheSurfaceLostOrFound: @escaping @Sendable (Bool) -> Void)
-    /// From the moment it returns, no frame is shown and the loop does not move until the next session, a frame already on its
-    /// way included, so a closing panel fades with its last frame and line as they were.
+    /// From the moment it returns, no new frame is submitted and the loop's corners do not move until the next session, a frame
+    /// still being processed included. A frame Metal already received can still show.
     func endTheSession()
     func process(_ cameraFrame: CVPixelBuffer)
     /// With no anchor, the spot is the bare wall spot for the wall and the bare floor spot for the floor. With no surface,
@@ -177,7 +177,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     private let sRGBColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
 
     /// False from `endTheSession` until the next session. `endTheSession` writes it on the caller's thread, ahead of its queued
-    /// cleanup, so a frame queued or being drawn then shows nothing. Showing a frame and moving the loop hold the lock.
+    /// cleanup, so a frame queued or being drawn then is not submitted. Submitting a frame and moving the loop hold the lock.
     private let theSessionStillRuns = OSAllocatedUnfairLock(initialState: true)
 
     // Everything below is read and written on `processingQueue` only.
@@ -416,8 +416,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
     }
 
-    /// Stops showing frames and moving the loop at once, and stops reporting the first frame, so a closed panel never starts a
-    /// measurement.
+    /// Stops submitting frames and moving the loop's corners at once, and stops reporting the first frame, so a closed panel
+    /// never starts a measurement.
     func endTheSession() {
         theSessionStillRuns.withLock { $0 = false }
         processingQueue.async {

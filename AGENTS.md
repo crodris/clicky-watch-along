@@ -495,9 +495,11 @@ A scale from 0.97 over the Glide move's half second was tried, and it could not 
 It also left the controls taking clicks at their full size while they were drawn smaller.
 The panel is at its full size from its first frame, so its controls take clicks as soon as it shows.
 A close stops the camera at once, and the fading window takes no clicks.
-From the moment the session ends, the frame processor submits no new frame and moves no loop's corners until the next session, a frame still being processed included (`RoomArtFrameProcessor.endTheSession`).
+From the moment the session ends, the frame processor submits no new frame until the next session (`RoomArtFrameProcessor.endTheSession`).
+That includes a frame still being processed, and the loop's corners do not move either.
 So no plain camera frame replaces a result during the fade.
-Two small changes can still show in the 0.15 s fade: a frame Metal already received before the session ended, and the loop's cursor glyph, which keeps lapping on its own clock.
+A frame Metal already received before the session ended can still show in the 0.15 s fade.
+The loop's cursor glyph keeps lapping on its own clock too.
 A panel opened again during that fade stays, since only the newest move may order the window out.
 It fades back in from where its fade had reached.
 As the panel takes clicks, each open also checks every control's hover against the pointer again (`refreshTheRowHovers`), since a control hovered as the close began never heard the pointer leave.
