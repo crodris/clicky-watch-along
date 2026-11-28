@@ -26,8 +26,13 @@ import simd
 private final class RecordingPanel: RoomArtPanelPresenting {
     var timesShown = 0
     var timesHidden = 0
+    /// Ends the newest fade, as the real panel does once it is off the screen.
+    private(set) var endTheFade: (@MainActor () -> Void)?
     func show() { timesShown += 1 }
-    func hide() { timesHidden += 1 }
+    func hide(onceHidden: @escaping @MainActor () -> Void) {
+        timesHidden += 1
+        endTheFade = onceHidden
+    }
 }
 
 /// Stands in for `RoomArtFrameProcessor`: the first frame of a session counts as segmented, a keyframe is a fixed stand-in
@@ -1071,6 +1076,45 @@ struct RoomArtPreviewControllerTests {
         #expect(harness.controller.phase == .closed)
         #expect(harness.panel.timesHidden == 1)
         #expect(!harness.camera.isDeliveringFrames)
+    }
+
+    @Test func aClosingPanelKeepsDrawingItsLastOpenContentUntilItsFadeEndsOrItOpensAgain() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let harness = RoomArtHarness(worker: worker, placesTheGhostAtOnce: false)
+        let cameraSize = CGSize(width: 640, height: 360), panelSize = CGSize(width: 960, height: 540)
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the ghost to stand on the floor") { harness.controller.phase.furnitureGhostShows }
+        let openPhase = harness.controller.phase
+        let openGhost = try #require(harness.controller.furnitureGhost)
+        let openLines = try #require(harness.controller.currentGhostLines(cameraSize: cameraSize, panelSize: panelSize))
+
+        harness.controller.close()
+
+        // The close itself is immediate.
+        #expect(harness.controller.phase == .closed)
+        #expect(!harness.camera.isDeliveringFrames)
+        // A second close while the panel fades keeps the first one's content.
+        harness.controller.close()
+        #expect(harness.controller.panelContent.phase == openPhase)
+        #expect(harness.controller.panelContent.theFirstFrameIsIn)
+        #expect(harness.controller.panelContent.furnitureGhost == openGhost)
+        #expect(harness.controller.panelContent.furnitureGhostDraw != nil)
+        #expect(harness.controller.currentGhostLines(cameraSize: cameraSize, panelSize: panelSize) == openLines)
+
+        let endTheFade = try #require(harness.panel.endTheFade)
+        endTheFade()
+        #expect(harness.controller.panelContent.phase == .closed)
+        #expect(harness.controller.panelContent.furnitureGhost == nil)
+
+        // A panel opened again during a fade draws the new request.
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the second ghost to stand on the floor") { harness.controller.phase.furnitureGhostShows }
+        harness.controller.close()
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        #expect(harness.controller.panelContent.phase == harness.controller.phase)
+        #expect(harness.controller.panelContent.phase.isOpen)
+        harness.controller.close()
     }
 
     @Test func savePhotoWritesTheFrameAsDrawnAndKeepsThePanelOpen() async throws {
