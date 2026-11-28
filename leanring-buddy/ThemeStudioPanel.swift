@@ -44,6 +44,11 @@ final class ThemeStudioPanelController {
     private var highlightedTileCursorCenterInTheWindow: CGPoint?
     /// The card window's level, which a test reads to see when the card rises above the cursor overlay.
     var windowLevel: NSWindow.Level? { panel?.level }
+    /// The window's height and the height its card asks for, which a test reads to see the window follow the card.
+    var windowHeightAndCardHeight: (window: CGFloat, card: CGFloat)? {
+        guard let panel, let contentView = panel.contentView else { return nil }
+        return (panel.frame.height, contentView.fittingSize.height)
+    }
     /// The Glide out of the cursor while it plays, which a test reads to see that a close during it shows nothing whole.
     private(set) var openingFlight: CarrierFlight?
     /// The studio whose card this is, which a card that closes plays its move with.

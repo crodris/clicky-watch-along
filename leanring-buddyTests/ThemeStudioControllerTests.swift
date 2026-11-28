@@ -803,6 +803,43 @@ struct ThemeStudioCardGlideInCloseTests {
         #expect(cardPanel.openingFlight == nil)
     }
 
+    /// The real panel's window follows the card's height, which the offscreen frame tests leave out: a window shorter than
+    /// its card would cut the card off at its bottom. `onContentSizeChange` sets the frame, and the hosting view's own sizing
+    /// also holds the window to the card's height, so on 2026-11-27 a callback that set the frame 60 points short, or set
+    /// nothing, still passed. The test pins the outcome the learner sees and not one of the two paths.
+    @Test(.showsARealWindow)
+    func theRealPanelsWindowGrowsWithTheCardAsIdeasArriveAndADesignFails() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }, { throw WorkerFailure() }]
+        let cardPanel = ThemeStudioPanelController(onSaveClicked: { _ in })
+        defer { cardPanel.hide(because: .dismissed) }
+        let tallestWindowHeight = ThemeStudioPanelController.tallestCardHeight + AgentListWindowMargins.vertical
+
+        func waitUntilTheWindowFitsTheCard() async throws -> (window: CGFloat, card: CGFloat) {
+            let deadline = Date().addingTimeInterval(10)
+            while true {
+                let heights = try #require(cardPanel.windowHeightAndCardHeight)
+                if abs(heights.window - min(heights.card, tallestWindowHeight)) < 1 || Date() >= deadline { return heights }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+        }
+
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        cardPanel.show(studio: harness.studio)
+        let whileDesigning = try #require(cardPanel.windowHeightAndCardHeight)
+        await harness.studio.waitForTheDesign()
+        let withIdeas = try await waitUntilTheWindowFitsTheCard()
+        #expect(abs(withIdeas.window - min(withIdeas.card, tallestWindowHeight)) < 1, "window \(withIdeas.window), card \(withIdeas.card)")
+        #expect(withIdeas.card != whileDesigning.card, "the ideas should change the card's height")
+
+        // A failed design keeps the ideas and adds the failed row, so the card grows again.
+        harness.studio.design(request: "warmer", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        let afterTheFailure = try await waitUntilTheWindowFitsTheCard()
+        #expect(abs(afterTheFailure.window - min(afterTheFailure.card, tallestWindowHeight)) < 1, "window \(afterTheFailure.window), card \(afterTheFailure.card)")
+        #expect(afterTheFailure.card > withIdeas.card, "the failed row should make the card taller")
+    }
+
     /// A design from a picture raises the real card above the cursor overlay while it runs, and a refine that keeps the
     /// card's picture, which draws no loop, leaves it below, so the previewed cursor still draws over the card.
     @Test(.showsARealWindow)
